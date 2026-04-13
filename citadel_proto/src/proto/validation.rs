@@ -210,6 +210,7 @@ pub(crate) mod pre_connect {
         AssociatedSecurityLevel, EndpointRatchetConstructor,
     };
     use citadel_crypt::toolset::Toolset;
+    use citadel_nexus::traits::CitadelIOInterface;
     use citadel_user::client_account::ClientNetworkAccount;
     use citadel_wire::hypernode_type::NodeType;
 
@@ -238,10 +239,10 @@ pub(crate) mod pre_connect {
         R,
     );
 
-    pub(crate) fn validate_syn<R: Ratchet>(
+    pub(crate) fn validate_syn<R: Ratchet, I: CitadelIOInterface>(
         cnac: &ClientNetworkAccount<R, R>,
         packet: HdpPacket,
-        session_manager: &CitadelSessionManager<R>,
+        session_manager: &CitadelSessionManager<R, I>,
         session_password: &PreSharedKey,
     ) -> Result<
         SynValidationResult<
@@ -249,7 +250,12 @@ pub(crate) mod pre_connect {
             <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer,
         >,
         NetworkError,
-    > {
+    >
+    where
+        citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+        citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+        citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+    {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_ratchet();
         let (header, payload, _, _) = packet.decompose();

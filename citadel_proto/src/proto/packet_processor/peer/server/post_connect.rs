@@ -37,6 +37,7 @@ use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_nexus::traits::CitadelIOInterface;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{SessionSecuritySettings, UdpMode};
 
@@ -49,7 +50,7 @@ use citadel_types::proto::{SessionSecuritySettings, UdpMode};
     fields(is_server = session.is_server, session_cid = session_cid, target_cid = target_cid)
 ))]
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn handle_response_phase_post_connect<R: Ratchet>(
+pub(crate) async fn handle_response_phase_post_connect<R: Ratchet, I: CitadelIOInterface>(
     peer_conn_type: PeerConnectionType,
     ticket: Ticket,
     peer_response: PeerResponse,
@@ -58,10 +59,15 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet>(
     session_cid: u64,
     target_cid: u64,
     timestamp: i64,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, I>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
     route_signal_response(PeerSignal::PostConnect {
         peer_conn_type,

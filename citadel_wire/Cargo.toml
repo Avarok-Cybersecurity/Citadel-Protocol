@@ -44,9 +44,9 @@ netbeam = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde"] }
 tracing = { workspace = true, optional = true, features = ["attributes"] }
 rustls = { workspace = true }
-socket2 = { workspace = true, features = ["all"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+socket2 = { workspace = true, features = ["all"] }
 quinn = { workspace = true, features = ["rustls"] }
 openssl = { workspace = true }
 rustls-native-certs = { workspace = true }

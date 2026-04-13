@@ -32,6 +32,7 @@ This module implements direct peer-to-peer connection handling and NAT traversal
 
 use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
 use citadel_io::tokio_stream::StreamExt;
+use citadel_nexus::traits::{CitadelIOInterface, NetworkStream};
 
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
@@ -104,23 +105,36 @@ impl Drop for DirectP2PRemote {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn setup_listener_non_initiator<R: Ratchet>(
+async fn setup_listener_non_initiator<R: Ratchet, I: CitadelIOInterface>(
     local_bind_addr: SocketAddr,
     remote_addr: SocketAddr,
-    session: CitadelSession<R>,
+    session: CitadelSession<R, I>,
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
-) -> Result<(), NetworkError> {
+) -> Result<(), NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<citadel_nexus::unified::UnifiedNetworkListener>,
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<citadel_nexus::unified::UnifiedNetworkStream>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<citadel_nexus::std::StdUdpSocket>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     // TODO: allow custom certs for p2p conns
+    let io_provider = citadel_nexus::std::StdIOProvider::new()
+        .await
+        .map_err(|e| NetworkError::Generic(e.to_string()))?;
     let (listener, _) = CitadelNode::<R, citadel_nexus::std::StdIOProvider>::create_listen_socket(
         ServerUnderlyingProtocol::new_quic_self_signed(),
         None,
         None,
         local_bind_addr,
-    )?;
+        &io_provider,
+    )
+    .await?;
     p2p_conn_handler(
         listener,
         session,
@@ -135,16 +149,21 @@ async fn setup_listener_non_initiator<R: Ratchet>(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn p2p_conn_handler<R: Ratchet>(
+async fn p2p_conn_handler<R: Ratchet, I: CitadelIOInterface>(
     mut p2p_listener: GenericNetworkListener,
-    session: CitadelSession<R>,
+    session: CitadelSession<R, I>,
     _necessary_remote_addr: SocketAddr,
     v_conn: VirtualConnectionType,
     hole_punched_addr: TargettedSocketAddr,
     ticket: Ticket,
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
-) -> Result<(), NetworkError> {
+) -> Result<(), NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     let kernel_tx = session.kernel_tx.clone();
     let session_cid = session.session_cid.clone();
     let weak = &session.as_weak();
@@ -189,10 +208,10 @@ async fn p2p_conn_handler<R: Ratchet>(
 
 /// optionally returns a receiver that gets triggered once the connection is upgraded. Only returned when the stream is a client stream, not a server stream
 #[allow(clippy::too_many_arguments)]
-fn handle_p2p_stream<R: Ratchet>(
+fn handle_p2p_stream<R: Ratchet, I: CitadelIOInterface>(
     mut p2p_stream: GenericNetworkStream,
     session_cid: DualRwLock<Option<u64>>,
-    session: CitadelSession<R>,
+    session: CitadelSession<R, I>,
     kernel_tx: UnboundedSender<NodeResult<R>>,
     from_listener: bool,
     v_conn: VirtualConnectionType,
@@ -200,7 +219,12 @@ fn handle_p2p_stream<R: Ratchet>(
     ticket: Ticket,
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
-) -> std::io::Result<()> {
+) -> std::io::Result<()>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     // SECURITY: Since this branch only occurs IF the primary session is connected, implying authentication has been performed
     let remote_peer = p2p_stream.peer_addr()?;
     let local_bind_addr = p2p_stream.local_addr()?;
@@ -229,7 +253,7 @@ fn handle_p2p_stream<R: Ratchet>(
         p2p_primary_stream_tx.clone(),
         peer_cid,
     );
-    let writer_future = CitadelSession::<R>::outbound_stream(
+    let writer_future = CitadelSession::<R, I>::outbound_stream(
         p2p_primary_stream_rx,
         sink,
         header_obfuscator.clone(),
@@ -342,10 +366,10 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
     )
 ))]
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
+pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet, I: CitadelIOInterface>(
     peer_connection_type: PeerConnectionType,
     ticket: Ticket,
-    session: CitadelSession<R>,
+    session: CitadelSession<R, I>,
     peer_nat_info: PeerNatInfo,
     session_cid: DualRwLock<Option<u64>>,
     kernel_tx: UnboundedSender<NodeResult<R>>,
@@ -356,7 +380,15 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
     client_config: Arc<rustls::ClientConfig>,
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
-) -> std::io::Result<()> {
+) -> std::io::Result<()>
+where
+    citadel_io::tokio::net::TcpListener: From<citadel_nexus::unified::UnifiedNetworkListener>,
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<citadel_nexus::unified::UnifiedNetworkStream>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<citadel_nexus::std::StdUdpSocket>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     let is_initiator = app.is_initiator();
     let kernel_tx = &kernel_tx;
     let v_conn = peer_connection_type.as_virtual_connection();
@@ -386,14 +418,15 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet>(
                 client_config.clone(),
             )
             .map_err(generic_error)?;
-            let p2p_stream = CitadelNode::<R, citadel_nexus::std::StdIOProvider>::quic_p2p_connect_defaults(
-                quic_endpoint.endpoint,
-                None,
-                peer_nat_info.tls_domain,
-                remote_connect_addr,
-                client_config,
-            )
-            .await?;
+            let p2p_stream =
+                CitadelNode::<R, citadel_nexus::std::StdIOProvider>::quic_p2p_connect_defaults(
+                    quic_endpoint.endpoint,
+                    None,
+                    peer_nat_info.tls_domain,
+                    remote_connect_addr,
+                    client_config,
+                )
+                .await?;
 
             log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch + QUIC finished successfully for INITIATOR @!~");
             handle_p2p_stream(

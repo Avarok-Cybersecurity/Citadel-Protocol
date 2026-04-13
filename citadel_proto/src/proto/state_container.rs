@@ -43,6 +43,7 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
+use citadel_nexus::traits::CitadelIOInterface;
 use serde::{Deserialize, Serialize};
 
 use crate::proto::outbound_sender::{unbounded, UnboundedSender};
@@ -110,16 +111,16 @@ use citadel_user::backend::PersistenceHandler;
 use citadel_user::serialization::SyncIO;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-impl<R: Ratchet> Debug for StateContainer<R> {
+impl<R: Ratchet, I: CitadelIOInterface> Debug for StateContainer<R, I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "StateContainer")
     }
 }
 
-define_outer_struct_wrapper!(StateContainer, StateContainerInner, <R: Ratchet>, <R>);
+define_outer_struct_wrapper!(StateContainer, StateContainerInner, <R: Ratchet, I: CitadelIOInterface>, <R, I>);
 
 /// For keeping track of the stages
-pub struct StateContainerInner<R: Ratchet> {
+pub struct StateContainerInner<R: Ratchet, I: CitadelIOInterface> {
     pub(super) pre_connect_state: PreConnectState<R>,
     pub(super) node_remote: NodeRemote<R>,
     /// No hashmap here, since register is only for a single target
@@ -151,7 +152,7 @@ pub struct StateContainerInner<R: Ratchet> {
     pub(super) cnac: Option<ClientNetworkAccount<R, R>>,
     pub(super) time_tracker: TimeTracker,
     pub(super) session_security_settings: Option<SessionSecuritySettings>,
-    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle<R>>,
+    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle<R, I>>,
     pub(super) group_channels: HashMap<MessageGroupKey, UnboundedSender<GroupBroadcastPayload>>,
     pub(super) transfer_stats: TransferStats,
     pub(super) udp_mode: UdpMode,
@@ -566,7 +567,7 @@ impl GroupReceiverContainer {
     }
 }
 
-impl<R: Ratchet> StateContainerInner<R> {
+impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
     /// Creates a new container
     #[allow(clippy::too_many_arguments)]
     pub fn create(
@@ -580,7 +581,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         is_server: bool,
         transfer_stats: TransferStats,
         udp_mode: UdpMode,
-    ) -> StateContainer<R> {
+    ) -> StateContainer<R, I> {
         let inner = Self {
             outgoing_peer_connect_attempts: Default::default(),
             file_transfer_handles: HashMap::new(),
@@ -635,8 +636,8 @@ impl<R: Ratchet> StateContainerInner<R> {
     /// Attempts to find the direct p2p stream. If not found, will use the default
     /// to_server stream. Note: the underlying crypto is still the same
     pub fn get_preferred_stream(&self, peer_cid: u64) -> &OutboundPrimaryStreamSender {
-        fn get_inner<R: Ratchet>(
-            this: &StateContainerInner<R>,
+        fn get_inner<R: Ratchet, I: CitadelIOInterface>(
+            this: &StateContainerInner<R, I>,
             peer_cid: u64,
         ) -> Option<&OutboundPrimaryStreamSender> {
             Some(
@@ -787,7 +788,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         target_cid: u64,
         virtual_connection_type: VirtualConnectionType,
         endpoint_crypto: PeerSessionCrypto<R>,
-        sess: &CitadelSession<R>,
+        sess: &CitadelSession<R, I>,
         file_transfer_compatible: bool,
     ) -> PeerChannel<R> {
         let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) = unbounded();
@@ -937,7 +938,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         cnac: &ClientNetworkAccount<R, R>,
         channel_ticket: Ticket,
         session_cid: u64,
-        session: &CitadelSession<R>,
+        session: &CitadelSession<R, I>,
     ) -> PeerChannel<R> {
         let security_settings = self
             .session_security_settings
@@ -1198,7 +1199,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         virtual_target: VirtualTargetType,
         metadata_orig: VirtualObjectMetadata,
         pers: &PersistenceHandler<R, R>,
-        state_container: StateContainer<R>,
+        state_container: StateContainer<R, I>,
         ratchet: R,
         _target_cid: u64,
         v_target_flipped: VirtualTargetType,
@@ -1971,7 +1972,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         &mut self,
         key: MessageGroupKey,
         ticket: Ticket,
-        session: &CitadelSession<R>,
+        session: &CitadelSession<R, I>,
     ) -> Result<GroupChannel, NetworkError> {
         let (tx, rx) = unbounded();
         let session_cid = self

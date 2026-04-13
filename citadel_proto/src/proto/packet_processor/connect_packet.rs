@@ -39,6 +39,7 @@ use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_nexus::traits::CitadelIOInterface;
 use citadel_types::proto::ConnectMode;
 use citadel_user::backend::BackendType;
 use citadel_user::external_services::ServicesObject;
@@ -53,11 +54,16 @@ use citadel_user::external_services::ServicesObject;
     fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_connect<R: Ratchet>(
-    sess_ref: &CitadelSession<R>,
+pub async fn process_connect<R: Ratchet, I: CitadelIOInterface>(
+    sess_ref: &CitadelSession<R, I>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     let session = sess_ref.clone();
 
     let (hr, cnac) = {

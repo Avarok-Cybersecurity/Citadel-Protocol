@@ -31,6 +31,7 @@
 //! - `StackedRatchet`: Cryptographic operations
 //! - `StateContainer`: State management
 
+use citadel_nexus::traits::CitadelIOInterface;
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
@@ -79,13 +80,18 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
     fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_peer_cmd<R: Ratchet>(
-    session_orig: &CitadelSession<R>,
+pub async fn process_peer_cmd<R: Ratchet, I: CitadelIOInterface>(
+    session_orig: &CitadelSession<R, I>,
     aux_cmd: u8,
     packet: HdpPacket,
     header_entropy_bank_version: u32,
     endpoint_cid_info: Option<(u64, u64)>,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     // ALL PEER_CMD packets require that the current session contain a CNAC (not anymore since switching to async)
     let session = session_orig.clone();
     let (header, payload, _peer_addr, _) = packet.decompose();
@@ -590,7 +596,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         drop(state_container);
                                         let stun_servers = session.stun_servers.clone();
                                         let encrypted_config_container =
-                                            generate_hole_punch_crypt_container(
+                                            generate_hole_punch_crypt_container::<R, I>(
                                                 endpoint_ratchet,
                                                 SecurityLevel::Standard,
                                                 peer_cid,
@@ -811,7 +817,7 @@ pub async fn process_peer_cmd<R: Ratchet>(
                                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
                                         let stun_servers = session.stun_servers.clone();
                                         let encrypted_config_container =
-                                            generate_hole_punch_crypt_container(
+                                            generate_hole_punch_crypt_container::<R, I>(
                                                 endpoint_ratchet,
                                                 SecurityLevel::Standard,
                                                 peer_cid,
@@ -902,15 +908,20 @@ pub async fn process_peer_cmd<R: Ratchet>(
     to_concurrent_processor!(task)
 }
 
-async fn process_signal_command_as_server<R: Ratchet>(
-    sess_ref: &CitadelSession<R>,
+async fn process_signal_command_as_server<R: Ratchet, I: CitadelIOInterface>(
+    sess_ref: &CitadelSession<R, I>,
     signal: PeerSignal,
     ticket: Ticket,
     sess_ratchet: R,
     header: Ref<&[u8], HdpHeader>,
     timestamp: i64,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     let session = sess_ref;
     match signal {
         PeerSignal::Kex {
@@ -1382,7 +1393,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                         )),
                     };
 
-                    reply_to_sender(
+                    reply_to_sender::<R, I>(
                         rebound_signal,
                         &sess_ratchet,
                         ticket,
@@ -1439,7 +1450,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                     };
 
                     log::trace!(target: "citadel", "[GetRegisteredPeers] Done getting list");
-                    reply_to_sender(
+                    reply_to_sender::<R, I>(
                         rebound_signal,
                         &sess_ratchet,
                         ticket,
@@ -1487,7 +1498,7 @@ async fn process_signal_command_as_server<R: Ratchet>(
                 };
 
                 log::trace!(target: "citadel", "[GetMutuals] Done getting list");
-                reply_to_sender(
+                reply_to_sender::<R, I>(
                     rebound_signal,
                     &sess_ratchet,
                     ticket,
@@ -1596,13 +1607,18 @@ async fn process_signal_command_as_server<R: Ratchet>(
 
 #[inline]
 /// This just makes the repeated operation above cleaner. By itself does not send anything; must return the result of this closure directly
-fn reply_to_sender<R: Ratchet>(
+fn reply_to_sender<R: Ratchet, I: CitadelIOInterface>(
     signal: PeerSignal,
     ratchet: &R,
     ticket: Ticket,
     timestamp: i64,
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     let packet = packet_crafter::peer_cmd::craft_peer_signal(
         ratchet,
         signal,
@@ -1652,7 +1668,7 @@ fn construct_error_signal<E: ToString, R: Ratchet>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
+pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, I: CitadelIOInterface>(
     signal: PeerSignal,
     timeout: Duration,
     session_cid: u64,
@@ -1660,11 +1676,16 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
     timestamp: i64,
     ticket: Ticket,
     to_primary_stream: &OutboundPrimaryStreamSender,
-    sess_mgr: &CitadelSessionManager<R>,
+    sess_mgr: &CitadelSessionManager<R, I>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     let sess_ratchet_2 = sess_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
@@ -1691,7 +1712,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
         )
     } else {
         let received_signal = PeerSignal::SignalReceived { ticket };
-        reply_to_sender(
+        reply_to_sender::<R, I>(
             received_signal,
             sess_ratchet,
             ticket,
@@ -1703,17 +1724,22 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet>(
 
 // returns (true, status) if the process was a success, or (false, success) otherwise
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn route_signal_response<R: Ratchet>(
+pub(crate) async fn route_signal_response<R: Ratchet, I: CitadelIOInterface>(
     signal: PeerSignal,
     session_cid: u64,
     target_cid: u64,
     timestamp: i64,
     ticket: Ticket,
-    session: CitadelSession<R>,
+    session: CitadelSession<R, I>,
     sess_ratchet: &R,
-    on_route_finished: impl FnOnce(&CitadelSession<R>, &CitadelSession<R>, PeerSignal),
+    on_route_finished: impl FnOnce(&CitadelSession<R, I>, &CitadelSession<R, I>, PeerSignal),
     security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     trace!(target: "citadel", "Routing signal {signal:?} | impl: {session_cid} | target: {target_cid}");
     let sess_ref = &session;
 
@@ -1736,7 +1762,7 @@ pub(crate) async fn route_signal_response<R: Ratchet>(
             move |peer_sess, original_posting| {
                 // send a notification that the server forwarded the signal
                 let received_signal = PeerSignal::SignalReceived { ticket };
-                let ret = reply_to_sender(
+                let ret = reply_to_sender::<R, I>(
                     received_signal,
                     sess_ratchet,
                     ticket,

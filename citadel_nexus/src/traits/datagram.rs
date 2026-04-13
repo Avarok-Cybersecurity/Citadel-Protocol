@@ -1,15 +1,12 @@
 //! Datagram socket abstractions
 
-use async_trait::async_trait;
-//use bytes::{Bytes, BytesMut};
-use std::net::SocketAddr;
 use crate::error::NexusResult;
-use std::task::{Context, Poll};
-use futures::io::{AsyncRead, AsyncWrite};
+use async_trait::async_trait;
 use serde::Serialize;
+use std::net::SocketAddr;
 
 /// Trait for UDP-like datagram sockets
-/// 
+///
 /// This trait abstracts over different types of unreliable datagram transports
 /// such as UDP sockets, WebRTC unreliable DataChannels, or other packet-based protocols.
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
@@ -17,31 +14,31 @@ use serde::Serialize;
 pub trait DatagramSocket: 'static {
     /// Send a datagram to the specified address
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> NexusResult<usize>;
-    
+
     /// Receive a datagram, returning the data and sender address
     async fn recv_from(&self, buf: &mut [u8]) -> NexusResult<(usize, SocketAddr)>;
-    
+
     /// Get the local address this socket is bound to
     fn local_addr(&self) -> NexusResult<SocketAddr>;
-    
+
     /// Connect to a specific remote address for subsequent sends
     async fn connect(&self, addr: SocketAddr) -> NexusResult<()>;
-    
+
     /// Send data to the connected address (requires connect() first)
     async fn send(&self, buf: &[u8]) -> NexusResult<usize>;
-    
+
     /// Receive data from the connected address
     async fn recv(&self, buf: &mut [u8]) -> NexusResult<usize>;
-    
+
     /// Get socket statistics
     fn stats(&self) -> DatagramStats;
-    
+
     /// Check if this socket supports multicast
     fn supports_multicast(&self) -> bool;
-    
+
     /// Join a multicast group
     async fn join_multicast(&self, multicast_addr: SocketAddr) -> NexusResult<()>;
-    
+
     /// Leave a multicast group
     async fn leave_multicast(&self, multicast_addr: SocketAddr) -> NexusResult<()>;
 }
@@ -51,22 +48,22 @@ pub trait DatagramSocket: 'static {
 pub struct DatagramStats {
     /// Total datagrams sent
     pub datagrams_sent: u64,
-    
+
     /// Total datagrams received
     pub datagrams_received: u64,
-    
+
     /// Total bytes sent
     pub bytes_sent: u64,
-    
+
     /// Total bytes received
     pub bytes_received: u64,
-    
+
     /// Send errors
     pub send_errors: u64,
-    
+
     /// Receive errors
     pub recv_errors: u64,
-    
+
     /// Maximum datagram size supported
     pub max_datagram_size: usize,
 }
@@ -80,22 +77,24 @@ pub trait DatagramExt: DatagramSocket {
     where
         T: serde::Serialize + Send + Sync,
     {
-        let data = serde_json::to_vec(msg).map_err(|e| crate::error::NexusError::Other(e.to_string()))?;
+        let data =
+            serde_json::to_vec(msg).map_err(|e| crate::error::NexusError::Other(e.to_string()))?;
         self.send_to(&data, target).await.map(|_| ())
     }
-    
+
     /// Send structured data as JSON
     async fn send_json<T: Serialize + Sync>(
         &self,
         data: &T,
         target: SocketAddr,
-    ) -> NexusResult<()> 
-    {
-        let data = serde_json::to_vec(data).map_err(|e| crate::error::NexusError::Other(format!("JSON serialization failed: {}", e)))?;
+    ) -> NexusResult<()> {
+        let data = serde_json::to_vec(data).map_err(|e| {
+            crate::error::NexusError::Other(format!("JSON serialization failed: {}", e))
+        })?;
         self.send_to(&data, target).await?;
         Ok(())
     }
-    
+
     /// Receive and deserialize a message
     async fn recv_message<T>(&self) -> NexusResult<(T, SocketAddr)>
     where
@@ -107,13 +106,13 @@ pub trait DatagramExt: DatagramSocket {
             .map_err(|e| crate::error::NexusError::Other(e.to_string()))?;
         Ok((msg, addr))
     }
-    
+
     /// Send data with retry logic
     async fn send_to_reliable(
-        &self, 
-        buf: &[u8], 
-        target: SocketAddr, 
-        max_retries: u32
+        &self,
+        buf: &[u8],
+        target: SocketAddr,
+        max_retries: u32,
     ) -> NexusResult<usize> {
         let mut attempts = 0;
         loop {
@@ -128,13 +127,16 @@ pub trait DatagramExt: DatagramSocket {
                     #[cfg(not(target_family = "wasm"))]
                     citadel_io::tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     #[cfg(target_family = "wasm")]
-                    wasm_bindgen_futures::JsFuture::from(
-                        js_sys::Promise::new(&mut |resolve, _| {
-                            web_sys::window().unwrap()
+                    wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(
+                        &mut |resolve, _| {
+                            web_sys::window()
+                                .unwrap()
                                 .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 10)
                                 .unwrap();
-                        })
-                    ).await.unwrap();
+                        },
+                    ))
+                    .await
+                    .unwrap();
                 }
             }
         }
@@ -149,19 +151,19 @@ impl<T: DatagramSocket> DatagramExt for T {}
 pub struct DatagramConfig {
     /// Bind address
     pub bind_addr: SocketAddr,
-    
+
     /// Send buffer size
     pub send_buffer_size: Option<usize>,
-    
-    /// Receive buffer size  
+
+    /// Receive buffer size
     pub recv_buffer_size: Option<usize>,
-    
+
     /// Enable broadcast
     pub broadcast: bool,
-    
+
     /// TTL for outgoing packets
     pub ttl: Option<u32>,
-    
+
     /// Type of Service (ToS) field
     pub tos: Option<u8>,
 }

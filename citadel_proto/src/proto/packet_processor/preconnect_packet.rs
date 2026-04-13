@@ -29,6 +29,7 @@
 
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_nexus::traits::CitadelIOInterface;
 use citadel_wire::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use netbeam::sync::RelativeNodeType;
@@ -63,11 +64,16 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
     fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_preconnect<R: Ratchet>(
-    session_orig: &CitadelSession<R>,
+pub async fn process_preconnect<R: Ratchet, I: CitadelIOInterface>(
+    session_orig: &CitadelSession<R, I>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     let session = session_orig.clone();
 
     if !session.is_provisional() {
@@ -285,7 +291,7 @@ pub async fn process_preconnect<R: Ratchet>(
                 log::trace!(target: "citadel", "Initiator created");
                 let stun_servers = session.stun_servers.clone();
                 let res = conn
-                    .begin_udp_hole_punch(generate_hole_punch_crypt_container(
+                    .begin_udp_hole_punch(generate_hole_punch_crypt_container::<R, I>(
                         new_ratchet.clone(),
                         SecurityLevel::Standard,
                         C2S_IDENTITY_CID,
@@ -391,7 +397,7 @@ pub async fn process_preconnect<R: Ratchet>(
                 log::trace!(target: "citadel", "Receiver created");
                 let stun_servers = session.stun_servers.clone();
                 let res = conn
-                    .begin_udp_hole_punch(generate_hole_punch_crypt_container(
+                    .begin_udp_hole_punch(generate_hole_punch_crypt_container::<R, I>(
                         ratchet.clone(),
                         SecurityLevel::Standard,
                         C2S_IDENTITY_CID,
@@ -556,8 +562,8 @@ pub async fn process_preconnect<R: Ratchet>(
     to_concurrent_processor!(task)
 }
 
-fn begin_connect_process<R: Ratchet>(
-    session: &CitadelSession<R>,
+fn begin_connect_process<R: Ratchet, I: CitadelIOInterface>(
+    session: &CitadelSession<R, I>,
     ratchet: &R,
     security_level: SecurityLevel,
     ticket: Ticket,
@@ -590,13 +596,13 @@ fn begin_connect_process<R: Ratchet>(
     Ok(PrimaryProcessorResult::ReplyToSender(stage0_connect_packet))
 }
 
-fn send_success_as_initiator<R: Ratchet>(
+fn send_success_as_initiator<R: Ratchet, I: CitadelIOInterface>(
     udp_splittable: Option<UdpSplittableTypes>,
     ratchet: &R,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, I>,
     security_level: SecurityLevel,
     session_cid: u64,
-    state_container: &mut StateContainerInner<R>,
+    state_container: &mut StateContainerInner<R, I>,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let _ = handle_success_as_receiver(udp_splittable, session, session_cid, state_container)?;
@@ -612,11 +618,11 @@ fn send_success_as_initiator<R: Ratchet>(
     Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
 }
 
-fn handle_success_as_receiver<R: Ratchet>(
+fn handle_success_as_receiver<R: Ratchet, I: CitadelIOInterface>(
     udp_splittable: Option<UdpSplittableTypes>,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, I>,
     session_cid: u64,
-    state_container: &mut StateContainerInner<R>,
+    state_container: &mut StateContainerInner<R, I>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp_c2s();
 
@@ -653,7 +659,7 @@ fn handle_success_as_receiver<R: Ratchet>(
     Ok(PrimaryProcessorResult::Void)
 }
 
-pub(crate) fn generate_hole_punch_crypt_container<R: Ratchet>(
+pub(crate) fn generate_hole_punch_crypt_container<R: Ratchet, I: CitadelIOInterface>(
     ratchet: R,
     security_level: SecurityLevel,
     target_cid: u64,

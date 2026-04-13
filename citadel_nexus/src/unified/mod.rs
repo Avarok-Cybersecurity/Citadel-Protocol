@@ -4,8 +4,8 @@
 //! work across different platforms, wrapping platform-specific implementations
 //! in a common interface.
 
-pub mod stream;
 pub mod listener;
+pub mod stream;
 
-pub use stream::*;
 pub use listener::*;
+pub use stream::*;

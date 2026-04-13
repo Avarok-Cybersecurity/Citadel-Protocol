@@ -119,7 +119,7 @@ pub mod macros {
     impl<T: ContextRequirements + Future> FutureRequirements for T {}
 
     pub type WeakBorrowType<T> = std::rc::Weak<std::cell::RefCell<T>>;
-    pub type SessionBorrow<'a, R> = std::cell::RefMut<'a, CitadelSessionInner<R>>;
+    pub type SessionBorrow<'a, R, I> = std::cell::RefMut<'a, CitadelSessionInner<R, I>>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::rc::Weak<std::cell::RefCell<T>>,

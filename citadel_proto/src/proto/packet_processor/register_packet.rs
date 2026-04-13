@@ -37,6 +37,7 @@ use citadel_crypt::endpoint_crypto_container::{
 };
 use citadel_crypt::prelude::{ConstructorOpts, Toolset};
 use citadel_crypt::ratchets::Ratchet;
+use citadel_nexus::traits::CitadelIOInterface;
 use citadel_user::serialization::SyncIO;
 
 /// This will handle a registration packet
@@ -49,11 +50,16 @@ use citadel_user::serialization::SyncIO;
     fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_register<R: Ratchet>(
-    session_ref: &CitadelSession<R>,
+pub async fn process_register<R: Ratchet, I: CitadelIOInterface>(
+    session_ref: &CitadelSession<R, I>,
     packet: HdpPacket,
     remote_addr: SocketAddr,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     let session = session_ref.clone();
     let state = session.state.get();
 
@@ -263,7 +269,7 @@ pub async fn process_register<R: Ratchet>(
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let account_manager = session.account_manager.clone();
                             std::mem::drop(state_container);
-                            let session_crypto_state = initialize_peer_session_crypto(
+                            let session_crypto_state = initialize_peer_session_crypto::<R, I>(
                                 ratchet.get_cid(),
                                 ratchet.clone(),
                                 true,
@@ -370,8 +376,11 @@ pub async fn process_register<R: Ratchet>(
                             let account_manager = session.account_manager.clone();
                             let kernel_tx = session.kernel_tx.clone();
 
-                            let session_crypto_state =
-                                initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
+                            let session_crypto_state = initialize_peer_session_crypto::<R, I>(
+                                ratchet.get_cid(),
+                                ratchet,
+                                false,
+                            );
 
                             async move {
                                 match account_manager
@@ -476,7 +485,7 @@ pub async fn process_register<R: Ratchet>(
 }
 
 // Only for registration; does not start the messenger/ratchet manager
-fn initialize_peer_session_crypto<R: Ratchet>(
+fn initialize_peer_session_crypto<R: Ratchet, I: CitadelIOInterface>(
     cid: u64,
     initial_ratchet: R,
     is_server: bool,

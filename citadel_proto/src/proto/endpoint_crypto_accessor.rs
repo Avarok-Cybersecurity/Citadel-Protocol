@@ -26,18 +26,19 @@ use crate::inner_arg::ExpectedInnerTargetMut;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::state_container::{StateContainer, StateContainerInner};
 use citadel_crypt::ratchets::Ratchet;
+use citadel_nexus::traits::CitadelIOInterface;
 
 #[derive(Clone)]
-pub enum EndpointCryptoAccessor<R: Ratchet> {
-    P2P(u64, StateContainer<R>),
-    C2S(StateContainer<R>),
+pub enum EndpointCryptoAccessor<R: Ratchet, I: CitadelIOInterface> {
+    P2P(u64, StateContainer<R, I>),
+    C2S(StateContainer<R, I>),
 }
 
-impl<R: Ratchet> EndpointCryptoAccessor<R> {
+impl<R: Ratchet, I: CitadelIOInterface> EndpointCryptoAccessor<R, I> {
     // In P2P Mode, will return a state container
     pub fn borrow_hr<F, T>(&self, vers: Option<u32>, access: F) -> Result<T, NetworkError>
     where
-        F: for<'a> FnOnce(&'a R, &mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> T,
+        F: for<'a> FnOnce(&'a R, &mut dyn ExpectedInnerTargetMut<StateContainerInner<R, I>>) -> T,
     {
         let (peer_cid, state_container) = match self {
             Self::P2P(peer_cid, state_container) => (*peer_cid, state_container),

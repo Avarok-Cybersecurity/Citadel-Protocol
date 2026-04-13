@@ -4,17 +4,17 @@
 //! operations in the Citadel Protocol. These traits abstract away the underlying
 //! platform differences between standard Rust targets and WebAssembly.
 
-pub mod interface;
-pub mod stream;
-pub mod listener;
 pub mod datagram;
-pub mod secure;
+pub mod interface;
+pub mod listener;
 pub mod nat;
+pub mod secure;
+pub mod stream;
 
 // Re-export all public traits
-pub use interface::*;
-pub use stream::*;
-pub use listener::*;
 pub use datagram::*;
-pub use secure::*;
+pub use interface::*;
+pub use listener::*;
 pub use nat::*;
+pub use secure::*;
+pub use stream::*;

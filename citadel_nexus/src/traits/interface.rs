@@ -1,17 +1,17 @@
 //! Core I/O interface trait definition
 
+use super::{DatagramSocket, NatTraversal, NetworkListener, NetworkStream};
+use crate::error::NexusResult;
 use async_trait::async_trait;
 use std::net::SocketAddr;
-use crate::error::NexusResult;
-use super::{NetworkListener, NetworkStream, DatagramSocket, NatTraversal};
 
 /// The main trait that provides cross-platform I/O operations for the Citadel Protocol.
-/// 
+///
 /// This trait abstracts all networking operations needed by the protocol, allowing
 /// for different implementations on different targets (STD vs WASM).
 ///
 /// # Type Parameters
-/// 
+///
 /// The trait uses associated types to allow platform-specific implementations of
 /// network primitives while maintaining a consistent interface.
 ///
@@ -33,18 +33,20 @@ use super::{NetworkListener, NetworkStream, DatagramSocket, NatTraversal};
 pub trait CitadelIOInterface: Send + Sync + Clone + 'static {
     /// TCP listener type for this platform
     type TcpListener: NetworkListener + Send + Sync + 'static;
-    
+
     /// TCP stream type for this platform  
     type TcpStream: NetworkStream + Send + Sync + 'static;
-    
+
     /// UDP socket type for this platform
     type UdpSocket: DatagramSocket + Send + Sync + 'static;
-    
+
     /// NAT traversal implementation for this platform
     type NatTraversal: NatTraversal + Send + Sync + 'static;
 
     /// Create a new I/O provider instance
-    async fn new() -> NexusResult<Self> where Self: Sized;
+    async fn new() -> NexusResult<Self>
+    where
+        Self: Sized;
 
     /// Bind a TCP listener to the specified address
     async fn bind_tcp(&self, addr: SocketAddr) -> NexusResult<Self::TcpListener>;
@@ -68,18 +70,20 @@ pub trait CitadelIOInterface: Send + Sync + Clone + 'static {
 pub trait CitadelIOInterface: Clone + 'static {
     /// TCP listener type for this platform
     type TcpListener: NetworkListener + 'static;
-    
+
     /// TCP stream type for this platform  
     type TcpStream: NetworkStream + 'static;
-    
+
     /// UDP socket type for this platform
     type UdpSocket: DatagramSocket + 'static;
-    
+
     /// NAT traversal implementation for this platform
     type NatTraversal: NatTraversal + 'static;
 
     /// Create a new I/O provider instance
-    async fn new() -> NexusResult<Self> where Self: Sized;
+    async fn new() -> NexusResult<Self>
+    where
+        Self: Sized;
 
     /// Bind a TCP listener to the specified address
     async fn bind_tcp(&self, addr: SocketAddr) -> NexusResult<Self::TcpListener>;
@@ -102,10 +106,10 @@ pub trait CitadelIOInterface: Clone + 'static {
 pub struct PlatformInfo {
     /// Platform name (e.g., "std", "wasm")
     pub name: &'static str,
-    
+
     /// Supported features
     pub features: Vec<&'static str>,
-    
+
     /// Maximum concurrent connections (if limited)
     pub max_connections: Option<usize>,
 }
@@ -115,10 +119,10 @@ pub struct PlatformInfo {
 pub struct IpInfo {
     /// Local IPv4 address (if available)
     pub ipv4: Option<std::net::Ipv4Addr>,
-    
+
     /// Local IPv6 address (if available)  
     pub ipv6: Option<std::net::Ipv6Addr>,
-    
+
     /// Whether the system is behind NAT
     pub behind_nat: Option<bool>,
 }

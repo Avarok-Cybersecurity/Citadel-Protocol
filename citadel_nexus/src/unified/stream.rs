@@ -1,26 +1,26 @@
 //! Unified stream implementation for different platform backends
 
+#[cfg(not(target_family = "wasm"))]
+use crate::error::NexusError;
+use crate::error::NexusResult;
+use crate::traits::{NetworkStream, SecurityInfo, StreamStats};
 use async_trait::async_trait;
 #[cfg(not(target_family = "wasm"))]
-use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf, AsyncWriteExt};
+use citadel_io::tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 #[cfg(target_family = "wasm")]
 use futures::io::{AsyncRead, AsyncWrite};
-#[cfg(target_family = "wasm")]
-use tokio::io::ReadBuf;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use crate::error::{NexusResult, NexusError};
-use crate::traits::{NetworkStream, StreamStats, SecurityInfo};
 
 /// Unified network stream that can wrap different platform-specific implementations
 pub enum UnifiedNetworkStream {
     #[cfg(not(target_family = "wasm"))]
     Tcp(citadel_io::tokio::net::TcpStream),
-    
-    #[cfg(not(target_family = "wasm"))] 
+
+    #[cfg(not(target_family = "wasm"))]
     Tls(Box<citadel_wire::exports::tokio_rustls::TlsStream<citadel_io::tokio::net::TcpStream>>),
-    
+
     #[cfg(not(target_family = "wasm"))]
     Quic {
         send_stream: citadel_wire::exports::SendStream,
@@ -29,10 +29,10 @@ pub enum UnifiedNetworkStream {
         connection: Option<citadel_wire::exports::Connection>,
         remote_addr: SocketAddr,
     },
-    
+
     #[cfg(target_family = "wasm")]
     WebRtc(crate::wasm::WebRtcDataChannel),
-    
+
     #[cfg(target_family = "wasm")]
     WebSocket(crate::wasm::WebSocketStream),
 }
@@ -56,34 +56,28 @@ impl std::fmt::Debug for UnifiedNetworkStream {
 }
 
 impl AsyncRead for UnifiedNetworkStream {
+    #[cfg(not(target_family = "wasm"))]
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         match self.as_mut().get_mut() {
-            #[cfg(not(target_family = "wasm"))]
             Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
-            #[cfg(not(target_family = "wasm"))]
             Self::Tls(stream) => Pin::new(&mut **stream).poll_read(cx, buf),
-            #[cfg(not(target_family = "wasm"))]
             Self::Quic { recv_stream, .. } => Pin::new(recv_stream).poll_read(cx, buf),
-            #[cfg(target_family = "wasm")]
-            Self::WebRtc(channel) => {
-                match Pin::new(channel).poll_read(cx, buf) {
-                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    Poll::Pending => Poll::Pending,
-                }
-            },
-            #[cfg(target_family = "wasm")]
-            Self::WebSocket(stream) => {
-                match Pin::new(stream).poll_read(cx, buf) {
-                    Poll::Ready(Ok(_)) => Poll::Ready(Ok(())),
-                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-                    Poll::Pending => Poll::Pending,
-                }
-            },
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match self.as_mut().get_mut() {
+            Self::WebRtc(channel) => Pin::new(channel).poll_read(cx, buf),
+            Self::WebSocket(stream) => Pin::new(stream).poll_read(cx, buf),
         }
     }
 }
@@ -100,7 +94,9 @@ impl AsyncWrite for UnifiedNetworkStream {
             #[cfg(not(target_family = "wasm"))]
             Self::Tls(stream) => Pin::new(&mut **stream).poll_write(cx, buf),
             #[cfg(not(target_family = "wasm"))]
-            Self::Quic { send_stream, .. } => Pin::new(send_stream).poll_write(cx, buf).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::Quic { send_stream, .. } => Pin::new(send_stream)
+                .poll_write(cx, buf)
+                .map_err(std::io::Error::other),
             #[cfg(target_family = "wasm")]
             Self::WebRtc(channel) => Pin::new(channel).poll_write(cx, buf),
             #[cfg(target_family = "wasm")]
@@ -115,7 +111,9 @@ impl AsyncWrite for UnifiedNetworkStream {
             #[cfg(not(target_family = "wasm"))]
             Self::Tls(stream) => Pin::new(stream).poll_flush(cx),
             #[cfg(not(target_family = "wasm"))]
-            Self::Quic { send_stream, .. } => Pin::new(send_stream).poll_flush(cx).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::Quic { send_stream, .. } => Pin::new(send_stream)
+                .poll_flush(cx)
+                .map_err(std::io::Error::other),
             #[cfg(target_family = "wasm")]
             Self::WebRtc(channel) => Pin::new(channel).poll_flush(cx),
             #[cfg(target_family = "wasm")]
@@ -128,7 +126,17 @@ impl AsyncWrite for UnifiedNetworkStream {
         match &mut *self {
             Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
             Self::Tls(stream) => Pin::new(stream).poll_shutdown(cx),
-            Self::Quic { send_stream, .. } => Pin::new(send_stream).poll_flush(cx).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
+            Self::Quic { send_stream, .. } => Pin::new(send_stream)
+                .poll_flush(cx)
+                .map_err(std::io::Error::other),
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match &mut *self {
+            Self::WebRtc(channel) => Pin::new(channel).poll_close(cx),
+            Self::WebSocket(stream) => Pin::new(stream).poll_close(cx),
         }
     }
 }
@@ -167,16 +175,20 @@ impl NetworkStream for UnifiedNetworkStream {
     }
 
     async fn shutdown(&mut self) -> NexusResult<()> {
-        use futures::AsyncWriteExt;
-        
         match self {
             #[cfg(not(target_family = "wasm"))]
             Self::Tcp(stream) => stream.shutdown().await.map_err(NexusError::from),
             #[cfg(not(target_family = "wasm"))]
             Self::Tls(stream) => stream.shutdown().await.map_err(NexusError::from),
             #[cfg(not(target_family = "wasm"))]
-            Self::Quic { send_stream, connection, .. } => {
-                send_stream.finish().map_err(|e| NexusError::Connection(e.to_string()))?;
+            Self::Quic {
+                send_stream,
+                connection,
+                ..
+            } => {
+                send_stream
+                    .finish()
+                    .map_err(|e| NexusError::Connection(e.to_string()))?;
                 if let Some(conn) = connection.take() {
                     conn.close(0u32.into(), b"shutdown");
                 }
@@ -252,13 +264,13 @@ impl UnifiedNetworkStream {
             _ => None,
         }
     }
-    
+
     /// Get QUIC endpoint if this stream is a QUIC connection (WASM stub)
     #[cfg(target_family = "wasm")]
     pub fn quic_endpoint(&self) -> Option<()> {
         None
     }
-    
+
     /// Take the QUIC connection if this stream is a QUIC connection
     #[cfg(not(target_family = "wasm"))]
     pub fn take_quic_connection(&mut self) -> Option<quinn::Connection> {
@@ -267,10 +279,21 @@ impl UnifiedNetworkStream {
             _ => None,
         }
     }
-    
+
     /// Take the QUIC connection if this stream is a QUIC connection (WASM stub)
     #[cfg(target_family = "wasm")]
     pub fn take_quic_connection(&mut self) -> Option<()> {
         None
+    }
+}
+
+// Conversion implementations for interop with concrete types
+#[cfg(not(target_family = "wasm"))]
+impl From<UnifiedNetworkStream> for citadel_io::tokio::net::TcpStream {
+    fn from(stream: UnifiedNetworkStream) -> Self {
+        match stream {
+            UnifiedNetworkStream::Tcp(tcp) => tcp,
+            _ => panic!("Cannot convert non-TCP UnifiedNetworkStream to TcpStream"),
+        }
     }
 }

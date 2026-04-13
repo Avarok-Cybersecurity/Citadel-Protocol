@@ -105,6 +105,7 @@ use citadel_crypt::messaging::MessengerLayerOrderedMessage;
 use citadel_crypt::prelude::{ConstructorOpts, FixedSizedSource};
 use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::scramble::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
+use citadel_nexus::traits::CitadelIOInterface;
 use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey, SecBuffer, SecurityLevel};
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
@@ -127,11 +128,11 @@ use zerocopy::AsBytes;
 
 /// Allows a connection stream to be worked on by a single worker
 #[derive(Clone)]
-pub struct CitadelSession<R: Ratchet> {
+pub struct CitadelSession<R: Ratchet, I: CitadelIOInterface> {
     #[cfg(not(feature = "multi-threaded"))]
-    pub inner: std::rc::Rc<CitadelSessionInner<R>>,
+    pub inner: std::rc::Rc<CitadelSessionInner<R, I>>,
     #[cfg(feature = "multi-threaded")]
-    pub inner: std::sync::Arc<CitadelSessionInner<R>>,
+    pub inner: std::sync::Arc<CitadelSessionInner<R, I>>,
 }
 
 enum SessionShutdownReason {
@@ -139,7 +140,7 @@ enum SessionShutdownReason {
     Error(NetworkError),
 }
 
-impl<R: Ratchet> CitadelSession<R> {
+impl<R: Ratchet, I: CitadelIOInterface> CitadelSession<R, I> {
     pub fn strong_count(&self) -> usize {
         #[cfg(not(feature = "multi-threaded"))]
         {
@@ -153,28 +154,28 @@ impl<R: Ratchet> CitadelSession<R> {
     }
 
     #[cfg(not(feature = "multi-threaded"))]
-    pub fn as_weak(&self) -> std::rc::Weak<CitadelSessionInner<R>> {
+    pub fn as_weak(&self) -> std::rc::Weak<CitadelSessionInner<R, I>> {
         std::rc::Rc::downgrade(&self.inner)
     }
 
     #[cfg(feature = "multi-threaded")]
-    pub fn as_weak(&self) -> std::sync::Weak<CitadelSessionInner<R>> {
+    pub fn as_weak(&self) -> std::sync::Weak<CitadelSessionInner<R, I>> {
         std::sync::Arc::downgrade(&self.inner)
     }
 
     #[cfg(feature = "multi-threaded")]
-    pub fn upgrade_weak(this: &std::sync::Weak<CitadelSessionInner<R>>) -> Option<Self> {
+    pub fn upgrade_weak(this: &std::sync::Weak<CitadelSessionInner<R, I>>) -> Option<Self> {
         this.upgrade().map(|inner| Self { inner })
     }
 
     #[cfg(not(feature = "multi-threaded"))]
-    pub fn upgrade_weak(this: &std::rc::Weak<CitadelSessionInner<R>>) -> Option<Self> {
+    pub fn upgrade_weak(this: &std::rc::Weak<CitadelSessionInner<R, I>>) -> Option<Self> {
         this.upgrade().map(|inner| Self { inner })
     }
 }
 
-impl<R: Ratchet> From<CitadelSessionInner<R>> for CitadelSession<R> {
-    fn from(inner: CitadelSessionInner<R>) -> Self {
+impl<R: Ratchet, I: CitadelIOInterface> From<CitadelSessionInner<R, I>> for CitadelSession<R, I> {
+    fn from(inner: CitadelSessionInner<R, I>) -> Self {
         #[cfg(not(feature = "multi-threaded"))]
         {
             Self {
@@ -191,8 +192,8 @@ impl<R: Ratchet> From<CitadelSessionInner<R>> for CitadelSession<R> {
     }
 }
 
-impl<R: Ratchet> Deref for CitadelSession<R> {
-    type Target = CitadelSessionInner<R>;
+impl<R: Ratchet, I: CitadelIOInterface> Deref for CitadelSession<R, I> {
+    type Target = CitadelSessionInner<R, I>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
@@ -201,7 +202,7 @@ impl<R: Ratchet> Deref for CitadelSession<R> {
 
 /// Structure for holding and keep track of packets, as well as basic connection information
 #[allow(unused)]
-pub struct CitadelSessionInner<R: Ratchet> {
+pub struct CitadelSessionInner<R: Ratchet, I: CitadelIOInterface> {
     pub(super) session_cid: DualRwLock<Option<u64>>,
     pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
@@ -209,9 +210,9 @@ pub struct CitadelSessionInner<R: Ratchet> {
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
-    pub(super) session_manager: CitadelSessionManager<R>,
+    pub(super) session_manager: CitadelSessionManager<R, I>,
     pub(super) state: DualCell<SessionState>,
-    pub(super) state_container: StateContainer<R>,
+    pub(super) state_container: StateContainer<R, I>,
     pub(super) account_manager: AccountManager<R, R>,
     pub(super) time_tracker: TimeTracker,
     pub(super) local_node_type: NodeType,
@@ -221,7 +222,7 @@ pub struct CitadelSessionInner<R: Ratchet> {
     pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<NodeResult<R>>>>,
     pub(super) is_server: bool,
     pub(super) stopper_tx: DualRwLock<citadel_io::tokio::sync::broadcast::Sender<()>>,
-    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle<R>>,
+    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle<R, I>>,
     pub(super) peer_only_connect_protocol: DualRwLock<Option<ConnectProtocol>>,
     pub(super) primary_stream_quic_conn: DualRwLock<Option<Connection>>,
     pub(super) local_nat_type: NatType,
@@ -265,14 +266,14 @@ pub enum HdpSessionInitMode {
     Register(SocketAddr, ProposedCredentials),
 }
 
-pub(crate) struct SessionInitParams<R: Ratchet> {
+pub(crate) struct SessionInitParams<R: Ratchet, I: CitadelIOInterface> {
     pub on_drop: UnboundedSender<()>,
     pub local_nat_type: NatType,
     pub citadel_remote: NodeRemote<R>,
     pub local_bind_addr: SocketAddr,
     pub local_node_type: NodeType,
     pub kernel_tx: UnboundedSender<NodeResult<R>>,
-    pub session_manager: CitadelSessionManager<R>,
+    pub session_manager: CitadelSessionManager<R, I>,
     pub account_manager: AccountManager<R, R>,
     pub time_tracker: TimeTracker,
     pub remote_peer: SocketAddr,
@@ -305,9 +306,9 @@ pub struct ServerOnlySessionInitSettings {
     pub declared_pre_shared_key: Option<PreSharedKey>,
 }
 
-impl<R: Ratchet> CitadelSession<R> {
+impl<R: Ratchet, I: CitadelIOInterface> CitadelSession<R, I> {
     pub(crate) fn new(
-        session_init_params: SessionInitParams<R>,
+        session_init_params: SessionInitParams<R, I>,
     ) -> Result<(citadel_io::tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
         let (stopper_tx, _stopper_rx) = citadel_io::tokio::sync::broadcast::channel(10);
         let client_only_settings = &session_init_params.client_only_settings;
@@ -459,7 +460,12 @@ impl<R: Ratchet> CitadelSession<R> {
         &self,
         mut primary_stream: GenericNetworkStream,
         peer_addr: SocketAddr,
-    ) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
+    ) -> Result<Option<u64>, (NetworkError, Option<u64>)>
+    where
+        citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+        citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+        citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+    {
         log::trace!(target: "citadel", "HdpSession is executing ...");
         let this = self.clone();
         let this_outbound = self.clone();
@@ -578,7 +584,7 @@ impl<R: Ratchet> CitadelSession<R> {
         zero_packet: Option<BytesMut>,
         persistence_handler: PersistenceHandler<R, R>,
         to_outbound: OutboundPrimaryStreamSender,
-        session: CitadelSession<R>,
+        session: CitadelSession<R, I>,
         state: SessionState,
         timestamp: i64,
         cnac: Option<ClientNetworkAccount<R, R>>,
@@ -672,7 +678,7 @@ impl<R: Ratchet> CitadelSession<R> {
     }
 
     pub(crate) fn begin_connect(
-        session: &CitadelSession<R>,
+        session: &CitadelSession<R, I>,
         cnac: &ClientNetworkAccount<R, R>,
     ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "Beginning pre-connect subroutine");
@@ -744,7 +750,7 @@ impl<R: Ratchet> CitadelSession<R> {
 
     // tcp_conn_awaiter must be provided in order to know when the begin loading the UDP conn for the user. The TCP connection must first be loaded in order to place the udp conn inside the virtual_conn hashmap
     pub(crate) fn udp_socket_loader(
-        this: CitadelSession<R>,
+        this: CitadelSession<R, I>,
         v_target: VirtualTargetType,
         udp_conn: UdpSplittableTypes,
         addr: TargettedSocketAddr,
@@ -952,10 +958,15 @@ impl<R: Ratchet> CitadelSession<R> {
     )]
     pub async fn execute_inbound_stream(
         mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>,
-        this_main: CitadelSession<R>,
+        this_main: CitadelSession<R, I>,
         p2p_handle: Option<P2PInboundHandle<R>>,
         header_obfuscator: HeaderObfuscator,
-    ) -> Result<(), NetworkError> {
+    ) -> Result<(), NetworkError>
+    where
+        citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+        citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+        citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+    {
         let this_main = &this_main;
         let header_obfuscator = &header_obfuscator;
         log::trace!(target: "citadel", "HdpSession async inbound-stream subroutine executed");
@@ -996,11 +1007,11 @@ impl<R: Ratchet> CitadelSession<R> {
             )
         };
 
-        fn evaluate_result<R: Ratchet>(
+        fn evaluate_result<R: Ratchet, I: CitadelIOInterface>(
             result: Result<PrimaryProcessorResult, NetworkError>,
             primary_stream: &OutboundPrimaryStreamSender,
             kernel_tx: &UnboundedSender<NodeResult<R>>,
-            session: &CitadelSession<R>,
+            session: &CitadelSession<R, I>,
             cid_opt: Option<u64>,
         ) -> std::io::Result<()> {
             let mut session_closing_error: Option<String> = None;
@@ -1018,7 +1029,7 @@ impl<R: Ratchet> CitadelSession<R> {
                         _ => unreachable!(),
                     };
 
-                    CitadelSession::<R>::send_to_primary_stream_closure(
+                    CitadelSession::<R, I>::send_to_primary_stream_closure(
                         primary_stream,
                         kernel_tx,
                         return_packet,
@@ -1054,8 +1065,8 @@ impl<R: Ratchet> CitadelSession<R> {
             }
         }
 
-        fn handle_session_terminating_error<R: Ratchet>(
-            session: &CitadelSession<R>,
+        fn handle_session_terminating_error<R: Ratchet, I: CitadelIOInterface>(
+            session: &CitadelSession<R, I>,
             err: std::io::Error,
             is_server: bool,
             peer_cid: Option<u64>,
@@ -1184,7 +1195,7 @@ impl<R: Ratchet> CitadelSession<R> {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    async fn execute_queue_worker(this_main: CitadelSession<R>) -> Result<(), NetworkError> {
+    async fn execute_queue_worker(this_main: CitadelSession<R, I>) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
 
         let queue_worker = {
@@ -1934,7 +1945,7 @@ impl<R: Ratchet> CitadelSession<R> {
 
     // TODO: Make a generic version to allow requests the ability to bypass the session manager
     pub(crate) fn spawn_message_sender_function(
-        this: CitadelSession<R>,
+        this: CitadelSession<R, I>,
         virtual_connection_type: VirtualConnectionType,
         mut rx_session_requests: crate::proto::outbound_sender::Receiver<SessionRequest>,
     ) {
@@ -1957,8 +1968,8 @@ impl<R: Ratchet> CitadelSession<R> {
                 // that sink sends items here. Thus, we need to receive those messages and process them outbound.
                 // Note: based on the virtual connection type, we must dynamically determine the preferred_primary_stream
                 // to forward these to.
-                fn send_ratchet_message<R: Ratchet>(
-                    state_container: &StateContainerInner<R>,
+                fn send_ratchet_message<R: Ratchet, I: CitadelIOInterface>(
+                    state_container: &StateContainerInner<R, I>,
                     ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
                     v_conn: VirtualConnectionType,
                 ) -> Result<(), (NetworkError, Option<Ticket>)> {
@@ -2192,11 +2203,11 @@ impl<R: Ratchet> CitadelSession<R> {
     }
 
     async fn listen_udp_port<S: UdpStream>(
-        this: CitadelSession<R>,
+        this: CitadelSession<R, I>,
         _hole_punched_addr_ip: IpAddr,
         local_port: u16,
         mut stream: S,
-        peer_session_accessor: EndpointCryptoAccessor<R>,
+        peer_session_accessor: EndpointCryptoAccessor<R, I>,
     ) -> Result<(), NetworkError> {
         while let Some(res) = stream.next().await {
             match res {
@@ -2222,7 +2233,7 @@ impl<R: Ratchet> CitadelSession<R> {
         receiver: UnboundedReceiver<(u8, BytesMut)>,
         hole_punched_addr: TargettedSocketAddr,
         mut sink: S,
-        peer_session_accessor: EndpointCryptoAccessor<R>,
+        peer_session_accessor: EndpointCryptoAccessor<R, I>,
     ) -> Result<(), NetworkError> {
         let mut receiver =
             citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
@@ -2253,7 +2264,7 @@ impl<R: Ratchet> CitadelSession<R> {
     pub fn process_inbound_packet_udp(
         &self,
         packet: HdpPacket,
-        accessor: &EndpointCryptoAccessor<R>,
+        accessor: &EndpointCryptoAccessor<R, I>,
     ) -> Result<(), NetworkError> {
         if packet.get_length() < HDP_HEADER_BYTE_LEN {
             return Ok(());
@@ -2345,7 +2356,7 @@ impl<R: Ratchet> CitadelSession<R> {
     }
 }
 
-impl<R: Ratchet> CitadelSessionInner<R> {
+impl<R: Ratchet, I: CitadelIOInterface> CitadelSessionInner<R, I> {
     /// Stores the proposed credentials into the register state container
     pub(crate) fn store_proposed_credentials(&mut self, proposed_credentials: ProposedCredentials) {
         let mut state_container = inner_mut_state!(self.state_container);
@@ -2493,7 +2504,7 @@ impl<R: Ratchet> CitadelSessionInner<R> {
     }
 }
 
-impl<R: Ratchet> Drop for CitadelSession<R> {
+impl<R: Ratchet, I: CitadelIOInterface> Drop for CitadelSession<R, I> {
     fn drop(&mut self) {
         if self.strong_count() == 1 {
             log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());

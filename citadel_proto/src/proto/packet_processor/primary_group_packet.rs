@@ -30,6 +30,7 @@
 //! - `VirtualConnection`: Manages group connections
 
 use super::includes::*;
+use citadel_nexus::traits::CitadelIOInterface;
 use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
@@ -61,8 +62,8 @@ use std::ops::Deref;
     fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub fn process_primary_packet<R: Ratchet>(
-    session_ref: &CitadelSession<R>,
+pub fn process_primary_packet<R: Ratchet, I: CitadelIOInterface>(
+    session_ref: &CitadelSession<R, I>,
     cmd_aux: u8,
     packet: HdpPacket,
     proxy_cid_info: Option<(u64, u64)>,
@@ -440,9 +441,9 @@ pub fn process_primary_packet<R: Ratchet>(
 }
 
 #[inline]
-pub(super) fn get_orientation_safe_ratchet<R: Ratchet>(
+pub(super) fn get_orientation_safe_ratchet<R: Ratchet, I: CitadelIOInterface>(
     header_entropy_bank_vers: u32,
-    state_container: &dyn ExpectedInnerTarget<StateContainerInner<R>>,
+    state_container: &dyn ExpectedInnerTarget<StateContainerInner<R, I>>,
     proxy_cid_info: Option<(u64, u64)>,
 ) -> Option<R> {
     if let Some((original_session_cid, _original_target_cid)) = proxy_cid_info {

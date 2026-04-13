@@ -1,12 +1,11 @@
 //! UDP implementations for standard targets
 
 use async_trait::async_trait;
-//use bytes::BytesMut;
 use std::net::SocketAddr;
-use std::time::Instant;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
-use crate::error::{NexusResult, NexusError};
+use crate::error::{NexusError, NexusResult};
 use crate::traits::{DatagramSocket, DatagramStats};
 
 /// UDP socket wrapper for the standard implementation
@@ -29,12 +28,19 @@ impl StdUdpSocket {
     pub fn into_tokio(self) -> citadel_io::tokio::net::UdpSocket {
         self.inner
     }
-    
+
     /// Create a UDP socket bound to the given address
     pub async fn bind(addr: SocketAddr) -> NexusResult<Self> {
-        let socket = citadel_io::tokio::net::UdpSocket::bind(addr).await
+        let socket = citadel_io::tokio::net::UdpSocket::bind(addr)
+            .await
             .map_err(NexusError::from)?;
         Ok(Self::new(socket))
+    }
+}
+
+impl From<StdUdpSocket> for citadel_io::tokio::net::UdpSocket {
+    fn from(socket: StdUdpSocket) -> Self {
+        socket.inner
     }
 }
 
@@ -121,27 +127,27 @@ impl DatagramSocket for StdUdpSocket {
 
     async fn join_multicast(&self, multicast_addr: SocketAddr) -> NexusResult<()> {
         match multicast_addr {
-            SocketAddr::V4(addr) => {
-                self.inner.join_multicast_v4(*addr.ip(), std::net::Ipv4Addr::UNSPECIFIED)
-                    .map_err(NexusError::from)
-            }
-            SocketAddr::V6(addr) => {
-                self.inner.join_multicast_v6(addr.ip(), 0)
-                    .map_err(NexusError::from)
-            }
+            SocketAddr::V4(addr) => self
+                .inner
+                .join_multicast_v4(*addr.ip(), std::net::Ipv4Addr::UNSPECIFIED)
+                .map_err(NexusError::from),
+            SocketAddr::V6(addr) => self
+                .inner
+                .join_multicast_v6(addr.ip(), 0)
+                .map_err(NexusError::from),
         }
     }
 
     async fn leave_multicast(&self, multicast_addr: SocketAddr) -> NexusResult<()> {
         match multicast_addr {
-            SocketAddr::V4(addr) => {
-                self.inner.leave_multicast_v4(*addr.ip(), std::net::Ipv4Addr::UNSPECIFIED)
-                    .map_err(NexusError::from)
-            }
-            SocketAddr::V6(addr) => {
-                self.inner.leave_multicast_v6(addr.ip(), 0)
-                    .map_err(NexusError::from)
-            }
+            SocketAddr::V4(addr) => self
+                .inner
+                .leave_multicast_v4(*addr.ip(), std::net::Ipv4Addr::UNSPECIFIED)
+                .map_err(NexusError::from),
+            SocketAddr::V6(addr) => self
+                .inner
+                .leave_multicast_v6(addr.ip(), 0)
+                .map_err(NexusError::from),
         }
     }
 }
@@ -149,12 +155,18 @@ impl DatagramSocket for StdUdpSocket {
 impl StdUdpSocket {
     fn update_send_stats(&self, bytes_sent: usize) {
         self.stats.datagrams_sent.fetch_add(1, Ordering::Relaxed);
-        self.stats.bytes_sent.fetch_add(bytes_sent as u64, Ordering::Relaxed);
+        self.stats
+            .bytes_sent
+            .fetch_add(bytes_sent as u64, Ordering::Relaxed);
     }
 
     fn update_recv_stats(&self, bytes_received: usize) {
-        self.stats.datagrams_received.fetch_add(1, Ordering::Relaxed);
-        self.stats.bytes_received.fetch_add(bytes_received as u64, Ordering::Relaxed);
+        self.stats
+            .datagrams_received
+            .fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .bytes_received
+            .fetch_add(bytes_received as u64, Ordering::Relaxed);
     }
 
     fn update_error_stats(&self, is_send_error: bool) {
@@ -194,6 +206,7 @@ struct DatagramStatsImpl {
     bytes_received: AtomicU64,
     send_errors: AtomicU64,
     recv_errors: AtomicU64,
+    #[allow(dead_code)]
     created_at: Instant,
 }
 

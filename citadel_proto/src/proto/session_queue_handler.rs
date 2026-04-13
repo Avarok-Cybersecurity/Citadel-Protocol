@@ -35,6 +35,7 @@ use crate::proto::session::SessionState;
 use citadel_io::tokio::sync::broadcast::Sender;
 use citadel_io::tokio::time::error::Error;
 use citadel_io::tokio_util::time::{delay_queue, DelayQueue};
+use citadel_nexus::traits::CitadelIOInterface;
 use futures::Stream;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -56,51 +57,52 @@ pub const DRILL_REKEY_WORKER: usize = 1;
 pub const KEEP_ALIVE_CHECKER: usize = 2;
 pub const FIREWALL_KEEP_ALIVE: usize = 3;
 
-pub trait QueueFunction<R: Ratchet>:
-    Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult + Send + 'static
+pub trait QueueFunction<R: Ratchet, I: CitadelIOInterface>:
+    Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R, I>>) -> QueueWorkerResult + Send + 'static
 {
 }
 
 impl<
         R: Ratchet,
-        T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult
+        I: CitadelIOInterface,
+        T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R, I>>) -> QueueWorkerResult
             + Send
             + 'static,
-    > QueueFunction<R> for T
+    > QueueFunction<R, I> for T
 {
 }
 
 #[allow(clippy::type_complexity)]
-pub struct SessionQueueWorker<R: Ratchet> {
-    entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction<R>>, delay_queue::Key, Duration)>,
+pub struct SessionQueueWorker<R: Ratchet, I: CitadelIOInterface> {
+    entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction<R, I>>, delay_queue::Key, Duration)>,
     expirations: DelayQueue<QueueWorkerTicket>,
-    state_container: Option<StateContainer<R>>,
+    state_container: Option<StateContainer<R, I>>,
     sess_shutdown: Sender<()>,
     waker: Option<Waker>,
-    rx: UnboundedReceiver<ChannelInner<R>>,
+    rx: UnboundedReceiver<ChannelInner<R, I>>,
     // keeps track of how many items have been added
     rolling_idx: usize,
 }
 
 #[derive(Clone)]
-pub struct SessionQueueWorkerHandle<R: Ratchet> {
-    tx: UnboundedSender<ChannelInner<R>>,
+pub struct SessionQueueWorkerHandle<R: Ratchet, I: CitadelIOInterface> {
+    tx: UnboundedSender<ChannelInner<R, I>>,
     rolling_idx: Arc<AtomicUsize>,
 }
 
-type ChannelInner<R> = (
+type ChannelInner<R, I> = (
     Option<QueueWorkerTicket>,
     Duration,
-    Box<dyn QueueFunction<R>>,
+    Box<dyn QueueFunction<R, I>>,
 );
 
-impl<R: Ratchet> SessionQueueWorkerHandle<R> {
+impl<R: Ratchet, I: CitadelIOInterface> SessionQueueWorkerHandle<R, I> {
     /// Inserts a reserved system process. We now spawn this as a task to prevent deadlocking
     pub fn insert_reserved(
         &self,
         key: Option<QueueWorkerTicket>,
         timeout: Duration,
-        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult
+        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R, I>>) -> QueueWorkerResult
             + Send
             + 'static,
     ) {
@@ -112,7 +114,7 @@ impl<R: Ratchet> SessionQueueWorkerHandle<R> {
     pub fn insert_oneshot(
         &self,
         call_in: Duration,
-        on_call: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) + Send + 'static,
+        on_call: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R, I>>) + Send + 'static,
     ) {
         self.insert_reserved(None, call_in, move |sess| {
             (on_call)(sess);
@@ -126,7 +128,7 @@ impl<R: Ratchet> SessionQueueWorkerHandle<R> {
         idx: usize,
         target_cid: u64,
         timeout: Duration,
-        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult
+        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R, I>>) -> QueueWorkerResult
             + Send
             + 'static,
     ) {
@@ -154,8 +156,8 @@ pub enum QueueWorkerResult {
     AdjustPeriodicity(Duration),
 }
 
-impl<R: Ratchet> SessionQueueWorker<R> {
-    pub fn new(sess_shutdown: Sender<()>) -> (Self, SessionQueueWorkerHandle<R>) {
+impl<R: Ratchet, I: CitadelIOInterface> SessionQueueWorker<R, I> {
+    pub fn new(sess_shutdown: Sender<()>) -> (Self, SessionQueueWorkerHandle<R, I>) {
         let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         let handle = SessionQueueWorkerHandle {
             tx,
@@ -176,7 +178,7 @@ impl<R: Ratchet> SessionQueueWorker<R> {
     }
 
     /// MUST be called when a session's timer subroutine begins!
-    pub fn load_state_container(&mut self, state_container: StateContainer<R>) {
+    pub fn load_state_container(&mut self, state_container: StateContainer<R, I>) {
         self.state_container = Some(state_container);
     }
 
@@ -186,7 +188,7 @@ impl<R: Ratchet> SessionQueueWorker<R> {
         &mut self,
         key_orig: Option<QueueWorkerTicket>,
         timeout: Duration,
-        on_timeout: Box<dyn QueueFunction<R>>,
+        on_timeout: Box<dyn QueueFunction<R, I>>,
     ) {
         // the zero in the default unwrap ensures that the key is going to be unique
         let key_new = key_orig.unwrap_or(QueueWorkerTicket::Oneshot(
@@ -206,7 +208,7 @@ impl<R: Ratchet> SessionQueueWorker<R> {
         &mut self,
         key: Option<QueueWorkerTicket>,
         timeout: Duration,
-        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult
+        on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R, I>>) -> QueueWorkerResult
             + Send
             + 'static,
     ) {
@@ -291,7 +293,7 @@ impl<R: Ratchet> SessionQueueWorker<R> {
     }
 }
 
-impl<R: Ratchet> Stream for SessionQueueWorker<R> {
+impl<R: Ratchet, I: CitadelIOInterface> Stream for SessionQueueWorker<R, I> {
     // DelayQueue seems much more specific, where a user may care that it
     // has reached capacity, so return those errors instead of panicking.
     type Item = ();
@@ -316,7 +318,7 @@ impl<R: Ratchet> Stream for SessionQueueWorker<R> {
     }
 }
 
-impl<R: Ratchet> futures::Future for SessionQueueWorker<R> {
+impl<R: Ratchet, I: CitadelIOInterface> futures::Future for SessionQueueWorker<R, I> {
     type Output = Result<(), NetworkError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

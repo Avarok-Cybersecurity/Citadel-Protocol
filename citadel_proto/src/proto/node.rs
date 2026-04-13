@@ -37,13 +37,14 @@ use std::sync::Arc;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::io::AsyncRead;
 use citadel_io::Mutex;
+use citadel_nexus::traits::{CitadelIOInterface, NetworkListener, NetworkStream};
+use citadel_nexus::unified::{UnifiedNetworkListener, UnifiedNetworkStream};
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::exports::tokio_rustls::rustls::{pki_types, ClientConfig};
 use citadel_wire::exports::Endpoint;
 use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
-use citadel_nexus::traits::NetworkListener;
 use citadel_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
 use citadel_wire::tls::client_config_to_tls_connector;
 use futures::StreamExt;
@@ -59,7 +60,7 @@ use crate::kernel::kernel_executor::LocalSet;
 use crate::kernel::RuntimeFuture;
 use crate::prelude::{DeleteObject, PullObject};
 use crate::proto::misc::net::{
-    DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
+    DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream,
 };
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
 use crate::proto::node_request::{
@@ -73,7 +74,6 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{HdpSessionInitMode, ServerOnlySessionInitSettings};
 use crate::proto::session_manager::CitadelSessionManager;
-use citadel_nexus::traits::CitadelIOInterface;
 
 #[cfg(feature = "std")]
 use citadel_nexus::std::StdIOProvider;
@@ -88,7 +88,12 @@ pub type DefaultNodeRemote<R> = NodeRemote<R>;
 
 // Create a helper function to create CitadelNode with default IO provider
 #[cfg(feature = "std")]
-impl<R: Ratchet> CitadelNode<R, StdIOProvider> {
+impl<R: Ratchet> CitadelNode<R, StdIOProvider>
+where
+    citadel_io::tokio::net::TcpListener: From<<StdIOProvider as CitadelIOInterface>::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<<StdIOProvider as CitadelIOInterface>::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<<StdIOProvider as CitadelIOInterface>::UdpSocket>,
+{
     /// Creates a new CitadelNode with the default StdIOProvider
     pub async fn init_with_defaults(
         local_node_type: NodeType,
@@ -116,7 +121,8 @@ impl<R: Ratchet> CitadelNode<R, StdIOProvider> {
             stun_servers,
             server_only_session_init_settings,
             io_provider,
-        ).await
+        )
+        .await
     }
 }
 
@@ -128,7 +134,7 @@ define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet, I: Cita
 pub struct CitadelNodeInner<R: Ratchet, I: CitadelIOInterface> {
     primary_socket: Option<DualListener>,
     /// Key: cid (to account for multiple clients from the same node)
-    session_manager: CitadelSessionManager<R>,
+    session_manager: CitadelSessionManager<R, I>,
     to_kernel: UnboundedSender<NodeResult<R>>,
     local_node_type: NodeType,
     // Applies only to listeners, not outgoing connections
@@ -144,7 +150,12 @@ pub struct CitadelNodeInner<R: Ratchet, I: CitadelIOInterface> {
     io_provider: I,
 }
 
-impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
+impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     /// Creates a new [`CitadelNode`]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn init(
@@ -164,11 +175,14 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
         KernelAsyncCallbackHandler<R>,
     )> {
         let (primary_socket, bind_addr) = match local_node_type {
-            NodeType::Server(bind_addr) => {
-                Self::server_create_primary_listen_socket(underlying_proto.clone(), bind_addr)?
-                    .map_left(Some)
-                    .map_right(Some)
-            }
+            NodeType::Server(bind_addr) => Self::server_create_primary_listen_socket(
+                underlying_proto.clone(),
+                bind_addr,
+                &io_provider,
+            )
+            .await?
+            .map_left(Some)
+            .map_right(Some),
 
             NodeType::Peer => (None, None),
         };
@@ -197,6 +211,7 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
             time_tracker,
             client_config.clone(),
             stun_servers.clone(),
+            Arc::new(io_provider.clone()),
         );
 
         let nat_type = NatType::identify(stun_servers).await?;
@@ -373,14 +388,27 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
         )
     }
 
-    pub fn server_create_primary_listen_socket<T: ToSocketAddrs>(
+    #[cfg(feature = "std")]
+    pub async fn server_create_primary_listen_socket<T: ToSocketAddrs, IO: CitadelIOInterface>(
         underlying_proto: ServerUnderlyingProtocol,
         full_bind_addr: T,
-    ) -> io::Result<(DualListener, SocketAddr)> {
+        io_provider: &IO,
+    ) -> io::Result<(DualListener, SocketAddr)>
+    where
+        citadel_io::tokio::net::TcpListener: From<IO::TcpListener>,
+        citadel_io::tokio::net::UdpSocket: From<IO::UdpSocket>,
+    {
         match &underlying_proto {
             ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp(..) => {
-                Self::create_listen_socket(underlying_proto, None, None, full_bind_addr)
-                    .map(|r| (DualListener::new(r.0, None), r.1))
+                let (listener, addr) = Self::create_listen_socket(
+                    underlying_proto,
+                    None,
+                    None,
+                    full_bind_addr,
+                    io_provider,
+                )
+                .await?;
+                Ok((DualListener::new(listener, None), addr))
             }
 
             ServerUnderlyingProtocol::Quic(_, domain, is_self_signed) => {
@@ -390,9 +418,17 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
                     Some((domain.clone(), *is_self_signed)),
                     None,
                     full_bind_addr,
-                )?;
-                let (quic_listener, _bind_addr_quic) =
-                    Self::create_listen_socket(underlying_proto, None, None, bind_addr)?;
+                    io_provider,
+                )
+                .await?;
+                let (quic_listener, _bind_addr_quic) = Self::create_listen_socket(
+                    underlying_proto,
+                    None,
+                    None,
+                    bind_addr,
+                    io_provider,
+                )
+                .await?;
                 Ok((
                     DualListener::new(tcp_listener, Some(quic_listener)),
                     bind_addr,
@@ -400,65 +436,85 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
             }
 
             ServerUnderlyingProtocol::Unified(..) => {
-                Self::create_listen_socket(underlying_proto, None, None, full_bind_addr)
-                    .map(|r| (DualListener::new(r.0, None), r.1))
+                let (listener, addr) = Self::create_listen_socket(
+                    underlying_proto,
+                    None,
+                    None,
+                    full_bind_addr,
+                    io_provider,
+                )
+                .await?;
+                Ok((DualListener::new(listener, None), addr))
             }
         }
     }
 
-    pub fn create_listen_socket<T: ToSocketAddrs>(
+    pub async fn create_listen_socket<T: ToSocketAddrs, IO: CitadelIOInterface>(
         underlying_proto: ServerUnderlyingProtocol,
         redirect_to_quic: Option<(TlsDomain, bool)>,
         quic_endpoint_opt: Option<QuicNode>,
         full_bind_addr: T,
-    ) -> io::Result<(GenericNetworkListener, SocketAddr)> {
+        io_provider: &IO,
+    ) -> io::Result<(GenericNetworkListener, SocketAddr)>
+    where
+        citadel_io::tokio::net::TcpListener: From<IO::TcpListener>,
+        citadel_io::tokio::net::UdpSocket: From<IO::UdpSocket>,
+    {
         let bind: SocketAddr = full_bind_addr
             .to_socket_addrs()?
             .next()
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::bind_defaults(underlying_proto, redirect_to_quic, quic_endpoint_opt, bind)
+        Self::bind_defaults(
+            underlying_proto,
+            redirect_to_quic,
+            quic_endpoint_opt,
+            bind,
+            io_provider,
+        )
+        .await
     }
 
     /// redirect_to_quic is only applicable when using TCP
     /// - quic_endpoint_opt is only relevant (yet optional) when the underlying proto specified is quic
-    fn bind_defaults(
+    async fn bind_defaults<IO: CitadelIOInterface>(
         underlying_proto: ServerUnderlyingProtocol,
         redirect_to_quic: Option<(TlsDomain, bool)>,
         quic_endpoint_opt: Option<QuicNode>,
         bind: SocketAddr,
-    ) -> io::Result<(GenericNetworkListener, SocketAddr)> {
+        io_provider: &IO,
+    ) -> io::Result<(GenericNetworkListener, SocketAddr)>
+    where
+        citadel_io::tokio::net::TcpListener: From<IO::TcpListener>,
+        citadel_io::tokio::net::UdpSocket: From<IO::UdpSocket>,
+    {
         match underlying_proto {
             ServerUnderlyingProtocol::Tcp(Some(listener)) => {
-                let listener = listener.lock().take().ok_or_else(|| {
-                    std::io::Error::other(
-                        "TCP listener already taken",
-                    )
-                })?;
+                let listener = listener
+                    .lock()
+                    .take()
+                    .ok_or_else(|| std::io::Error::other("TCP listener already taken"))?;
 
                 let bind = listener.local_addr()?;
 
-                Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic)?, bind))
+                Ok((
+                    GenericNetworkListener::new_tcp(listener, redirect_to_quic)?,
+                    bind,
+                ))
             }
             ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp(None) => {
-                citadel_wire::socket_helpers::get_tcp_listener(bind)
-                    .and_then(|listener| {
-                        log::trace!(target: "citadel", "Setting up {:?} listener socket on {:?}", &underlying_proto, bind);
-                        let bind = listener.local_addr()?;
-                        match underlying_proto {
-                            ServerUnderlyingProtocol::Tcp(None) => {
-                                Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic)?, bind))
-                            }
+                let listener = io_provider.bind_tcp(bind).await.map_err(|err| {
+                    io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string())
+                })?;
 
-                            ServerUnderlyingProtocol::Tls(interop, domain, is_self_signed) => {
-                                let tls_listener = TlsListener::new(listener, interop.tls_acceptor, domain, is_self_signed)?;
-                                Ok((GenericNetworkListener::new_tls(tls_listener)?, bind))
-                            }
+                log::trace!(target: "citadel", "Setting up {:?} listener socket on {:?}", &underlying_proto, bind);
+                let bind_addr = listener
+                    .local_addr()
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
-                            _ => {
-                                unreachable!("TCP listener called, but not the right listener")
-                            }
-                        }
-                    }).map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))
+                // Convert IO::TcpListener to citadel_io::tokio::net::TcpListener, then wrap in UnifiedNetworkListener
+                let tcp_listener: citadel_io::tokio::net::TcpListener = listener.into();
+                let unified = UnifiedNetworkListener::Tcp(tcp_listener);
+                Ok((GenericNetworkListener::new_unified(unified)?, bind_addr))
             }
 
             ServerUnderlyingProtocol::Quic(crypto, domain, is_self_signed) => {
@@ -467,7 +523,11 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
                 let mut quic = if let Some(quic) = quic_endpoint_opt {
                     quic
                 } else {
-                    let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind).map_err(generic_error)?;
+                    let udp_socket: citadel_io::tokio::net::UdpSocket = io_provider
+                        .bind_udp(bind)
+                        .await
+                        .map_err(|e| generic_error(e.to_string()))?
+                        .into();
                     QuicServer::create(udp_socket, crypto).map_err(generic_error)?
                 };
 
@@ -475,11 +535,16 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
 
                 quic.tls_domain_opt = domain;
 
-                Ok((GenericNetworkListener::from_quic_node(quic, is_self_signed)?, bind))
+                Ok((
+                    GenericNetworkListener::from_quic_node(quic, is_self_signed)?,
+                    bind,
+                ))
             }
 
             ServerUnderlyingProtocol::Unified(listener) => {
-                let bind = listener.local_addr().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                let bind = listener
+                    .local_addr()
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
                 Ok((GenericNetworkListener::new_unified(listener)?, bind))
             }
         }
@@ -489,13 +554,19 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
     /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
     /// It is expected that the listener_underlying_proto is QUIC here since this is called for p2p connections!
-    pub(crate) async fn create_session_transport_init<T: ToSocketAddrs>(
+    pub(crate) async fn create_session_transport_init<T: ToSocketAddrs, IO: CitadelIOInterface>(
         remote: T,
         default_client_config: &Arc<ClientConfig>,
-    ) -> io::Result<GenericNetworkStream> {
+        io_provider: &IO,
+    ) -> io::Result<GenericNetworkStream>
+    where
+        citadel_io::tokio::net::TcpStream: From<IO::TcpStream>,
+        citadel_io::tokio::net::UdpSocket: From<IO::UdpSocket>,
+    {
         // We start by creating a client to server connection
         let (stream, _quic_endpoint_generated_during_connect) =
-            Self::create_c2s_connect_socket(remote, None, default_client_config).await?;
+            Self::create_c2s_connect_socket(remote, None, default_client_config, io_provider)
+                .await?;
 
         log::trace!(target: "citadel", "[Client] Finished connecting to server {} w/ proto {:?}", stream.peer_addr()?, &stream);
         Ok(stream)
@@ -532,40 +603,49 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
         )
         .await?
         .map_err(generic_error)?;
-        Ok(GenericNetworkStream::Quic(
-            sink,
-            stream,
-            quic_endpoint,
-            Some(conn),
-            remote,
-        ))
+        Ok(UnifiedNetworkStream::Quic {
+            send_stream: sink,
+            recv_stream: stream,
+            endpoint: quic_endpoint,
+            connection: Some(conn),
+            remote_addr: remote,
+        })
     }
 
     /// Only for client to server conns
-    pub async fn create_c2s_connect_socket<T: ToSocketAddrs>(
+    pub async fn create_c2s_connect_socket<T: ToSocketAddrs, IO: CitadelIOInterface>(
         remote: T,
         timeout: Option<Duration>,
         default_client_config: &Arc<ClientConfig>,
-    ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
+        io_provider: &IO,
+    ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)>
+    where
+        citadel_io::tokio::net::TcpStream: From<IO::TcpStream>,
+        citadel_io::tokio::net::UdpSocket: From<IO::UdpSocket>,
+    {
         let remote: SocketAddr = remote
             .to_socket_addrs()?
             .next()
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::c2s_connect_defaults(timeout, remote, default_client_config).await
+        Self::c2s_connect_defaults(timeout, remote, default_client_config, io_provider).await
     }
 
-    pub async fn c2s_connect_defaults(
+    pub async fn c2s_connect_defaults<IO: CitadelIOInterface>(
         timeout: Option<Duration>,
         remote: SocketAddr,
         default_client_config: &Arc<ClientConfig>,
-    ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
+        io_provider: &IO,
+    ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)>
+    where
+        citadel_io::tokio::net::TcpStream: From<IO::TcpStream>,
+        citadel_io::tokio::net::UdpSocket: From<IO::UdpSocket>,
+    {
         log::trace!(target: "citadel", "C2S connect defaults to {remote:?}");
-        let mut stream = citadel_wire::socket_helpers::get_tcp_stream(
-            remote,
-            timeout.unwrap_or(TCP_CONN_TIMEOUT),
-        )
-        .await
-        .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
+        let mut stream: citadel_io::tokio::net::TcpStream = io_provider
+            .connect_tcp(remote)
+            .await
+            .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?
+            .into();
         let bind_addr = stream.local_addr()?;
         log::trace!(target: "citadel", "C2S Bind addr: {bind_addr:?}");
         let first_packet = Self::read_first_packet(&mut stream, timeout).await?;
@@ -573,7 +653,7 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
         match first_packet {
             FirstPacket::Tcp { external_addr } => {
                 log::trace!(target: "citadel", "Host claims TCP DEFAULT CONNECTION. External ADDR: {external_addr:?}");
-                Ok((GenericNetworkStream::Tcp(stream), None))
+                Ok((UnifiedNetworkStream::Tcp(stream), None))
             }
 
             FirstPacket::Tls {
@@ -601,7 +681,7 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
                     )
                     .await
                     .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err))?;
-                Ok((GenericNetworkStream::Tls(Box::new(stream.into())), None))
+                Ok((UnifiedNetworkStream::Tls(Box::new(stream.into())), None))
             }
             FirstPacket::Quic {
                 domain,
@@ -609,8 +689,11 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
                 is_self_signed,
             } => {
                 log::trace!(target: "citadel", "Host claims QUIC CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", &domain, external_addr, is_self_signed);
-                let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind_addr)
-                    .map_err(generic_error)?; // bind to same address as tcp for firewall purposes
+                let udp_socket: citadel_io::tokio::net::UdpSocket = io_provider
+                    .bind_udp(bind_addr)
+                    .await
+                    .map_err(|e| generic_error(e.to_string()))?
+                    .into(); // bind to same address as tcp for firewall purposes
                 let mut quic_endpoint = if is_self_signed {
                     citadel_wire::quic::QuicClient::new_no_verify(udp_socket)
                         .map_err(generic_error)?
@@ -684,7 +767,7 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelNode<R, I> {
     async fn primary_session_creator_loop(
         to_kernel: UnboundedSender<NodeResult<R>>,
         local_nat_type: NatType,
-        session_manager: CitadelSessionManager<R>,
+        session_manager: CitadelSessionManager<R, I>,
         mut socket: DualListener,
         server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<(), NetworkError> {

@@ -1,6 +1,6 @@
 //! # Citadel Nexus: Cross-Platform I/O Abstraction
 //!
-//! Citadel Nexus provides a unified I/O abstraction layer that enables the Citadel Protocol 
+//! Citadel Nexus provides a unified I/O abstraction layer that enables the Citadel Protocol
 //! to work across different platforms, particularly standard (STD) and WebAssembly (WASM) targets.
 //! This crate sits between the protocol layer and platform-specific I/O implementations.
 //!
@@ -27,7 +27,7 @@
 //!
 //! ```rust,no_run
 //! use citadel_nexus::{CitadelIOInterface, DefaultIOProvider};
-//! 
+//!
 //! async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //!     let io_provider = DefaultIOProvider::new().await?;
 //!     let listener = io_provider.bind_tcp("127.0.0.1:0".parse()?).await?;
@@ -44,7 +44,7 @@
 //! - TLS support via Rustls
 //! - Complete NAT traversal capabilities
 //!
-//! ### WebAssembly (WASM) Targets  
+//! ### WebAssembly (WASM) Targets
 //! - WebRTC DataChannels for reliable streams
 //! - WebSocket fallback for compatibility
 //! - Browser-based STUN/TURN for NAT traversal
@@ -62,11 +62,14 @@ pub mod std;
 #[cfg(target_family = "wasm")]
 pub mod wasm;
 
-// Re-export core traits
-pub use traits::*;
+// Re-export core traits (explicitly to avoid ambiguous glob re-exports)
+pub use traits::{
+    CitadelIOInterface, DatagramSocket, ListenerStats, NatTraversal, NetworkListener,
+    NetworkStream, SecurityInfo, StreamStats,
+};
 
 // Re-export unified types
-pub use unified::*;
+pub use unified::{UnifiedNetworkListener, UnifiedNetworkStream};
 
 // Platform-specific default providers
 #[cfg(not(target_family = "wasm"))]

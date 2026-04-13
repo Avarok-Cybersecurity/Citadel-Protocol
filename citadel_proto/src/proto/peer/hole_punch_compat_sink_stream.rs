@@ -36,6 +36,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::Mutex;
+use citadel_nexus::traits::CitadelIOInterface;
 use citadel_types::crypto::SecurityLevel;
 use netbeam::reliable_conn::{ConnAddr, ReliableOrderedStreamToTarget};
 use std::net::SocketAddr;
@@ -55,9 +56,9 @@ impl<R: Ratchet> ReliableOrderedCompatStream<R> {
     /// For C2S, using this is straight forward (set target_cid to 0)
     /// For P2P, using this is not as straight forward. This will use the central node for routing packets. As such, the target_cid must be set to the peers to enable routing. Additionally, this will need to use the p2p ratchet. This implies that
     /// BOTH nodes must already have the ratchets loaded
-    pub(crate) fn new(
+    pub(crate) fn new<I: CitadelIOInterface>(
         to_primary_stream: OutboundPrimaryStreamSender,
-        state_container: &mut StateContainerInner<R>,
+        state_container: &mut StateContainerInner<R, I>,
         target_cid: u64,
         hr: R,
         security_level: SecurityLevel,

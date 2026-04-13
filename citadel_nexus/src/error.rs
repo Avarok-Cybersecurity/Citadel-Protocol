@@ -7,35 +7,35 @@ use std::fmt;
 pub enum NexusError {
     /// Network I/O error
     Io(std::io::Error),
-    
+
     /// Connection error
     Connection(String),
-    
+
     /// NAT traversal error
     NatTraversal(String),
-    
+
     /// Platform-specific error
     Platform(String),
-    
+
     /// Configuration error
     Configuration(String),
-    
+
     /// Timeout error
     Timeout,
-    
+
     /// Operation would block (non-blocking I/O)
     WouldBlock,
-    
+
     /// Not supported on this platform
     NotSupported(String),
-    
+
     /// Serialization/deserialization error
     Serialization(String),
-    
+
     /// WebRTC-specific error (WASM only)
     #[cfg(target_family = "wasm")]
     WebRTC(String),
-    
+
     /// Generic error with message
     Other(String),
 }
@@ -50,7 +50,9 @@ impl fmt::Display for NexusError {
             Self::Configuration(msg) => write!(f, "Configuration error: {}", msg),
             Self::Timeout => write!(f, "Operation timed out"),
             Self::WouldBlock => write!(f, "Operation would block"),
-            Self::NotSupported(op) => write!(f, "Operation '{}' not supported on this platform", op),
+            Self::NotSupported(op) => {
+                write!(f, "Operation '{}' not supported on this platform", op)
+            }
             Self::Serialization(msg) => write!(f, "Serialization error: {}", msg),
             #[cfg(target_family = "wasm")]
             Self::WebRTC(msg) => write!(f, "WebRTC error: {}", msg),
@@ -78,7 +80,7 @@ impl From<NexusError> for std::io::Error {
     fn from(error: NexusError) -> Self {
         match error {
             NexusError::Io(io_error) => io_error,
-            other => std::io::Error::new(std::io::ErrorKind::Other, other),
+            other => std::io::Error::other(other),
         }
     }
 }

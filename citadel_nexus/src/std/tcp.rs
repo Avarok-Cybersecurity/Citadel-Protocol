@@ -7,8 +7,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
-use crate::error::{NexusResult, NexusError};
-use crate::traits::{NetworkStream, NetworkListener, StreamStats, SecurityInfo, ListenerStats};
+use crate::error::{NexusError, NexusResult};
+use crate::traits::{ListenerStats, NetworkListener, NetworkStream, SecurityInfo, StreamStats};
 
 /// TCP stream wrapper for the standard implementation
 pub struct StdTcpStream {
@@ -25,6 +25,12 @@ impl StdTcpStream {
     }
 }
 
+impl From<StdTcpStream> for citadel_io::tokio::net::TcpStream {
+    fn from(stream: StdTcpStream) -> Self {
+        stream.inner
+    }
+}
+
 impl AsyncRead for StdTcpStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -33,12 +39,12 @@ impl AsyncRead for StdTcpStream {
     ) -> Poll<std::io::Result<()>> {
         let before_len = buf.filled().len();
         let result = Pin::new(&mut self.inner).poll_read(cx, buf);
-        
+
         if let Poll::Ready(Ok(())) = &result {
             let bytes_read = buf.filled().len() - before_len;
             self.stats.bytes_received += bytes_read as u64;
         }
-        
+
         result
     }
 }
@@ -50,11 +56,11 @@ impl AsyncWrite for StdTcpStream {
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
         let result = Pin::new(&mut self.inner).poll_write(cx, buf);
-        
+
         if let Poll::Ready(Ok(bytes_written)) = &result {
             self.stats.bytes_sent += *bytes_written as u64;
         }
-        
+
         result
     }
 
@@ -112,6 +118,12 @@ impl StdTcpListener {
             inner: listener,
             stats: ListenerStatsImpl::new(),
         }
+    }
+}
+
+impl From<StdTcpListener> for citadel_io::tokio::net::TcpListener {
+    fn from(listener: StdTcpListener) -> Self {
+        listener.inner
     }
 }
 

@@ -4,12 +4,12 @@ use async_trait::async_trait;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
+use super::StdUdpSocket;
 use crate::error::NexusResult;
 use crate::traits::{
-    NatTraversal, NatType, HolePunchConfig, HolePunchedSocket, DatagramSocket, 
-    TraversalStrategy, ConnectivityResult, HolePunchStats, DEFAULT_STUN_SERVERS
+    ConnectivityResult, DatagramSocket, HolePunchConfig, HolePunchStats, HolePunchedSocket,
+    NatTraversal, NatType, TraversalStrategy, DEFAULT_STUN_SERVERS,
 };
-use super::StdUdpSocket;
 
 /// Standard implementation of NAT traversal using existing citadel_wire functionality
 #[derive(Debug)]
@@ -73,7 +73,7 @@ impl NatTraversal for StdNatTraversal {
         config: HolePunchConfig,
     ) -> NexusResult<HolePunchedSocket> {
         let start_time = std::time::Instant::now();
-        
+
         // TODO: Implement proper hole punching
         // For now, return a placeholder result
         let hole_punch_result = HolePunchResult {
@@ -103,23 +103,25 @@ impl NatTraversal for StdNatTraversal {
 
     async fn test_connectivity(&self, peer_addr: SocketAddr) -> NexusResult<ConnectivityResult> {
         let start_time = std::time::Instant::now();
-        
+
         // Create a test socket
         let socket = StdUdpSocket::bind("0.0.0.0:0".parse().unwrap()).await?;
-        
+
         // Send test packet
         let test_data = b"citadel_connectivity_test";
         let mut attempts = 0;
         let max_attempts = 3;
-        
+
         while attempts < max_attempts {
             match socket.send_to(test_data, peer_addr).await {
                 Ok(_) => {
                     // Try to receive response with timeout
                     let mut buf = [0u8; 1024];
                     let timeout = Duration::from_millis(1000);
-                    
-                    match citadel_io::tokio::time::timeout(timeout, socket.recv_from(&mut buf)).await {
+
+                    match citadel_io::tokio::time::timeout(timeout, socket.recv_from(&mut buf))
+                        .await
+                    {
                         Ok(Ok((len, addr))) if addr == peer_addr && len >= test_data.len() => {
                             return Ok(ConnectivityResult {
                                 success: true,
@@ -153,7 +155,7 @@ impl NatTraversal for StdNatTraversal {
                     });
                 }
             }
-            
+
             attempts += 1;
             // Brief delay before retry
             citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
@@ -177,7 +179,9 @@ impl NatTraversal for StdNatTraversal {
                 port_range: 100,
             },
             NatType::Symmetric { .. } => TraversalStrategy::Parallel(vec![
-                TraversalStrategy::PortPrediction { predicted_ports: vec![] },
+                TraversalStrategy::PortPrediction {
+                    predicted_ports: vec![],
+                },
                 TraversalStrategy::SimultaneousOpen,
             ]),
             NatType::Unknown | NatType::DetectionFailed(_) => TraversalStrategy::Sequential(vec![
@@ -204,6 +208,7 @@ struct HolePunchResult {
 }
 
 // Perform the actual hole punching
+#[allow(dead_code)]
 async fn perform_hole_punch(
     socket: &StdUdpSocket,
     config: &HolePunchConfig,
@@ -223,42 +228,49 @@ async fn perform_hole_punch(
             attempts = 1;
             bytes_exchanged = 4;
         }
-        
+
         TraversalStrategy::SimpleHolePunch => {
             // Send packets to peer address to create NAT mapping
             for i in 0..config.max_retries {
                 let message = format!("hole_punch_{}", i);
-                socket.send_to(message.as_bytes(), config.peer_public_addr).await?;
+                socket
+                    .send_to(message.as_bytes(), config.peer_public_addr)
+                    .await?;
                 bytes_exchanged += message.len() as u64;
                 attempts += 1;
-                
+
                 // Brief delay between attempts
                 citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
-        
-        TraversalStrategy::SequentialHolePunch { start_port, port_range } => {
+
+        TraversalStrategy::SequentialHolePunch {
+            start_port,
+            port_range,
+        } => {
             // Try different port combinations
             let base_addr = config.peer_public_addr.ip();
             for port_offset in 0..*port_range {
                 let target_port = start_port.wrapping_add(port_offset);
                 let target_addr = SocketAddr::new(base_addr, target_port);
-                
+
                 let message = format!("seq_hole_punch_{}", target_port);
-                if let Ok(_) = socket.send_to(message.as_bytes(), target_addr).await {
+                if socket.send_to(message.as_bytes(), target_addr).await.is_ok() {
                     bytes_exchanged += message.len() as u64;
                 }
                 attempts += 1;
-                
+
                 if attempts >= config.max_retries {
                     break;
                 }
             }
         }
-        
+
         _ => {
             // Fallback to simple hole punch for other strategies
-            socket.send_to(b"hole_punch", config.peer_public_addr).await?;
+            socket
+                .send_to(b"hole_punch", config.peer_public_addr)
+                .await?;
             attempts = 1;
             bytes_exchanged = 10;
         }
@@ -266,7 +278,7 @@ async fn perform_hole_punch(
 
     // Create a new socket with the same configuration for the result
     let result_socket = StdUdpSocket::bind_for_nat_traversal(local_addr).await?;
-    
+
     Ok(HolePunchResult {
         socket: result_socket,
         attempts,

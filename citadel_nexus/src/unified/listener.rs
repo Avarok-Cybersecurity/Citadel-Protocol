@@ -1,52 +1,39 @@
 //! Unified listener implementations that work across platforms
 
+#[cfg(not(target_family = "wasm"))]
+use crate::error::NexusError;
+use crate::error::NexusResult;
+use crate::traits::{ListenerStats, NetworkListener};
+use crate::unified::UnifiedNetworkStream;
 use async_trait::async_trait;
 use std::net::SocketAddr;
-use crate::error::{NexusResult, NexusError};
-use crate::traits::{NetworkListener, ListenerStats};
-use crate::unified::UnifiedNetworkStream;
 
 /// Unified network listener that can wrap different platform-specific implementations
 pub enum UnifiedNetworkListener {
     #[cfg(not(target_family = "wasm"))]
     Tcp(citadel_io::tokio::net::TcpListener),
-    
+
     #[cfg(not(target_family = "wasm"))]
     Tls {
         listener: citadel_io::tokio::net::TcpListener,
         acceptor: citadel_wire::exports::tokio_rustls::TlsAcceptor,
     },
-    
+
     #[cfg(not(target_family = "wasm"))]
     Quic {
         endpoint: citadel_wire::exports::Endpoint,
     },
-    
+
     #[cfg(target_family = "wasm")]
     WebRtc(crate::wasm::WebRtcListener),
-    
+
     #[cfg(target_family = "wasm")]
     WebSocket(crate::wasm::WebSocketListener),
 }
 
-impl Clone for UnifiedNetworkListener {
-    fn clone(&self) -> Self {
-        // Note: Some listeners cannot be truly cloned, so we panic for now
-        // In a real implementation, you would need a different approach
-        match self {
-            #[cfg(not(target_family = "wasm"))]
-            Self::Tcp(_) => panic!("TCP listener cannot be cloned"),
-            #[cfg(not(target_family = "wasm"))]
-            Self::Tls { .. } => panic!("TLS listener cannot be cloned"),
-            #[cfg(not(target_family = "wasm"))]
-            Self::Quic { endpoint } => Self::Quic { endpoint: endpoint.clone() },
-            #[cfg(target_family = "wasm")]
-            Self::WebRtc(listener) => Self::WebRtc(listener.clone()),
-            #[cfg(target_family = "wasm")]
-            Self::WebSocket(listener) => Self::WebSocket(listener.clone()),
-        }
-    }
-}
+// Note: UnifiedNetworkListener intentionally does NOT implement Clone
+// because TCP and TLS listeners cannot be safely cloned. If you need
+// to share a listener, wrap it in Arc<Mutex<_>> or similar.
 
 impl std::fmt::Debug for UnifiedNetworkListener {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -78,26 +65,38 @@ impl NetworkListener for UnifiedNetworkListener {
                 let (stream, addr) = listener.accept().await.map_err(NexusError::from)?;
                 Ok((UnifiedNetworkStream::Tcp(stream), addr))
             }
-            
+
             #[cfg(not(target_family = "wasm"))]
             Self::Tls { listener, acceptor } => {
                 let (stream, addr) = listener.accept().await.map_err(NexusError::from)?;
-                let tls_stream = acceptor.accept(stream).await
+                let tls_stream = acceptor
+                    .accept(stream)
+                    .await
                     .map_err(|e| NexusError::Connection(e.to_string()))?;
-                Ok((UnifiedNetworkStream::Tls(Box::new(citadel_wire::exports::tokio_rustls::TlsStream::Server(tls_stream))), addr))
+                Ok((
+                    UnifiedNetworkStream::Tls(Box::new(
+                        citadel_wire::exports::tokio_rustls::TlsStream::Server(tls_stream),
+                    )),
+                    addr,
+                ))
             }
-            
+
             #[cfg(not(target_family = "wasm"))]
             Self::Quic { endpoint } => {
-                let connecting = endpoint.accept().await
+                let connecting = endpoint
+                    .accept()
+                    .await
                     .ok_or_else(|| NexusError::Connection("QUIC endpoint closed".to_string()))?;
-                let connection = connecting.await
+                let connection = connecting
+                    .await
                     .map_err(|e| NexusError::Connection(e.to_string()))?;
-                
+
                 let remote_addr = connection.remote_address();
-                let (send_stream, recv_stream) = connection.accept_bi().await
+                let (send_stream, recv_stream) = connection
+                    .accept_bi()
+                    .await
                     .map_err(|e| NexusError::Connection(e.to_string()))?;
-                
+
                 let stream = UnifiedNetworkStream::Quic {
                     send_stream,
                     recv_stream,
@@ -105,16 +104,16 @@ impl NetworkListener for UnifiedNetworkListener {
                     connection: Some(connection),
                     remote_addr,
                 };
-                
+
                 Ok((stream, remote_addr))
             }
-            
+
             #[cfg(target_family = "wasm")]
             Self::WebRtc(listener) => {
                 let (channel, addr) = listener.accept().await?;
                 Ok((UnifiedNetworkStream::WebRtc(channel), addr))
             }
-            
+
             #[cfg(target_family = "wasm")]
             Self::WebSocket(listener) => {
                 let (stream, addr) = listener.accept().await?;
@@ -180,6 +179,16 @@ impl NetworkListener for UnifiedNetworkListener {
             Self::WebRtc(listener) => listener.shutdown().await,
             #[cfg(target_family = "wasm")]
             Self::WebSocket(listener) => listener.shutdown().await,
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+impl From<UnifiedNetworkListener> for citadel_io::tokio::net::TcpListener {
+    fn from(listener: UnifiedNetworkListener) -> Self {
+        match listener {
+            UnifiedNetworkListener::Tcp(tcp) => tcp,
+            _ => panic!("Cannot convert non-TCP UnifiedNetworkListener to TcpListener"),
         }
     }
 }

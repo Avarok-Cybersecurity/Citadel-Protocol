@@ -42,6 +42,7 @@ use std::sync::atomic::Ordering;
 use bytes::BytesMut;
 
 use citadel_crypt::ratchets::Ratchet;
+use citadel_nexus::traits::NetworkStream;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::prelude::{ConnectProtocol, UserIdentifierExt};
@@ -87,12 +88,14 @@ use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
 
-define_outer_struct_wrapper!(CitadelSessionManager, HdpSessionManagerInner, <R: Ratchet>, <R>);
+use citadel_nexus::traits::CitadelIOInterface;
+
+define_outer_struct_wrapper!(CitadelSessionManager, HdpSessionManagerInner, <R: Ratchet, I: CitadelIOInterface>, <R, I>);
 
 /// Used for handling stateful connections between two peer
-pub struct HdpSessionManagerInner<R: Ratchet> {
+pub struct HdpSessionManagerInner<R: Ratchet, I: CitadelIOInterface> {
     local_node_type: NodeType,
-    pub(crate) sessions: HashMap<u64, (Sender<()>, CitadelSession<R>)>,
+    pub(crate) sessions: HashMap<u64, (Sender<()>, CitadelSession<R, I>)>,
     account_manager: AccountManager<R, R>,
     pub(crate) hypernode_peer_layer: CitadelNodePeerLayer<R>,
     server_remote: Option<NodeRemote<R>>,
@@ -100,16 +103,22 @@ pub struct HdpSessionManagerInner<R: Ratchet> {
     /// Connections which have no implicated CID go herein. They are strictly expected to be
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [CitadelSessionManager] and thereafter placed inside an appropriate session
-    pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, CitadelSession<R>)>,
+    pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, CitadelSession<R, I>)>,
     kernel_tx: UnboundedSender<NodeResult<R>>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
     clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
     client_config: Arc<rustls::ClientConfig>,
     stun_servers: Option<Vec<String>>,
+    io_provider: Arc<I>,
 }
 
-impl<R: Ratchet> CitadelSessionManager<R> {
+impl<R: Ratchet, I: CitadelIOInterface> CitadelSessionManager<R, I>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     /// Creates a new [SessionManager] which handles individual connections
     pub fn new(
         local_node_type: NodeType,
@@ -118,6 +127,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         time_tracker: TimeTracker,
         client_config: Arc<rustls::ClientConfig>,
         stun_servers: Option<Vec<String>>,
+        io_provider: Arc<I>,
     ) -> Self {
         let incoming_cxn_count = 0;
         let (clean_shutdown_tracker_tx, clean_shutdown_tracker_rx) = unbounded();
@@ -137,6 +147,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
             time_tracker,
             client_config,
             stun_servers,
+            io_provider,
         };
 
         Self::from(inner)
@@ -284,9 +295,11 @@ impl<R: Ratchet> CitadelSessionManager<R> {
                     ConnectProtocol::Quic(listener_underlying_proto.maybe_get_identity());
 
                 // create conn to peer
-                let primary_stream = CitadelNode::<R, citadel_nexus::std::StdIOProvider>::create_session_transport_init(
+                let io_provider = &*inner!(self).io_provider;
+                let primary_stream = CitadelNode::<R, I>::create_session_transport_init(
                     peer_addr,
                     default_client_config,
+                    io_provider,
                 )
                 .await
                 .map_err(|err| NetworkError::SocketError(err.to_string()))?;
@@ -384,8 +397,8 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         )
     ))]
     async fn execute_session_with_safe_shutdown(
-        session_manager: CitadelSessionManager<R>,
-        new_session: CitadelSession<R>,
+        session_manager: CitadelSessionManager<R, I>,
+        new_session: CitadelSession<R, I>,
         peer_addr: SocketAddr,
         tcp_stream: GenericNetworkStream,
     ) -> Result<(), NetworkError> {
@@ -506,7 +519,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
 
     /// This future should be joined up higher at the [node] layer
     pub async fn run_peer_container(
-        citadel_session_manager: CitadelSessionManager<R>,
+        citadel_session_manager: CitadelSessionManager<R, I>,
     ) -> Result<(), NetworkError> {
         let peer_container = { inner!(citadel_session_manager).hypernode_peer_layer.clone() };
         peer_container.create_executor().await.await
@@ -1292,10 +1305,10 @@ impl<R: Ratchet> CitadelSessionManager<R> {
         session_cid: u64,
         target_cid: u64,
         ticket: Ticket,
-        session: &CitadelSession<R>,
+        session: &CitadelSession<R, I>,
         packet: impl FnOnce(&R) -> BytesMut,
         post_send: impl FnOnce(
-            &CitadelSession<R>,
+            &CitadelSession<R, I>,
             PeerSignal,
         ) -> Result<PrimaryProcessorResult, NetworkError>,
     ) -> Result<Result<PrimaryProcessorResult, NetworkError>, String> {
@@ -1343,7 +1356,7 @@ impl<R: Ratchet> CitadelSessionManager<R> {
     }
 }
 
-impl<R: Ratchet> HdpSessionManagerInner<R> {
+impl<R: Ratchet, I: CitadelIOInterface> HdpSessionManagerInner<R, I> {
     /// Clears a session from the SessionManager
     pub fn clear_session(&mut self, cid: u64, init_time: Instant) {
         if let Some((_, session)) = self.sessions.get(&cid) {

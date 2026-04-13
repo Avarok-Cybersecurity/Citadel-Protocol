@@ -38,6 +38,7 @@ use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_nexus::traits::CitadelIOInterface;
 use citadel_types::proto::{
     GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
 };
@@ -217,12 +218,17 @@ pub enum GroupBroadcast {
     )
 ))]
 /// Process a group broadcast message
-pub async fn process_group_broadcast<R: Ratchet>(
-    session_ref: &CitadelSession<R>,
+pub async fn process_group_broadcast<R: Ratchet, I: CitadelIOInterface>(
+    session_ref: &CitadelSession<R, I>,
     header: Ref<&[u8], HdpHeader>,
     payload: &[u8],
     sess_ratchet: &R,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     let session = session_ref;
     let signal = return_if_none!(
         GroupBroadcast::deserialize_from_vector(payload).ok(),
@@ -804,10 +810,10 @@ pub async fn process_group_broadcast<R: Ratchet>(
 }
 
 /// Create a group channel
-fn create_group_channel<R: Ratchet>(
+fn create_group_channel<R: Ratchet, I: CitadelIOInterface>(
     ticket: Ticket,
     key: MessageGroupKey,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, I>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let channel = inner_mut_state!(session.state_container)
         .setup_group_channel_endpoints(key, ticket, session)?;
@@ -838,8 +844,8 @@ impl From<GroupBroadcast> for GroupBroadcastPayload {
 }
 
 /// Forward a signal to the kernel or a group channel
-fn forward_signal<R: Ratchet>(
-    session: &CitadelSession<R>,
+fn forward_signal<R: Ratchet, I: CitadelIOInterface>(
+    session: &CitadelSession<R, I>,
     ticket: Ticket,
     key: Option<MessageGroupKey>,
     broadcast: GroupBroadcast,

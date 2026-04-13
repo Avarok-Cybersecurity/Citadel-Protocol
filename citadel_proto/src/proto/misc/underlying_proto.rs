@@ -30,10 +30,10 @@
 use crate::error::NetworkError;
 use crate::proto::node::TlsDomain;
 use citadel_io::Mutex;
+use citadel_nexus::unified::listener::UnifiedNetworkListener;
 use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::{Certificate, PrivateKey};
 use citadel_wire::tls::TLSQUICInterop;
-use citadel_nexus::unified::listener::UnifiedNetworkListener;
 use std::fmt::Debug;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::path::Path;
@@ -64,7 +64,12 @@ impl Clone for ServerUnderlyingProtocol {
                 domain.clone(),
                 *self_signed,
             ),
-            Self::Unified(listener) => Self::Unified(listener.clone()),
+            Self::Unified(_) => {
+                // UnifiedNetworkListener contains non-cloneable types like TcpListener.
+                // This variant should not be cloned in practice. If this panic is hit,
+                // the code needs to be refactored to avoid cloning.
+                panic!("Cannot clone ServerUnderlyingProtocol::Unified variant")
+            }
         }
     }
 }
@@ -184,6 +189,7 @@ impl Debug for ServerUnderlyingProtocol {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct P2PListenerConnectInfo {
     pub addr: SocketAddr,
     pub domain: TlsDomain,

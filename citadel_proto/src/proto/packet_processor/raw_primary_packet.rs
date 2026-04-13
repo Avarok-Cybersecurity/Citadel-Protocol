@@ -40,6 +40,7 @@
 use crate::proto::packet_processor::peer::peer_cmd_packet;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_nexus::traits::CitadelIOInterface;
 
 use super::includes::*;
 use crate::error::NetworkError;
@@ -53,13 +54,18 @@ use crate::error::NetworkError;
     err,
     fields(session_cid=this_session_cid, is_server=session.is_server, packet_len=packet.len())
 ))]
-pub async fn process_raw_packet<R: Ratchet>(
+pub async fn process_raw_packet<R: Ratchet, I: CitadelIOInterface>(
     this_session_cid: Option<u64>,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, I>,
     remote_peer: SocketAddr,
     local_primary_port: u16,
     packet: BytesMut,
-) -> Result<PrimaryProcessorResult, NetworkError> {
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     if packet.parse().is_none() {
@@ -204,13 +210,13 @@ pub(crate) enum ReceivePortType {
 /// - `None`: If the packet should be proxied.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub(crate) fn check_proxy<R: Ratchet>(
+pub(crate) fn check_proxy<R: Ratchet, I: CitadelIOInterface>(
     this_session_cid: Option<u64>,
     cmd_primary: u8,
     cmd_aux: u8,
     header_session_cid: u64,
     target_cid: u64,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, I>,
     endpoint_cid_info: &mut Option<(u64, u64)>,
     recv_port_type: ReceivePortType,
     packet: HdpPacket,
