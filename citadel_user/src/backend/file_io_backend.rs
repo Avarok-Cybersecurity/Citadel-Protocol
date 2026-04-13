@@ -54,6 +54,21 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
                 .await?;
         let map = load_cnac_files(&directory_store, self.file_io.as_ref()).await?;
         *self.memory_backend.clients.get_mut() = map;
+
+        // Load global KV store from disk if it exists
+        let global_kv_path = format!("{}global_kv.bin", directory_store.server_dir);
+        if let Ok(data) = self.file_io.read_file(&global_kv_path).await {
+            match bincode::deserialize(&data) {
+                Ok(kv) => {
+                    *self.memory_backend.global_kv.write() = kv;
+                    log::info!(target: "citadel", "Loaded global KV store from {}", global_kv_path);
+                }
+                Err(e) => {
+                    log::warn!(target: "citadel", "Failed to deserialize global KV store: {}", e);
+                }
+            }
+        }
+
         self.directory_store = Some(directory_store);
         Ok(())
     }
@@ -308,7 +323,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             .memory_backend
             .remove_byte_map_value(session_cid, peer_cid, key, sub_key)
             .await?;
-        self.save_cnac_by_cid(session_cid).await.map(|_| res)
+        match self.save_cnac_by_cid(session_cid).await {
+            Ok(()) => Ok(res),
+            Err(AccountError::ClientNonExists(_)) => {
+                // No CNAC for this CID — data lives in global KV store
+                self.save_global_kv().await.map(|_| res)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn store_byte_map_value(
@@ -323,7 +345,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             .memory_backend
             .store_byte_map_value(session_cid, peer_cid, key, sub_key, value)
             .await?;
-        self.save_cnac_by_cid(session_cid).await.map(|_| res)
+        match self.save_cnac_by_cid(session_cid).await {
+            Ok(()) => Ok(res),
+            Err(AccountError::ClientNonExists(_)) => {
+                // No CNAC for this CID — data lives in global KV store
+                self.save_global_kv().await.map(|_| res)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn get_byte_map_values_by_key(
@@ -332,11 +361,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        let res = self
-            .memory_backend
+        self.memory_backend
             .get_byte_map_values_by_key(session_cid, peer_cid, key)
-            .await?;
-        self.save_cnac_by_cid(session_cid).await.map(|_| res)
+            .await
     }
 
     async fn remove_byte_map_values_by_key(
@@ -349,7 +376,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             .memory_backend
             .remove_byte_map_values_by_key(session_cid, peer_cid, key)
             .await?;
-        self.save_cnac_by_cid(session_cid).await.map(|_| res)
+        match self.save_cnac_by_cid(session_cid).await {
+            Ok(()) => Ok(res),
+            Err(AccountError::ClientNonExists(_)) => {
+                self.save_global_kv().await.map(|_| res)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn stream_object_to_backend(
@@ -471,6 +504,23 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
             .cloned()
             .ok_or(AccountError::ClientNonExists(cid))?;
         self.save_cnac(&cnac).await
+    }
+
+    /// Persist the global KV store to disk. Used for server-global data
+    /// not tied to any specific CNAC (e.g., workspace metadata stored via CID 0).
+    async fn save_global_kv(&self) -> Result<(), AccountError> {
+        let dirs = self
+            .directory_store
+            .as_ref()
+            .ok_or_else(|| AccountError::Generic("Directory store not initialized".to_string()))?;
+        let global_kv_path = format!("{}global_kv.bin", dirs.server_dir);
+        let data = {
+            let kv = self.memory_backend.global_kv.read();
+            bincode::serialize(&*kv)
+                .map_err(|e| AccountError::Generic(format!("Failed to serialize global KV: {e}")))?
+        };
+        self.file_io.write_file(&global_kv_path, &data).await?;
+        Ok(())
     }
 
     fn generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> PathBuf {

@@ -52,12 +52,17 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(crate) struct MemoryBackend<R: Ratchet, Fcm: Ratchet> {
     pub(crate) clients: RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>,
+    /// Server-global KV storage for data not tied to any specific CNAC.
+    /// Used when `session_cid` doesn't match any registered client (e.g., CID 0 on servers).
+    /// Structure: peer_cid -> key -> sub_key -> value
+    pub(crate) global_kv: RwLock<HashMap<u64, HashMap<String, HashMap<String, Vec<u8>>>>>,
 }
 
 impl<R: Ratchet, Fcm: Ratchet> Default for MemoryBackend<R, Fcm> {
     fn default() -> Self {
         Self {
             clients: RwLock::new(HashMap::new()),
+            global_kv: RwLock::new(HashMap::new()),
         }
     }
 }
@@ -333,7 +338,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
                 .get(sub_key)
                 .cloned())
         } else {
-            Ok(None)
+            // Server-global storage fallback
+            Ok(self
+                .global_kv
+                .read()
+                .get(&peer_cid)
+                .and_then(|k| k.get(key))
+                .and_then(|sk| sk.get(sub_key))
+                .cloned())
         }
     }
 
@@ -355,7 +367,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
                 .or_default()
                 .remove(sub_key))
         } else {
-            Ok(None)
+            // Server-global storage fallback
+            Ok(self
+                .global_kv
+                .write()
+                .get_mut(&peer_cid)
+                .and_then(|k| k.get_mut(key))
+                .and_then(|sk| sk.remove(sub_key)))
         }
     }
 
@@ -378,7 +396,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
                 .or_default()
                 .insert(sub_key.to_string(), value))
         } else {
-            Ok(None)
+            // Server-global storage: CID 0 is used by servers for application-level KV data
+            // (e.g., workspace metadata) where no CNAC exists. Store in the global_kv map.
+            Ok(self
+                .global_kv
+                .write()
+                .entry(peer_cid)
+                .or_default()
+                .entry(key.to_string())
+                .or_default()
+                .insert(sub_key.to_string(), value))
         }
     }
 
@@ -400,7 +427,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
                 .clone();
             Ok(map)
         } else {
-            Ok(Default::default())
+            // Server-global storage fallback
+            Ok(self
+                .global_kv
+                .read()
+                .get(&peer_cid)
+                .and_then(|k| k.get(key))
+                .cloned()
+                .unwrap_or_default())
         }
     }
 
@@ -421,7 +455,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
                 .unwrap_or_default();
             Ok(submap)
         } else {
-            Ok(Default::default())
+            // Server-global storage fallback
+            Ok(self
+                .global_kv
+                .write()
+                .get_mut(&peer_cid)
+                .and_then(|k| k.remove(key))
+                .unwrap_or_default())
         }
     }
 
