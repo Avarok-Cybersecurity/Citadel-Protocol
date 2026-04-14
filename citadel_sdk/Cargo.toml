@@ -1,6 +1,6 @@
 [package]
 name = "citadel_sdk"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "High-level library to build applications on the Citadel Protocol"
 edition = "2021"
@@ -15,6 +15,7 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["filesystem", "std"]
 filesystem = ["citadel_proto/filesystem", "dirs2"]
+opfs = ["citadel_proto/opfs"]
 multi-threaded = ["citadel_proto/multi-threaded"]
 sql = ["citadel_proto/sql"]
 redis = ["citadel_proto/redis"]

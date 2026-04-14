@@ -57,7 +57,7 @@ pub(crate) mod do_connect {
 
     pub(crate) fn validate_final_status_packet(
         payload: &[u8],
-    ) -> Option<DoConnectFinalStatusPacket> {
+    ) -> Option<DoConnectFinalStatusPacket<'_>> {
         DoConnectFinalStatusPacket::deserialize_from_vector(payload).ok()
     }
 }
@@ -210,7 +210,6 @@ pub(crate) mod pre_connect {
         AssociatedSecurityLevel, EndpointRatchetConstructor,
     };
     use citadel_crypt::toolset::Toolset;
-    use citadel_nexus::traits::CitadelIOInterface;
     use citadel_user::client_account::ClientNetworkAccount;
     use citadel_wire::hypernode_type::NodeType;
 
@@ -218,10 +217,8 @@ pub(crate) mod pre_connect {
     use crate::proto::packet::HdpPacket;
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
-    use crate::proto::session_manager::CitadelSessionManager;
     use citadel_crypt::ratchets::Ratchet;
     use citadel_types::crypto::PreSharedKey;
-    use citadel_types::proto::ConnectMode;
     use citadel_types::proto::SessionSecuritySettings;
     use citadel_types::proto::UdpMode;
     use citadel_user::prelude::ConnectProtocol;
@@ -239,10 +236,9 @@ pub(crate) mod pre_connect {
         R,
     );
 
-    pub(crate) fn validate_syn<R: Ratchet, I: CitadelIOInterface>(
+    pub(crate) fn validate_syn<R: Ratchet>(
         cnac: &ClientNetworkAccount<R, R>,
         packet: HdpPacket,
-        session_manager: &CitadelSessionManager<R, I>,
         session_password: &PreSharedKey,
     ) -> Result<
         SynValidationResult<
@@ -250,12 +246,7 @@ pub(crate) mod pre_connect {
             <R::Constructor as EndpointRatchetConstructor<R>>::BobToAliceWireTransfer,
         >,
         NetworkError,
-    >
-    where
-        citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
-        citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
-        citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
-    {
+    > {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_ratchet();
         let (header, payload, _, _) = packet.decompose();
@@ -267,19 +258,6 @@ pub(crate) mod pre_connect {
 
         let transfer = SynPacket::<R>::deserialize_from_vector(&payload)
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
-
-        // TODO: Consider adding connect_mode to the HdpSession to sync between both nodes. For now, there's no need
-        match transfer.connect_mode {
-            ConnectMode::Fetch { force_login: false }
-            | ConnectMode::Standard { force_login: false } => {
-                // before going further, make sure the user isn't already logged-in. We wouldn't want to replace the toolset that is already being used
-                if session_manager.session_active(header.session_cid.get()) {
-                    return Err(NetworkError::InternalError("User is already logged in"));
-                }
-            }
-
-            _ => {}
-        }
 
         let session_security_settings = transfer.session_security_settings;
         let peer_only_connect_mode = transfer.peer_only_connect_protocol;

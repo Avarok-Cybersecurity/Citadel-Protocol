@@ -41,6 +41,11 @@ fn export_types() -> Result<(), Box<dyn std::error::Error>> {
     MessageGroupKey::export()?;
     TransferType::export()?;
 
+    // Export connection types
+    ClientConnectionType::export()?;
+    PeerConnectionType::export()?;
+    VirtualConnectionType::export()?;
+
     // Export crypto types
     CryptoParameters::export()?;
     EncryptionAlgorithm::export()?;

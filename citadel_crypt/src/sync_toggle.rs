@@ -118,6 +118,82 @@ impl SyncToggle {
             CurrentToggleState::Untoggled
         }
     }
+
+    /// Creates a guard that will reset the toggle when dropped (if armed).
+    ///
+    /// This is useful for ensuring toggle cleanup on early returns or errors.
+    pub fn guard(&self) -> ToggleGuard<'_> {
+        ToggleGuard::new(self)
+    }
+}
+
+/// RAII guard that resets a toggle when dropped if armed.
+///
+/// This ensures toggle is always reset on error paths or early returns,
+/// without requiring manual toggle_off() calls at every exit point.
+///
+/// # Example
+///
+/// ```rust
+/// use citadel_crypt::sync_toggle::SyncToggle;
+///
+/// fn rekey_operation(toggle: &SyncToggle) -> Result<(), &'static str> {
+///     let mut guard = toggle.guard();
+///
+///     // Arm the guard after toggle is turned on
+///     toggle.toggle_on_if_untoggled();
+///     guard.arm();
+///
+///     // If we return early with error, guard will reset toggle
+///     if some_condition() {
+///         return Err("early error");  // guard.drop() calls toggle_off()
+///     }
+///
+///     // On success, disarm to prevent reset
+///     guard.disarm();
+///     Ok(())
+/// }
+///
+/// fn some_condition() -> bool { false }
+/// # rekey_operation(&SyncToggle::new()).unwrap();
+/// ```
+pub struct ToggleGuard<'a> {
+    toggle: &'a SyncToggle,
+    armed: bool,
+}
+
+impl<'a> ToggleGuard<'a> {
+    /// Creates a new unarmed guard.
+    pub fn new(toggle: &'a SyncToggle) -> Self {
+        Self {
+            toggle,
+            armed: false,
+        }
+    }
+
+    /// Arms the guard so it will reset the toggle on drop.
+    pub fn arm(&mut self) {
+        self.armed = true;
+    }
+
+    /// Disarms the guard so it won't reset the toggle on drop.
+    pub fn disarm(&mut self) {
+        self.armed = false;
+    }
+
+    /// Returns whether the guard is currently armed.
+    pub fn is_armed(&self) -> bool {
+        self.armed
+    }
+}
+
+impl Drop for ToggleGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.toggle.toggle_off();
+            log::debug!(target: "citadel", "[CBD-TOGGLE] Guard triggered toggle_off() on early exit");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -177,5 +253,50 @@ mod tests {
             CurrentToggleState::AlreadyToggled
         );
         assert_eq!(toggle.state(), CurrentToggleState::Untoggled);
+    }
+
+    #[test]
+    fn test_toggle_guard_armed_resets_on_drop() {
+        let toggle = SyncToggle::new();
+        let _ = toggle.toggle_on_if_untoggled();
+        assert_eq!(toggle.state(), CurrentToggleState::AlreadyToggled);
+
+        {
+            let mut guard = toggle.guard();
+            guard.arm();
+            // Guard is armed, so drop will reset toggle
+        }
+
+        assert_eq!(toggle.state(), CurrentToggleState::Untoggled);
+    }
+
+    #[test]
+    fn test_toggle_guard_disarmed_does_not_reset() {
+        let toggle = SyncToggle::new();
+        let _ = toggle.toggle_on_if_untoggled();
+        assert_eq!(toggle.state(), CurrentToggleState::AlreadyToggled);
+
+        {
+            let mut guard = toggle.guard();
+            guard.arm();
+            guard.disarm();
+            // Guard is disarmed, so drop will NOT reset toggle
+        }
+
+        assert_eq!(toggle.state(), CurrentToggleState::AlreadyToggled);
+    }
+
+    #[test]
+    fn test_toggle_guard_unarmed_does_not_reset() {
+        let toggle = SyncToggle::new();
+        let _ = toggle.toggle_on_if_untoggled();
+        assert_eq!(toggle.state(), CurrentToggleState::AlreadyToggled);
+
+        {
+            let _guard = toggle.guard();
+            // Guard is never armed, so drop will NOT reset toggle
+        }
+
+        assert_eq!(toggle.state(), CurrentToggleState::AlreadyToggled);
     }
 }

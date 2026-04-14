@@ -108,7 +108,7 @@ dependencies = ["install-nextest", "install-llvm-cov"]
 script_runner = "@duckscript"
 description = "Run messenger tests multiple times to check for stability"
 script = '''
-# Number of iterations  
+# Number of iterations for stability testing
 iterations = set 10
 
 # Initialize variables

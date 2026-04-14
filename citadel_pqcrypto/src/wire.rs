@@ -86,7 +86,7 @@ pub struct ScramCryptDictionary<const BLOCK_SIZE: usize> {
 
 impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
     pub fn new() -> Option<Self> {
-        if BLOCK_SIZE > 256 || BLOCK_SIZE % 2 != 0 {
+        if BLOCK_SIZE > 256 || !BLOCK_SIZE.is_multiple_of(2) {
             return None;
         }
 

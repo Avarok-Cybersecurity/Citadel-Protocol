@@ -144,10 +144,12 @@ impl NatType {
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
     pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
+        // In localhost-testing mode, skip STUN entirely and return a localhost-only NatType.
+        // This prevents issues where STUN returns external IPs but sockets are bound to 127.0.0.1,
+        // causing hole punching to try sending from localhost to external IPs (which fails).
         if cfg!(feature = "localhost-testing") {
-            if let Some(nat_type) = LOCALHOST_TESTING_NAT_TYPE.lock().as_ref() {
-                return Ok(nat_type.clone());
-            }
+            log::trace!(target: "citadel", "Localhost testing enabled, skipping STUN and using localhost NatType");
+            return Ok(NatType::offline());
         }
 
         match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {

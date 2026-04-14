@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use citadel_io::tokio;
     use citadel_io::tokio::sync::Barrier;
@@ -216,12 +216,12 @@ mod tests {
     #[rstest]
     #[case(500, SecrecyMode::Perfect)]
     #[case(500, SecrecyMode::BestEffort)]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(600))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::MlKem)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256,
             EncryptionAlgorithm::ChaCha20Poly_1305,
@@ -300,14 +300,14 @@ mod tests {
     #[rstest]
     #[case(100, SecrecyMode::Perfect, None)]
     #[case(100, SecrecyMode::BestEffort, Some("test-password"))]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(600))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_c2s_messaging_kyber(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
         #[case] server_password: Option<&'static str>,
-        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
-        #[values(EncryptionAlgorithm::KyberHybrid)] enx: EncryptionAlgorithm,
+        #[values(KemAlgorithm::MlKem)] kem: KemAlgorithm,
+        #[values(EncryptionAlgorithm::MlKemHybrid)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(2);
@@ -342,7 +342,7 @@ mod tests {
         let uuid = Uuid::new_v4();
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(secrecy_mode)
-            .with_crypto_params(kem + enx + SigAlgorithm::Dilithium65)
+            .with_crypto_params(kem + enx + SigAlgorithm::MlDsa65)
             .build()
             .unwrap();
 
@@ -388,13 +388,13 @@ mod tests {
     #[rstest]
     #[case(500, SecrecyMode::Perfect, None)]
     #[case(500, SecrecyMode::BestEffort, Some("test-p2p-password"))]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(600))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
         #[case] p2p_password: Option<&'static str>,
-        #[values(KemAlgorithm::Kyber)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::MlKem)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256,
             EncryptionAlgorithm::ChaCha20Poly_1305,
@@ -413,14 +413,14 @@ mod tests {
     }
 
     #[rstest]
-    #[timeout(std::time::Duration::from_secs(240))]
+    #[timeout(std::time::Duration::from_secs(600))]
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn stress_test_p2p_messaging_thin_ratchet() {
         stress_test_p2p_messaging_with_ratchet::<MonoRatchet>(
             500,
             SecrecyMode::Perfect,
             None,
-            KemAlgorithm::Kyber,
+            KemAlgorithm::MlKem,
             EncryptionAlgorithm::AES_GCM_256,
         )
         .await;

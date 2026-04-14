@@ -69,7 +69,18 @@ impl<R: Ratchet> ReliableOrderedCompatStream<R> {
         // NOTE: The protocol must strip the header when passing packets to the from_stream function!
         let _ = state_container
             .hole_puncher_pipes
-            .insert(target_cid, from_stream_tx);
+            .insert(target_cid, from_stream_tx.clone());
+
+        // Drain any packets that arrived before the pipe was registered
+        if let Some(pending) = state_container
+            .pending_hole_punch_packets
+            .remove(&target_cid)
+        {
+            log::trace!(target: "citadel", "Draining {} pending hole-punch packets for peer {target_cid}", pending.len());
+            for packet in pending {
+                let _ = from_stream_tx.send(packet);
+            }
+        }
         // NOTE: this is hacky. We don't actually need real addrs here since this is used for hole punching
         let peer_external_addr = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let local_bind_addr = SocketAddr::from_str("0.0.0.0:1234").unwrap();

@@ -1487,7 +1487,7 @@ mod tests {
         endpoint_bob_cid: Option<u64>,
     ) -> (StackedRatchet, StackedRatchet) {
         let opts = ConstructorOpts::new_vec_init(
-            Some(KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256),
+            Some(KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256),
             Default::default(),
         );
         let mut alice = StackedRatchetConstructor::new_alice(opts.clone(), cid, version).unwrap();

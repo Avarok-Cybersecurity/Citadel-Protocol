@@ -38,10 +38,11 @@
 //! - File transfers are encrypted end-to-end
 
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 
+use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
 use citadel_nexus::traits::CitadelIOInterface;
 use serde::{Deserialize, Serialize};
@@ -69,7 +70,6 @@ use crate::proto::node_result::{NodeResult, ObjectTransferHandle};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::proto::packet::packet_flags;
 use crate::proto::packet::HdpHeader;
-use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_crafter::ObjectTransmitter;
 use crate::proto::packet_processor::includes::{CitadelSession, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -77,7 +77,6 @@ use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::channel::{PeerChannel, UdpChannel};
 use crate::proto::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
 use crate::proto::peer::p2p_conn_handler::DirectP2PRemote;
-use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{SessionRequest, SessionState, UserMessage};
 use crate::proto::session_queue_handler::SessionQueueWorkerHandle;
@@ -106,9 +105,10 @@ use citadel_types::proto::{
     MessageGroupKey, ObjectTransferOrientation, ObjectTransferStatus, SessionSecuritySettings,
     TransferType, UdpMode, VirtualObjectMetadata,
 };
+pub use citadel_types::proto::{VirtualConnectionType, VirtualTargetType, C2S_IDENTITY_CID};
 use citadel_user::backend::utils::*;
 use citadel_user::backend::PersistenceHandler;
-use citadel_user::serialization::SyncIO;
+use citadel_wire::nat_identification::NatType;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 impl<R: Ratchet, I: CitadelIOInterface> Debug for StateContainer<R, I> {
@@ -142,6 +142,10 @@ pub struct StateContainerInner<R: Ratchet, I: CitadelIOInterface> {
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection<R>>,
+    /// Ratchets extracted from P2P vconns before removal, allowing in-flight
+    /// packets to be decrypted after the stream dies. Cleared when a new
+    /// connection for the same peer is created or at session shutdown.
+    pub(super) stale_p2p_ratchets: HashMap<u64, R>,
     pub(crate) keep_alive_timeout_ns: i64,
     pub(crate) state: DualCell<SessionState>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
@@ -149,6 +153,7 @@ pub struct StateContainerInner<R: Ratchet, I: CitadelIOInterface> {
     // TODO: Ensure cleanup
     pub(super) hole_puncher_pipes:
         HashMap<u64, citadel_io::tokio::sync::mpsc::UnboundedSender<Bytes>>,
+    pub(super) pending_hole_punch_packets: HashMap<u64, Vec<Bytes>>,
     pub(super) cnac: Option<ClientNetworkAccount<R, R>>,
     pub(super) time_tracker: TimeTracker,
     pub(super) session_security_settings: Option<SessionSecuritySettings>,
@@ -232,6 +237,32 @@ impl FileKey {
     }
 }
 
+/// Signal for P2P disconnect, used for bidirectional disconnect propagation.
+/// Includes ticket so disconnect initiator knows when operation completed.
+#[derive(Debug, Clone)]
+pub struct P2PDisconnectSignal {
+    pub peer_cid: u64,
+    pub reason: P2PDisconnectReason,
+    /// Preserved for disconnect initiator to know when operation completed.
+    /// Some when ExplicitDisconnect, None for automatic disconnects.
+    pub ticket: Option<Ticket>,
+    /// Token identifying the specific P2P connection instance.
+    /// Used to reject stale disconnect signals from previous connections.
+    pub disconnect_token: Option<DisconnectToken>,
+}
+
+/// Reason for P2P disconnect
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // StreamEnded and ExplicitDisconnect will be used for granular disconnect handling
+pub enum P2PDisconnectReason {
+    /// I/O stream died (network failure)
+    StreamEnded,
+    /// User called disconnect explicitly
+    ExplicitDisconnect,
+    /// C2S session is ending (hard disconnect)
+    SessionShutdown,
+}
+
 /// For keeping track of connections
 pub struct VirtualConnection<R: Ratchet> {
     /// For determining the type of connection
@@ -242,6 +273,12 @@ pub struct VirtualConnection<R: Ratchet> {
     pub sender: Option<(Option<OutboundUdpSender>, OutboundPrimaryStreamSender)>,
     // this is None for server, Some for endpoints
     pub endpoint_container: Option<EndpointChannelContainer<R>>,
+    /// The NAT type of the adjacent peer (if known)
+    pub adjacent_nat_type: Option<NatType>,
+    /// Unique ID for this P2P connection instance (exchanged during KEX).
+    /// Used to build `DisconnectToken` for stale-signal rejection.
+    /// `Ticket(0)` for C2S connections.
+    pub p2p_connection_id: Ticket,
 }
 
 impl<R: Ratchet> VirtualConnection<R> {
@@ -261,6 +298,10 @@ pub struct EndpointChannelContainer<R: Ratchet> {
     // for UDP
     pub(crate) to_unordered_local_channel: Option<UnorderedChannelContainer>,
     pub(crate) file_transfer_compatible: bool,
+    /// Oneshot sender for P2P disconnect notification - uses `.take()` for exactly-once semantics.
+    /// Sends P2PDisconnectSignal which includes the ticket for disconnect initiator.
+    pub(crate) p2p_disconnect_notifier:
+        Option<citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>>,
 }
 
 pub(crate) struct UnorderedChannelContainer {
@@ -272,6 +313,14 @@ impl<R: Ratchet> EndpointChannelContainer<R> {
     pub fn get_direct_p2p_primary_stream(&self) -> Option<&OutboundPrimaryStreamSender> {
         Some(&self.direct_p2p_remote.as_ref()?.p2p_primary_stream)
     }
+
+    /// Takes the P2P disconnect notifier using Option::take() for exactly-once semantics.
+    /// If None, the notifier was already taken (disconnect signal already sent).
+    pub fn take_p2p_disconnect_notifier(
+        &mut self,
+    ) -> Option<citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>> {
+        self.p2p_disconnect_notifier.take()
+    }
 }
 
 impl<R: Ratchet> Drop for VirtualConnection<R> {
@@ -279,200 +328,30 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
         self.is_active.store(false, Ordering::SeqCst);
         if let Some(endpoint_container) = self.endpoint_container.as_mut() {
             let _ = endpoint_container.ratchet_manager.shutdown();
-        }
-    }
-}
-
-/// For determining the nature of a [VirtualConnection]
-#[derive(Eq, PartialEq, Copy, Clone, Debug, Hash, Serialize, Deserialize)]
-pub enum VirtualConnectionType {
-    LocalGroupPeer {
-        session_cid: u64,
-        peer_cid: u64,
-    },
-    ExternalGroupPeer {
-        session_cid: u64,
-        interserver_cid: u64,
-        peer_cid: u64,
-    },
-    LocalGroupServer {
-        session_cid: u64,
-    },
-    ExternalGroupServer {
-        session_cid: u64,
-        interserver_cid: u64,
-    },
-}
-
-/// For readability
-pub type VirtualTargetType = VirtualConnectionType;
-impl VirtualConnectionType {
-    pub fn serialize(&self) -> Vec<u8> {
-        Self::serialize_to_vector(self).unwrap()
-    }
-
-    pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(this: T) -> Option<Self> {
-        Self::deserialize_from_vector(this.as_ref()).ok()
-    }
-
-    /// Gets the target cid, agnostic to type
-    pub fn get_target_cid(&self) -> u64 {
-        match self {
-            VirtualConnectionType::LocalGroupServer { session_cid: _cid } => {
-                // by rule of the network, the target CID is zero if a C2S connection
-                C2S_IDENTITY_CID
-            }
-
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid: _session_cid,
-                peer_cid: target_cid,
-            } => *target_cid,
-
-            VirtualConnectionType::ExternalGroupPeer {
-                session_cid: _session_cid,
-                interserver_cid: _icid,
-                peer_cid: target_cid,
-            } => *target_cid,
-
-            VirtualConnectionType::ExternalGroupServer {
-                session_cid: _session_cid,
-                interserver_cid: icid,
-            } => *icid,
-        }
-    }
-
-    /// Gets the target cid, agnostic to type
-    pub fn get_session_cid(&self) -> u64 {
-        match self {
-            VirtualConnectionType::LocalGroupServer { session_cid: cid } => *cid,
-
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: _target_cid,
-            } => *session_cid,
-
-            VirtualConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: _icid,
-                peer_cid: _target_cid,
-            } => *session_cid,
-
-            VirtualConnectionType::ExternalGroupServer {
-                session_cid,
-                interserver_cid: _icid,
-            } => *session_cid,
-        }
-    }
-
-    pub fn is_local_group(&self) -> bool {
-        matches!(
-            self,
-            VirtualConnectionType::LocalGroupPeer { .. }
-                | VirtualConnectionType::LocalGroupServer { .. }
-        )
-    }
-
-    pub fn is_external_group(&self) -> bool {
-        !self.is_local_group()
-    }
-
-    pub fn try_as_peer_connection(&self) -> Option<PeerConnectionType> {
-        match self {
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid,
-            } => Some(PeerConnectionType::LocalGroupPeer {
-                session_cid: *session_cid,
-                peer_cid: *peer_cid,
-            }),
-
-            VirtualConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: icid,
-                peer_cid,
-            } => Some(PeerConnectionType::ExternalGroupPeer {
-                session_cid: *session_cid,
-                interserver_cid: *icid,
-                peer_cid: *peer_cid,
-            }),
-
-            _ => None,
-        }
-    }
-
-    pub fn set_target_cid(&mut self, target_cid: u64) {
-        match self {
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid: _,
-                peer_cid,
-            }
-            | VirtualConnectionType::ExternalGroupPeer {
-                session_cid: _,
-                interserver_cid: _,
-                peer_cid,
-            } => *peer_cid = target_cid,
-
-            _ => {}
-        }
-    }
-
-    pub fn set_session_cid(&mut self, cid: u64) {
-        match self {
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: _,
-            }
-            | VirtualConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: _,
-                peer_cid: _,
-            } => *session_cid = cid,
-
-            _ => {}
-        }
-    }
-}
-
-impl Display for VirtualConnectionType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VirtualConnectionType::LocalGroupServer { session_cid: cid } => {
-                write!(f, "Local Group Peer to Local Group Server ({cid})")
-            }
-
-            VirtualConnectionType::LocalGroupPeer {
-                session_cid,
-                peer_cid: target_cid,
-            } => {
-                write!(
-                    f,
-                    "Local Group Peer to Local Group Peer ({session_cid} -> {target_cid})"
-                )
-            }
-
-            VirtualConnectionType::ExternalGroupPeer {
-                session_cid,
-                interserver_cid: icid,
-                peer_cid: target_cid,
-            } => {
-                write!(
-                    f,
-                    "Local Group Peer to External Group Peer ({session_cid} -> {icid} -> {target_cid})"
-                )
-            }
-
-            VirtualConnectionType::ExternalGroupServer {
-                session_cid,
-                interserver_cid: icid,
-            } => {
-                write!(
-                    f,
-                    "Local Group Peer to External Group Server ({session_cid} -> {icid})"
-                )
+            // Trigger P2P disconnect notification if not already triggered (exactly-once via .take())
+            if let Some(notifier) = endpoint_container.take_p2p_disconnect_notifier() {
+                let peer_cid = self.connection_type.get_target_cid();
+                let session_cid = self.connection_type.get_session_cid();
+                log::trace!(target: "citadel", "VirtualConnection drop: sending P2P disconnect notification (SessionShutdown) for peer {peer_cid}");
+                let disconnect_token = Some(DisconnectToken {
+                    cid: session_cid,
+                    connection_id: self.p2p_connection_id,
+                });
+                let signal = P2PDisconnectSignal {
+                    peer_cid,
+                    reason: P2PDisconnectReason::SessionShutdown,
+                    ticket: None, // No ticket for automatic disconnects (Drop)
+                    disconnect_token,
+                };
+                let _ = notifier.send(signal);
+            } else {
+                log::trace!(target: "citadel", "VirtualConnection drop: P2P disconnect notifier already taken");
             }
         }
     }
 }
+
+// VirtualConnectionType and VirtualTargetType are re-exported from citadel_types::proto
 
 #[derive(Default)]
 pub(super) struct NetworkStats {
@@ -594,6 +473,7 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
             time_tracker,
             cnac,
             hole_puncher_pipes: HashMap::new(),
+            pending_hole_punch_packets: HashMap::new(),
             tcp_loaded_status: None,
             state,
             keep_alive_timeout_ns,
@@ -603,6 +483,7 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
             udp_primary_outbound_tx: None,
             deregister_state: Default::default(),
             active_virtual_connections: Default::default(),
+            stale_p2p_ratchets: Default::default(),
             network_stats: Default::default(),
             kernel_tx,
             register_state: packet_flags::cmd::aux::do_register::STAGE0.into(),
@@ -635,7 +516,10 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
 
     /// Attempts to find the direct p2p stream. If not found, will use the default
     /// to_server stream. Note: the underlying crypto is still the same
-    pub fn get_preferred_stream(&self, peer_cid: u64) -> &OutboundPrimaryStreamSender {
+    ///
+    /// Returns None if neither the peer connection nor the C2S connection exist,
+    /// which can happen during shutdown when connections are being torn down.
+    pub fn get_preferred_stream(&self, peer_cid: u64) -> Option<&OutboundPrimaryStreamSender> {
         fn get_inner<R: Ratchet, I: CitadelIOInterface>(
             this: &StateContainerInner<R, I>,
             peer_cid: u64,
@@ -652,11 +536,8 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
             )
         }
 
-        // On fallback
-        get_inner(self, peer_cid).unwrap_or_else(|| {
-            get_inner(self, C2S_IDENTITY_CID)
-                .expect("The C2S virtual connection should always exist")
-        })
+        // Try peer connection first, then fall back to C2S
+        get_inner(self, peer_cid).or_else(|| get_inner(self, C2S_IDENTITY_CID))
     }
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
@@ -704,6 +585,16 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
                 *sender = Some(to_udp_stream.clone());
                 if let Some(p2p_endpoint_container) = p2p_container.endpoint_container.as_mut() {
                     let (to_channel, rx) = unbounded();
+                    // Build disconnect token from the vconn's p2p_connection_id
+                    let disconnect_token = match v_conn {
+                        VirtualConnectionType::LocalGroupPeer { session_cid, .. } => {
+                            Some(DisconnectToken {
+                                cid: session_cid,
+                                connection_id: p2p_container.p2p_connection_id,
+                            })
+                        }
+                        _ => None,
+                    };
                     let udp_channel = UdpChannel::new(
                         to_udp_stream,
                         rx,
@@ -712,6 +603,7 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
                         ticket,
                         p2p_container.is_active.clone(),
                         self.node_remote.clone(),
+                        disconnect_token,
                     );
                     p2p_endpoint_container.to_unordered_local_channel =
                         Some(UnorderedChannelContainer {
@@ -752,24 +644,85 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
 
     /// In order for the upgrade to work, the peer_addr must be reflective of the peer_addr present when
     /// receiving the packet. As such, the direct p2p-stream MUST have sent the packet
+    ///
+    /// `implcid`: Local CID for deterministic tie-breaker when simultaneous connections occur.
+    /// Pass 0 for C2S connections (no tie-breaking needed).
+    ///
+    /// `p2p_disconnect_notifier`: Optional oneshot sender for disconnect notification.
+    /// When the P2P connection ends, this sender will be triggered, allowing the receiver
+    /// to forward the disconnect signal to the kernel. Pass None for C2S connections.
     pub(crate) fn insert_direct_p2p_connection(
         &mut self,
-        provisional: DirectP2PRemote,
+        mut provisional: DirectP2PRemote,
         peer_cid: u64,
+        implcid: u64,
+        p2p_disconnect_notifier: Option<
+            citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>,
+        >,
     ) -> Result<(), NetworkError> {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
                 log::trace!(target: "citadel", "UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
+
+                // CID-based tie-breaker for simultaneous P2P connections (defense-in-depth).
+                // Rule: Keep connection where the higher-CID peer is the client.
+                // This ensures both peers converge on the SAME underlying connection.
+                if let Some(existing) = endpoint_container.direct_p2p_remote.as_ref() {
+                    // Determine which connection type we should have based on CIDs
+                    // If implcid < peer_cid, we should be the listener (peer is client)
+                    let should_be_listener = implcid != 0 && implcid < peer_cid;
+
+                    if existing.from_listener == should_be_listener {
+                        // Existing connection is the correct type, discard provisional
+                        log::info!(target: "citadel",
+                            "P2P already has correct {} connection for peer {peer_cid}, discarding duplicate {} connection",
+                            existing.from_listener.if_eq(true, "listener").if_false("client"),
+                            provisional.from_listener.if_eq(true, "listener").if_false("client")
+                        );
+                        // Stop the provisional's handler cleanly
+                        if let Some(stopper) = provisional.stopper.take() {
+                            let _ = stopper.send(());
+                        }
+                        return Ok(());
+                    } else if provisional.from_listener == should_be_listener {
+                        // Provisional is the correct type, replace existing
+                        log::info!(target: "citadel",
+                            "Replacing {} with correct {} P2P connection for peer {peer_cid} (CID tie-breaker: implcid={}, peer={})",
+                            existing.from_listener.if_eq(true, "listener").if_false("client"),
+                            provisional.from_listener.if_eq(true, "listener").if_false("client"),
+                            implcid, peer_cid
+                        );
+                        // Stop the existing handler cleanly before replacing
+                        if let Some(mut old) = endpoint_container.direct_p2p_remote.take() {
+                            if let Some(stopper) = old.stopper.take() {
+                                let _ = stopper.send(());
+                            }
+                        }
+                    } else {
+                        // Neither matches expected type (edge case) - keep existing
+                        log::warn!(target: "citadel",
+                            "Neither connection matches expected type for peer {peer_cid}, keeping existing {} (expected {})",
+                            existing.from_listener.if_eq(true, "listener").if_false("client"),
+                            should_be_listener.if_eq(true, "listener").if_false("client")
+                        );
+                        if let Some(stopper) = provisional.stopper.take() {
+                            let _ = stopper.send(());
+                        }
+                        return Ok(());
+                    }
+                }
+
                 // By setting the below value, all outbound packets will use
                 // this direct conn over the proxied TURN-like connection
                 vconn.sender = Some((None, provisional.p2p_primary_stream.clone())); // setting this will allow the UDP stream to be upgraded too
+                endpoint_container.direct_p2p_remote = Some(provisional);
 
-                if endpoint_container
-                    .direct_p2p_remote
-                    .replace(provisional)
-                    .is_some()
-                {
-                    log::warn!(target: "citadel", "Dropped previous p2p remote during upgrade process");
+                // Set the P2P disconnect notifier for bidirectional disconnect propagation (P2P only)
+                if let Some(notifier) = p2p_disconnect_notifier {
+                    if endpoint_container.p2p_disconnect_notifier.is_some() {
+                        log::warn!(target: "citadel", "Replacing existing P2P disconnect notifier for peer {peer_cid}");
+                    }
+                    endpoint_container.p2p_disconnect_notifier = Some(notifier);
                 }
 
                 return Ok(());
@@ -790,6 +743,7 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
         endpoint_crypto: PeerSessionCrypto<R>,
         sess: &CitadelSession<R, I>,
         file_transfer_compatible: bool,
+        p2p_connection_id: Ticket,
     ) -> PeerChannel<R> {
         let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) = unbounded();
         let (tx_to_outbound, rx_for_outbound) =
@@ -893,6 +847,15 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
 
         spawn!(combined_task);
 
+        // Build disconnect token for P2P connections
+        let disconnect_token = match virtual_connection_type {
+            VirtualConnectionType::LocalGroupPeer { session_cid, .. } => Some(DisconnectToken {
+                cid: session_cid,
+                connection_id: p2p_connection_id,
+            }),
+            _ => None, // C2S connections don't use P2P disconnect tokens in the channel
+        };
+
         let peer_channel = PeerChannel::new(
             self.node_remote.clone(),
             target_cid,
@@ -901,6 +864,7 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
             default_security_settings.security_level,
             is_active.clone(),
             protocol_messenger,
+            disconnect_token,
         );
 
         CitadelSession::spawn_message_sender_function(
@@ -916,7 +880,14 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
             to_ordered_local_channel: to_channel,
             to_unordered_local_channel: None,
             file_transfer_compatible,
+            // P2P disconnect notifier - set to None initially, will be populated
+            // by p2p_conn_handler when P2P stream is established
+            p2p_disconnect_notifier: None,
         });
+
+        // For C2S connections, get the adjacent NAT type from the session
+        // For P2P connections, this will be updated later during hole punching
+        let adjacent_nat_type = (*sess.adjacent_nat_type).clone();
 
         let vconn = VirtualConnection {
             last_delivered_message_timestamp: DualRwLock::from(None),
@@ -924,7 +895,13 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
             is_active,
             sender: None,
             endpoint_container,
+            adjacent_nat_type,
+            p2p_connection_id,
         };
+
+        // Clear any stale ratchet for this peer — the new connection
+        // supersedes it and provides a fresh ratchet via the new vconn.
+        self.stale_p2p_ratchets.remove(&target_cid);
 
         self.active_virtual_connections.insert(target_cid, vconn);
 
@@ -954,6 +931,7 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
             endpoint_crypto,
             session,
             true,
+            Ticket(0), // C2S connections don't need P2P connection IDs
         );
 
         let p2p_remote = DirectP2PRemote {
@@ -965,7 +943,8 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
             from_listener: false,
         };
 
-        self.insert_direct_p2p_connection(p2p_remote, C2S_IDENTITY_CID)
+        // C2S connections don't have simultaneous connect races, so pass implcid=0
+        self.insert_direct_p2p_connection(p2p_remote, C2S_IDENTITY_CID, 0, None)
             .expect("C2S insertion should not fail");
 
         if let Some(udp_alerter) = self.tcp_loaded_status.take() {
@@ -996,6 +975,8 @@ impl<R: Ratchet, I: CitadelIOInterface> StateContainerInner<R, I> {
             sender: Some((target_udp_sender, target_tcp_sender)),
             connection_type,
             is_active: Arc::new(AtomicBool::new(true)),
+            adjacent_nat_type: None, // Server doesn't have direct NAT info for clients
+            p2p_connection_id: Ticket(0), // Server doesn't track P2P connection IDs
         };
         if self
             .active_virtual_connections

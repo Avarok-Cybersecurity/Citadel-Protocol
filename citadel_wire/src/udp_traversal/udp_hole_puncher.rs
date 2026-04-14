@@ -93,25 +93,31 @@ async fn driver(
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let mut retries = 0;
     loop {
+        log::trace!(target: "citadel", "[driver] Attempt {}/{} starting (timeout: {:?})", retries + 1, MAX_RETRIES, timeout);
         let task = citadel_io::tokio::time::timeout(
             timeout,
             driver_inner(conn, encrypted_config_container.clone()),
         );
         match task.await {
-            Ok(Ok(res)) => return Ok(res),
+            Ok(Ok(res)) => {
+                log::trace!(target: "citadel", "[driver] Attempt {} succeeded!", retries + 1);
+                return Ok(res);
+            }
             Ok(Err(err)) => {
-                log::warn!(target: "citadel", "Hole puncher failed: {err:?}");
+                log::warn!(target: "citadel", "[driver] Attempt {}/{} failed with error: {err:?}", retries + 1, MAX_RETRIES);
             }
             Err(_) => {
-                log::warn!(target: "citadel", "Hole puncher timed-out");
+                log::warn!(target: "citadel", "[driver] Attempt {}/{} timed-out after {:?}", retries + 1, MAX_RETRIES, timeout);
             }
         }
 
         retries += 1;
 
         if retries >= MAX_RETRIES {
+            log::error!(target: "citadel", "[driver] All {} attempts exhausted, giving up", MAX_RETRIES);
             return Err(anyhow::Error::msg("Max retries reached for UDP Traversal"));
         }
+        log::trace!(target: "citadel", "[driver] Retrying... ({} attempts remaining)", MAX_RETRIES - retries);
     }
 }
 
@@ -120,15 +126,54 @@ async fn driver_inner(
     mut encrypted_config_container: HolePunchConfigContainer,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     log::trace!(target: "citadel", "[driver] Starting hole puncher ...");
-    // create stream
-    let stream = &(conn.initiate_subscription().await?);
-    let stun_servers = encrypted_config_container.take_stun_servers();
-    let local_nat_type = &(NatType::identify(stun_servers)
-        .await
-        .map_err(|err| anyhow::Error::msg(err.to_string()))?);
 
-    stream.send_serialized(local_nat_type).await?;
-    let peer_nat_type = &(stream.recv_serialized::<NatType>().await?);
+    // Step 1: Initiate subscription - this can fail if NetworkEndpoint is stale/closed
+    log::trace!(target: "citadel", "[driver] Step 1: Initiating subscription...");
+    let stream = match conn.initiate_subscription().await {
+        Ok(s) => {
+            log::trace!(target: "citadel", "[driver] Step 1: Subscription successful");
+            s
+        }
+        Err(e) => {
+            log::error!(target: "citadel", "[driver] Step 1 FAILED: Subscription error: {e:?}");
+            return Err(e);
+        }
+    };
+    let stream = &stream;
+    let stun_servers = encrypted_config_container.take_stun_servers();
+
+    // Step 2: NAT type identification
+    log::trace!(target: "citadel", "[driver] Step 2: Identifying local NAT type...");
+    let local_nat_type = match NatType::identify(stun_servers).await {
+        Ok(nat) => {
+            log::trace!(target: "citadel", "[driver] Step 2: NAT identification successful: {nat:?}");
+            nat
+        }
+        Err(e) => {
+            log::error!(target: "citadel", "[driver] Step 2 FAILED: NAT identification error: {e:?}");
+            return Err(anyhow::Error::msg(e.to_string()));
+        }
+    };
+    let local_nat_type = &local_nat_type;
+
+    // Step 3: Exchange NAT types with peer
+    log::trace!(target: "citadel", "[driver] Step 3: Exchanging NAT types with peer...");
+    if let Err(e) = stream.send_serialized(local_nat_type).await {
+        log::error!(target: "citadel", "[driver] Step 3 FAILED: Send NAT type error: {e:?}");
+        return Err(anyhow::Error::from(e));
+    }
+    log::trace!(target: "citadel", "[driver] Step 3a: Sent local NAT type, waiting for peer...");
+    let peer_nat_type = match stream.recv_serialized::<NatType>().await {
+        Ok(nat) => {
+            log::trace!(target: "citadel", "[driver] Step 3: Received peer NAT type: {nat:?}");
+            nat
+        }
+        Err(e) => {
+            log::error!(target: "citadel", "[driver] Step 3 FAILED: Receive NAT type error: {e:?}");
+            return Err(e.into());
+        }
+    };
+    let peer_nat_type = &peer_nat_type;
 
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
     let internal_bind_addr_optimal = local_initial_socket.local_addr()?;
@@ -140,9 +185,18 @@ async fn driver_inner(
         sockets.push(additional_socket);
     }
 
-    // exchange internal bind port, also synchronizing the beginning of the hole punch process
-    // while doing so
-    let peer_internal_bind_addrs = conn.sync_exchange_payload(internal_addresses).await?;
+    // Step 4: Exchange internal bind ports, synchronizing the beginning of the hole punch process
+    log::trace!(target: "citadel", "[driver] Step 4: Exchanging internal bind addresses...");
+    let peer_internal_bind_addrs = match conn.sync_exchange_payload(internal_addresses).await {
+        Ok(addrs) => {
+            log::trace!(target: "citadel", "[driver] Step 4: Sync exchange successful, peer addrs: {addrs:?}");
+            addrs
+        }
+        Err(e) => {
+            log::error!(target: "citadel", "[driver] Step 4 FAILED: Sync exchange error: {e:?}");
+            return Err(e);
+        }
+    };
     log::info!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {local_nat_type:?}\n Peer NAT type: {peer_nat_type:?}");
     log::info!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr_optimal:?}\nPeer internal bind addr: {peer_internal_bind_addrs:?}");
     log::info!(target: "citadel", "\n~~~~~~~~~~~~\n");
@@ -150,15 +204,27 @@ async fn driver_inner(
     // connections (e.g., no conflicts with the primary stream existing in conn)
     let hole_punch_config = HolePunchConfig::new(peer_nat_type, &peer_internal_bind_addrs, sockets);
 
+    // Step 5: Execute DualStackUdpHolePuncher
     let conn = conn.clone();
-    log::trace!(target: "citadel", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {hole_punch_config:?}");
-    let res = DualStackUdpHolePuncher::new(
+    log::trace!(target: "citadel", "[driver] Step 5: Creating and executing DualStackUdpHolePuncher...");
+    let hole_puncher = match DualStackUdpHolePuncher::new(
         conn.node_type(),
         encrypted_config_container,
         hole_punch_config,
         conn,
-    )?
-    .await;
+    ) {
+        Ok(hp) => {
+            log::trace!(target: "citadel", "[driver] Step 5a: DualStackUdpHolePuncher created successfully");
+            hp
+        }
+        Err(e) => {
+            log::error!(target: "citadel", "[driver] Step 5 FAILED: DualStackUdpHolePuncher creation error: {e:?}");
+            return Err(e);
+        }
+    };
+
+    log::trace!(target: "citadel", "[driver] Step 5b: Awaiting hole punch result...");
+    let res = hole_puncher.await;
 
     log::info!(target: "citadel", "Hole Punch Status: {res:?}");
 
@@ -216,14 +282,14 @@ pub trait EndpointHolePunchExt {
     fn begin_udp_hole_punch(
         &self,
         encrypted_config_container: HolePunchConfigContainer,
-    ) -> UdpHolePuncher;
+    ) -> UdpHolePuncher<'_>;
 }
 
 impl EndpointHolePunchExt for NetworkEndpoint {
     fn begin_udp_hole_punch(
         &self,
         encrypted_config_container: HolePunchConfigContainer,
-    ) -> UdpHolePuncher {
+    ) -> UdpHolePuncher<'_> {
         UdpHolePuncher::new(self, encrypted_config_container)
     }
 }

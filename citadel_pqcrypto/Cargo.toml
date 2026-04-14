@@ -20,7 +20,7 @@
 
 [package]
 name = "citadel_pqcrypto"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Lower-level cryptographic library for the Citadel Protocol"
 edition = "2021"
@@ -92,6 +92,10 @@ zeroize = { workspace = true, features = [
 citadel_types = { workspace = true }
 
 ml-dsa = { workspace = true }
+fn-dsa = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

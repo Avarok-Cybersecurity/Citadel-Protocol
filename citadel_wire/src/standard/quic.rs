@@ -130,8 +130,8 @@ pub type QuicNextConnectionFuture<'a> = Pin<
 >;
 
 pub trait QuicEndpointListener {
-    fn listener(&self) -> Accept;
-    fn next_connection(&mut self) -> QuicNextConnectionFuture
+    fn listener(&self) -> Accept<'_>;
+    fn next_connection(&mut self) -> QuicNextConnectionFuture<'_>
     where
         Self: Sized + Send + Sync,
     {
@@ -166,7 +166,7 @@ impl QuicEndpointConnector for Endpoint {
 }
 
 impl QuicEndpointListener for QuicNode {
-    fn listener(&self) -> Accept {
+    fn listener(&self) -> Accept<'_> {
         self.endpoint.accept()
     }
 }

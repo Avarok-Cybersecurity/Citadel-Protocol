@@ -10,3 +10,6 @@
 Cargo.lock
 target_ide/
 .vscode/
+.ci_logs/
+local_test_logs/
+tmp/

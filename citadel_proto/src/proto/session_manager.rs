@@ -54,7 +54,8 @@ use crate::auth::AuthenticationRequest;
 use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS};
 use crate::error::NetworkError;
 use crate::macros::{FutureRequirements, SyncContextRequirements};
-use crate::prelude::Disconnect;
+use crate::prelude::{ConnectionInfo, Disconnect, SessionInfo};
+use crate::proto::disconnect_tracker::DisconnectSignalTracker;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
@@ -72,7 +73,7 @@ use crate::proto::peer::peer_layer::{
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
     CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode,
-    ServerOnlySessionInitSettings, SessionInitParams,
+    ServerOnlySessionInitSettings, SessionInitParams, SessionState,
 };
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
@@ -82,7 +83,8 @@ use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::TransferType;
 use citadel_types::proto::{
-    GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions, UdpMode,
+    ClientConnectionType, GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
+    UdpMode,
 };
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
@@ -111,6 +113,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, I: CitadelIOInterface> {
     client_config: Arc<rustls::ClientConfig>,
     stun_servers: Option<Vec<String>>,
     io_provider: Arc<I>,
+    /// Tracks disconnect signals to ensure at most 1 per session/peer
+    disconnect_tracker: DisconnectSignalTracker,
 }
 
 impl<R: Ratchet, I: CitadelIOInterface> CitadelSessionManager<R, I>
@@ -148,6 +152,7 @@ where
             client_config,
             stun_servers,
             io_provider,
+            disconnect_tracker: DisconnectSignalTracker::new(),
         };
 
         Self::from(inner)
@@ -161,10 +166,81 @@ where
         this.time_tracker
     }
 
+    /// Returns the disconnect signal tracker for ensuring at most 1 disconnect signal
+    /// per unique session/peer combination.
+    pub(crate) fn disconnect_tracker(&self) -> DisconnectSignalTracker {
+        inner!(self).disconnect_tracker.clone()
+    }
+
     /// Determines if `cid` is connected
-    pub fn session_active(&self, cid: u64) -> bool {
-        let this = inner!(self);
-        this.sessions.contains_key(&cid)
+    pub async fn can_proceed_with_new_incoming_connection(&self, cid: u64) -> bool {
+        let await_for_drop_rx = {
+            let this = inner!(self);
+
+            if let Some(sess) = this.sessions.get(&cid).map(|(_, sess)| sess).or_else(|| {
+                this.provisional_connections
+                    .values()
+                    .find(|(_, _, sess)| sess.session_cid.get().unwrap_or_default() == cid)
+                    .map(|(_, _, sess)| sess)
+            }) {
+                let current_state = sess.state.get();
+                if current_state == SessionState::Connected {
+                    citadel_logging::warn!(target: "citadel", "Session {cid} is already connected");
+                    // Session is firmly connected, and not in the process of disconnecting
+                    return false;
+                }
+
+                // If the session is not connected (implied per above), and, the session is not disconnecting, it is in the process of connecting
+                if current_state != SessionState::Disconnecting {
+                    citadel_logging::warn!(target: "citadel", "Session {cid} is already in the process of connecting (i.e., provisional)");
+                    return false;
+                }
+
+                // If the drop listener is already some, that means the session is in the process of disconnecting,
+                // AND, another connection attempt is in progress. Since we were not the first to initiate the connection
+                // we must yield to the earlier connection attempt and not allow this session to proceed.
+                //
+                // Note: Must not have a TOCTOU race condition here
+                let (await_for_drop_tx, await_for_drop_rx) =
+                    citadel_io::tokio::sync::oneshot::channel();
+                if sess
+                    .drop_listener
+                    .atomic_set_if_none(await_for_drop_tx)
+                    .is_some()
+                {
+                    citadel_logging::warn!(target: "citadel", "Session {cid} is already in the process of disconnecting, however, must yield to earlier connection attempt");
+                    return false;
+                }
+
+                await_for_drop_rx
+            } else {
+                // No session exists, so we can proceed with the connection attempt
+                return true;
+            }
+        };
+
+        // Session exists, but, if it's in the process of disconnecting, we wait for it to disconnect by polling and/or waiting for the drop listener to be dropped
+        let wait_for_drop = async move {
+            citadel_logging::debug!(target: "citadel", "🔄 Session attempt for {cid} is awaiting for clean disconnection of prior connection");
+            let _ = await_for_drop_rx.await;
+        };
+
+        // Timeout after 5s to ensure we don't wait indefinitely. We brute force disconnect the session if it doesn't disconnect within the timeout.
+        let timeout = async move {
+            citadel_io::tokio::time::sleep(Duration::from_secs(5)).await;
+        };
+
+        // Wait for the session to disconnect or timeout
+        citadel_io::tokio::select! {
+            _ = wait_for_drop => true,
+            _ = timeout => {
+                citadel_logging::warn!(target: "citadel", "Session attempt for {cid} failed to disconnect within the timeout. Force clearing");
+                let mut this = inner_mut!(self);
+                this.sessions.remove(&cid);
+                this.provisional_connections.retain(|_, sess| sess.2.session_cid.get().unwrap_or(0) != cid);
+                true
+            },
+        }
     }
 
     /// Called by the higher-level [CitadelNode] async writer loop
@@ -188,6 +264,9 @@ where
     ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let (session_manager, new_session, peer_addr, primary_stream) = {
             let session_manager_clone = self.clone();
+            // Clone disconnect_tracker BEFORE acquiring inner lock to avoid
+            // RefCell double-borrow panic during session construction
+            let disconnect_tracker = self.disconnect_tracker();
 
             let (
                 remote,
@@ -277,6 +356,17 @@ where
                         }
                     }
 
+                    // Check if a session already exists for this CID (client-side check)
+                    // This prevents wasteful roundtrips where the server would reject with
+                    // "Session Already Connected"
+                    if let Some(cid) = cnac.as_ref().map(|c| c.get_cid()) {
+                        if this.sessions.contains_key(&cid) {
+                            return Err(NetworkError::Generic(format!(
+                                "Session for CID {cid} already exists. Disconnect first before reconnecting."
+                            )));
+                        }
+                    }
+
                     (
                         remote,
                         kernel_tx,
@@ -356,6 +446,7 @@ where
                 init_time,
                 session_password,
                 server_only_session_init_settings: None,
+                disconnect_tracker,
             };
 
             let (stopper, new_session) = CitadelSession::new(session_init_params)?;
@@ -406,6 +497,7 @@ where
         let mut err = None;
         let init_time = new_session.init_time;
         let res = new_session.execute(tcp_stream, peer_addr).await;
+        new_session.state.set(SessionState::Disconnecting);
 
         match &res {
             Ok(cid_opt) | Err((_, cid_opt)) => {
@@ -468,6 +560,18 @@ where
                     .map(|r| r.security_level)
                     .unwrap_or(SecurityLevel::Standard);
 
+                // Stop all UDP tasks before draining vconns to prevent race conditions
+                for peer_id in state_container
+                    .active_virtual_connections
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                {
+                    state_container.remove_udp_channel(peer_id);
+                }
+                // Clear all KEM states to allow clean reconnection
+                state_container.peer_kem_states.clear();
+
                 state_container.active_virtual_connections.drain().for_each(|(peer_id, vconn)| {
                     let peer_cid = peer_id;
                     // toggling this off ensures that any higher-level channels are disabled
@@ -484,6 +588,7 @@ where
                                 let signal = PeerSignal::Disconnect {
                                     peer_conn_type,
                                     disconnect_response: Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {session_cid} forcibly"))),
+                                    disconnect_token: None,
                                 };
                                 if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_ratchet| {
                                     super::packet_crafter::peer_cmd::craft_peer_signal(peer_ratchet, signal, Ticket(0), timestamp, security_level)
@@ -494,6 +599,10 @@ where
                                 if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
                                     let peer_sess = &peer_sess.1;
                                     let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
+                                    // Stop peer's UDP task before removing vconn
+                                    peer_state_container.remove_udp_channel(session_cid);
+                                    // NOTE: Do NOT remove peer_kem_states here — a new
+                                    // reconnection may have already inserted fresh KEM state.
                                     if peer_state_container.active_virtual_connections.remove(&session_cid).is_none() {
                                         log::warn!(target: "citadel", "While dropping session {session_cid}, attempted to remove vConn to {peer_cid}, but peer did not have the vConn listed. Report to developers");
                                     }
@@ -509,6 +618,8 @@ where
             //sess.queue_worker.signal_shutdown();
             state_container.end_connections();
         }
+
+        sess.drop_listener.set(None);
 
         if let Some(err) = err {
             Err(err)
@@ -536,6 +647,9 @@ where
         server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let this_dc = self.clone();
+        // Clone disconnect_tracker BEFORE acquiring inner lock to avoid
+        // RefCell double-borrow panic during session construction
+        let disconnect_tracker = self.disconnect_tracker();
         let mut this = inner_mut!(self);
         let on_drop = this.clean_shutdown_tracker_tx.clone();
         let remote = this.server_remote.clone().unwrap();
@@ -573,6 +687,7 @@ where
                 .clone()
                 .unwrap_or_default(),
             server_only_session_init_settings: Some(server_only_session_init_settings),
+            disconnect_tracker,
         };
 
         let (stopper, new_session) = CitadelSession::new(session_init_params)?;
@@ -746,9 +861,36 @@ where
     }
 
     /// Returns a list of active sessions
-    pub fn get_active_sessions(&self) -> Vec<u64> {
+    pub fn get_active_sessions(&self) -> Vec<SessionInfo> {
         let this = inner!(self);
-        this.sessions.keys().copied().collect()
+        this.sessions
+            .iter()
+            .map(|(cid, session)| {
+                let state = inner!(session.1.state_container);
+                let connections = state
+                    .active_virtual_connections
+                    .iter()
+                    .map(|(cid, connection)| {
+                        let peer_cid = if *cid == 0 { None } else { Some(*cid) };
+                        ConnectionInfo {
+                            peer_cid,
+                            connection_type: connection.connection_type,
+                            latest_ratchet_version: connection
+                                .get_endpoint_ratchet(None)
+                                .map(|r| r.version())
+                                .unwrap_or(0),
+                            connected: connection.is_active.load(Ordering::Relaxed),
+                            adjacent_nat_type: connection.adjacent_nat_type.clone(),
+                        }
+                    })
+                    .collect();
+
+                SessionInfo {
+                    cid: *cid,
+                    connections,
+                }
+            })
+            .collect()
     }
 
     /// This upgrades a provisional connection to a full connection. Returns true if the upgrade
@@ -796,14 +938,22 @@ where
         let will_perform_dc = res?;
 
         if !will_perform_dc {
-            // Already disconnected. Send a message to the kernel
+            // Session not found or already disconnected. Send an API response so
+            // the SDK's disconnect_from_server() subscription doesn't hang.
+            // NOT gated by DisconnectSignalTracker because:
+            // 1. The session is gone from the map — we don't have its kernel_ticket
+            // 2. This uses the request `ticket` (not kernel_ticket), routing only
+            //    to the specific disconnect caller's callback
+            // 3. disconnect_token is None, so downstream token validation rejects
+            //    it if a new session has reconnected with the same CID
             this.kernel_tx
                 .unbounded_send(NodeResult::Disconnect(Disconnect {
                     ticket,
                     cid_opt: Some(session_cid),
                     success: true,
-                    v_conn_type: Some(VirtualConnectionType::LocalGroupServer { session_cid }),
+                    conn_type: Some(ClientConnectionType::Server { session_cid }),
                     message: "Already disconnected".to_string(),
+                    disconnect_token: None,
                 }))?;
         }
 
@@ -1093,10 +1243,14 @@ where
             let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
             accessor
                 .borrow_hr(None, |hr, state_container| {
-                    let removed = state_container
-                        .active_virtual_connections
-                        .remove(&session_cid);
-                    if removed.is_some() {
+                    state_container.remove_udp_channel(session_cid);
+                    // Mark vconn inactive but do NOT remove from HashMap.
+                    // Removal races with concurrent packet processing that
+                    // needs the vconn's ratchet for decryption.
+                    if let Some(vconn) =
+                        state_container.active_virtual_connections.get(&session_cid)
+                    {
+                        vconn.is_active.store(false, Ordering::SeqCst);
                         let packet = on_internal_disconnect(hr);
                         to_primary
                             .unbounded_send(packet)

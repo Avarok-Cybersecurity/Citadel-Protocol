@@ -153,8 +153,19 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
             #[cfg(feature = "filesystem")]
             BackendType::Filesystem(dir) => {
-                use crate::backend::filesystem_backend::FilesystemBackend;
-                let backend = FilesystemBackend::from(dir.clone());
+                use crate::backend::file_io_backend::FileIOBackend;
+                use crate::backend::std_file_io::StdFileIO;
+                let file_io = std::sync::Arc::new(StdFileIO);
+                let backend = FileIOBackend::new(dir.clone(), file_io);
+                PersistenceHandler::create(backend).await?
+            }
+
+            #[cfg(feature = "opfs")]
+            BackendType::Opfs(dir) => {
+                use crate::backend::file_io_backend::FileIOBackend;
+                use crate::backend::opfs_file_io::OpfsFileIO;
+                let file_io = std::sync::Arc::new(OpfsFileIO::new());
+                let backend = FileIOBackend::new(dir.clone(), file_io);
                 PersistenceHandler::create(backend).await?
             }
 

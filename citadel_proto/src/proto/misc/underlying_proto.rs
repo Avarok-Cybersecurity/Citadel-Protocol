@@ -31,10 +31,10 @@ use crate::error::NetworkError;
 use crate::proto::node::TlsDomain;
 use citadel_io::Mutex;
 use citadel_nexus::unified::listener::UnifiedNetworkListener;
-use citadel_user::re_exports::__private::Formatter;
 use citadel_wire::exports::{Certificate, PrivateKey};
 use citadel_wire::tls::TLSQUICInterop;
 use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::path::Path;
 use std::sync::Arc;
@@ -188,6 +188,7 @@ impl Debug for ServerUnderlyingProtocol {
     }
 }
 
+#[allow(dead_code)]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[allow(dead_code)]
 pub struct P2PListenerConnectInfo {

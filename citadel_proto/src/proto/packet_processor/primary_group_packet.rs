@@ -457,6 +457,14 @@ pub(super) fn get_orientation_safe_ratchet<R: Ratchet, I: CitadelIOInterface>(
         {
             //log::trace!(target: "citadel", "[Peer StackedRatchet] v{} from vconn w/ {}", header_entropy_bank_vers, original_session_cid);
             vconn.get_endpoint_ratchet(Some(header_entropy_bank_vers))
+        } else if let Some(stale_ratchet) = state_container
+            .stale_p2p_ratchets
+            .get(&original_session_cid)
+        {
+            // P2P stream ended but in-flight packets still need decryption.
+            // Use the ratchet preserved before the vconn was removed.
+            log::trace!(target: "citadel", "Using stale ratchet for {original_session_cid} (P2P stream ended, processing in-flight packet)");
+            Some(stale_ratchet.clone())
         } else {
             log::warn!(target: "citadel", "Unable to find vconn for {original_session_cid}. Unable to process primary group packet");
             None

@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up session security
     let session_security = SessionSecuritySettingsBuilder::default()
         .with_secrecy_mode(SecrecyMode::Perfect)
-        .with_crypto_params(KemAlgorithm::Kyber + EncryptionAlgorithm::AES_GCM_256)
+        .with_crypto_params(KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256)
         .build()?;
 
     // Create server connection settings. If a custom transient ID is required, use `transient_with_id` over `transient`.

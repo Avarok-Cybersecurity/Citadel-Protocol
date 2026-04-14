@@ -43,8 +43,8 @@
 //! - [`FcmMessage`](super::message::FcmMessage): FCM message structure
 //! - Firebase Cloud Messaging service integration
 
-use serde::__private::Formatter;
 use serde::{Deserialize, Serialize};
+use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
 

@@ -31,7 +31,6 @@ use serde::{Deserialize, Serialize};
 use crate::misc::CryptError;
 use crate::ratchets::stacked::ratchet::StackedRatchet;
 use crate::ratchets::Ratchet;
-use std::ops::RangeInclusive;
 
 /// The maximum number of ratchets to store in memory. Note that, most of the time, the true number in memory
 /// will be the max - 1, since the max is only reached when the most recent ratchet is added and the toolset
@@ -158,9 +157,7 @@ impl<R: Ratchet> Toolset<R> {
     ///
     /// Returns the new hyper ratchet version
     fn append_ratchet(&mut self, ratchet: R) -> ToolsetUpdateStatus {
-        //debug_assert!(self.map.len() <= MAX_HYPER_RATCHETS_IN_MEMORY);
         let new_version = ratchet.version();
-        //println!("max hypers: {} @ {} bytes ea", MAX_HYPER_RATCHETS_IN_MEMORY, get_approx_bytes_per_ratchet());
         self.map.push_front(ratchet);
         if self.map.len() >= MAX_RATCHETS_IN_MEMORY {
             let oldest_version = self.get_oldest_ratchet_version();
@@ -256,31 +253,6 @@ impl<R: Ratchet> Toolset<R> {
         }
 
         res
-    }
-
-    /// Returns a range of entropy_banks. Returns None if any entropy_bank in the range is missing
-    pub fn get_ratchets(&self, versions: RangeInclusive<u32>) -> Option<Vec<&R>> {
-        let mut ret = Vec::with_capacity((*versions.end() - *versions.start() + 1) as usize);
-        for version in versions {
-            if let Some(entropy_bank) = self.get_ratchet(version) {
-                ret.push(entropy_bank);
-            } else {
-                return None;
-            }
-        }
-
-        Some(ret)
-    }
-
-    /// Serializes the toolset to a buffer
-    pub fn serialize_to_vec(&self) -> Result<Vec<u8>, CryptError<String>> {
-        bincode::serialize(self).map_err(|err| CryptError::RekeyUpdateError(err.to_string()))
-    }
-
-    /// Deserializes from a slice of bytes
-    pub fn deserialize_from_bytes<T: AsRef<[u8]>>(input: T) -> Result<Self, CryptError<String>> {
-        bincode::deserialize(input.as_ref())
-            .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))
     }
 
     /// Resets the internal state to the default, if necessary. At the beginning of each session, this should be called

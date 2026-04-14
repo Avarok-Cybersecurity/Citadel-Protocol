@@ -60,12 +60,13 @@ use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStre
 use crate::proto::peer::p2p_conn_handler::attempt_simultaneous_hole_punch;
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
-    CitadelNodePeerLayerInner, NodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
+    CitadelNodePeerLayerInner, ClientConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
 };
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::state_container::OutgoingPeerConnectionAttempt;
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
+use citadel_io::tokio::sync::oneshot;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 
 #[allow(unused_results)]
@@ -149,19 +150,40 @@ where
                         PeerSignal::Disconnect {
                             peer_conn_type: vconn,
                             disconnect_response: resp,
+                            ref disconnect_token,
                         } => {
                             // below line is confusing. The logic is answered in the server block for PeerSignal::Disconnect
                             let target = resp
                                 .as_ref()
                                 .map(|_| vconn.get_original_session_cid())
                                 .unwrap_or_else(|| vconn.get_original_target_cid());
-                            let mut state_container = inner_mut_state!(session.state_container);
-                            if let Some(v_conn) =
-                                state_container.active_virtual_connections.remove(&target)
-                            {
-                                v_conn.is_active.store(false, Ordering::SeqCst);
-                                //prevent further messages from being sent from this node
+
+                            // Validate disconnect token against the active vconn to
+                            // reject stale signals from a previous P2P connection
+                            if let Some(token) = disconnect_token {
+                                let state_container = inner_state!(session.state_container);
+                                if let Some(current_vconn) =
+                                    state_container.active_virtual_connections.get(&target)
+                                {
+                                    if current_vconn.p2p_connection_id != token.connection_id {
+                                        log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal from server for peer {} — token mismatch", target);
+                                        return Ok(PrimaryProcessorResult::Void);
+                                    }
+                                }
                             }
+
+                            let mut state_container = inner_mut_state!(session.state_container);
+                            state_container.remove_udp_channel(target);
+                            // Preserve ratchet for in-flight packet decryption,
+                            // then remove the vconn cleanly.
+                            if let Some(ratchet) = state_container
+                                .active_virtual_connections
+                                .get(&target)
+                                .and_then(|vconn| vconn.get_endpoint_ratchet(None))
+                            {
+                                state_container.stale_p2p_ratchets.insert(target, ratchet);
+                            }
+                            state_container.active_virtual_connections.remove(&target);
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                 event: signal,
@@ -171,7 +193,7 @@ where
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
-                        PeerSignal::DisconnectUDP { peer_conn_type } => {
+                        PeerSignal::DisconnectUDP { peer_conn_type, .. } => {
                             let target_cid = return_if_none!(get_resp_target_cid(
                                 &peer_conn_type.as_virtual_connection()
                             ));
@@ -314,6 +336,10 @@ where
                                         }
 
                                         let session_password = session_password.unwrap_or_default();
+                                        // Generate a unique connection ID for this P2P connection.
+                                        // Exchanged during KEX so both peers share the same ID.
+                                        let p2p_connection_id = Ticket::default();
+
                                         let mut peer_kem_state_container =
                                             PeerKemStateContainer::new(
                                                 *endpoint_security_settings,
@@ -323,6 +349,8 @@ where
 
                                         peer_kem_state_container.constructor =
                                             Some(alice_constructor);
+                                        peer_kem_state_container.p2p_connection_id =
+                                            p2p_connection_id;
 
                                         state_container.peer_kem_states.insert(
                                             *original_session_cid,
@@ -341,6 +369,7 @@ where
                                                 msg_bytes,
                                                 *endpoint_security_settings,
                                                 *udp_enabled,
+                                                p2p_connection_id,
                                             ),
                                         };
 
@@ -385,6 +414,7 @@ where
                                     transfer,
                                     session_security_settings,
                                     udp_enabled,
+                                    p2p_connection_id,
                                 ) => {
                                     log::trace!(target: "citadel", "RECV STAGE 0 PEER KEM");
                                     // We generate bob's pqc, as well as a nonce
@@ -426,12 +456,14 @@ where
                                         BackendType::Filesystem(..)
                                     );
 
+                                    // Echo back the p2p_connection_id from Stage0
                                     let signal = PeerSignal::Kex {
                                         peer_conn_type: conn.reverse(),
                                         kex_payload: KeyExchangeProcess::Stage1(
                                             bob_transfer,
                                             None,
                                             local_is_file_transfer_compat,
+                                            *p2p_connection_id,
                                         ),
                                     };
 
@@ -441,6 +473,7 @@ where
                                         session_password,
                                     );
                                     state_container_kem.constructor = Some(bob_constructor);
+                                    state_container_kem.p2p_connection_id = *p2p_connection_id;
                                     state_container
                                         .peer_kem_states
                                         .insert(peer_cid, state_container_kem);
@@ -461,6 +494,7 @@ where
                                     transfer,
                                     Some(bob_nat_info),
                                     peer_file_transfer_compat,
+                                    _p2p_connection_id,
                                 ) => {
                                     // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
                                     // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
@@ -477,6 +511,9 @@ where
                                         encrypted_config_container,
                                         local_outgoing_attempt_metadata,
                                         needs_turn,
+                                        kem_session_security_settings,
+                                        peer_cid,
+                                        hole_punch_cancel_rx,
                                     ) = {
                                         let mut state_container =
                                             inner_mut_state!(session.state_container);
@@ -534,7 +571,12 @@ where
                                         // toolset AND the single entropy_bank
                                         let toolset = Toolset::new(this_cid, ratchet);
                                         // now, register the loaded PQC + toolset into the virtual conn
-                                        let peer_crypto = PeerSessionCrypto::new(toolset, true);
+                                        // Use CID comparison as deterministic tie-breaker for is_initiator
+                                        // This ensures consistent behavior even under race conditions
+                                        let local_is_initiator = this_cid > peer_cid;
+                                        log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
+                                        let peer_crypto =
+                                            PeerSessionCrypto::new(toolset, local_is_initiator);
                                         let vconn_type = VirtualConnectionType::LocalGroupPeer {
                                             session_cid: this_cid,
                                             peer_cid,
@@ -550,6 +592,7 @@ where
                                             BackendType::Filesystem(..)
                                         );
 
+                                        let p2p_connection_id = kem_state.p2p_connection_id;
                                         let channel = state_container.create_virtual_connection(
                                             //bob_predicted_socket_addr,
                                             session_security_settings,
@@ -560,10 +603,18 @@ where
                                             session,
                                             local_is_file_transfer_compat
                                                 && *peer_file_transfer_compat,
+                                            p2p_connection_id,
                                         );
                                         // load the channel now that the keys have been exchanged
 
+                                        // Create cancellation channel for hole punch operation.
+                                        // The sender is stored in the KEM state - when the KEM state is
+                                        // dropped (on disconnect/failure), the sender drops and the
+                                        // receiver signals cancellation to the hole punch operation.
+                                        let (hole_punch_cancel_tx, hole_punch_cancel_rx) =
+                                            oneshot::channel();
                                         kem_state.local_is_initiator = true;
+                                        kem_state.hole_punch_cancel_tx = Some(hole_punch_cancel_tx);
                                         state_container.peer_kem_states.insert(peer_cid, kem_state);
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
 
@@ -624,6 +675,9 @@ where
                                             encrypted_config_container,
                                             local_outgoing_attempt_metadata,
                                             needs_turn,
+                                            session_security_settings,
+                                            peer_cid,
+                                            hole_punch_cancel_rx,
                                         )
                                     };
 
@@ -633,14 +687,21 @@ where
                                         UdpMode::Disabled
                                     };
 
-                                    let Some(OutgoingPeerConnectionAttempt {
-                                        ticket: init_ticket,
-                                        session_security_settings,
-                                    }) = local_outgoing_attempt_metadata
-                                    else {
-                                        // TODO: Send error
-                                        log::error!(target: "citadel", "Attempted to create a virtual connection, but could not find local outgoing attempt metadata");
-                                        return Ok(PrimaryProcessorResult::Void);
+                                    // For initiators: use ticket from outgoing_peer_connect_attempts
+                                    // For responders (shouldn't happen in Stage1, but for robustness): use fallback
+                                    let (init_ticket, session_security_settings) = if let Some(
+                                        OutgoingPeerConnectionAttempt {
+                                            ticket: stored_ticket,
+                                            session_security_settings: stored_settings,
+                                        },
+                                    ) =
+                                        local_outgoing_attempt_metadata
+                                    {
+                                        (stored_ticket, stored_settings)
+                                    } else {
+                                        // Fallback case: use packet header ticket and KEM state settings
+                                        log::trace!(target: "citadel", "Using fallback ticket for Stage1 (peer_cid: {peer_cid})");
+                                        (ticket, kem_session_security_settings)
                                     };
 
                                     let channel_signal =
@@ -656,32 +717,47 @@ where
                                     } else {
                                         let session_cid = session.session_cid.clone();
                                         let kernel_tx = session.kernel_tx.clone();
-                                        // must send packet before registering app, otherwise, registration will fail
-                                        let app = NetworkEndpoint::register(
-                                            RelativeNodeType::Initiator,
-                                            hole_punch_compat_stream,
+                                        let session_alive = session.alive_tracker();
+                                        const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
+                                        match citadel_io::tokio::time::timeout(
+                                            REGISTER_TIMEOUT,
+                                            NetworkEndpoint::register(
+                                                RelativeNodeType::Initiator,
+                                                hole_punch_compat_stream,
+                                            ),
                                         )
                                         .await
-                                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                                        //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-                                        let client_config = session.client_config.clone();
-
-                                        let _ = attempt_simultaneous_hole_punch(
-                                            conn.reverse(),
-                                            ticket,
-                                            session.clone(),
-                                            bob_nat_info.clone(),
-                                            session_cid,
-                                            kernel_tx,
-                                            channel_signal,
-                                            sync_instant,
-                                            app,
-                                            encrypted_config_container,
-                                            client_config,
-                                            udp_mode,
-                                            session_security_settings,
-                                        )
-                                        .await;
+                                        {
+                                            Ok(Ok(app)) => {
+                                                let client_config = session.client_config.clone();
+                                                let _ = attempt_simultaneous_hole_punch(
+                                                    conn.reverse(),
+                                                    ticket,
+                                                    session.clone(),
+                                                    bob_nat_info.clone(),
+                                                    session_cid,
+                                                    kernel_tx,
+                                                    channel_signal,
+                                                    sync_instant,
+                                                    app,
+                                                    encrypted_config_container,
+                                                    client_config,
+                                                    udp_mode,
+                                                    session_security_settings,
+                                                    Some(hole_punch_cancel_rx),
+                                                    session_alive,
+                                                )
+                                                .await;
+                                            }
+                                            Ok(Err(err)) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                            Err(_) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                        }
                                     }
 
                                     //let _ = hole_punch_future.await;
@@ -706,12 +782,20 @@ where
                                         endpoint_ratchet,
                                         local_outgoing_connection_attempt_metadata,
                                         needs_turn,
+                                        kem_session_security_settings,
+                                        hole_punch_cancel_rx,
                                     ) = {
                                         let mut state_container =
                                             inner_mut_state!(session.state_container);
                                         let kem = return_if_none!(state_container
                                             .peer_kem_states
                                             .get_mut(&peer_cid));
+                                        // Create cancellation channel for hole punch operation.
+                                        // When disconnect occurs, KEM state is dropped, which drops
+                                        // the sender and cancels any in-progress hole punch.
+                                        let (hole_punch_cancel_tx, hole_punch_cancel_rx) =
+                                            oneshot::channel();
+                                        kem.hole_punch_cancel_tx = Some(hole_punch_cancel_tx);
                                         let session_security_settings =
                                             kem.session_security_settings;
                                         // since the AES-GCM was a success, we can now entrust that the toolset is perfectly symmetric to the
@@ -726,7 +810,12 @@ where
                                             endpoint_ratchet.get_default_security_level();
                                         let toolset =
                                             Toolset::new(this_cid, endpoint_ratchet.clone());
-                                        let peer_crypto = PeerSessionCrypto::new(toolset, false);
+                                        // Use CID comparison as deterministic tie-breaker for is_initiator
+                                        // This ensures consistent behavior even under race conditions
+                                        let local_is_initiator = this_cid > peer_cid;
+                                        log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
+                                        let peer_crypto =
+                                            PeerSessionCrypto::new(toolset, local_is_initiator);
 
                                         // create an endpoint vconn
                                         let vconn_type = VirtualConnectionType::LocalGroupPeer {
@@ -744,6 +833,7 @@ where
 
                                         log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
 
+                                        let p2p_connection_id = kem.p2p_connection_id;
                                         let channel = state_container.create_virtual_connection(
                                             //alice_predicted_socket_addr,
                                             session_security_settings,
@@ -754,6 +844,7 @@ where
                                             session,
                                             local_is_file_transfer_compat
                                                 && *peer_file_transfer_compat,
+                                            p2p_connection_id,
                                         );
 
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
@@ -779,6 +870,8 @@ where
                                             endpoint_ratchet,
                                             local_outgoing_connection_attempt_metadata,
                                             needs_turn,
+                                            session_security_settings,
+                                            hole_punch_cancel_rx,
                                         )
                                     };
 
@@ -788,14 +881,21 @@ where
                                         UdpMode::Disabled
                                     };
 
-                                    let Some(OutgoingPeerConnectionAttempt {
-                                        ticket: init_ticket,
-                                        session_security_settings,
-                                    }) = local_outgoing_connection_attempt_metadata
-                                    else {
-                                        // TODO: Send error
-                                        log::error!(target: "citadel", "Attempted to create a virtual connection, but could not find local outgoing attempt metadata");
-                                        return Ok(PrimaryProcessorResult::Void);
+                                    // For initiators: use ticket from outgoing_peer_connect_attempts
+                                    // For responders: use ticket from packet header (they didn't initiate, so no entry exists)
+                                    let (init_ticket, session_security_settings) = if let Some(
+                                        OutgoingPeerConnectionAttempt {
+                                            ticket: stored_ticket,
+                                            session_security_settings: stored_settings,
+                                        },
+                                    ) =
+                                        local_outgoing_connection_attempt_metadata
+                                    {
+                                        (stored_ticket, stored_settings)
+                                    } else {
+                                        // Responder case: use packet header ticket and KEM state settings
+                                        log::trace!(target: "citadel", "Using fallback ticket for responder (peer_cid: {peer_cid})");
+                                        (ticket, kem_session_security_settings)
                                     };
 
                                     let channel_signal =
@@ -809,47 +909,65 @@ where
                                         log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
-                                        let app = NetworkEndpoint::register(
-                                            RelativeNodeType::Receiver,
-                                            hole_punch_compat_stream,
+                                        let session_alive = session.alive_tracker();
+                                        const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
+                                        match citadel_io::tokio::time::timeout(
+                                            REGISTER_TIMEOUT,
+                                            NetworkEndpoint::register(
+                                                RelativeNodeType::Receiver,
+                                                hole_punch_compat_stream,
+                                            ),
                                         )
                                         .await
-                                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                                        let stun_servers = session.stun_servers.clone();
-                                        let encrypted_config_container =
-                                            generate_hole_punch_crypt_container::<R, I>(
-                                                endpoint_ratchet,
-                                                SecurityLevel::Standard,
-                                                peer_cid,
-                                                stun_servers,
-                                            );
-                                        let diff = Duration::from_nanos(i64::abs(
-                                            timestamp - *sync_time_ns,
-                                        )
-                                            as u64);
-                                        let sync_instant = Instant::now() + diff;
+                                        {
+                                            Ok(Ok(app)) => {
+                                                let stun_servers = session.stun_servers.clone();
+                                                let encrypted_config_container =
+                                                    generate_hole_punch_crypt_container::<R, I>(
+                                                        endpoint_ratchet,
+                                                        SecurityLevel::Standard,
+                                                        peer_cid,
+                                                        stun_servers,
+                                                    );
+                                                let diff = Duration::from_nanos(i64::abs(
+                                                    timestamp - *sync_time_ns,
+                                                )
+                                                    as u64);
+                                                let sync_instant = Instant::now() + diff;
 
-                                        // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, session_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
-                                        let session_cid = session.session_cid.clone();
-                                        let kernel_tx = session.kernel_tx.clone();
-                                        let client_config = session.client_config.clone();
 
-                                        let _ = attempt_simultaneous_hole_punch(
-                                            conn.reverse(),
-                                            ticket,
-                                            session.clone(),
-                                            alice_nat_info.clone(),
-                                            session_cid,
-                                            kernel_tx.clone(),
-                                            channel_signal,
-                                            sync_instant,
-                                            app,
-                                            encrypted_config_container,
-                                            client_config,
-                                            udp_mode,
-                                            session_security_settings,
-                                        )
-                                        .await;
+                                                let session_cid = session.session_cid.clone();
+                                                let kernel_tx = session.kernel_tx.clone();
+                                                let client_config = session.client_config.clone();
+
+                                                let _ = attempt_simultaneous_hole_punch(
+                                                    conn.reverse(),
+                                                    ticket,
+                                                    session.clone(),
+                                                    alice_nat_info.clone(),
+                                                    session_cid,
+                                                    kernel_tx.clone(),
+                                                    channel_signal,
+                                                    sync_instant,
+                                                    app,
+                                                    encrypted_config_container,
+                                                    client_config,
+                                                    udp_mode,
+                                                    session_security_settings,
+                                                    Some(hole_punch_cancel_rx),
+                                                    session_alive,
+                                                )
+                                                .await;
+                                            }
+                                            Ok(Err(err)) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                            Err(_) => {
+                                                log::warn!(target: "citadel", "NetworkEndpoint register timed out after {}s, sending TCP-only channel", REGISTER_TIMEOUT.as_secs());
+                                                session.send_to_kernel(channel_signal)?;
+                                            }
+                                        }
                                     }
 
                                     //let _ = hole_punch_future.await;
@@ -867,6 +985,76 @@ where
                                     Ok(PrimaryProcessorResult::Void)
                                 }
                             };
+                        }
+
+                        // Client-side handling for incoming PostConnect request with no response.
+                        // This handles the race condition where both peers send PostConnect
+                        // simultaneously and the server-side simultaneous detection fails.
+                        // We use a CID-based tiebreaker: only the side with the lower CID auto-accepts.
+                        PeerSignal::PostConnect {
+                            peer_conn_type: conn,
+                            invitee_response: None,
+                            session_security_settings: endpoint_security_settings,
+                            udp_mode: udp_enabled,
+                            ..
+                        } => {
+                            let peer_cid = conn.get_original_session_cid();
+                            let has_outgoing = {
+                                let state_container = inner_state!(session.state_container);
+                                state_container
+                                    .outgoing_peer_connect_attempts
+                                    .contains_key(&peer_cid)
+                            };
+
+                            if has_outgoing {
+                                // Both sides are trying to connect to each other.
+                                // Use CID-based tiebreaker: lower CID auto-accepts.
+                                let we_are_lower = session_cid < peer_cid;
+                                if we_are_lower {
+                                    log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} auto-accepting incoming PostConnect from {peer_cid}");
+
+                                    // Store peer KEM state for the incoming connection
+                                    let mut state_container =
+                                        inner_mut_state!(session.state_container);
+                                    let session_password = state_container
+                                        .get_session_password(peer_cid)
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    let peer_kem_state_container = PeerKemStateContainer::new(
+                                        *endpoint_security_settings,
+                                        *udp_enabled == UdpMode::Enabled,
+                                        session_password,
+                                    );
+                                    state_container
+                                        .peer_kem_states
+                                        .insert(peer_cid, peer_kem_state_container);
+                                    drop(state_container);
+
+                                    // Send Accept response back to server
+                                    let accept_signal = PeerSignal::PostConnect {
+                                        peer_conn_type: conn.reverse(),
+                                        ticket_opt: Some(ticket),
+                                        invitee_response: Some(PeerResponse::Accept(None)),
+                                        session_security_settings: *endpoint_security_settings,
+                                        udp_mode: *udp_enabled,
+                                        session_password: None,
+                                    };
+
+                                    let packet = packet_crafter::peer_cmd::craft_peer_signal(
+                                        &sess_ratchet,
+                                        accept_signal,
+                                        ticket,
+                                        timestamp,
+                                        security_level,
+                                    );
+                                    return Ok(PrimaryProcessorResult::ReplyToSender(packet));
+                                } else {
+                                    log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} deferring to {peer_cid} (lower CID)");
+                                    // Higher CID ignores - the lower CID side will handle it
+                                    return Ok(PrimaryProcessorResult::Void);
+                                }
+                            }
+                            // Not simultaneous connect - fall through to forward to kernel
                         }
 
                         _ => {}
@@ -950,7 +1138,8 @@ where
             };
 
             match &mut kep {
-                KeyExchangeProcess::Stage1(_, val, _) | KeyExchangeProcess::Stage2(_, val, _) => {
+                KeyExchangeProcess::Stage1(_, val, _, _)
+                | KeyExchangeProcess::Stage2(_, val, _) => {
                     *val = Some(peer_nat_info);
                 }
 
@@ -1272,7 +1461,8 @@ where
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
                         let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
                         let sess_mgr = session.session_manager.clone();
-                        let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
+                        let peer_layer_arc = session.hypernode_peer_layer.inner.clone();
+                        let mut peer_layer = peer_layer_arc.write().await;
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_connect(session_cid, target_cid)
                         {
@@ -1299,7 +1489,10 @@ where
                                 .await?;
                             Ok(PrimaryProcessorResult::Void)
                         } else {
-                            route_signal_and_register_ticket_forwards(
+                            // Keep the lock held to ensure atomic check-and-insert for simultaneous connect detection.
+                            // This prevents a race where two PostConnects slip through before either is registered.
+                            route_signal_and_register_ticket_forwards_with_lock(
+                                &mut peer_layer,
                                 PeerSignal::PostConnect {
                                     peer_conn_type,
                                     ticket_opt: Some(ticket),
@@ -1317,7 +1510,6 @@ where
                                 &sess_mgr,
                                 &sess_ratchet,
                                 security_level,
-                                &mut peer_layer,
                             )
                             .await
                         }
@@ -1338,6 +1530,7 @@ where
         PeerSignal::Disconnect {
             peer_conn_type,
             disconnect_response: resp,
+            ..
         } => {
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
@@ -1345,13 +1538,14 @@ where
                     peer_cid: target_cid,
                 } => {
                     let mut state_container = inner_mut_state!(session.state_container);
-                    if state_container
-                        .active_virtual_connections
-                        .remove(&target_cid)
-                        .is_some()
+                    state_container.remove_udp_channel(target_cid);
+                    // Mark vconn inactive but do NOT remove from HashMap.
+                    // Same rationale as client-side handler: removal races
+                    // with concurrent packet processing/proxying.
+                    if let Some(vconn) = state_container.active_virtual_connections.get(&target_cid)
                     {
-                        // note: this is w.r.t the server.
-                        log::trace!(target: "citadel", "[Peer Vconn @ Server] will drop the virtual connection");
+                        vconn.is_active.store(false, Ordering::SeqCst);
+                        log::trace!(target: "citadel", "[Peer Vconn @ Server] marking virtual connection inactive");
                         let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!(
                             "Peer {session_cid} closed the virtual connection to {target_cid}"
                         ))));
@@ -1362,6 +1556,7 @@ where
                                 peer_cid: target_cid,
                             },
                             disconnect_response: resp,
+                            disconnect_token: None,
                         };
 
                         // now, remove target CID's v_conn to `session_cid`
@@ -1391,6 +1586,7 @@ where
                         disconnect_response: Some(PeerResponse::Disconnected(
                             "Server has begun disconnection".to_string(),
                         )),
+                        disconnect_token: None,
                     };
 
                     reply_to_sender::<R, I>(
@@ -1415,7 +1611,7 @@ where
             limit,
         } => {
             match hypernode_conn_type {
-                NodeConnectionType::LocalGroupPeerToLocalGroupServer(_session_cid) => {
+                ClientConnectionType::Server { session_cid: _ } => {
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
 
@@ -1459,7 +1655,10 @@ where
                     )
                 }
 
-                NodeConnectionType::LocalGroupPeerToExternalGroupServer(_session_cid, _icid) => {
+                ClientConnectionType::Extended {
+                    session_cid: _,
+                    interserver_cid: _,
+                } => {
                     log::error!(target: "citadel", "HyperWAN functionality not implemented");
                     Ok(PrimaryProcessorResult::Void)
                 }
@@ -1470,7 +1669,7 @@ where
             v_conn_type: hypernode_conn_type,
             response: _resp_opt,
         } => match hypernode_conn_type {
-            NodeConnectionType::LocalGroupPeerToLocalGroupServer(session_cid) => {
+            ClientConnectionType::Server { session_cid } => {
                 let account_manager = session.account_manager.clone();
                 let session_manager = session.session_manager.clone();
 
@@ -1507,7 +1706,10 @@ where
                 )
             }
 
-            NodeConnectionType::LocalGroupPeerToExternalGroupServer(_session_cid, _icid) => {
+            ClientConnectionType::Extended {
+                session_cid: _,
+                interserver_cid: _,
+            } => {
                 log::error!(target: "citadel", "HyperWAN functionality not implemented");
                 Ok(PrimaryProcessorResult::Void)
             }
@@ -1596,7 +1798,7 @@ where
 
         PeerSignal::DeregistrationSuccess { .. } => Ok(PrimaryProcessorResult::Void),
 
-        PeerSignal::DisconnectUDP { peer_conn_type } => {
+        PeerSignal::DisconnectUDP { peer_conn_type, .. } => {
             // close this UDP channel
             inner_mut_state!(session.state_container)
                 .remove_udp_channel(peer_conn_type.get_original_target_cid());
@@ -1711,14 +1913,81 @@ where
             target_cid,
         )
     } else {
-        let received_signal = PeerSignal::SignalReceived { ticket };
-        reply_to_sender::<R, I>(
-            received_signal,
+        Ok(PrimaryProcessorResult::Void)
+    }
+}
+
+/// Routes a signal to a peer and registers a tracked posting for the ticket.
+/// Accepts an already-held write lock guard to ensure atomic check-and-insert
+/// for simultaneous connect detection. This prevents a race where two PostConnects
+/// slip through before either is registered in the peer_layer.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
+    R: Ratchet,
+    I: CitadelIOInterface,
+>(
+    peer_layer: &mut CitadelNodePeerLayerInner<R>,
+    signal: PeerSignal,
+    timeout: Duration,
+    session_cid: u64,
+    target_cid: u64,
+    timestamp: i64,
+    ticket: Ticket,
+    to_primary_stream: &OutboundPrimaryStreamSender,
+    sess_mgr: &CitadelSessionManager<R, I>,
+    sess_ratchet: &R,
+    security_level: SecurityLevel,
+) -> Result<PrimaryProcessorResult, NetworkError>
+where
+    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
+    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
+    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
+{
+    let sess_ratchet_2 = sess_ratchet.clone();
+    let to_primary_stream = to_primary_stream.clone();
+
+    let res = sess_mgr
+        .route_signal_primary(
+            peer_layer,
+            session_cid,
+            target_cid,
+            ticket,
+            signal.clone(),
+            move |peer_ratchet| {
+                packet_crafter::peer_cmd::craft_peer_signal(
+                    peer_ratchet,
+                    signal.clone(),
+                    ticket,
+                    timestamp,
+                    security_level,
+                )
+            },
+            timeout,
+            move |stale_signal| {
+                log::warn!(target: "citadel", "Running timeout closure. Sending error message to {session_cid}");
+                let error_packet = packet_crafter::peer_cmd::craft_peer_signal(
+                    &sess_ratchet_2,
+                    stale_signal,
+                    ticket,
+                    timestamp,
+                    security_level,
+                );
+                let _ = to_primary_stream.unbounded_send(error_packet);
+            },
+        )
+        .await;
+
+    if let Err(err) = res {
+        reply_to_sender_err(
+            err,
             sess_ratchet,
             ticket,
             timestamp,
             security_level,
+            target_cid,
         )
+    } else {
+        Ok(PrimaryProcessorResult::Void)
     }
 }
 

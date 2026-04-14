@@ -39,32 +39,23 @@
 //!
 //! ## Usage Example
 //!
-//! ```rust
+//! ```rust, no_run
 //! use citadel_user::directory_store::{DirectoryStore, BasePath, setup_directories};
+//! use citadel_user::backend::std_file_io::StdFileIO;
 //! use std::path::PathBuf;
 //!
-//! fn manage_directories() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Initialize directory structure
-//!     let store = setup_directories(String::from("/home/user"))?;
-//!     
-//!     // Generate paths for different purposes
-//!     let config_path: PathBuf = store.make_path(
-//!         BasePath::ConfigDir,
-//!         "settings.conf"
-//!     );
-//!     
-//!     let account_path: PathBuf = store.make_path(
-//!         BasePath::NacDirPersonal,
-//!         "user123.hca"
-//!     );
-//!     
-//!     let transfer_path: PathBuf = store.make_path(
-//!         BasePath::FileTransferDir,
-//!         "download.tmp"
-//!     );
-//!     
-//!     Ok(())
-//! }
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Initialize directory structure
+//! let file_io = StdFileIO;
+//! let store = setup_directories(String::from("/home/user"), &file_io).await?;
+//!
+//! // Generate paths for different purposes
+//! let config_path: PathBuf = store.make_path(
+//!     BasePath::ConfigDir,
+//!     "settings.conf"
+//! );
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Important Notes
@@ -79,12 +70,12 @@
 //!
 //! * `AccountManager` - Uses directory store for account storage
 //! * `ClientNetworkAccount` - Stored in account directories
-//! * `FilesystemBackend` - Interacts with directory structure
+//! * `FileIOBackend` - Interacts with directory structure
 //! * `VirtualFilesystem` - Uses virtual directory
 //!
 
+use crate::backend::file_io::FileIO;
 use crate::misc::{format_path, AccountError};
-use std::fs::create_dir_all as mkdir;
 use std::path::PathBuf;
 
 /// Home directory
@@ -182,19 +173,30 @@ fn append_to_path(base: String, addition: &str) -> String {
     format_path(base + addition)
 }
 
-/// Sets up local directories that are pre-requisite to launching either client or server application
-pub fn setup_directories(home_dir: String) -> Result<DirectoryStore, AccountError> {
+/// Sets up local directories that are pre-requisite to launching either client or server application.
+///
+/// Uses the provided [`FileIO`] implementation to create directories asynchronously,
+/// supporting both standard filesystem and OPFS backends.
+pub async fn setup_directories(
+    home_dir: String,
+    file_io: &dyn FileIO,
+) -> Result<DirectoryStore, AccountError> {
     let store = setup_directory(home_dir)?;
-    let base = mkdir(store.home.as_str());
 
-    base.and(mkdir(store.nac_dir_base.as_str()))
-        .and(mkdir(store.nac_dir_impersonal.as_str()))
-        .and(mkdir(store.nac_dir_personal.as_str()))
-        .and(mkdir(store.server_dir.as_str()))
-        .and(mkdir(store.config_dir.as_str()))
-        .and(mkdir(store.virtual_dir.as_str()))
-        .and(mkdir(store.file_transfer_dir.as_str()))
-        .map_err(|err| AccountError::IoError(err.to_string()))?;
+    let dirs = [
+        store.home.as_str(),
+        store.nac_dir_base.as_str(),
+        store.nac_dir_impersonal.as_str(),
+        store.nac_dir_personal.as_str(),
+        store.server_dir.as_str(),
+        store.config_dir.as_str(),
+        store.virtual_dir.as_str(),
+        store.file_transfer_dir.as_str(),
+    ];
+
+    for dir in dirs {
+        file_io.create_dir_all(dir).await?;
+    }
 
     Ok(store)
 }

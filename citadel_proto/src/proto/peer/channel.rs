@@ -54,6 +54,7 @@
 //!
 
 use crate::error::NetworkError;
+use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, UnboundedReceiver};
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
@@ -65,10 +66,10 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Pin;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecurityLevel;
-use citadel_user::re_exports::__private::Formatter;
 use futures::task::{Context, Poll};
 use futures::Stream;
 use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -89,6 +90,7 @@ impl<R: Ratchet> PeerChannel<R> {
         security_level: SecurityLevel,
         is_alive: Arc<AtomicBool>,
         messenger: ProtocolMessenger<R>,
+        disconnect_token: Option<DisconnectToken>,
     ) -> Self {
         let session_cid = vconn_type.get_session_cid();
 
@@ -106,12 +108,13 @@ impl<R: Ratchet> PeerChannel<R> {
         let recv_half = PeerChannelRecvHalf {
             node_remote,
             receiver: ReceiverType::OrderedReliable {
-                rx: from_inbound_stream,
+                rx: Box::new(from_inbound_stream),
             },
             target_cid,
             vconn_type,
             channel_id,
             is_alive,
+            disconnect_token,
         };
 
         PeerChannel {
@@ -199,10 +202,12 @@ pub struct PeerChannelRecvHalf<R: Ratchet> {
     channel_id: Ticket,
     is_alive: Arc<AtomicBool>,
     node_remote: NodeRemote<R>,
+    /// Token identifying this specific connection instance, embedded in Drop-triggered disconnect signals
+    disconnect_token: Option<DisconnectToken>,
 }
 
 enum ReceiverType<R: Ratchet> {
-    OrderedReliable { rx: ProtocolMessengerRx<R> },
+    OrderedReliable { rx: Box<ProtocolMessengerRx<R>> },
     UnorderedUnreliable { rx: UnboundedReceiver<SecBuffer> },
 }
 
@@ -212,7 +217,7 @@ impl<R: Ratchet> Stream for ReceiverType<R> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
             ReceiverType::OrderedReliable { rx } => {
-                match futures::ready!(Pin::new(rx).poll_next(cx)) {
+                match futures::ready!(Pin::new(rx.as_mut()).poll_next(cx)) {
                     Some(data) => Poll::Ready(Some(data.packet)),
                     _ => {
                         log::trace!(target: "citadel", "[PeerChannelRecvHalf] ending for OrderedReliable");
@@ -284,6 +289,7 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
                                 peer_cid,
                             },
                             disconnect_response: None,
+                            disconnect_token: self.disconnect_token,
                         },
                     })
                 }
@@ -292,7 +298,10 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
                     if let Some(peer_conn_type) = self.vconn_type.try_as_peer_connection() {
                         NodeRequest::PeerCommand(PeerCommand {
                             session_cid: local_cid,
-                            command: PeerSignal::DisconnectUDP { peer_conn_type },
+                            command: PeerSignal::DisconnectUDP {
+                                peer_conn_type,
+                                disconnect_token: self.disconnect_token,
+                            },
                         })
                     } else {
                         log::error!(target: "citadel", "Unable to convert v_conn_type to peer_conn_type. This is a bug");
@@ -315,6 +324,7 @@ pub struct UdpChannel<R: Ratchet> {
 }
 
 impl<R: Ratchet> UdpChannel<R> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         send_half: OutboundUdpSender,
         rx: UnboundedReceiver<SecBuffer>,
@@ -323,6 +333,7 @@ impl<R: Ratchet> UdpChannel<R> {
         channel_id: Ticket,
         is_alive: Arc<AtomicBool>,
         node_remote: NodeRemote<R>,
+        disconnect_token: Option<DisconnectToken>,
     ) -> Self {
         Self {
             send_half,
@@ -333,6 +344,7 @@ impl<R: Ratchet> UdpChannel<R> {
                 channel_id,
                 is_alive,
                 node_remote,
+                disconnect_token,
             },
         }
     }

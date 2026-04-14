@@ -32,8 +32,8 @@
 //!     }
 //!     
 //!     // Create network sockets
-//!     let addr: std::net::SocketAddr = "127.0.0.1:8080".parse()?;
-//!     let socket = socket_helpers::get_reuse_udp_socket(addr)?;
+//!     let addr: std::net::SocketAddr = "*********:8080".parse()?;
+//!     let socket = socket_helpers::get_udp_socket(addr)?;
 //!     
 //!     Ok(())
 //! }

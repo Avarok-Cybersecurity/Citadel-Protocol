@@ -33,7 +33,7 @@ fn can_print_progress(relative_group_id: usize, total_groups: usize) -> bool {
         // [r mod k == 0] <==> [r mod floor(n*v) == 0]
         // if total_groups < v, then each time a print-out occurs (except end points, per above condition)
         const V: f32 = 0.1;
-        relative_group_id % (total_groups as f32 * V).ceil() as usize == 0
+        relative_group_id.is_multiple_of((total_groups as f32 * V).ceil() as usize)
     } else {
         false
     }
@@ -65,18 +65,18 @@ pub fn const_time_compare(this: &[u8], other: &[u8]) -> bool {
 }
 
 pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), Error> {
-    let uses_kyber_kem = params.kem_algorithm == KemAlgorithm::Kyber;
-    if params.encryption_algorithm == EncryptionAlgorithm::KyberHybrid && !uses_kyber_kem {
+    let uses_ml_kem = params.kem_algorithm == KemAlgorithm::MlKem;
+    if params.encryption_algorithm == EncryptionAlgorithm::MlKemHybrid && !uses_ml_kem {
         return Err(Error::Generic(
-            "Invalid crypto parameter combination. Kyber encryption must be paired with Kyber KEM",
+            "Invalid crypto parameter combination. ML-KEM hybrid encryption must be paired with ML-KEM",
         ));
     }
 
-    if params.encryption_algorithm == EncryptionAlgorithm::KyberHybrid
+    if params.encryption_algorithm == EncryptionAlgorithm::MlKemHybrid
         && params.sig_algorithm == SigAlgorithm::None
     {
         return Err(Error::Generic(
-            "A post-quantum signature scheme must be selected when using Kyber encryption",
+            "A post-quantum signature scheme must be selected when using ML-KEM hybrid encryption",
         ));
     }
 
