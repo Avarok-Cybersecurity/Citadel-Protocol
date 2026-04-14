@@ -96,7 +96,6 @@ pub async fn create_tls_listener(
     cert_chain: Vec<u8>,
     private_key: Vec<u8>,
 ) -> NexusResult<UnifiedNetworkListener> {
-    use citadel_wire::exports::rustls_pemfile;
     use citadel_wire::exports::tokio_rustls::{rustls, TlsAcceptor};
     use std::io::Cursor;
 
@@ -135,7 +134,6 @@ pub async fn create_quic_endpoint(
     cert_chain: Vec<u8>,
     private_key: Vec<u8>,
 ) -> NexusResult<UnifiedNetworkListener> {
-    use citadel_wire::exports::rustls_pemfile;
     use citadel_wire::exports::tokio_rustls::rustls;
     use quinn::{self, crypto::rustls::QuicServerConfig};
     use std::io::Cursor;

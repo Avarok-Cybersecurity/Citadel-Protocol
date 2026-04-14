@@ -1,6 +1,6 @@
 [package]
 name = "citadel_nexus"
-version = "0.13.0"
+version = "0.14.0"
 authors = ["Thomas Braun <thomas.braun@avarok.net>"]
 description = "Cross-platform I/O abstraction layer for the Citadel Protocol"
 edition = "2021"
@@ -59,6 +59,7 @@ citadel_io = { workspace = true, default-features = false, optional = true }
 citadel_wire = { workspace = true, default-features = false, optional = true }
 quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["sync", "time", "macros", "net", "rt"], default-features = false }
 async_ip = { workspace = true }
 socket2 = { workspace = true }

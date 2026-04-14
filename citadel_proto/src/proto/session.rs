@@ -174,21 +174,21 @@ impl<R: Ratchet, I: CitadelIOInterface> CitadelSession<R, I> {
         this.upgrade().map(|inner| Self { inner })
     }
 
-    pub(crate) fn alive_tracker(&self) -> SessionAliveTracker<R> {
+    pub(crate) fn alive_tracker(&self) -> SessionAliveTracker<R, I> {
         SessionAliveTracker {
             weak: self.as_weak(),
         }
     }
 }
 
-pub(crate) struct SessionAliveTracker<R: Ratchet> {
+pub(crate) struct SessionAliveTracker<R: Ratchet, I: CitadelIOInterface> {
     #[cfg(not(feature = "multi-threaded"))]
-    weak: std::rc::Weak<CitadelSessionInner<R>>,
+    weak: std::rc::Weak<CitadelSessionInner<R, I>>,
     #[cfg(feature = "multi-threaded")]
-    weak: std::sync::Weak<CitadelSessionInner<R>>,
+    weak: std::sync::Weak<CitadelSessionInner<R, I>>,
 }
 
-impl<R: Ratchet> SessionAliveTracker<R> {
+impl<R: Ratchet, I: CitadelIOInterface> SessionAliveTracker<R, I> {
     pub(crate) fn alive(&self) -> bool {
         if self.weak.strong_count() > 0 {
             true

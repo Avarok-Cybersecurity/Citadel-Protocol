@@ -45,7 +45,6 @@ use std::sync::Arc;
 use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
 use citadel_nexus::traits::CitadelIOInterface;
-use serde::{Deserialize, Serialize};
 
 use crate::proto::outbound_sender::{unbounded, UnboundedSender};
 use zerocopy::Ref;

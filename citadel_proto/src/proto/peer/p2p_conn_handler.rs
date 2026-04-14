@@ -108,50 +108,6 @@ impl Drop for DirectP2PRemote {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn setup_listener_non_initiator<R: Ratchet, I: CitadelIOInterface>(
-    local_bind_addr: SocketAddr,
-    remote_addr: SocketAddr,
-    session: CitadelSession<R, I>,
-    v_conn: VirtualConnectionType,
-    hole_punched_addr: TargettedSocketAddr,
-    ticket: Ticket,
-    udp_mode: UdpMode,
-    session_security_settings: SessionSecuritySettings,
-) -> Result<(), NetworkError>
-where
-    citadel_io::tokio::net::TcpListener: From<citadel_nexus::unified::UnifiedNetworkListener>,
-    citadel_io::tokio::net::TcpListener: From<I::TcpListener>,
-    citadel_io::tokio::net::TcpStream: From<citadel_nexus::unified::UnifiedNetworkStream>,
-    citadel_io::tokio::net::TcpStream: From<I::TcpStream>,
-    citadel_io::tokio::net::UdpSocket: From<citadel_nexus::std::StdUdpSocket>,
-    citadel_io::tokio::net::UdpSocket: From<I::UdpSocket>,
-{
-    // TODO: allow custom certs for p2p conns
-    let io_provider = citadel_nexus::std::StdIOProvider::new()
-        .await
-        .map_err(|e| NetworkError::Generic(e.to_string()))?;
-    let (listener, _) = CitadelNode::<R, citadel_nexus::std::StdIOProvider>::create_listen_socket(
-        ServerUnderlyingProtocol::new_quic_self_signed(),
-        None,
-        None,
-        local_bind_addr,
-        &io_provider,
-    )
-    .await?;
-    p2p_conn_handler(
-        listener,
-        session,
-        remote_addr,
-        v_conn,
-        hole_punched_addr,
-        ticket,
-        udp_mode,
-        session_security_settings,
-    )
-    .await
-}
-
-#[allow(clippy::too_many_arguments)]
 async fn p2p_conn_handler<R: Ratchet, I: CitadelIOInterface>(
     mut p2p_listener: GenericNetworkListener,
     session: CitadelSession<R, I>,
@@ -556,7 +512,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch<R: Ratchet, I: CitadelIOInte
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
     cancel_rx: Option<Receiver<()>>,
-    session_alive: SessionAliveTracker<R>,
+    session_alive: SessionAliveTracker<R, I>,
 ) -> std::io::Result<()>
 where
     citadel_io::tokio::net::TcpListener: From<citadel_nexus::unified::UnifiedNetworkListener>,
@@ -632,12 +588,18 @@ where
                 citadel_wire::quic::QuicServer::new_self_signed(socket).map_err(generic_error)?;
 
             // Create listener BEFORE sync to ensure it's ready when initiator connects
-            let (listener, _) = CitadelNode::<R>::create_listen_socket(
-                ServerUnderlyingProtocol::new_quic_self_signed(),
-                None,
-                Some(quic_node),
-                local_addr,
-            )?;
+            let io_provider = citadel_nexus::std::StdIOProvider::new()
+                .await
+                .map_err(|e| generic_error(e.to_string()))?;
+            let (listener, _) =
+                CitadelNode::<R, citadel_nexus::std::StdIOProvider>::create_listen_socket(
+                    ServerUnderlyingProtocol::new_quic_self_signed(),
+                    None,
+                    Some(quic_node),
+                    local_addr,
+                    &io_provider,
+                )
+                .await?;
             log::trace!(target: "citadel", "Non-initiator: listener created (socket reused) on {:?}, signaling ready", local_addr);
 
             // Signal to initiator that listener is ready

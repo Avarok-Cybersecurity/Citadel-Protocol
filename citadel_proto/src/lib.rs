@@ -316,7 +316,7 @@ pub mod macros {
     impl<T: ContextRequirements + Future> FutureRequirements for T {}
 
     pub type WeakBorrowType<T> = std::sync::Weak<citadel_io::RwLock<T>>;
-    pub type SessionBorrow<'a, R> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner<R>>;
+    pub type SessionBorrow<'a, R, I> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner<R, I>>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::sync::Weak<citadel_io::RwLock<T>>,
