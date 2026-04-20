@@ -627,19 +627,28 @@ mod tests {
         .await
     }
 
-    // Verifies the global KV side-store survives a backend reload. Exercises both
-    // `save_global_kv` (on store) and the load path in `FileIOBackend::connect`
-    // for an unregistered `session_cid`. Skips InMemory (no persistence).
+    // Verifies the global KV side-store survives backend reloads for every
+    // mutating + reading byte_map operation. Skips InMemory (no persistence).
     //
     // Note: CID 0 always has a CNAC (created by `setup_local_only_account`), so
     // a CID-0 write routes through the CNAC path, not global_kv. To force the
-    // fallback we use a synthetic high CID that no `username_to_cid` will produce.
+    // fallback we use synthetic high CIDs that no `username_to_cid` will produce.
+    //
+    // Phases (each `drop` + new container forces a disk round-trip):
+    //   1. Store under two unregistered session_cids → reload → confirm both
+    //      point lookups + by_key lookups return the right data.
+    //   2. Single-key remove → reload → confirm the removal persisted and the
+    //      sibling sub_key + the other session_cid are untouched.
+    //   3. by_key remove → reload → confirm the whole sub-map cleared and the
+    //      other session_cid still survives.
     #[tokio::test]
     async fn test_byte_map_local_persists_across_reload() -> Result<(), AccountError> {
         citadel_logging::setup_log();
 
         let server_backends = server_backends();
-        let dummy = Vec::from("Hello, world!");
+        let value_a = Vec::from("value-A");
+        let value_a2 = Vec::from("value-A-second");
+        let value_b = Vec::from("value-B");
         let unregistered_cid_a: u64 = u64::MAX;
         let unregistered_cid_b: u64 = u64::MAX - 1;
         let peer_cid: u64 = 1234;
@@ -651,20 +660,30 @@ mod tests {
 
             log::info!(target: "citadel", "Reload test on backend: {server_backend:?}");
 
-            // Phase 1: write entries under two distinct unregistered session_cids
-            // sharing the same peer_cid/key/sub_key — collision detector for the
-            // session_cid namespace fix.
+            // ----- Phase 1: write -----
+            // cid_a has two sub_keys (so we can test by_key + selective remove);
+            // cid_b shares the same (peer_cid, key, sub_key) as cid_a's first
+            // entry — collision detector for the session_cid namespace fix.
             let cont0 = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
             let pers_se0 = cont0.server_acc_mgr.get_persistence_handler().clone();
-            let value_a = dummy.clone();
-            let value_b = Vec::from("different value");
             assert!(pers_se0
                 .store_byte_map_value(
                     unregistered_cid_a,
                     peer_cid,
                     "thekey",
-                    "sub_key",
-                    value_a.clone()
+                    "sub_one",
+                    value_a.clone(),
+                )
+                .await
+                .unwrap()
+                .is_none());
+            assert!(pers_se0
+                .store_byte_map_value(
+                    unregistered_cid_a,
+                    peer_cid,
+                    "thekey",
+                    "sub_two",
+                    value_a2.clone(),
                 )
                 .await
                 .unwrap()
@@ -674,51 +693,122 @@ mod tests {
                     unregistered_cid_b,
                     peer_cid,
                     "thekey",
-                    "sub_key",
-                    value_b.clone()
+                    "sub_one",
+                    value_b.clone(),
                 )
                 .await
                 .unwrap()
                 .is_none());
             drop(cont0);
 
-            // Phase 2: reload from disk — both values must be intact and isolated.
+            // ----- Phase 1 reload: verify reads after store -----
             let cont1 = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
             let pers_se1 = cont1.server_acc_mgr.get_persistence_handler().clone();
             assert_eq!(
                 pers_se1
-                    .get_byte_map_value(unregistered_cid_a, peer_cid, "thekey", "sub_key")
+                    .get_byte_map_value(unregistered_cid_a, peer_cid, "thekey", "sub_one")
                     .await
                     .unwrap(),
                 Some(value_a.clone()),
-                "value A should survive reload on {server_backend:?}",
+                "cid_a sub_one should survive reload on {server_backend:?}",
             );
             assert_eq!(
                 pers_se1
-                    .get_byte_map_value(unregistered_cid_b, peer_cid, "thekey", "sub_key")
+                    .get_byte_map_value(unregistered_cid_b, peer_cid, "thekey", "sub_one")
                     .await
                     .unwrap(),
                 Some(value_b.clone()),
-                "value B should survive reload on {server_backend:?}",
+                "cid_b sub_one should survive reload on {server_backend:?}",
             );
 
-            // Removal under one session_cid must not affect the other.
+            // get_byte_map_values_by_key must return both of cid_a's sub_keys.
+            let map_a = pers_se1
+                .get_byte_map_values_by_key(unregistered_cid_a, peer_cid, "thekey")
+                .await
+                .unwrap();
+            assert_eq!(map_a.get("sub_one"), Some(&value_a));
+            assert_eq!(map_a.get("sub_two"), Some(&value_a2));
+            assert_eq!(map_a.len(), 2);
+
+            // by_key must respect session_cid namespace — cid_b returns its own
+            // single entry, not cid_a's.
+            let map_b = pers_se1
+                .get_byte_map_values_by_key(unregistered_cid_b, peer_cid, "thekey")
+                .await
+                .unwrap();
+            assert_eq!(map_b.get("sub_one"), Some(&value_b));
+            assert_eq!(map_b.len(), 1);
+
+            // ----- Phase 2: single-key remove + reload -----
             assert_eq!(
                 pers_se1
-                    .remove_byte_map_value(unregistered_cid_a, peer_cid, "thekey", "sub_key")
+                    .remove_byte_map_value(unregistered_cid_a, peer_cid, "thekey", "sub_one")
                     .await
                     .unwrap(),
-                Some(value_a),
+                Some(value_a.clone()),
+            );
+            drop(cont1);
+
+            let cont2 = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
+            let pers_se2 = cont2.server_acc_mgr.get_persistence_handler().clone();
+            assert_eq!(
+                pers_se2
+                    .get_byte_map_value(unregistered_cid_a, peer_cid, "thekey", "sub_one")
+                    .await
+                    .unwrap(),
+                None,
+                "removed entry should be absent after reload on {server_backend:?}",
             );
             assert_eq!(
-                pers_se1
-                    .get_byte_map_value(unregistered_cid_b, peer_cid, "thekey", "sub_key")
+                pers_se2
+                    .get_byte_map_value(unregistered_cid_a, peer_cid, "thekey", "sub_two")
                     .await
                     .unwrap(),
-                Some(value_b),
+                Some(value_a2.clone()),
+                "sibling sub_key under same session_cid must survive single-key remove",
+            );
+            assert_eq!(
+                pers_se2
+                    .get_byte_map_value(unregistered_cid_b, peer_cid, "thekey", "sub_one")
+                    .await
+                    .unwrap(),
+                Some(value_b.clone()),
+                "other session_cid must be untouched by single-key remove",
             );
 
-            cont1.purge().await;
+            // ----- Phase 3: by_key remove + reload -----
+            let removed = pers_se2
+                .remove_byte_map_values_by_key(unregistered_cid_a, peer_cid, "thekey")
+                .await
+                .unwrap();
+            assert_eq!(removed.get("sub_two"), Some(&value_a2));
+            assert_eq!(
+                removed.len(),
+                1,
+                "only sub_two remained, so only sub_two returns"
+            );
+            drop(cont2);
+
+            let cont3 = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
+            let pers_se3 = cont3.server_acc_mgr.get_persistence_handler().clone();
+            assert!(
+                pers_se3
+                    .get_byte_map_values_by_key(unregistered_cid_a, peer_cid, "thekey")
+                    .await
+                    .unwrap()
+                    .is_empty(),
+                "by_key remove should persist across reload on {server_backend:?}",
+            );
+            assert_eq!(
+                pers_se3
+                    .get_byte_map_value(unregistered_cid_b, peer_cid, "thekey", "sub_one")
+                    .await
+                    .unwrap(),
+                Some(value_b.clone()),
+                "other session_cid must survive by_key remove on cid_a",
+            );
+
+            cont3.purge().await;
         }
 
         Ok(())

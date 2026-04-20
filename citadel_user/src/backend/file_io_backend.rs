@@ -55,16 +55,27 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
         let map = load_cnac_files(&directory_store, self.file_io.as_ref()).await?;
         *self.memory_backend.clients.get_mut() = map;
 
-        // Load global KV store from disk if it exists
+        // Load global KV store from disk if it exists. A read failure is
+        // treated as "file absent" (first start), but a successful read with a
+        // failed deserialize is treated as corruption and refuses startup.
+        // Unlike per-CNAC files (where one bad file only loses one account),
+        // a corrupt `global_kv.bin` would lose ALL server-global state — and
+        // the next mutating call would silently overwrite the corrupt file
+        // with an empty map. Fail loudly so the operator can investigate
+        // (and, if the data is unrecoverable, manually delete the file).
         let global_kv_path = format!("{}global_kv.bin", directory_store.server_dir);
         if let Ok(data) = self.file_io.read_file(&global_kv_path).await {
             match bincode::deserialize(&data) {
                 Ok(kv) => {
                     *self.memory_backend.global_kv.write() = kv;
-                    log::info!(target: "citadel", "Loaded global KV store from {}", global_kv_path);
+                    log::info!(target: "citadel", "Loaded global KV store from {global_kv_path}");
                 }
                 Err(e) => {
-                    log::warn!(target: "citadel", "Failed to deserialize global KV store: {}", e);
+                    return Err(AccountError::Generic(format!(
+                        "global_kv.bin at {global_kv_path} exists but could not be \
+                         deserialized: {e}. Refusing to overwrite — delete the file \
+                         manually if the data is no longer needed."
+                    )));
                 }
             }
         }
@@ -493,6 +504,14 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
 
     /// Persist the global KV store to disk. Used for server-global data
     /// not tied to any specific CNAC (e.g., workspace metadata stored via CID 0).
+    ///
+    /// Note: every mutating byte_map call that routes to `ByteMapDest::Global`
+    /// rewrites the entire `global_kv.bin` (full bincode of the whole map).
+    /// This is fine for the intended use — small server-global metadata under a
+    /// bounded set of `session_cid`s — but is unsuitable for a workload that
+    /// accumulates many entries or sees high write rates. If that ever changes,
+    /// switch to per-`session_cid` files or an append-log instead of growing
+    /// this single blob.
     async fn save_global_kv(&self) -> Result<(), AccountError> {
         let dirs = self
             .directory_store
