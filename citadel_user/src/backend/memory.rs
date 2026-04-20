@@ -50,12 +50,28 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
+/// Indicates which storage destination a byte_map operation routed to,
+/// so callers (e.g. `FileIOBackend`) can flush the correct backing store
+/// without re-checking — preventing TOCTOU between the in-memory write
+/// and the persistence flush.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(crate) enum ByteMapDest {
+    Cnac,
+    Global,
+}
+
+/// Server-global KV storage keyed by `(session_cid, peer_cid, key, sub_key)`.
+/// `session_cid` is preserved as the outer key to match the namespace used by
+/// the SQL/Redis backends and the `(session_cid, peer_cid, key, sub_key)` API
+/// contract — without it, two unregistered sessions sharing the same `peer_cid`
+/// would silently overwrite each other's data.
+type GlobalKv = HashMap<u64, HashMap<u64, HashMap<String, HashMap<String, Vec<u8>>>>>;
+
 pub(crate) struct MemoryBackend<R: Ratchet, Fcm: Ratchet> {
     pub(crate) clients: RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>,
-    /// Server-global KV storage for data not tied to any specific CNAC.
-    /// Used when `session_cid` doesn't match any registered client (e.g., CID 0 on servers).
-    /// Structure: peer_cid -> key -> sub_key -> value
-    pub(crate) global_kv: RwLock<HashMap<u64, HashMap<String, HashMap<String, Vec<u8>>>>>,
+    /// Used when `session_cid` doesn't match any registered client
+    /// (e.g., CID 0 on servers).
+    pub(crate) global_kv: RwLock<GlobalKv>,
 }
 
 impl<R: Ratchet, Fcm: Ratchet> Default for MemoryBackend<R, Fcm> {
@@ -118,6 +134,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         let mut write = self.clients.write();
         let len = write.len();
         write.clear();
+        // The global KV is part of the in-memory backend's state; a purge that
+        // leaves it populated would expose stale data on the next byte_map call.
+        self.global_kv.write().clear();
         Ok(len)
     }
 
@@ -338,11 +357,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
                 .get(sub_key)
                 .cloned())
         } else {
-            // Server-global storage fallback
             Ok(self
                 .global_kv
                 .read()
-                .get(&peer_cid)
+                .get(&session_cid)
+                .and_then(|s| s.get(&peer_cid))
                 .and_then(|k| k.get(key))
                 .and_then(|sk| sk.get(sub_key))
                 .cloned())
@@ -356,25 +375,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
-        let read = self.clients.read();
-        if let Some(cnac) = read.get(&session_cid) {
-            let mut lock = cnac.write();
-            Ok(lock
-                .byte_map
-                .entry(peer_cid)
-                .or_default()
-                .entry(key.to_string())
-                .or_default()
-                .remove(sub_key))
-        } else {
-            // Server-global storage fallback
-            Ok(self
-                .global_kv
-                .write()
-                .get_mut(&peer_cid)
-                .and_then(|k| k.get_mut(key))
-                .and_then(|sk| sk.remove(sub_key)))
-        }
+        self.remove_byte_map_value_routed(session_cid, peer_cid, key, sub_key)
+            .await
+            .map(|(v, _)| v)
     }
 
     async fn store_byte_map_value(
@@ -385,28 +388,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         sub_key: &str,
         value: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, AccountError> {
-        let read = self.clients.read();
-        if let Some(cnac) = read.get(&session_cid) {
-            let mut lock = cnac.write();
-            Ok(lock
-                .byte_map
-                .entry(peer_cid)
-                .or_default()
-                .entry(key.to_string())
-                .or_default()
-                .insert(sub_key.to_string(), value))
-        } else {
-            // Server-global storage: CID 0 is used by servers for application-level KV data
-            // (e.g., workspace metadata) where no CNAC exists. Store in the global_kv map.
-            Ok(self
-                .global_kv
-                .write()
-                .entry(peer_cid)
-                .or_default()
-                .entry(key.to_string())
-                .or_default()
-                .insert(sub_key.to_string(), value))
-        }
+        self.store_byte_map_value_routed(session_cid, peer_cid, key, sub_key, value)
+            .await
+            .map(|(v, _)| v)
     }
 
     async fn get_byte_map_values_by_key(
@@ -427,11 +411,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
                 .clone();
             Ok(map)
         } else {
-            // Server-global storage fallback
             Ok(self
                 .global_kv
                 .read()
-                .get(&peer_cid)
+                .get(&session_cid)
+                .and_then(|s| s.get(&peer_cid))
                 .and_then(|k| k.get(key))
                 .cloned()
                 .unwrap_or_default())
@@ -444,25 +428,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        let read = self.clients.read();
-        if let Some(cnac) = read.get(&session_cid) {
-            let mut lock = cnac.write();
-            let submap = lock
-                .byte_map
-                .entry(peer_cid)
-                .or_default()
-                .remove(key)
-                .unwrap_or_default();
-            Ok(submap)
-        } else {
-            // Server-global storage fallback
-            Ok(self
-                .global_kv
-                .write()
-                .get_mut(&peer_cid)
-                .and_then(|k| k.remove(key))
-                .unwrap_or_default())
-        }
+        self.remove_byte_map_values_by_key_routed(session_cid, peer_cid, key)
+            .await
+            .map(|(v, _)| v)
     }
 
     async fn stream_object_to_backend(
@@ -472,6 +440,104 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         status_tx: UnboundedSender<ObjectTransferStatus>,
     ) -> Result<(), AccountError> {
         no_backend_streaming(source, sink_metadata, status_tx).await
+    }
+}
+
+// Internal helpers used by `FileIOBackend` to learn which backing store
+// (CNAC vs global KV) absorbed a write. Returning the routing decision
+// from the same call that performed the write closes the TOCTOU window
+// between checking CNAC existence and flushing to disk.
+impl<R: Ratchet, Fcm: Ratchet> MemoryBackend<R, Fcm> {
+    pub(crate) async fn store_byte_map_value_routed(
+        &self,
+        session_cid: u64,
+        peer_cid: u64,
+        key: &str,
+        sub_key: &str,
+        value: Vec<u8>,
+    ) -> Result<(Option<Vec<u8>>, ByteMapDest), AccountError> {
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&session_cid) {
+            let mut lock = cnac.write();
+            let prev = lock
+                .byte_map
+                .entry(peer_cid)
+                .or_default()
+                .entry(key.to_string())
+                .or_default()
+                .insert(sub_key.to_string(), value);
+            Ok((prev, ByteMapDest::Cnac))
+        } else {
+            let prev = self
+                .global_kv
+                .write()
+                .entry(session_cid)
+                .or_default()
+                .entry(peer_cid)
+                .or_default()
+                .entry(key.to_string())
+                .or_default()
+                .insert(sub_key.to_string(), value);
+            Ok((prev, ByteMapDest::Global))
+        }
+    }
+
+    pub(crate) async fn remove_byte_map_value_routed(
+        &self,
+        session_cid: u64,
+        peer_cid: u64,
+        key: &str,
+        sub_key: &str,
+    ) -> Result<(Option<Vec<u8>>, ByteMapDest), AccountError> {
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&session_cid) {
+            let mut lock = cnac.write();
+            let prev = lock
+                .byte_map
+                .entry(peer_cid)
+                .or_default()
+                .entry(key.to_string())
+                .or_default()
+                .remove(sub_key);
+            Ok((prev, ByteMapDest::Cnac))
+        } else {
+            let prev = self
+                .global_kv
+                .write()
+                .get_mut(&session_cid)
+                .and_then(|s| s.get_mut(&peer_cid))
+                .and_then(|k| k.get_mut(key))
+                .and_then(|sk| sk.remove(sub_key));
+            Ok((prev, ByteMapDest::Global))
+        }
+    }
+
+    pub(crate) async fn remove_byte_map_values_by_key_routed(
+        &self,
+        session_cid: u64,
+        peer_cid: u64,
+        key: &str,
+    ) -> Result<(HashMap<String, Vec<u8>>, ByteMapDest), AccountError> {
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&session_cid) {
+            let mut lock = cnac.write();
+            let submap = lock
+                .byte_map
+                .entry(peer_cid)
+                .or_default()
+                .remove(key)
+                .unwrap_or_default();
+            Ok((submap, ByteMapDest::Cnac))
+        } else {
+            let submap = self
+                .global_kv
+                .write()
+                .get_mut(&session_cid)
+                .and_then(|s| s.get_mut(&peer_cid))
+                .and_then(|k| k.remove(key))
+                .unwrap_or_default();
+            Ok((submap, ByteMapDest::Global))
+        }
     }
 }
 

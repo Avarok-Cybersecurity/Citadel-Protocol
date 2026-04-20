@@ -6,7 +6,7 @@
 
 use crate::account_loader::load_cnac_files;
 use crate::backend::file_io::FileIO;
-use crate::backend::memory::MemoryBackend;
+use crate::backend::memory::{ByteMapDest, MemoryBackend};
 use crate::backend::BackendConnection;
 use crate::client_account::ClientNetworkAccount;
 use crate::directory_store::DirectoryStore;
@@ -122,6 +122,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
         };
 
         let count = paths.len();
+
+        // Drop in-memory global KV so the next byte_map call doesn't return ghost
+        // state from before the purge. The on-disk copy is removed below via
+        // `remove_dir_all`, but the in-memory cache must be cleared too.
+        self.memory_backend.global_kv.write().clear();
 
         for path in paths {
             let path_str = path.to_string_lossy();
@@ -319,18 +324,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
         key: &str,
         sub_key: &str,
     ) -> Result<Option<Vec<u8>>, AccountError> {
-        let res = self
+        let (res, dest) = self
             .memory_backend
-            .remove_byte_map_value(session_cid, peer_cid, key, sub_key)
+            .remove_byte_map_value_routed(session_cid, peer_cid, key, sub_key)
             .await?;
-        match self.save_cnac_by_cid(session_cid).await {
-            Ok(()) => Ok(res),
-            Err(AccountError::ClientNonExists(_)) => {
-                // No CNAC for this CID — data lives in global KV store
-                self.save_global_kv().await.map(|_| res)
-            }
-            Err(e) => Err(e),
-        }
+        self.flush_byte_map(session_cid, dest).await.map(|_| res)
     }
 
     async fn store_byte_map_value(
@@ -341,18 +339,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
         sub_key: &str,
         value: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, AccountError> {
-        let res = self
+        let (res, dest) = self
             .memory_backend
-            .store_byte_map_value(session_cid, peer_cid, key, sub_key, value)
+            .store_byte_map_value_routed(session_cid, peer_cid, key, sub_key, value)
             .await?;
-        match self.save_cnac_by_cid(session_cid).await {
-            Ok(()) => Ok(res),
-            Err(AccountError::ClientNonExists(_)) => {
-                // No CNAC for this CID — data lives in global KV store
-                self.save_global_kv().await.map(|_| res)
-            }
-            Err(e) => Err(e),
-        }
+        self.flush_byte_map(session_cid, dest).await.map(|_| res)
     }
 
     async fn get_byte_map_values_by_key(
@@ -372,17 +363,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        let res = self
+        let (res, dest) = self
             .memory_backend
-            .remove_byte_map_values_by_key(session_cid, peer_cid, key)
+            .remove_byte_map_values_by_key_routed(session_cid, peer_cid, key)
             .await?;
-        match self.save_cnac_by_cid(session_cid).await {
-            Ok(()) => Ok(res),
-            Err(AccountError::ClientNonExists(_)) => {
-                self.save_global_kv().await.map(|_| res)
-            }
-            Err(e) => Err(e),
-        }
+        self.flush_byte_map(session_cid, dest).await.map(|_| res)
     }
 
     async fn stream_object_to_backend(
@@ -521,6 +506,22 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
         };
         self.file_io.write_file(&global_kv_path, &data).await?;
         Ok(())
+    }
+
+    /// Persist a byte_map mutation to whichever backing store the in-memory
+    /// write actually targeted. Routing the flush by `ByteMapDest` (rather
+    /// than by re-checking CNAC existence) prevents a TOCTOU where a CNAC
+    /// is registered or deleted between the in-memory write and the flush —
+    /// which would otherwise misroute the data and lose it on restart.
+    async fn flush_byte_map(
+        &self,
+        session_cid: u64,
+        dest: ByteMapDest,
+    ) -> Result<(), AccountError> {
+        match dest {
+            ByteMapDest::Cnac => self.save_cnac_by_cid(session_cid).await,
+            ByteMapDest::Global => self.save_global_kv().await,
+        }
     }
 
     fn generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> PathBuf {

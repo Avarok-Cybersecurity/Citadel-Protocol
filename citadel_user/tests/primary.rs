@@ -627,6 +627,103 @@ mod tests {
         .await
     }
 
+    // Verifies the global KV side-store survives a backend reload. Exercises both
+    // `save_global_kv` (on store) and the load path in `FileIOBackend::connect`
+    // for an unregistered `session_cid`. Skips InMemory (no persistence).
+    //
+    // Note: CID 0 always has a CNAC (created by `setup_local_only_account`), so
+    // a CID-0 write routes through the CNAC path, not global_kv. To force the
+    // fallback we use a synthetic high CID that no `username_to_cid` will produce.
+    #[tokio::test]
+    async fn test_byte_map_local_persists_across_reload() -> Result<(), AccountError> {
+        citadel_logging::setup_log();
+
+        let server_backends = server_backends();
+        let dummy = Vec::from("Hello, world!");
+        let unregistered_cid_a: u64 = u64::MAX;
+        let unregistered_cid_b: u64 = u64::MAX - 1;
+        let peer_cid: u64 = 1234;
+
+        for server_backend in &server_backends {
+            if matches!(server_backend, BackendType::InMemory) {
+                continue;
+            }
+
+            log::info!(target: "citadel", "Reload test on backend: {server_backend:?}");
+
+            // Phase 1: write entries under two distinct unregistered session_cids
+            // sharing the same peer_cid/key/sub_key — collision detector for the
+            // session_cid namespace fix.
+            let cont0 = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
+            let pers_se0 = cont0.server_acc_mgr.get_persistence_handler().clone();
+            let value_a = dummy.clone();
+            let value_b = Vec::from("different value");
+            assert!(pers_se0
+                .store_byte_map_value(
+                    unregistered_cid_a,
+                    peer_cid,
+                    "thekey",
+                    "sub_key",
+                    value_a.clone()
+                )
+                .await
+                .unwrap()
+                .is_none());
+            assert!(pers_se0
+                .store_byte_map_value(
+                    unregistered_cid_b,
+                    peer_cid,
+                    "thekey",
+                    "sub_key",
+                    value_b.clone()
+                )
+                .await
+                .unwrap()
+                .is_none());
+            drop(cont0);
+
+            // Phase 2: reload from disk — both values must be intact and isolated.
+            let cont1 = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
+            let pers_se1 = cont1.server_acc_mgr.get_persistence_handler().clone();
+            assert_eq!(
+                pers_se1
+                    .get_byte_map_value(unregistered_cid_a, peer_cid, "thekey", "sub_key")
+                    .await
+                    .unwrap(),
+                Some(value_a.clone()),
+                "value A should survive reload on {server_backend:?}",
+            );
+            assert_eq!(
+                pers_se1
+                    .get_byte_map_value(unregistered_cid_b, peer_cid, "thekey", "sub_key")
+                    .await
+                    .unwrap(),
+                Some(value_b.clone()),
+                "value B should survive reload on {server_backend:?}",
+            );
+
+            // Removal under one session_cid must not affect the other.
+            assert_eq!(
+                pers_se1
+                    .remove_byte_map_value(unregistered_cid_a, peer_cid, "thekey", "sub_key")
+                    .await
+                    .unwrap(),
+                Some(value_a),
+            );
+            assert_eq!(
+                pers_se1
+                    .get_byte_map_value(unregistered_cid_b, peer_cid, "thekey", "sub_key")
+                    .await
+                    .unwrap(),
+                Some(value_b),
+            );
+
+            cont1.purge().await;
+        }
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_byte_map2() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, _pers_se| async move {
