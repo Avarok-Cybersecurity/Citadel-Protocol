@@ -22,7 +22,7 @@
 //! - `peer`: Uses connection states for peer management
 //! - `remote`: Handles remote connection states
 
-use citadel_io::tokio::time::Instant;
+use citadel_io::time::Instant;
 
 use crate::proto::packet::packet_flags;
 use citadel_types::proto::ConnectMode;

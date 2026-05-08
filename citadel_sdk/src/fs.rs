@@ -127,7 +127,7 @@ pub async fn delete<P: Into<PathBuf> + Send, R: Ratchet>(
         .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prefabs::server::accept_file_transfer_kernel::AcceptFileTransferKernel;
@@ -563,7 +563,7 @@ mod tests {
             }
         };
 
-        let _ = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
+        let _ = citadel_io::time::timeout(Duration::from_secs(120), task)
             .await
             .unwrap();
 

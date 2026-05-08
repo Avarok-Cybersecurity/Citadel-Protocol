@@ -194,7 +194,7 @@ where
             conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::Ack(sync_time))
                 .await?;
 
-            citadel_io::tokio::time::sleep(Duration::from_nanos(rtt as _)).await;
+            citadel_io::time::sleep(Duration::from_nanos(rtt as _)).await;
             log::trace!(target: "citadel", "[Sync] Executing provided subroutine for receiver ...");
             Ok((future)(payload_recv).await)
         }
@@ -217,7 +217,7 @@ where
 
             if sync_time > now {
                 let delta = i64::abs(sync_time - tt.get_global_time_ns());
-                citadel_io::tokio::time::sleep(Duration::from_nanos(delta as _)).await;
+                citadel_io::time::sleep(Duration::from_nanos(delta as _)).await;
             }
 
             log::trace!(target: "citadel", "[Sync] Executing provided subroutine for initiator ...");

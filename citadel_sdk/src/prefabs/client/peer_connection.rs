@@ -69,7 +69,7 @@ use crate::prelude::*;
 use crate::test_common::wait_for_peers;
 use citadel_io::tokio::sync::mpsc::{Receiver, UnboundedSender};
 use citadel_io::{tokio, Mutex};
-use citadel_proto::re_imports::async_trait;
+use citadel_proto::prelude::async_trait;
 use citadel_user::hypernode_account::UserIdentifierExt;
 use futures::stream::FuturesUnordered;
 use futures::TryStreamExt;
@@ -483,10 +483,8 @@ where
                                 if handle.is_peer_registered().await? {
                                     break;
                                 }
-                                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(
-                                    200,
-                                ))
-                                .await;
+                                citadel_io::time::sleep(std::time::Duration::from_millis(200))
+                                    .await;
                             }
                         }
 

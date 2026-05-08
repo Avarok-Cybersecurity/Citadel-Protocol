@@ -32,6 +32,7 @@
 //! - `citadel_user`: User management and authentication
 //!
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::packet::HdpHeader;
 use crate::proto::session::CitadelSession;
@@ -74,9 +75,9 @@ pub(crate) mod transfer_stats;
 pub(crate) mod validation;
 
 /// Returns the preferred primary stream for returning a response
-pub(crate) fn get_preferred_primary_stream<R: Ratchet>(
+pub(crate) fn get_preferred_primary_stream<R: Ratchet, T: PlatformOps>(
     header: &HdpHeader,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     state_container: &StateContainerInner<R>,
 ) -> Option<OutboundPrimaryStreamSender> {
     if header.target_cid.get() != 0 {

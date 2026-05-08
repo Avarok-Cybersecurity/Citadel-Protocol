@@ -138,53 +138,56 @@ pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
 
 impl<T: ReliableOrderedStreamToTarget> ReliableOrderedStreamToTargetExt for T {}
 
-#[async_trait]
 #[cfg(not(target_family = "wasm"))]
-impl ReliableOrderedStreamToTarget for citadel_io::tokio::net::TcpStream {
-    async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
-        loop {
-            self.writable().await?;
+mod native_impls {
+    use super::*;
 
-            match self.try_write(input) {
-                Ok(_) => return Ok(()),
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    continue;
+    #[async_trait]
+    impl ReliableOrderedStreamToTarget for citadel_io::tokio::net::TcpStream {
+        async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
+            loop {
+                self.writable().await?;
+
+                match self.try_write(input) {
+                    Ok(_) => return Ok(()),
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        continue;
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
-                Err(e) => {
-                    return Err(e);
+            }
+        }
+
+        async fn recv(&self) -> std::io::Result<Bytes> {
+            let mut buf = BytesMut::with_capacity(4096);
+            loop {
+                self.readable().await?;
+
+                match self.try_read_buf(&mut buf) {
+                    Ok(0) => return Ok(Bytes::new()),
+
+                    Ok(len) => return Ok(buf.split_to(len).freeze()),
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        continue;
+                    }
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
             }
         }
     }
 
-    async fn recv(&self) -> std::io::Result<Bytes> {
-        let mut buf = BytesMut::with_capacity(4096);
-        loop {
-            self.readable().await?;
-
-            match self.try_read_buf(&mut buf) {
-                Ok(0) => return Ok(Bytes::new()),
-
-                Ok(len) => return Ok(buf.split_to(len).freeze()),
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    continue;
-                }
-                Err(e) => {
-                    return Err(e);
-                }
-            }
+    impl ConnAddr for citadel_io::tokio::net::TcpStream {
+        fn local_addr(&self) -> std::io::Result<SocketAddr> {
+            citadel_io::tokio::net::TcpStream::local_addr(self)
         }
-    }
-}
 
-#[cfg(not(target_family = "wasm"))]
-impl ConnAddr for citadel_io::tokio::net::TcpStream {
-    fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        citadel_io::tokio::net::TcpStream::local_addr(self)
-    }
-
-    fn peer_addr(&self) -> std::io::Result<SocketAddr> {
-        citadel_io::tokio::net::TcpStream::peer_addr(self)
+        fn peer_addr(&self) -> std::io::Result<SocketAddr> {
+            citadel_io::tokio::net::TcpStream::peer_addr(self)
+        }
     }
 }
 
@@ -228,6 +231,7 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin> ReliableOrderedStreamToTarget for
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 pub mod simulator {
     //! Network condition simulation module.
     //!
@@ -262,7 +266,7 @@ pub mod simulator {
             let inner_fwd = inner.clone();
             let (fwd, mut rx) = citadel_io::tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
-            citadel_io::tokio::task::spawn(async move {
+            citadel_io::spawn(async move {
                 while let Some(packet) = rx.recv().await {
                     if min_lag != 0 {
                         let rnd = {
@@ -271,10 +275,7 @@ pub mod simulator {
                             rng.gen_range(min_lag..max) // 50 -> 150ms ping
                         };
 
-                        citadel_io::tokio::time::sleep(std::time::Duration::from_millis(
-                            rnd as u64,
-                        ))
-                        .await;
+                        citadel_io::time::sleep(std::time::Duration::from_millis(rnd as u64)).await;
                     }
 
                     inner_fwd.send_to_peer(&packet).await.unwrap();

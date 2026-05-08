@@ -32,9 +32,9 @@
 
 use std::net::SocketAddr;
 
+use citadel_io::time::Duration;
 use citadel_io::tokio::net::UdpSocket;
 use citadel_io::tokio::sync::mpsc::UnboundedSender;
-use citadel_io::tokio::time::Duration;
 use either::Either;
 use igd::PortMappingProtocol;
 

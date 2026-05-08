@@ -151,7 +151,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
                 PersistenceHandler::create(backend).await?
             }
 
-            #[cfg(feature = "filesystem")]
+            #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
             BackendType::Filesystem(dir) => {
                 use crate::backend::file_io_backend::FileIOBackend;
                 use crate::backend::std_file_io::StdFileIO;

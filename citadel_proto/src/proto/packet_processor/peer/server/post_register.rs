@@ -30,6 +30,7 @@
 
 use crate::error::NetworkError;
 use crate::prelude::{PeerConnectionType, PeerResponse, PeerSignal};
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::peer::peer_cmd_packet::route_signal_response;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::Username;
@@ -47,7 +48,7 @@ use citadel_types::crypto::SecurityLevel;
     fields(is_server = session.is_server, session_cid = session_cid, target_cid = target_cid)
 ))]
 #[allow(clippy::too_many_arguments)]
-pub async fn handle_response_phase_post_register<R: Ratchet>(
+pub async fn handle_response_phase_post_register<R: Ratchet, T: PlatformOps>(
     peer_conn_type: PeerConnectionType,
     username: Username,
     peer_response: PeerResponse,
@@ -55,7 +56,7 @@ pub async fn handle_response_phase_post_register<R: Ratchet>(
     session_cid: u64,
     target_cid: u64,
     timestamp: i64,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     sess_ratchet: &R,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {

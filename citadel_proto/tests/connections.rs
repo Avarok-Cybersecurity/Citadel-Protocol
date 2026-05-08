@@ -2,6 +2,7 @@
 pub mod tests {
     use bytes::BytesMut;
     use citadel_io::tokio;
+    use citadel_io::ProtocolIO;
     use citadel_proto::prelude::*;
     use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
     use citadel_wire::socket_helpers::is_ipv6_enabled;
@@ -16,7 +17,7 @@ pub mod tests {
 
     #[fixture]
     #[once]
-    fn protocols() -> Vec<ServerUnderlyingProtocol> {
+    fn protocols() -> Vec<ServerMode<NativeIO>> {
         /*use std::io::Read;
           use itertools::Itertools;
         // NOTE: This is a dev-only pkcs12 bundle that is periodically renewed. It is not used
@@ -30,16 +31,16 @@ pub mod tests {
             .unwrap();*/
 
         vec![
-            ServerUnderlyingProtocol::tcp(),
-            ServerUnderlyingProtocol::new_tls_self_signed().unwrap(),
-            ServerUnderlyingProtocol::new_quic_self_signed(),
-            /*ServerUnderlyingProtocol::load_tls_from_bytes(
+            ServerMode::OrderedReliable(NativeOrderedReliableConfig::new()),
+            ServerMode::OrderedReliableSecure(NativeSecureConfig::self_signed().unwrap()),
+            ServerMode::P2P(NativeP2PConfig::self_signed()),
+            /*ServerMode::<NativeIO>::load_secure_from_bytes(
                 &pkcs_12_der,
                 "password",
                 "thomaspbraun.com",
             )
             .unwrap(),
-            ServerUnderlyingProtocol::load_quic_from_bytes(
+            ServerMode::<NativeIO>::load_p2p_from_bytes(
                 &pkcs_12_der,
                 "password",
                 "thomaspbraun.com",
@@ -69,7 +70,7 @@ pub mod tests {
     )]
     async fn test_tcp_or_tls(
         #[case] addr: SocketAddr,
-        protocols: &Vec<ServerUnderlyingProtocol>,
+        protocols: &Vec<ServerMode<NativeIO>>,
         client_config: &Arc<ClientConfig>,
     ) -> std::io::Result<()> {
         citadel_logging::setup_log();
@@ -94,10 +95,7 @@ pub mod tests {
         for proto in protocols {
             log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", &proto, addr);
 
-            let res = CitadelNode::<StackedRatchet>::server_create_primary_listen_socket(
-                proto.clone(),
-                addr,
-            );
+            let res = NativeIO::bind(proto.clone(), addr).await;
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket: {err:?}");
@@ -114,10 +112,7 @@ pub mod tests {
             };
 
             let client = async move {
-                let (stream, _) =
-                    CitadelNode::<StackedRatchet>::c2s_connect_defaults(None, addr, client_config)
-                        .await
-                        .unwrap();
+                let stream = NativeIO::connect(client_config, addr).await.unwrap();
                 on_client_received_stream(stream).await
             };
 
@@ -146,7 +141,7 @@ pub mod tests {
     )]
     async fn test_many_proto_conns(
         #[case] addr: SocketAddr,
-        protocols: &Vec<ServerUnderlyingProtocol>,
+        protocols: &Vec<ServerMode<NativeIO>>,
         client_config: &Arc<ClientConfig>,
     ) -> std::io::Result<()> {
         citadel_logging::setup_log();
@@ -166,10 +161,7 @@ pub mod tests {
             log::trace!(target: "citadel", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
-            let res = CitadelNode::<StackedRatchet>::server_create_primary_listen_socket(
-                proto.clone(),
-                addr,
-            );
+            let res = NativeIO::bind(proto.clone(), addr).await;
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket w/mode {proto:?}: {err:?}");
@@ -197,12 +189,7 @@ pub mod tests {
 
             for _ in 0..count {
                 client.push(async move {
-                    let (stream, _) = CitadelNode::<StackedRatchet>::c2s_connect_defaults(
-                        None,
-                        addr,
-                        client_config,
-                    )
-                    .await?;
+                    let stream = NativeIO::connect(client_config, addr).await?;
                     on_client_received_stream(stream).await?;
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
                     Ok(())

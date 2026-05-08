@@ -37,6 +37,7 @@
 //! - [`file_packet`]: File transfer packets
 //! - [`session_manager`]: Session management
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::peer::peer_cmd_packet;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
@@ -53,9 +54,9 @@ use crate::error::NetworkError;
     err,
     fields(session_cid=this_session_cid, is_server=session.is_server, packet_len=packet.len())
 ))]
-pub async fn process_raw_packet<R: Ratchet>(
+pub async fn process_raw_packet<R: Ratchet, T: PlatformOps>(
     this_session_cid: Option<u64>,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     remote_peer: SocketAddr,
     local_primary_port: u16,
     packet: BytesMut,
@@ -204,13 +205,13 @@ pub(crate) enum ReceivePortType {
 /// - `None`: If the packet should be proxied.
 #[allow(clippy::too_many_arguments)]
 #[inline]
-pub(crate) fn check_proxy<R: Ratchet>(
+pub(crate) fn check_proxy<R: Ratchet, T: PlatformOps>(
     this_session_cid: Option<u64>,
     cmd_primary: u8,
     cmd_aux: u8,
     header_session_cid: u64,
     target_cid: u64,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     endpoint_cid_info: &mut Option<(u64, u64)>,
     recv_port_type: ReceivePortType,
     packet: HdpPacket,
@@ -250,8 +251,7 @@ pub(crate) fn check_proxy<R: Ratchet>(
                                 if cmd_primary == packet_flags::cmd::primary::GROUP_PACKET
                                     && cmd_aux == packet_flags::cmd::aux::group::GROUP_HEADER
                                 {
-                                    log::error!(target: "citadel", "***Did not expect packet to be proxied via feature flag*** | local is server: {}", session.is_server);
-                                    std::process::exit(1)
+                                    panic!("Did not expect packet to be proxied via feature flag | local is server: {}", session.is_server);
                                 }
                             }
 

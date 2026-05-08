@@ -29,6 +29,7 @@
 
 use super::includes::*;
 use crate::error::NetworkError;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::primary_group_packet::{
     get_orientation_safe_ratchet, get_resp_target_cid_from_header,
 };
@@ -44,8 +45,8 @@ use citadel_crypt::ratchets::Ratchet;
     fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub fn process_hole_punch<R: Ratchet>(
-    session: &CitadelSession<R>,
+pub fn process_hole_punch<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
     packet: HdpPacket,
     hr_version: u32,
     proxy_cid_info: Option<(u64, u64)>,

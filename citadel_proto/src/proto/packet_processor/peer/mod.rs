@@ -28,6 +28,7 @@
 
 use crate::error::NetworkError;
 use crate::prelude::{ConnectFail, NodeResult, Ticket};
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
 
@@ -36,10 +37,10 @@ pub mod peer_cmd_packet;
 pub mod server;
 pub mod signal_handler_interface;
 
-pub(crate) fn send_dc_signal_peer<T: Into<String>, R: Ratchet>(
-    session: &CitadelSession<R>,
+pub(crate) fn send_dc_signal_peer<S: Into<String>, R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
     ticket: Ticket,
-    err: T,
+    err: S,
 ) -> Result<(), NetworkError> {
     let session_cid = session.session_cid.get().expect("Should exist");
     session

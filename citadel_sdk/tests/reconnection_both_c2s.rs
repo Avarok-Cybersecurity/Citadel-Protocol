@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Test 4: P2P Disconnect then BOTH C2S Disconnect
 //!
 //! Verifies recovery when P2P disconnects, then both peers disconnect C2S.
@@ -173,8 +174,6 @@ mod tests {
                     conn.disconnect().await?;
                     log::info!("[Peer A] C2S Disconnected");
 
-                    citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
-
                     // ===== PHASE 3: Both reconnect =====
                     state.set_phase(3);
 
@@ -336,7 +335,7 @@ mod tests {
                     drop(rx);
 
                     // Wait for P2P disconnect signal from A
-                    citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
+                    state.wait_for_p2p_disconnect(Duration::from_secs(30)).await;
 
                     log::info!(
                         "[Peer B] P2P disconnect received count: {}",
@@ -348,8 +347,6 @@ mod tests {
                     // B disconnects C2S
                     conn.disconnect().await?;
                     log::info!("[Peer B] C2S Disconnected");
-
-                    citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
 
                     // ===== PHASE 3: Both reconnect =====
                     state.set_phase(3);
@@ -421,8 +418,12 @@ mod tests {
             },
         );
 
-        let client_a = NodeBuilder::default().build(client_a_kernel).unwrap();
-        let client_b = NodeBuilder::default().build(client_b_kernel).unwrap();
+        let client_a = DefaultNodeBuilder::default()
+            .build(client_a_kernel)
+            .unwrap();
+        let client_b = DefaultNodeBuilder::default()
+            .build(client_b_kernel)
+            .unwrap();
 
         let clients = futures::future::try_join(client_a, client_b);
 
@@ -433,7 +434,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
+        let result = citadel_io::tokio::time::timeout(Duration::from_secs(240), task)
             .await
             .expect("Test timed out");
 

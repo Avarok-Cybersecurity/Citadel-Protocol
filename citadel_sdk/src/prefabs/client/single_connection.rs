@@ -342,9 +342,9 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_single_connection_registered(
         #[values(UdpMode::Enabled, UdpMode::Disabled)] udp_mode: UdpMode,
-        #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap()
+        #[values(ServerMode::P2P(NativeP2PConfig::self_signed()), ServerMode::OrderedReliableSecure(NativeSecureConfig::self_signed().unwrap())
         )]
-        underlying_protocol: ServerUnderlyingProtocol,
+        underlying_protocol: ServerMode<NativeIO>,
     ) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
@@ -353,11 +353,11 @@ mod tests {
         // Skip QUIC tests on Windows since socket binding often fails with error 10013
         if cfg!(windows) {
             match &underlying_protocol {
-                ServerUnderlyingProtocol::Tls(..) => {
+                ServerMode::OrderedReliableSecure(..) => {
                     citadel_logging::warn!(target: "citadel", "Skipping TLS test on Windows - self-signed certs may not work");
                     return;
                 }
-                ServerUnderlyingProtocol::Quic(..) => {
+                ServerMode::P2P(..) => {
                     citadel_logging::warn!(target: "citadel", "Skipping QUIC test on Windows - socket binding may fail with error 10013");
                     return;
                 }

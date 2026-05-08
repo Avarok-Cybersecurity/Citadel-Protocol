@@ -1,0 +1,7 @@
+FROM rust:latest as builder
+WORKDIR /usr/src/app
+COPY . .
+RUN apt-get update --fix-missing && apt-get install --fix-missing -y openssl libclang-dev build-essential cmake && rm -rf /var/lib/apt/lists/*
+RUN cargo install --example wasm_test_server --path ./citadel_sdk --features localhost-testing --debug
+COPY ./docker/wasm_p2p/exec_server.sh .
+RUN ["chmod", "u+x", "exec_server.sh"]

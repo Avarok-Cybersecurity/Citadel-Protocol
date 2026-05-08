@@ -177,4 +177,4 @@ let settings = SessionSecuritySettingsBuilder::default()
 - Profile with `cargo flamegraph` for bottlenecks
 - Consider BEM mode for high-throughput scenarios
 
-<!-- CI noop: trigger pipeline rerun -->
+<!-- CI noop: re-run pipeline (flaky p2p disconnect timeout) -->

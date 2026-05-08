@@ -421,7 +421,18 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - name: Check citadel_pqcrypto for wasm32
-        run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
+        run: cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
+      - name: Check citadel_sdk for wasm32
+        run: cargo check --package citadel_sdk --target wasm32-unknown-unknown
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Run WASM integration tests
+        working-directory: citadel_sdk
+        run: wasm-pack test --node --release -- --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
 
   typescript_types:
     name: TypeScript Types
@@ -448,7 +459,7 @@ jobs:
 
   coverage:
     runs-on: macos-latest
-    timeout-minutes: 80
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
@@ -510,3 +521,11 @@ jobs:
       - if: ${{ ! (matrix.nat_type_peer_a == 'symmetric' && matrix.nat_type_peer_b == 'symmetric') }}
         run: docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
         shell: bash
+  docker_wasm_p2p:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Maximize build space
+        uses: jlumbroso/free-disk-space@main
+      - run: docker compose -f ./docker/wasm_p2p.yml up --build --abort-on-container-exit --exit-code-from wasm_tests

@@ -1,3 +1,5 @@
+#![cfg(not(target_family = "wasm"))]
+
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use citadel_io::tokio;
@@ -514,8 +516,12 @@ mod tests {
             },
         );
 
-        let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
-        let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
+        let client0 = NodeBuilder::<R, NativeIO>::default()
+            .build(client_kernel0)
+            .unwrap();
+        let client1 = NodeBuilder::<R, NativeIO>::default()
+            .build(client_kernel1)
+            .unwrap();
         let clients = futures::future::try_join(client0, client1);
 
         let task = async move {

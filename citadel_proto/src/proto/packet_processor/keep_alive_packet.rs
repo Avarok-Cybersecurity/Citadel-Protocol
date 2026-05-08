@@ -34,6 +34,7 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
 
@@ -48,8 +49,8 @@ use citadel_crypt::ratchets::Ratchet;
     fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_keep_alive<R: Ratchet>(
-    session: &CitadelSession<R>,
+pub async fn process_keep_alive<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -97,10 +98,8 @@ pub async fn process_keep_alive<R: Ratchet>(
                     // ever since creating the anti-replay attack, we can no longer withhold packets; they must be sent outbound
                     // immediately, otherwise other packets will fail, invalidating the session
                     async move {
-                        citadel_io::tokio::time::sleep(Duration::from_millis(
-                            KEEP_ALIVE_INTERVAL_MS,
-                        ))
-                        .await;
+                        citadel_io::time::sleep(Duration::from_millis(KEEP_ALIVE_INTERVAL_MS))
+                            .await;
                         accessor.borrow_hr(None, |hr, _| {
                             let next_ka = packet_crafter::keep_alive::craft_keep_alive_packet(
                                 hr,

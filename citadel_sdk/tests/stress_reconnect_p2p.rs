@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Stress Test: P2P Iterative Disconnect/Reconnect
 //!
 //! Two registered peers loop N iterations of:
@@ -133,8 +134,8 @@ mod tests {
                         // Barrier: disconnect sync — B disconnects after this
                         barriers[base + 2].wait().await;
 
-                        // Wait for P2P disconnect signal from B (generous for CI release builds)
-                        citadel_io::tokio::time::sleep(Duration::from_millis(1500)).await;
+                        // Wait for actual P2P disconnect signal from B
+                        state.wait_for_p2p_disconnect(Duration::from_secs(30)).await;
                         log::info!("[Peer A] Iteration {} complete", i + 1);
                     }
 
@@ -241,8 +242,7 @@ mod tests {
                         p2p_remote.disconnect().await?;
                         log::info!("[Peer B] Iteration {} P2P disconnected", i + 1);
 
-                        // Pause before next iteration (generous for CI release builds)
-                        citadel_io::tokio::time::sleep(Duration::from_millis(1000)).await;
+                        // Iteration barrier handles synchronization before next round
                     }
 
                     // Final barrier
@@ -264,8 +264,12 @@ mod tests {
             },
         );
 
-        let client_a = NodeBuilder::default().build(client_a_kernel).unwrap();
-        let client_b = NodeBuilder::default().build(client_b_kernel).unwrap();
+        let client_a = DefaultNodeBuilder::default()
+            .build(client_a_kernel)
+            .unwrap();
+        let client_b = DefaultNodeBuilder::default()
+            .build(client_b_kernel)
+            .unwrap();
 
         let clients = futures::future::try_join(client_a, client_b);
 

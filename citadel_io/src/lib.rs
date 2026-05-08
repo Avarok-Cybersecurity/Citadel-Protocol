@@ -56,6 +56,11 @@ pub mod standard;
 #[cfg(target_family = "wasm")]
 pub mod wasm;
 
+pub mod proto_io;
+pub use proto_io::{
+    ProtocolIO, ProtocolUpgrade, ServerMode, UnreliableDatagram, UpgradeListenerPair,
+};
+
 #[cfg(target_family = "wasm")]
 pub use wasm::locks::*;
 
@@ -74,6 +79,7 @@ pub use rand::prelude::*;
 pub use wasm::rng::{WasmRng as ThreadRng, *};
 
 pub use rand::Rng;
+pub use rand::RngCore;
 
 /// Represents errors that can occur during I/O operations
 #[derive(Debug)]
@@ -81,6 +87,8 @@ pub enum Error {
     /// Wraps a standard I/O error
     IoError(std::io::Error),
 }
+
+pub mod time;
 
 // Re-export Tokio and related crates with platform-specific implementations
 #[cfg(not(target_family = "wasm"))]
@@ -100,3 +108,79 @@ pub use tokio_stream;
 
 #[cfg(target_family = "wasm")]
 pub use tokio_stream_wasm as tokio_stream;
+
+#[cfg(not(target_family = "wasm"))]
+mod native_runtime {
+    /// On native, wraps a real tokio runtime Handle (needed for multi-threaded spawn).
+    pub type RuntimeHandle = crate::tokio::runtime::Handle;
+
+    /// Attempt to acquire a handle to the current async runtime.
+    ///
+    /// On native: calls `tokio::runtime::Handle::try_current()`.
+    pub fn try_current_runtime() -> Result<RuntimeHandle, String> {
+        crate::tokio::runtime::Handle::try_current().map_err(|e| e.to_string())
+    }
+
+    /// Offload a blocking closure to a dedicated thread pool.
+    ///
+    /// On native: delegates to `tokio::task::spawn_blocking`.
+    pub fn spawn_blocking<F, R>(f: F) -> crate::tokio::task::JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        crate::tokio::task::spawn_blocking(f)
+    }
+
+    /// Spawn an async task on the runtime.
+    ///
+    /// On native: delegates to `tokio::task::spawn`.
+    pub fn spawn<F>(f: F) -> crate::tokio::task::JoinHandle<F::Output>
+    where
+        F: std::future::Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        crate::tokio::task::spawn(f)
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub use native_runtime::*;
+
+#[cfg(target_family = "wasm")]
+mod wasm_runtime {
+    /// On WASM (always single-threaded), the handle is unused so we substitute `()`.
+    pub type RuntimeHandle = ();
+
+    /// Attempt to acquire a handle to the current async runtime.
+    ///
+    /// On WASM: always succeeds (returns `()`).
+    pub fn try_current_runtime() -> Result<RuntimeHandle, String> {
+        Ok(())
+    }
+
+    /// Offload a blocking closure to a dedicated thread pool.
+    ///
+    /// On WASM: runs inline (single-threaded; no blocking pool available).
+    pub async fn spawn_blocking<F, R>(f: F) -> Result<R, String>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        Ok(f())
+    }
+
+    /// Spawn an async task on the runtime.
+    ///
+    /// On WASM: delegates to `tokio::task::spawn_local` (no multi-thread runtime).
+    pub fn spawn<F>(f: F) -> crate::tokio::task::JoinHandle<F::Output>
+    where
+        F: std::future::Future + 'static,
+        F::Output: 'static,
+    {
+        crate::tokio::task::spawn_local(f)
+    }
+}
+
+#[cfg(target_family = "wasm")]
+pub use wasm_runtime::*;

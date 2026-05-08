@@ -75,11 +75,9 @@
 //!
 
 use crate::udp_traversal::HolePunchID;
-use citadel_io::tokio::net::UdpSocket;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, SocketAddr};
-use std::time::Duration;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct TargettedSocketAddr {
@@ -135,77 +133,80 @@ impl Display for TargettedSocketAddr {
     }
 }
 
-#[derive(Debug)]
-pub struct HolePunchedUdpSocket {
-    pub local_id: HolePunchID,
-    pub(crate) socket: UdpSocket,
-    pub addr: TargettedSocketAddr,
-}
+#[cfg(not(target_family = "wasm"))]
+mod native {
+    use super::*;
+    use citadel_io::tokio::net::UdpSocket;
+    use std::time::Duration;
 
-impl HolePunchedUdpSocket {
-    pub async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> std::io::Result<usize> {
-        let bind_addr = self.socket.local_addr()?;
-        let bind_ip = bind_addr.ip();
-        let send_ip = self.addr.send_address.ip();
-        let send_ip = match (bind_ip, send_ip) {
-            (IpAddr::V4(_bind_ip), IpAddr::V6(send_ip)) => {
-                // If we're sending from an IPv4 address to an IPv6 address, we need to convert the
-                // IPv4 address to an IPv4-mapped IPv6 address
-                if let Some(addr) = send_ip.to_ipv4_mapped() {
-                    IpAddr::V4(addr)
-                } else {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "IPv4-mapped IPv6 address conversion failed; Cannot send from ipv4 socket to v6",
-                    ));
-                }
-            }
-
-            (IpAddr::V6(_bind_ip), IpAddr::V4(send_ip)) => {
-                // If we're sending from an IPv6 address to an IPv4 address, we need to convert the
-                // IPv4 address to an IPv4-mapped IPv6 address
-                IpAddr::V6(send_ip.to_ipv6_mapped())
-            }
-
-            _ => send_ip,
-        };
-
-        let target_addr = SocketAddr::new(send_ip, addr.port());
-        log::trace!(target: "citadel", "Sending packet from {bind_addr} to {target_addr}");
-
-        citadel_io::tokio::time::timeout(
-            Duration::from_secs(2),
-            self.socket.send_to(buf, target_addr),
-        )
-        .await
-        .map_err(|err| std::io::Error::new(std::io::ErrorKind::TimedOut, err.to_string()))?
+    #[derive(Debug)]
+    pub struct HolePunchedUdpSocket {
+        pub local_id: HolePunchID,
+        pub(crate) socket: UdpSocket,
+        pub addr: TargettedSocketAddr,
     }
-    // After hole-punching, some packets may be sent that need to be flushed
-    // this cleanses the stream
-    pub fn cleanse(&self) -> std::io::Result<()> {
-        let buf = &mut [0u8; 4096];
-        loop {
-            match self.socket.try_recv(buf) {
-                Ok(_) => {
-                    continue;
+
+    impl HolePunchedUdpSocket {
+        pub async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> std::io::Result<usize> {
+            let bind_addr = self.socket.local_addr()?;
+            let bind_ip = bind_addr.ip();
+            let send_ip = self.addr.send_address.ip();
+            let send_ip = match (bind_ip, send_ip) {
+                (IpAddr::V4(_bind_ip), IpAddr::V6(send_ip)) => {
+                    if let Some(addr) = send_ip.to_ipv4_mapped() {
+                        IpAddr::V4(addr)
+                    } else {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "IPv4-mapped IPv6 address conversion failed; Cannot send from ipv4 socket to v6",
+                        ));
+                    }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
-                Err(e) => {
-                    return Err(e);
+
+                (IpAddr::V6(_bind_ip), IpAddr::V4(send_ip)) => IpAddr::V6(send_ip.to_ipv6_mapped()),
+
+                _ => send_ip,
+            };
+
+            let target_addr = SocketAddr::new(send_ip, addr.port());
+            log::trace!(target: "citadel", "Sending packet from {bind_addr} to {target_addr}");
+
+            citadel_io::time::timeout(
+                Duration::from_secs(2),
+                self.socket.send_to(buf, target_addr),
+            )
+            .await
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::TimedOut, err.to_string()))?
+        }
+
+        pub fn cleanse(&self) -> std::io::Result<()> {
+            let buf = &mut [0u8; 4096];
+            loop {
+                match self.socket.try_recv(buf) {
+                    Ok(_) => {
+                        continue;
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
+                    Err(e) => {
+                        return Err(e);
+                    }
                 }
             }
         }
-    }
 
-    pub async fn recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
-        self.socket.recv_from(buf).await
-    }
+        pub async fn recv_from(&self, buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
+            self.socket.recv_from(buf).await
+        }
 
-    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        self.socket.local_addr()
-    }
+        pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
+            self.socket.local_addr()
+        }
 
-    pub fn into_socket(self) -> UdpSocket {
-        self.socket
+        pub fn into_socket(self) -> UdpSocket {
+            self.socket
+        }
     }
 }
+
+#[cfg(not(target_family = "wasm"))]
+pub use native::HolePunchedUdpSocket;

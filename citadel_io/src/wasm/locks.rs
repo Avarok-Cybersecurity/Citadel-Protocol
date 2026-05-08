@@ -79,4 +79,9 @@ impl<T> MutexWasm<T> {
     pub fn lock(&self) -> MutexGuard<'_, T> {
         self.inner.lock().unwrap()
     }
+
+    /// Consumes the mutex and returns the inner value.
+    pub fn into_inner(self) -> T {
+        self.inner.into_inner().unwrap()
+    }
 }

@@ -28,17 +28,11 @@
 //! - `node.rs`: Node implementation
 
 use crate::error::NetworkError;
-use crate::macros::{ContextRequirements, SyncContextRequirements};
-use crate::proto::misc::clean_shutdown::{
-    clean_framed_shutdown, CleanShutdownSink, CleanShutdownStream,
-};
 use crate::proto::node::TlsDomain;
 use crate::proto::peer::p2p_conn_handler::generic_error;
-use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use citadel_io::tokio::net::{TcpListener, TcpStream};
 use citadel_io::tokio_stream::{Stream, StreamExt};
-use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use citadel_user::serialization::SyncIO;
 use citadel_wire::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
 use citadel_wire::exports::{Connection, Endpoint, RecvStream, SendStream};
@@ -55,37 +49,18 @@ use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Wraps a stream into a split interface for I/O that safely shuts-down the interface
-/// upon drop
-#[doc(hidden)]
-pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements>(
-    stream: S,
-) -> (
-    CleanShutdownSink<S, LengthDelimitedCodec, Bytes>,
-    CleanShutdownStream<S, LengthDelimitedCodec, Bytes>,
-) {
-    let framed = LengthDelimitedCodec::builder()
-        .length_field_offset(0) // default value
-        .max_frame_length(1024 * 1024 * 64) // 64 MB
-        .length_field_type::<u32>()
-        .length_adjustment(0) // default value
-        // `num_skip` is not needed, the default is to skip
-        .new_framed(stream);
-
-    clean_framed_shutdown(framed)
-}
-
 pub enum GenericNetworkStream {
-    Tcp(TcpStream),
-    Tls(Box<citadel_wire::exports::tokio_rustls::TlsStream<TcpStream>>),
+    OrderedReliable(TcpStream),
+    OrderedReliableSecure(Box<citadel_wire::exports::tokio_rustls::TlsStream<TcpStream>>),
     // local addr is first addr, remote addr is final addr
-    Quic(
+    P2P(
         SendStream,
         RecvStream,
         Endpoint,
         Option<Connection>,
         SocketAddr,
     ),
+    WebSocket(Box<super::native_websocket::WebSocketByteStream>),
 }
 
 impl Unpin for GenericNetworkStream {}
@@ -93,9 +68,10 @@ impl Unpin for GenericNetworkStream {}
 impl Debug for GenericNetworkStream {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let tag = match self {
-            Self::Tcp(..) => "TCP",
-            Self::Tls(..) => "TLS",
-            Self::Quic(..) => "QUIC",
+            Self::OrderedReliable(..) => "OrderedReliable",
+            Self::OrderedReliableSecure(..) => "OrderedReliableSecure",
+            Self::P2P(..) => "P2P",
+            Self::WebSocket(..) => "WebSocket",
         };
 
         write!(f, "{tag}")
@@ -105,31 +81,33 @@ impl Debug for GenericNetworkStream {
 impl GenericNetworkStream {
     pub(crate) fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
-            Self::Tcp(stream) => stream.peer_addr(),
-            Self::Tls(stream) => TcpStream::peer_addr(stream.get_ref().0),
-            Self::Quic(_, _, _, _, remote_addr) => Ok(*remote_addr),
+            Self::OrderedReliable(stream) => stream.peer_addr(),
+            Self::OrderedReliableSecure(stream) => TcpStream::peer_addr(stream.get_ref().0),
+            Self::P2P(_, _, _, _, remote_addr) => Ok(*remote_addr),
+            Self::WebSocket(ws) => ws.peer_addr(),
         }
     }
 
     pub(crate) fn local_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
-            Self::Tcp(stream) => stream.local_addr(),
-            Self::Tls(stream) => TcpStream::local_addr(stream.get_ref().0),
-            Self::Quic(_, _, endpoint, _, _) => endpoint.local_addr(),
+            Self::OrderedReliable(stream) => stream.local_addr(),
+            Self::OrderedReliableSecure(stream) => TcpStream::local_addr(stream.get_ref().0),
+            Self::P2P(_, _, endpoint, _, _) => endpoint.local_addr(),
+            Self::WebSocket(ws) => ws.local_addr(),
         }
     }
 
     #[allow(dead_code)]
-    pub(crate) fn quic_endpoint(&self) -> Option<Endpoint> {
+    pub(crate) fn p2p_endpoint(&self) -> Option<Endpoint> {
         match self {
-            Self::Quic(_, _, endpoint, _, _) => Some(endpoint.clone()),
+            Self::P2P(_, _, endpoint, _, _) => Some(endpoint.clone()),
             _ => None,
         }
     }
 
-    pub fn take_quic_connection(&mut self) -> Option<Connection> {
+    pub fn take_p2p_connection(&mut self) -> Option<Connection> {
         match self {
-            Self::Quic(_, _, _, conn, ..) => conn.take(),
+            Self::P2P(_, _, _, conn, ..) => conn.take(),
             _ => None,
         }
     }
@@ -142,9 +120,10 @@ impl AsyncRead for GenericNetworkStream {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         match self.deref_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
-            Self::Tls(stream) => Pin::new(&mut *stream).poll_read(cx, buf),
-            Self::Quic(_, recv, ..) => Pin::new(recv).poll_read(cx, buf),
+            Self::OrderedReliable(stream) => Pin::new(stream).poll_read(cx, buf),
+            Self::OrderedReliableSecure(stream) => Pin::new(&mut *stream).poll_read(cx, buf),
+            Self::P2P(_, recv, ..) => Pin::new(recv).poll_read(cx, buf),
+            Self::WebSocket(ws) => Pin::new(ws).poll_read(cx, buf),
         }
     }
 }
@@ -156,25 +135,28 @@ impl AsyncWrite for GenericNetworkStream {
         buf: &[u8],
     ) -> Poll<Result<usize, Error>> {
         match self.deref_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
-            Self::Tls(stream) => Pin::new(&mut *stream).poll_write(cx, buf),
-            Self::Quic(sink, ..) => Pin::new(sink).poll_write(cx, buf).map_err(|err| err.into()),
+            Self::OrderedReliable(stream) => Pin::new(stream).poll_write(cx, buf),
+            Self::OrderedReliableSecure(stream) => Pin::new(&mut *stream).poll_write(cx, buf),
+            Self::P2P(sink, ..) => Pin::new(sink).poll_write(cx, buf).map_err(|err| err.into()),
+            Self::WebSocket(ws) => Pin::new(ws).poll_write(cx, buf),
         }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         match self.deref_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
-            Self::Tls(stream) => Pin::new(&mut *stream).poll_flush(cx),
-            Self::Quic(sink, ..) => Pin::new(sink).poll_flush(cx),
+            Self::OrderedReliable(stream) => Pin::new(stream).poll_flush(cx),
+            Self::OrderedReliableSecure(stream) => Pin::new(&mut *stream).poll_flush(cx),
+            Self::P2P(sink, ..) => Pin::new(sink).poll_flush(cx),
+            Self::WebSocket(ws) => Pin::new(ws).poll_flush(cx),
         }
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         match self.deref_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
-            Self::Tls(stream) => Pin::new(&mut *stream).poll_shutdown(cx),
-            Self::Quic(sink, ..) => Pin::new(sink).poll_shutdown(cx),
+            Self::OrderedReliable(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::OrderedReliableSecure(stream) => Pin::new(&mut *stream).poll_shutdown(cx),
+            Self::P2P(sink, ..) => Pin::new(sink).poll_shutdown(cx),
+            Self::WebSocket(ws) => Pin::new(ws).poll_shutdown(cx),
         }
     }
 }
@@ -204,7 +186,7 @@ impl GenericNetworkListener {
             while let Some(stream) = listener.next().await {
                 let res = stream.map(|(conn, tx, rx, peer_addr, endpoint)| {
                     (
-                        GenericNetworkStream::Quic(tx, rx, endpoint, Some(conn), peer_addr),
+                        GenericNetworkStream::P2P(tx, rx, endpoint, Some(conn), peer_addr),
                         peer_addr,
                     )
                 });
@@ -250,13 +232,13 @@ impl GenericNetworkListener {
                 ) -> std::io::Result<(GenericNetworkStream, SocketAddr)> {
                     let first_packet = if let Some((domain, is_self_signed)) = redirect_to_quic {
                         stream.set_nodelay(true)?;
-                        FirstPacket::Quic {
+                        FirstPacket::P2P {
                             domain: domain.clone(),
                             external_addr: addr,
                             is_self_signed: *is_self_signed,
                         }
                     } else {
-                        FirstPacket::Tcp {
+                        FirstPacket::OrderedReliable {
                             external_addr: addr,
                         }
                     };
@@ -269,7 +251,7 @@ impl GenericNetworkListener {
                     )
                     .await
                     .map_err(|err| generic_error(err.to_string()))?;
-                    Ok((GenericNetworkStream::Tcp(conn), addr))
+                    Ok((GenericNetworkStream::OrderedReliable(conn), addr))
                 }
 
                 let redirect_to_quic = redirect_to_quic.clone();
@@ -316,7 +298,9 @@ impl GenericNetworkListener {
                         log::trace!(target: "citadel", "Received raw TLS stream from {addr:?}: {stream:?}");
                         if let Err(err) = send
                             .send(Ok((
-                                GenericNetworkStream::Tls(Box::new(stream.into())),
+                                GenericNetworkStream::OrderedReliableSecure(Box::new(
+                                    stream.into(),
+                                )),
                                 addr,
                             )))
                             .await
@@ -354,6 +338,54 @@ impl GenericNetworkListener {
     #[allow(dead_code)]
     pub fn quic_endpoint(&self) -> Option<Endpoint> {
         self.quic_endpoint.clone()
+    }
+
+    /// Create a WebSocket listener that accepts HTTP upgrade requests.
+    ///
+    /// Incoming TCP connections are upgraded to WebSocket, then wrapped as
+    /// `GenericNetworkStream::WebSocket`. No `FirstPacket` is sent — the
+    /// HTTP upgrade itself serves as protocol negotiation. WASM clients
+    /// (the primary WebSocket consumers) don't read `FirstPacket`.
+    pub fn new_websocket(listener: TcpListener) -> std::io::Result<Self> {
+        let local_addr = listener.local_addr()?;
+        let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
+
+        let future = async move {
+            loop {
+                let (tcp_stream, addr) = listener.accept().await?;
+                let send = send.clone();
+
+                let handle_ws = async move {
+                    match tokio_tungstenite::accept_async(tcp_stream).await {
+                        Ok(ws_stream) => {
+                            let byte_stream = super::native_websocket::WebSocketByteStream::new(
+                                ws_stream, addr, addr,
+                            );
+                            let generic = GenericNetworkStream::WebSocket(Box::new(byte_stream));
+                            if let Err(e) = send.send(Ok((generic, addr))).await {
+                                log::error!(target: "citadel", "Failed to send WebSocket stream: {e}");
+                            }
+                        }
+                        Err(e) => {
+                            log::debug!(target: "citadel", "WebSocket handshake failed from {addr}: {e}");
+                        }
+                    }
+                    Ok::<(), std::io::Error>(())
+                };
+
+                // Spawn to prevent backpressure against pending inbound connections
+                spawn!(handle_ws);
+            }
+        };
+
+        Ok(Self {
+            future: Box::pin(future),
+            recv,
+            local_addr,
+            quic_endpoint: None,
+            redirect_to_quic: None,
+            tls_domain: None,
+        })
     }
 }
 
@@ -414,7 +446,7 @@ impl TlsListener {
                 let domain = domain.clone();
 
                 async fn handle_stream_non_terminating(stream: TcpStream, addr: SocketAddr, domain: TlsDomain, is_self_signed: bool, tls_acceptor: &TlsAcceptor) -> std::io::Result<(TlsStream<TcpStream>, SocketAddr)> {
-                    let serialized_first_packet = FirstPacket::Tls { domain, external_addr: addr, is_self_signed }.serialize_to_vector().map_err(|err| generic_error(err.into_string()))?;
+                    let serialized_first_packet = FirstPacket::OrderedReliableSecure { domain, external_addr: addr, is_self_signed }.serialize_to_vector().map_err(|err| generic_error(err.into_string()))?;
                     let stream = super::write_one_packet(stream, serialized_first_packet).await.map_err(|err| generic_error(err.into_string()))?;
                     // Upgrade TCP stream to TLS stream
                     tls_acceptor.accept(stream).await.map(|r| (r, addr))
@@ -534,15 +566,15 @@ impl Stream for QuicListener {
 
 #[derive(Serialize, Deserialize)]
 pub enum FirstPacket {
-    Tcp {
+    OrderedReliable {
         external_addr: SocketAddr,
     },
-    Tls {
+    OrderedReliableSecure {
         domain: TlsDomain,
         external_addr: SocketAddr,
         is_self_signed: bool,
     },
-    Quic {
+    P2P {
         domain: TlsDomain,
         external_addr: SocketAddr,
         is_self_signed: bool,
@@ -557,6 +589,46 @@ pub struct DualListener {
 }
 
 impl DualListener {
+    /// Merge a signaling listener (output suppressed) with a target listener
+    /// (output forwarded). Used by [`ProtocolUpgrade`] implementations.
+    pub fn merge_suppressing_signal(
+        mut signal_listener: DualListener,
+        mut target_listener: DualListener,
+    ) -> Self {
+        let (tx, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
+
+        let future = async move {
+            let signal_task = async move {
+                loop {
+                    match signal_listener.next().await {
+                        Some(Ok(_)) => { /* signaled connection, silently drop */ }
+                        Some(Err(e)) => return Err(e),
+                        None => return Err(generic_error("Signal listener ended")),
+                    }
+                }
+            };
+
+            let target_task = async move {
+                loop {
+                    match target_listener.next().await {
+                        Some(res) => tx
+                            .send(res)
+                            .await
+                            .map_err(|err| generic_error(err.to_string()))?,
+                        None => return Err::<(), _>(generic_error("Target listener ended")),
+                    }
+                }
+            };
+
+            citadel_io::tokio::try_join!(signal_task, target_task).map(|_: ((), ())| ())
+        };
+
+        Self {
+            future: Box::pin(future),
+            recv,
+        }
+    }
+
     pub fn new(
         mut tcp_or_tls_listener: GenericNetworkListener,
         quic_listener: Option<GenericNetworkListener>,
@@ -608,6 +680,49 @@ impl DualListener {
             recv,
         }
     }
+
+    /// Merge an additional `GenericNetworkListener` into this `DualListener`.
+    ///
+    /// Returns a new `DualListener` that yields connections from BOTH the
+    /// existing listener and the additional one. Used to add optional
+    /// WebSocket listeners alongside the primary transport listener.
+    pub fn merge_with(mut self, mut additional: GenericNetworkListener) -> Self {
+        let (tx, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
+        let tx2 = tx.clone();
+
+        let future = async move {
+            let existing_task = async move {
+                loop {
+                    match self.next().await {
+                        Some(res) => tx
+                            .send(res)
+                            .await
+                            .map_err(|e| generic_error(e.to_string()))?,
+                        None => return Err::<(), _>(generic_error("Primary listener ended")),
+                    }
+                }
+            };
+
+            let additional_task = async move {
+                loop {
+                    match additional.next().await {
+                        Some(res) => tx2
+                            .send(res)
+                            .await
+                            .map_err(|e| generic_error(e.to_string()))?,
+                        None => return Err::<(), _>(generic_error("Additional listener ended")),
+                    }
+                }
+            };
+
+            citadel_io::tokio::try_join!(existing_task, additional_task).map(|_: ((), ())| ())
+        };
+
+        Self {
+            future: Box::pin(future),
+            recv,
+        }
+    }
 }
 
 impl Stream for DualListener {
@@ -630,5 +745,7 @@ impl Stream for DualListener {
     }
 }
 
-trait StreamOutputImpl: Future<Output = std::io::Result<()>> + SyncContextRequirements {}
-impl<T: Future<Output = std::io::Result<()>> + SyncContextRequirements> StreamOutputImpl for T {}
+// Always require Send so that listener types satisfy ProtocolIO::Listener bounds.
+// All futures stored here capture only Send types (TcpListener, channels, etc.).
+trait StreamOutputImpl: Future<Output = std::io::Result<()>> + Send + 'static {}
+impl<T: Future<Output = std::io::Result<()>> + Send + 'static> StreamOutputImpl for T {}

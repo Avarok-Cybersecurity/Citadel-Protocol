@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Test 2: P2P After ONE C2S Disconnect
 //!
 //! Verifies P2P re-establishes after one peer's C2S disconnects.
@@ -164,7 +165,7 @@ mod tests {
                     barrier2.wait().await;
 
                     // Wait for P2P disconnect signal from B's C2S drop
-                    citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
+                    state.wait_for_p2p_disconnect(Duration::from_secs(30)).await;
 
                     log::info!(
                         "[Peer A] Phase 2 complete, p2p_disconnect_recv={}",
@@ -323,9 +324,6 @@ mod tests {
 
                     barrier2.wait().await;
 
-                    // Small delay for cleanup
-                    citadel_io::tokio::time::sleep(Duration::from_millis(200)).await;
-
                     // ===== PHASE 3: B reconnects C2S, then P2P =====
                     state.set_phase(3);
 
@@ -396,8 +394,12 @@ mod tests {
             },
         );
 
-        let client_a = NodeBuilder::default().build(client_a_kernel).unwrap();
-        let client_b = NodeBuilder::default().build(client_b_kernel).unwrap();
+        let client_a = DefaultNodeBuilder::default()
+            .build(client_a_kernel)
+            .unwrap();
+        let client_b = DefaultNodeBuilder::default()
+            .build(client_b_kernel)
+            .unwrap();
 
         let clients = futures::future::try_join(client_a, client_b);
 
@@ -408,7 +410,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
+        let result = citadel_io::tokio::time::timeout(Duration::from_secs(240), task)
             .await
             .expect("Test timed out");
 

@@ -35,12 +35,12 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::ConnectMode;
-use citadel_user::backend::BackendType;
 use citadel_user::external_services::ServicesObject;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
@@ -53,8 +53,8 @@ use citadel_user::external_services::ServicesObject;
     fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_connect<R: Ratchet>(
-    sess_ref: &CitadelSession<R>,
+pub async fn process_connect<R: Ratchet, T: PlatformOps>(
+    sess_ref: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -104,10 +104,10 @@ pub async fn process_connect<R: Ratchet>(
                     match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
                         Ok(stage0_packet) => {
                             // Compute inexpensive values and perform checks before taking the lock
-                            let local_uses_file_system = matches!(
-                                session.account_manager.get_backend_type(),
-                                BackendType::Filesystem(..)
-                            );
+                            let local_uses_file_system = session
+                                .account_manager
+                                .get_backend_type()
+                                .is_filesystem_backend();
                             session
                                 .file_transfer_compatible
                                 .set_once(local_uses_file_system && stage0_packet.uses_filesystem);
@@ -165,14 +165,10 @@ pub async fn process_connect<R: Ratchet>(
                                     .await?
                                     .unwrap_or_default();
 
-                                #[cfg(feature = "google-services")]
                                 let post_login_object = account_manager
                                     .services_handler()
                                     .on_post_login_serverside(cid)
                                     .await?;
-                                #[cfg(not(feature = "google-services"))]
-                                let post_login_object =
-                                    citadel_user::external_services::ServicesObject::default();
 
                                 let success_packet =
                                     packet_crafter::do_connect::craft_final_status_packet(
@@ -277,10 +273,10 @@ pub async fn process_connect<R: Ratchet>(
                 let task = {
                     // Compute compatibility outside of lock
                     let remote_uses_filesystem = header.group.get() != 0;
-                    let local_uses_file_system = matches!(
-                        session.account_manager.get_backend_type(),
-                        BackendType::Filesystem(..)
-                    );
+                    let local_uses_file_system = session
+                        .account_manager
+                        .get_backend_type()
+                        .is_filesystem_backend();
                     session
                         .file_transfer_compatible
                         .set_once(local_uses_file_system && remote_uses_filesystem);
@@ -338,7 +334,7 @@ pub async fn process_connect<R: Ratchet>(
 
                             log::trace!(target: "citadel", "The login to the server was a success. Welcome Message: {}", &message);
 
-                            let _post_login_object = payload.post_login_object.clone();
+                            let post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;
                             let cxn_type =
                                 VirtualConnectionType::LocalGroupServer { session_cid: cid };
@@ -386,41 +382,10 @@ pub async fn process_connect<R: Ratchet>(
                                 persistence_handler
                                     .synchronize_hyperlan_peer_list_as_client(&cnac, peers)
                                     .await?;
-                                #[cfg(feature = "google-services")]
-                                if let (Some(rtdb_cfg), Some(jwt)) =
-                                    (_post_login_object.rtdb, _post_login_object.google_auth_jwt)
-                                {
-                                    log::trace!(target: "citadel", "Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
-                                    let rtdb =
-                                        citadel_user::re_exports::FirebaseRTDB::new_from_jwt(
-                                            &rtdb_cfg.url,
-                                            jwt.clone(),
-                                            rtdb_cfg.api_key.clone(),
-                                        )
-                                        .await
-                                        .map_err(|err| NetworkError::Generic(err.inner))?; // login
-
-                                    let citadel_user::re_exports::FirebaseRTDB {
-                                        base_url,
-                                        auth,
-                                        expire_time,
-                                        api_key,
-                                        jwt,
-                                        ..
-                                    } = rtdb;
-
-                                    let client_rtdb_config =
-                                        citadel_user::external_services::rtdb::RtdbClientConfig {
-                                            url: base_url,
-                                            api_key,
-                                            auth_payload: auth,
-                                            expire_time,
-                                            jwt,
-                                        };
-                                    cnac.store_rtdb_config(client_rtdb_config);
-
-                                    log::trace!(target: "citadel", "Successfully logged-in to RTDB + stored config inside CNAC ...");
-                                };
+                                post_login_object
+                                    .setup_client_rtdb(&cnac)
+                                    .await
+                                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
                                 if let ConnectMode::Fetch { .. } = connect_mode {
                                     log::trace!(target: "citadel", "[FETCH] complete ...");

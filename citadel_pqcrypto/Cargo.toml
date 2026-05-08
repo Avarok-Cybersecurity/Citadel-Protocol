@@ -51,9 +51,6 @@ std = [
     "sha3/std",               # Hash functions
 ]
 
-# WebAssembly target support
-wasm = []
-
 # Dependencies with specific version requirements and features
 [dependencies]
 # Core functionality

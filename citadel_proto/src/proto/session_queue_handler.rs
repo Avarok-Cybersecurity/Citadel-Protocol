@@ -32,9 +32,9 @@
 use crate::error::NetworkError;
 use crate::proto::packet_processor::includes::Duration;
 use crate::proto::session::SessionState;
+use citadel_io::time::{delay_queue, DelayQueue};
 use citadel_io::tokio::sync::broadcast::Sender;
 use citadel_io::tokio::time::error::Error;
-use citadel_io::tokio_util::time::{delay_queue, DelayQueue};
 use futures::Stream;
 use std::collections::HashMap;
 use std::pin::Pin;
