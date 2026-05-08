@@ -38,9 +38,9 @@ use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::time::Duration;
+use citadel_io::time::{delay_queue, DelayQueue};
 use citadel_io::tokio::time::error::Error;
-use citadel_io::tokio::time::Duration;
-use citadel_io::tokio_util::time::{delay_queue, delay_queue::DelayQueue};
 use citadel_types::crypto::PreSharedKey;
 use citadel_types::prelude::PeerInfo;
 pub use citadel_types::proto::{ClientConnectionType, PeerConnectionType};
@@ -664,6 +664,12 @@ pub enum PeerSignal {
     Kex {
         peer_conn_type: PeerConnectionType,
         kex_payload: KeyExchangeProcess,
+    },
+    /// WebRTC signaling relay (SDP offer/answer + ICE candidates).
+    /// Used by WASM peers to establish DataChannel P2P connections.
+    WebRtcSignaling {
+        peer_conn_type: PeerConnectionType,
+        payload: super::peer_crypt::WebRtcSignalingPayload,
     },
 }
 

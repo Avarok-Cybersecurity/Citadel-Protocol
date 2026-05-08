@@ -60,6 +60,7 @@ use crate::ratchets::Ratchet;
 use crate::sync_toggle::ToggleGuard;
 use atomic::Atomic;
 use bytemuck::NoUninit;
+use citadel_io::time::{Duration, UNIX_EPOCH};
 use citadel_io::tokio::sync::Mutex as TokioMutex;
 use citadel_io::tokio_stream::Stream;
 use citadel_io::{tokio, Mutex};
@@ -70,7 +71,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, UNIX_EPOCH};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::Semaphore;
 
@@ -303,7 +303,7 @@ where
         wait_for_completion: bool,
     ) -> Result<Option<P>, CryptError> {
         // CBD: Checkpoint RKT-0
-        let rkt_start = std::time::Instant::now();
+        let rkt_start = citadel_io::time::Instant::now();
         log::info!(target: "citadel", "[CBD-RKT-0] Client {} entry: wait_for_completion={}, role={:?}, state={:?}, elapsed=0ms",
             self.cid, wait_for_completion, self.role(), self.state());
         log::info!(target: "citadel", "Client {} manually triggering rekey", self.cid);
@@ -406,7 +406,7 @@ where
             // Use timeout to prevent infinite blocking if notification is missed
             // (e.g., rekey completed between version check above and listener registration)
             const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
-            match tokio::time::timeout(WAIT_TIMEOUT, rx).await {
+            match citadel_io::time::timeout(WAIT_TIMEOUT, rx).await {
                 Ok(Ok(_)) => {
                     // Notification received successfully
                     log::debug!(target: "citadel", "[CBD-RKT-0e3] Client {} received rekey completion notification", self.cid);
@@ -500,7 +500,7 @@ where
 
             if let Some(constructor) = constructor {
                 // Offload stage0_alice + serialize
-                let (constructor, payload) = citadel_io::tokio::task::spawn_blocking(move || {
+                let (constructor, payload) = citadel_io::spawn_blocking(move || {
                     let transfer = constructor.stage0_alice().ok_or_else(|| {
                         CryptError::RekeyUpdateError("Failed to get initial transfer".to_string())
                     })?;
@@ -584,7 +584,7 @@ where
                     // Clear listener if we registered one
                     let _ = self.local_listener.lock().take();
                     // Small delay to let concurrent rekeys settle
-                    citadel_io::tokio::time::sleep(Duration::from_millis(1)).await;
+                    citadel_io::time::sleep(Duration::from_millis(1)).await;
                     // Increment retry counter and loop back
                     stale_version_retry_count += 1;
                     continue 'rekey_attempt;
@@ -622,7 +622,7 @@ where
                 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
                 let mut rx = rx.unwrap();
                 loop {
-                    match tokio::time::timeout(WAIT_TIMEOUT, &mut rx).await {
+                    match citadel_io::time::timeout(WAIT_TIMEOUT, &mut rx).await {
                         Ok(Ok(_)) => {
                             // Notification received successfully
                             log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} rekey completed successfully: elapsed={}ms",
@@ -769,7 +769,7 @@ where
                     break;
                 }
 
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                citadel_io::time::sleep(Duration::from_millis(500)).await;
             }
         };
 
@@ -784,7 +784,7 @@ where
             }
         };
 
-        drop(citadel_io::tokio::task::spawn(combined));
+        drop(citadel_io::spawn(combined));
     }
 
     /// Runs a single round of re-keying, listening to events and returning
@@ -821,7 +821,7 @@ where
 
         loop {
             let msg = if self.role() != RekeyRole::Idle {
-                match tokio::time::timeout(ACTIVE_REKEY_TIMEOUT, receiver.next()).await {
+                match citadel_io::time::timeout(ACTIVE_REKEY_TIMEOUT, receiver.next()).await {
                     Ok(msg) => msg,
                     Err(_) => {
                         log::warn!(target: "citadel", "Client {} rekey message timeout (role={:?}, state={:?}), resetting for retry",
@@ -832,7 +832,17 @@ where
                     }
                 }
             } else {
-                receiver.next().await
+                // Even in idle mode, use a generous timeout to prevent indefinite blocking
+                // in case the channel is not properly closed on disconnect
+                const IDLE_REKEY_TIMEOUT: Duration = Duration::from_secs(300);
+                match citadel_io::time::timeout(IDLE_REKEY_TIMEOUT, receiver.next()).await {
+                    Ok(msg) => msg,
+                    Err(_) => {
+                        log::trace!(target: "citadel", "Client {} idle rekey timeout (no messages for {}s), continuing",
+                            self.cid, IDLE_REKEY_TIMEOUT.as_secs());
+                        continue;
+                    }
+                }
             };
             self.last_received_message.store(
                 UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),
@@ -984,7 +994,7 @@ where
 
                         // Offload update_sync_safe
                         log::info!(target: "citadel", "[CBD-RKT-PROC-3] Client {} calling spawn_blocking for update_sync_safe", self.cid);
-                        let status_result = citadel_io::tokio::task::spawn_blocking({
+                        let status_result = citadel_io::spawn_blocking({
                             let session_crypto_state = self.session_crypto_state.clone();
                             let cid = self.cid;
                             move || {
@@ -1185,7 +1195,7 @@ where
 
                         alice_constructor.stage1_alice(transfer, &self.psks)?;
                         // Offload update_sync_safe
-                        let status = citadel_io::tokio::task::spawn_blocking({
+                        let status = citadel_io::spawn_blocking({
                             let session_crypto_state = self.session_crypto_state.clone();
                             move || session_crypto_state.update_sync_safe(alice_constructor, true)
                         })

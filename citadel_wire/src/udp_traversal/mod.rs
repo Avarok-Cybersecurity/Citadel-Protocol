@@ -57,15 +57,15 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
-/// Linear hole-punching
-pub mod linear;
-
+pub mod hole_punch_config;
 pub mod hole_punched_socket;
 
-pub mod udp_hole_puncher;
-
-pub mod hole_punch_config;
+#[cfg(not(target_family = "wasm"))]
+pub mod linear;
+#[cfg(not(target_family = "wasm"))]
 pub mod multi;
+#[cfg(not(target_family = "wasm"))]
+pub mod udp_hole_puncher;
 
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum NatTraversalMethod {

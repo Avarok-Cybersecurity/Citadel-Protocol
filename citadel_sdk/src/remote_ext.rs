@@ -885,7 +885,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             ))
         };
 
-        match citadel_io::tokio::time::timeout(P2P_CONNECT_TIMEOUT, connect_task).await {
+        match citadel_io::time::timeout(P2P_CONNECT_TIMEOUT, connect_task).await {
             Ok(result) => result,
             Err(_elapsed) => Err(NetworkError::msg(format!(
                 "P2P connection timed out after {}s waiting for PeerChannelCreated",
@@ -1391,7 +1391,7 @@ pub mod remote_specialization {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::prefabs::client::DefaultServerConnectionSettingsBuilder;

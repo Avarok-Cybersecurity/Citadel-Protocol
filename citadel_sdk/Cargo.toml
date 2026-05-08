@@ -22,7 +22,7 @@ redis = ["citadel_proto/redis"]
 webrtc = ["citadel_proto/webrtc"]
 
 std = ["citadel_proto/std"]
-wasm = ["citadel_proto/wasm"]
+wasm-threads = ["citadel_proto/wasm-threads"]
 google-services = ["citadel_proto/google-services"]
 vendored = ["citadel_proto/vendored"]
 
@@ -62,6 +62,10 @@ rstest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 rand = { workspace = true }
 hyper = { workspace = true, features = ["client", "server"] }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+wasm-bindgen = "0.2"
 
 [package.metadata.cargo-all-features]
 # Features "foo" and "bar" are incompatible, so skip permutations including them

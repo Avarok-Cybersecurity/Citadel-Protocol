@@ -257,7 +257,7 @@ pub fn scramble_encrypt_source<
         cur_task: None,
     };
 
-    let handle = tokio::task::spawn(async move {
+    let handle = citadel_io::spawn(async move {
         let res = citadel_io::tokio::select! {
             res0 = stopper(stop) => res0,
             res1 = file_streamer(group_sender.clone(), file_scrambler) => res1

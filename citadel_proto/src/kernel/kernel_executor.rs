@@ -40,15 +40,17 @@
 
 use std::pin::Pin;
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::tokio::runtime::Handle;
 use citadel_user::account_manager::AccountManager;
 use futures::TryStreamExt;
 
 use crate::error::NetworkError;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::kernel_trait::NetKernel;
-use crate::kernel::{KernelExecutorArguments, KernelExecutorSettings, RuntimeFuture};
+use crate::kernel::{
+    KernelExecutorArguments, KernelExecutorSettings, RuntimeFuture, RuntimeHandle,
+};
 use crate::proto::node::CitadelNode;
 use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::{unbounded, UnboundedReceiver};
@@ -72,13 +74,15 @@ pub type LocalSet = citadel_io::tokio::task::LocalSet;
 #[cfg(feature = "multi-threaded")]
 pub type LocalSet = ();
 
-type KernelContext = (Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>);
+type KernelContext = (RuntimeHandle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>);
 
 impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     /// - underlying_proto: The proto to use for client to server communications
-    pub async fn new(args: KernelExecutorArguments<K, R>) -> Result<Self, NetworkError> {
-        let KernelExecutorArguments::<K, R> {
+    pub async fn new<T: PlatformOps>(
+        args: KernelExecutorArguments<K, R, T>,
+    ) -> Result<Self, NetworkError> {
+        let KernelExecutorArguments::<K, R, T> {
             rt,
             hypernode_type,
             account_manager,
@@ -87,13 +91,16 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             client_config,
             kernel_executor_settings,
             stun_servers,
+            turn_servers,
             server_only_session_init_settings,
+            websocket_listen_addr,
+            pre_built_listener,
         } = args;
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) =
             citadel_io::tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt, callback_handler) = CitadelNode::<R>::init(
+        let (remote, future, localset_opt, callback_handler) = CitadelNode::<R, T>::init(
             hypernode_type,
             server_to_kernel_tx,
             account_manager.clone(),
@@ -101,7 +108,10 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             underlying_proto,
             client_config,
             stun_servers,
+            turn_servers,
             server_only_session_init_settings,
+            websocket_listen_addr,
+            pre_built_listener,
         )
         .await
         .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -141,26 +151,13 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
                 callback_handler,
                 kernel_executor_settings,
             );
-            #[cfg(feature = "multi-threaded")]
-            {
-                use crate::proto::misc::panic_future::ExplicitPanicFuture;
-                let citadel_server_future = ExplicitPanicFuture::new(_rt.spawn(citadel_server));
-                citadel_io::tokio::select! {
-                    ret0 = kernel_future => ret0,
-                    ret1 = citadel_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?
-                }
-            }
-            #[cfg(not(feature = "multi-threaded"))]
-            {
-                let localset = _localset_opt.unwrap();
-                //let _ = localset.spawn_local(citadel_server);
-                let citadel_server_future = localset.run_until(citadel_server);
-                //let citadel_server_future = localset;
-                citadel_io::tokio::select! {
-                    ret0 = kernel_future => ret0,
-                    ret1 = citadel_server_future => ret1
-                }
-            }
+            crate::proto::misc::threading::run_server_with_kernel(
+                _rt,
+                citadel_server,
+                kernel_future,
+                _localset_opt,
+            )
+            .await
         };
 
         log::trace!(target: "citadel", "KernelExecutor::execute has finished execution");
@@ -228,7 +225,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
         };
 
         log::trace!(target: "citadel", "Calling kernel on_stop, but first awaiting HdpServer for clean shutdown ...");
-        citadel_io::tokio::time::timeout(Duration::from_millis(300), shutdown).await;
+        citadel_io::time::timeout(Duration::from_millis(300), shutdown).await;
         log::trace!(target: "citadel", "KernelExecutor confirmed HdpServer has been shut down");
         let stop_res = kernel.on_stop().await;
         // give precedence to the execution res

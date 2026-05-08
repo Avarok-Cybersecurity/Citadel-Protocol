@@ -230,9 +230,9 @@ mod test {
 
         let server = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
-            .with_underlying_protocol(
-                ServerUnderlyingProtocol::from_tokio_tcp_listener(server_listener).unwrap(),
-            )
+            .with_underlying_protocol(ServerMode::OrderedReliable(
+                NativeOrderedReliableConfig::from_tokio_listener(server_listener).unwrap(),
+            ))
             .build(server_kernel)
             .unwrap();
 
@@ -292,7 +292,7 @@ mod test {
                     |internal_server_communicator| async move {
                         barrier.wait().await;
                         // wait for the server
-                        citadel_io::tokio::time::sleep(Duration::from_millis(500)).await;
+                        citadel_io::time::sleep(Duration::from_millis(500)).await;
                         let (mut request_sender, connection) = Builder::new()
                             .handshake(internal_server_communicator)
                             .await
@@ -307,7 +307,7 @@ mod test {
                         }));
 
                         // give time for task to spawn
-                        citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
+                        citadel_io::time::sleep(Duration::from_millis(100)).await;
                         let request = Request::builder()
                             // We need to manually add the host header because SendRequest does not
                             .header("Host", "example.com")
@@ -338,9 +338,9 @@ mod test {
 
         let server = DefaultNodeBuilder::default()
             .with_node_type(NodeType::Server(server_bind_addr))
-            .with_underlying_protocol(
-                ServerUnderlyingProtocol::from_tokio_tcp_listener(server_listener).unwrap(),
-            )
+            .with_underlying_protocol(ServerMode::OrderedReliable(
+                NativeOrderedReliableConfig::from_tokio_listener(server_listener).unwrap(),
+            ))
             .build(server_kernel)
             .unwrap();
 

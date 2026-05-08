@@ -30,7 +30,7 @@ This module manages the state of user registration processes in the Citadel Prot
 
 */
 
-use citadel_io::tokio::time::Instant;
+use citadel_io::time::Instant;
 
 use crate::proto::packet::packet_flags;
 use citadel_crypt::ratchets::Ratchet;

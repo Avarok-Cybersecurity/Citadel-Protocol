@@ -13,15 +13,11 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["std"]
-std = ["futures/std", "serde"]
-wasm = []
-
-#[target.'cfg(not(target_family = "wasm"))'.dependencies]
-#reqwest = { workspace = true }
+std = ["futures/std"]
 
 [dependencies]
 citadel_io = { workspace = true }
-serde = { workspace = true, features = ["derive"], optional = true }
+serde = { workspace = true, features = ["derive"] }
 futures = { workspace = true, features = ["alloc"] }
 async-trait = { workspace = true }
 auto_impl = { workspace = true }

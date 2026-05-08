@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Minimal test: Rekey + Messaging (no reconnection)
 //!
 //! This isolates whether rekey + messaging works without disconnect/reconnect.
@@ -88,7 +89,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let task = async move {
             citadel_io::tokio::select! {

@@ -12,9 +12,9 @@
 //!   - Connection display formatting
 //!
 //! * **Protocol Support**
-//!   - TCP connections
-//!   - TLS with optional domain
-//!   - QUIC with optional domain
+//!   - Ordered reliable connections (TCP / WebSocket)
+//!   - Ordered reliable secure with optional domain (TLS / WSS)
+//!   - P2P with optional domain (QUIC / WebRTC)
 //!
 //! * **Serialization**
 //!   - Serde compatibility
@@ -31,17 +31,17 @@
 //!     // Create connection info
 //!     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
 //!     let connection = ConnectionInfo { addr };
-//!     
+//!
 //!     // Create different protocol types
-//!     let tcp = ConnectProtocol::Tcp;
-//!     let tls = ConnectProtocol::Tls(Some("example.com".to_string()));
-//!     let quic = ConnectProtocol::Quic(Some("quic.example.com".to_string()));
-//!     
+//!     let ordered = ConnectProtocol::OrderedReliable;
+//!     let secure = ConnectProtocol::OrderedReliableSecure(Some("example.com".to_string()));
+//!     let p2p = ConnectProtocol::P2P(Some("p2p.example.com".to_string()));
+//!
 //!     // Get domain information
-//!     assert_eq!(tcp.get_domain(), None);
-//!     assert_eq!(tls.get_domain(), Some("example.com".to_string()));
-//!     assert_eq!(quic.get_domain(), Some("quic.example.com".to_string()));
-//!     
+//!     assert_eq!(ordered.get_domain(), None);
+//!     assert_eq!(secure.get_domain(), Some("example.com".to_string()));
+//!     assert_eq!(p2p.get_domain(), Some("p2p.example.com".to_string()));
+//!
 //!     // Display connection info
 //!     println!("Connection: {}", connection);
 //! }
@@ -51,7 +51,7 @@
 //!
 //! * Connection info is serializable for persistence
 //! * Protocol types support optional domain names
-//! * TCP connections don't use domain information
+//! * Ordered reliable connections don't use domain information
 //! * Connection display shows socket address
 //! * All types implement Clone and Debug
 //!
@@ -88,21 +88,21 @@ impl ConnectionInfo {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 /// For saving the state of client-side connections
 pub enum ConnectProtocol {
-    /// Uses the transmission control protocol
-    Tcp,
-    /// The domain
-    Tls(Option<String>),
-    /// Quic
-    Quic(Option<String>),
+    /// Ordered reliable transport without encryption
+    OrderedReliable,
+    /// Ordered reliable transport with encryption (optional domain)
+    OrderedReliableSecure(Option<String>),
+    /// P2P transport (optional domain)
+    P2P(Option<String>),
 }
 
 impl ConnectProtocol {
     /// Gets domain
     pub fn get_domain(&self) -> Option<String> {
         match self {
-            Self::Tcp => None,
-            Self::Tls(t) => t.clone(),
-            Self::Quic(t) => t.clone(),
+            Self::OrderedReliable => None,
+            Self::OrderedReliableSecure(t) => t.clone(),
+            Self::P2P(t) => t.clone(),
         }
     }
 }

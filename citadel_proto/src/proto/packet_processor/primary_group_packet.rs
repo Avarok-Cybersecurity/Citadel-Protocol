@@ -35,6 +35,7 @@ use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::inner_arg::ExpectedInnerTarget;
 use crate::prelude::InternalServerError;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::OutboundRequestRejected;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::session_queue_handler::QueueWorkerResult;
@@ -61,8 +62,8 @@ use std::ops::Deref;
     fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub fn process_primary_packet<R: Ratchet>(
-    session_ref: &CitadelSession<R>,
+pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
+    session_ref: &CitadelSession<R, T>,
     cmd_aux: u8,
     packet: HdpPacket,
     proxy_cid_info: Option<(u64, u64)>,
@@ -461,9 +462,18 @@ pub(super) fn get_orientation_safe_ratchet<R: Ratchet>(
             .get(&original_session_cid)
         {
             // P2P stream ended but in-flight packets still need decryption.
-            // Use the ratchet preserved before the vconn was removed.
-            log::trace!(target: "citadel", "Using stale ratchet for {original_session_cid} (P2P stream ended, processing in-flight packet)");
-            Some(stale_ratchet.clone())
+            // Only use the stale ratchet if its version matches the packet's.
+            // A mismatch means the packet belongs to a different connection
+            // epoch (e.g., new connection v0 vs stale ratchet v1 from a
+            // rekeyed old connection). Returning None drops such packets
+            // safely — the new vconn will handle them once established.
+            if stale_ratchet.version() == header_entropy_bank_vers {
+                log::trace!(target: "citadel", "Using stale ratchet v{header_entropy_bank_vers} for {original_session_cid} (in-flight packet)");
+                Some(stale_ratchet.clone())
+            } else {
+                log::trace!(target: "citadel", "Dropping packet for {original_session_cid}: stale ratchet v{} != packet v{header_entropy_bank_vers} (cross-epoch)", stale_ratchet.version());
+                None
+            }
         } else {
             log::warn!(target: "citadel", "Unable to find vconn for {original_session_cid}. Unable to process primary group packet");
             None

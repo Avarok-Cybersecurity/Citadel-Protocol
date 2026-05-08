@@ -27,31 +27,25 @@
 //! - `UdpHolePuncher`: Handles NAT traversal operations
 //! - `SessionManager`: Tracks active protocol sessions
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_wire::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
-use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use netbeam::sync::RelativeNodeType;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
 use crate::error::NetworkError;
-use crate::proto::misc::udp_internal_interface::{
-    QuicUdpSocketConnector, RawUdpSocketConnector, UdpSplittableTypes,
-};
+use crate::proto::misc::udp_internal_interface::UdpSplittableTypes;
 use crate::proto::packet::packet_flags::payload_identifiers;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
-use crate::proto::state_container::{StateContainerInner, VirtualTargetType};
-use citadel_types::proto::UdpMode;
+use crate::proto::state_container::StateContainerInner;
+use citadel_types::proto::{UdpMode, VirtualTargetType};
 
 use super::includes::*;
 use crate::prelude::Ticket;
 use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
-use citadel_wire::exports::Connection;
-use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
-use netbeam::sync::network_endpoint::NetworkEndpoint;
 
 /// Handles preconnect packets. Handles the NAT traversal
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -63,8 +57,8 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
     fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_preconnect<R: Ratchet>(
-    session_orig: &CitadelSession<R>,
+pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
+    session_orig: &CitadelSession<R, T>,
     packet: HdpPacket,
     header_entropy_bank_vers: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -232,23 +226,24 @@ pub async fn process_preconnect<R: Ratchet>(
                                 ));
                             }
 
-                            // another check. If we are already using a QUIC connection for the primary stream, we don't need to hole-punch.
+                            // If already using a QUIC connection for primary stream, use it for UDP directly.
                             if let Some(quic_conn) =
                                 inner_mut!(session.primary_stream_quic_conn).take()
                             {
-                                log::trace!(target: "citadel", "Skipping NAT traversal since QUIC is enabled for this session");
-                                return send_success_as_initiator(
-                                    Some(get_quic_udp_interface(
-                                        quic_conn,
-                                        session.local_bind_addr,
-                                    )),
-                                    &new_ratchet,
-                                    session,
-                                    security_level,
-                                    session_cid,
-                                    &mut state_container,
-                                    ticket,
-                                );
+                                if let Some(udp) =
+                                    T::quic_udp_channel(quic_conn, session.local_bind_addr)
+                                {
+                                    log::trace!(target: "citadel", "Skipping NAT traversal since QUIC is enabled for this session");
+                                    return send_success_as_initiator(
+                                        Some(udp),
+                                        &new_ratchet,
+                                        session,
+                                        security_level,
+                                        session_cid,
+                                        &mut state_container,
+                                        ticket,
+                                    );
+                                }
                             }
 
                             let stage0_preconnect_packet =
@@ -284,46 +279,28 @@ pub async fn process_preconnect<R: Ratchet>(
                     }
                 };
 
-                let conn = &(NetworkEndpoint::register(RelativeNodeType::Initiator, stream)
-                    .await
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?);
-                log::trace!(target: "citadel", "Initiator created");
-                let stun_servers = session.stun_servers.clone();
-                let res = conn
-                    .begin_udp_hole_punch(generate_hole_punch_crypt_container(
+                {
+                    let stun_servers = session.stun_servers.clone();
+                    let udp = T::c2s_hole_punch(
+                        stream,
                         new_ratchet.clone(),
                         SecurityLevel::Standard,
                         C2S_IDENTITY_CID,
                         stun_servers,
-                    ))
-                    .await;
-
-                match res {
-                    Ok(ret) => {
-                        log::trace!(target: "citadel", "Initiator finished NAT traversal ...");
-                        send_success_as_initiator(
-                            Some(get_raw_udp_interface(ret)),
-                            &new_ratchet,
-                            session,
-                            security_level,
-                            session_cid,
-                            &mut inner_mut_state!(session.state_container),
-                            ticket,
-                        )
-                    }
-
-                    Err(err) => {
-                        log::warn!(target: "citadel", "Hole punch attempt failed {:?}", err.to_string());
-                        send_success_as_initiator(
-                            None,
-                            &new_ratchet,
-                            session,
-                            security_level,
-                            session_cid,
-                            &mut inner_mut_state!(session.state_container),
-                            ticket,
-                        )
-                    }
+                        RelativeNodeType::Initiator,
+                    )
+                    .await
+                    .ok()
+                    .flatten();
+                    send_success_as_initiator(
+                        udp,
+                        &new_ratchet,
+                        session,
+                        security_level,
+                        session_cid,
+                        &mut inner_mut_state!(session.state_container),
+                        ticket,
+                    )
                 }
             }
 
@@ -390,31 +367,29 @@ pub async fn process_preconnect<R: Ratchet>(
                     }
                 };
 
-                let conn = &(NetworkEndpoint::register(RelativeNodeType::Receiver, stream)
-                    .await
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?);
-                log::trace!(target: "citadel", "Receiver created");
-                let stun_servers = session.stun_servers.clone();
-                let res = conn
-                    .begin_udp_hole_punch(generate_hole_punch_crypt_container(
+                {
+                    let stun_servers = session.stun_servers.clone();
+                    let udp = T::c2s_hole_punch(
+                        stream,
                         ratchet.clone(),
                         SecurityLevel::Standard,
                         C2S_IDENTITY_CID,
                         stun_servers,
-                    ))
-                    .await;
+                        RelativeNodeType::Receiver,
+                    )
+                    .await
+                    .ok()
+                    .flatten();
 
-                match res {
-                    Ok(ret) => handle_success_as_receiver(
-                        Some(get_raw_udp_interface(ret)),
-                        session,
-                        session_cid,
-                        &mut inner_mut_state!(session.state_container),
-                    ),
-
-                    Err(err) => {
-                        log::warn!(target: "citadel", "Hole punch attempt failed ({err}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange");
-                        // We await the initiator to choose a method
+                    if udp.is_some() {
+                        handle_success_as_receiver(
+                            udp,
+                            session,
+                            session_cid,
+                            &mut inner_mut_state!(session.state_container),
+                        )
+                    } else {
+                        log::warn!(target: "citadel", "Hole punch not available or failed. Will fallback to TCP only mode");
                         let mut state_container = inner_mut_state!(session.state_container);
                         state_container.udp_mode = UdpMode::Disabled;
                         state_container.pre_connect_state.last_stage =
@@ -463,18 +438,22 @@ pub async fn process_preconnect<R: Ratchet>(
                         return Ok(PrimaryProcessorResult::ReplyToSender(begin_connect));
                     }
 
-                    // another check. If we are already using a QUIC connection for the primary stream, AND we are using UDP mode, then this
-                    // server node will need to mirror the opposite side and setup a UDP conn internally
+                    // If using a QUIC connection for primary stream AND UDP mode enabled,
+                    // mirror the opposite side and setup a UDP conn internally
                     if state_container.udp_mode == UdpMode::Enabled {
                         if let Some(quic_conn) = inner_mut!(session.primary_stream_quic_conn).take()
                         {
-                            log::trace!(target: "citadel", "[Server/QUIC-UDP] Loading ...");
-                            let _ = handle_success_as_receiver(
-                                Some(get_quic_udp_interface(quic_conn, session.local_bind_addr)),
-                                session,
-                                header.session_cid.get(),
-                                &mut state_container,
-                            )?;
+                            if let Some(udp) =
+                                T::quic_udp_channel(quic_conn, session.local_bind_addr)
+                            {
+                                log::trace!(target: "citadel", "[Server/QUIC-UDP] Loading ...");
+                                let _ = handle_success_as_receiver(
+                                    Some(udp),
+                                    session,
+                                    header.session_cid.get(),
+                                    &mut state_container,
+                                )?;
+                            }
                         }
                     }
 
@@ -561,8 +540,8 @@ pub async fn process_preconnect<R: Ratchet>(
     to_concurrent_processor!(task)
 }
 
-fn begin_connect_process<R: Ratchet>(
-    session: &CitadelSession<R>,
+fn begin_connect_process<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
     ratchet: &R,
     security_level: SecurityLevel,
     ticket: Ticket,
@@ -595,21 +574,22 @@ fn begin_connect_process<R: Ratchet>(
     Ok(PrimaryProcessorResult::ReplyToSender(stage0_connect_packet))
 }
 
-fn send_success_as_initiator<R: Ratchet>(
+fn send_success_as_initiator<R: Ratchet, T: PlatformOps>(
     udp_splittable: Option<UdpSplittableTypes>,
     ratchet: &R,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     security_level: SecurityLevel,
     session_cid: u64,
     state_container: &mut StateContainerInner<R>,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
+    let tcp_only = udp_splittable.is_none();
     let _ = handle_success_as_receiver(udp_splittable, session, session_cid, state_container)?;
 
     let success_packet = packet_crafter::pre_connect::craft_stage_final(
         ratchet,
         true,
-        false,
+        tcp_only,
         session.time_tracker.get_global_time_ns(),
         security_level,
         ticket,
@@ -617,9 +597,9 @@ fn send_success_as_initiator<R: Ratchet>(
     Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
 }
 
-fn handle_success_as_receiver<R: Ratchet>(
+fn handle_success_as_receiver<R: Ratchet, T: PlatformOps>(
     udp_splittable: Option<UdpSplittableTypes>,
-    session: &CitadelSession<R>,
+    session: &CitadelSession<R, T>,
     session_cid: u64,
     state_container: &mut StateContainerInner<R>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -642,7 +622,7 @@ fn handle_success_as_receiver<R: Ratchet>(
         let peer_addr = udp_splittable.peer_addr();
         // the UDP subsystem will automatically engage at this point
         if state_container.udp_mode == UdpMode::Enabled {
-            CitadelSession::udp_socket_loader(
+            T::spawn_udp_socket_loader(
                 session.clone(),
                 VirtualTargetType::LocalGroupServer { session_cid },
                 udp_splittable,
@@ -656,30 +636,6 @@ fn handle_success_as_receiver<R: Ratchet>(
     }
     // the server will await for the client to send an initiation packet
     Ok(PrimaryProcessorResult::Void)
-}
-
-pub(crate) fn generate_hole_punch_crypt_container<R: Ratchet>(
-    ratchet: R,
-    security_level: SecurityLevel,
-    target_cid: u64,
-    stun_servers: Option<Vec<String>>,
-) -> HolePunchConfigContainer {
-    let ratchet_cloned = ratchet.clone();
-
-    HolePunchConfigContainer::new(
-        move |plaintext| {
-            packet_crafter::hole_punch::generate_packet(
-                &ratchet,
-                plaintext,
-                security_level,
-                target_cid,
-            )
-        },
-        move |packet| {
-            packet_crafter::hole_punch::decrypt_packet(&ratchet_cloned, packet, security_level)
-        },
-        stun_servers,
-    )
 }
 
 /// Returns the instant in time when the sync_time happens, and the inscribable i64 thereof
@@ -709,17 +665,6 @@ fn proto_version_out_of_sync(adjacent_proto_version: u32) -> Result<bool, Networ
             "Unable to parse incoming protocol semver",
         )),
     }
-}
-
-fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
-    log::trace!(target: "citadel", "Will use Raw UDP for UDP transmission");
-    let send_addr = socket.addr.send_address;
-    UdpSplittableTypes::Raw(RawUdpSocketConnector::new(socket.into_socket(), send_addr))
-}
-
-fn get_quic_udp_interface(quic_conn: Connection, local_addr: SocketAddr) -> UdpSplittableTypes {
-    log::trace!(target: "citadel", "Will use QUIC UDP for UDP transmission");
-    UdpSplittableTypes::Quic(QuicUdpSocketConnector::new(quic_conn, local_addr))
 }
 
 pub fn send_error_and_end_session(

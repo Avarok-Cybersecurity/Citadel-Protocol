@@ -6,11 +6,12 @@
 
 #![allow(dead_code)]
 
-use citadel_io::tokio::sync::Mutex;
+use citadel_io::tokio::sync::{Mutex, Semaphore};
 use citadel_sdk::async_trait;
 use citadel_sdk::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Shared state tracker for a single node across all test phases.
 ///
@@ -41,6 +42,8 @@ pub struct NodeState {
     pub messages_received: AtomicUsize,
     /// CID consistency check - should never change
     pub cid_consistent: AtomicBool,
+    /// Semaphore for P2P disconnect events — each disconnect adds 1 permit
+    pub p2p_disconnect_semaphore: Semaphore,
 }
 
 impl Default for NodeState {
@@ -56,6 +59,7 @@ impl Default for NodeState {
             messages_sent: AtomicUsize::new(0),
             messages_received: AtomicUsize::new(0),
             cid_consistent: AtomicBool::new(true),
+            p2p_disconnect_semaphore: Semaphore::new(0),
         }
     }
 }
@@ -67,6 +71,21 @@ impl NodeState {
 
     pub fn get_phase(&self) -> u8 {
         self.phase.load(Ordering::SeqCst)
+    }
+
+    /// Wait for a P2P disconnect event with timeout.
+    /// Each call consumes exactly 1 permit (waits for 1 disconnect).
+    pub async fn wait_for_p2p_disconnect(&self, timeout: Duration) {
+        match citadel_io::tokio::time::timeout(timeout, self.p2p_disconnect_semaphore.acquire())
+            .await
+        {
+            Ok(Ok(permit)) => permit.forget(),
+            Ok(Err(_)) => panic!("P2P disconnect semaphore closed unexpectedly"),
+            Err(_) => panic!(
+                "Timed out waiting for P2P disconnect signal ({}s)",
+                timeout.as_secs()
+            ),
+        }
     }
 
     pub fn increment_messages_sent(&self) {
@@ -134,6 +153,7 @@ impl NodeState {
                 log::trace!("NodeState: P2P Disconnect received via PeerEvent");
                 self.p2p_disconnect_received_count
                     .fetch_add(1, Ordering::SeqCst);
+                self.p2p_disconnect_semaphore.add_permits(1);
             }
 
             // Rekey result - typically intercepted by rekey() subscription

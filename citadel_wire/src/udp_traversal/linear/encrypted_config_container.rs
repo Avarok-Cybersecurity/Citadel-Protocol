@@ -68,30 +68,27 @@ pub struct HolePunchConfigContainer {
 type CryptFunction<T> = Arc<dyn for<'a> Fn(&'a [u8]) -> T + Send + Sync + 'static>;
 
 impl HolePunchConfigContainer {
-    /// Wraps the provided functions into a portable abstraction
-    #[cfg(not(feature = "localhost-testing"))]
+    /// Wraps the provided functions into a portable abstraction.
+    /// In localhost-testing mode, encryption is disabled (identity functions used).
     pub fn new(
         _generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
         _decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
         stun_servers: Option<Vec<String>>,
     ) -> Self {
-        Self {
-            generate_packet: Arc::new(_generate_packet),
-            decrypt_packet: Arc::new(_decrypt_packet),
-            stun_servers,
+        #[cfg(not(feature = "localhost-testing"))]
+        {
+            Self {
+                generate_packet: Arc::new(_generate_packet),
+                decrypt_packet: Arc::new(_decrypt_packet),
+                stun_servers,
+            }
         }
-    }
-
-    // disable encryption
-    #[cfg(feature = "localhost-testing")]
-    pub fn new(
-        _generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
-        _decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
-        stun_servers: Option<Vec<String>>,
-    ) -> Self {
-        Self {
-            stun_servers,
-            ..Default::default()
+        #[cfg(feature = "localhost-testing")]
+        {
+            Self {
+                stun_servers,
+                ..Default::default()
+            }
         }
     }
 

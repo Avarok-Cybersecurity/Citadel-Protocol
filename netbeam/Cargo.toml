@@ -16,7 +16,6 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["std"]
 std = ["rand/std", "rand/std_rng", "citadel_io/std", "anyhow/std"]
-wasm = ["citadel_io/wasm"]
 
 [dependencies]
 citadel_io = { workspace = true }

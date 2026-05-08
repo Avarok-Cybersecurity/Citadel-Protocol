@@ -38,14 +38,7 @@ std = [
     "atomic/std",
 ]
 
-wasm = [
-    "citadel_user/wasm",
-    "citadel_crypt/wasm",
-    "citadel_pqcrypto/wasm",
-    "citadel_wire/wasm",
-    "citadel_io/wasm",
-    "netbeam/wasm",
-]
+wasm-threads = ["citadel_crypt/wasm-threads"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -80,6 +73,50 @@ bytemuck = { workspace = true, features = ["derive"] }
 chrono = { workspace = true }
 sha3 = { workspace = true }
 citadel_logging = { workspace = true }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+chrono = { workspace = true, features = ["wasmbind"] }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true, features = [
+    "WebSocket",
+    "MessageEvent",
+    "ErrorEvent",
+    "CloseEvent",
+    "BinaryType",
+    "Event",
+    # WebRTC DataChannel (unordered mode = UDP equivalent)
+    "RtcPeerConnection",
+    "RtcDataChannel",
+    "RtcDataChannelInit",
+    "RtcDataChannelEvent",
+    "RtcDataChannelState",
+    "RtcConfiguration",
+    "RtcIceServer",
+    "RtcSessionDescriptionInit",
+    "RtcSdpType",
+    "RtcSessionDescription",
+    "RtcIceCandidate",
+    "RtcIceCandidateInit",
+    "RtcPeerConnectionIceEvent",
+    "RtcSignalingState",
+    "RtcIceConnectionState",
+    "RtcIceGatheringState",
+    "RtcDataChannelType",
+    # Fetch API (signaling service)
+    "Window",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Headers",
+    # Crypto (random nonce generation)
+    "Crypto",
+] }
+js-sys = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

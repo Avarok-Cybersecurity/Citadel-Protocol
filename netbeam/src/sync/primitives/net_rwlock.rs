@@ -115,7 +115,7 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
         let local_read_lock = this.local_active_read_lock.clone();
         let channel = this.channel.clone();
 
-        citadel_io::tokio::task::spawn(async move {
+        citadel_io::spawn(async move {
             if let Err(err) = passive_background_handler::<S, T>(
                 channel,
                 shared_state,
@@ -178,7 +178,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for NetRwLock<T, S> {
             // sends Halt before the peer has completed its operations (similar
             // to TCP's TIME_WAIT state for graceful connection closure).
             rt.spawn(async move {
-                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                citadel_io::time::sleep(std::time::Duration::from_millis(200)).await;
                 let _ = conn.send_serialized(UpdatePacket::Halt).await;
             });
         }
@@ -1044,7 +1044,7 @@ mod tests {
             for idx in 0..COUNT {
                 log::trace!(target: "citadel", "Server obtaining lock {idx}");
                 let lock = rwlock.read().await.unwrap();
-                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                citadel_io::time::sleep(std::time::Duration::from_millis(1)).await;
                 log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
@@ -1060,7 +1060,7 @@ mod tests {
             for idx in 0..COUNT {
                 log::trace!(target: "citadel", "Client obtaining lock {idx}");
                 let lock = rwlock.read().await.unwrap();
-                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                citadel_io::time::sleep(std::time::Duration::from_millis(1)).await;
                 log::trace!(target: "citadel", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
@@ -1102,7 +1102,7 @@ mod tests {
             for idx in 0..COUNT {
                 log::trace!(target: "citadel", "Server obtaining lock {idx}");
                 let lock = rwlock.read().await.unwrap();
-                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                citadel_io::time::sleep(std::time::Duration::from_millis(1)).await;
                 log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
@@ -1125,7 +1125,7 @@ mod tests {
             for idx in 0..COUNT {
                 log::trace!(target: "citadel", "Client obtaining lock {idx}");
                 let lock = rwlock.read().await.unwrap();
-                citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                citadel_io::time::sleep(std::time::Duration::from_millis(1)).await;
                 log::trace!(target: "citadel", "****Client obtained read lock {} w/val {:?}", idx, &*lock);
                 reads.push(lock);
             }
@@ -1175,13 +1175,13 @@ mod tests {
                 log::trace!(target: "citadel", "Server obtaining lock {idx}");
                 if do_read {
                     let lock = rwlock.read().await.unwrap();
-                    //citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    //citadel_io::time::sleep(std::time::Duration::from_millis(1)).await;
                     log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                     do_read = false;
                     assert_eq!(server_ref.load(Ordering::Relaxed), *lock);
                 } else {
                     let mut lock = rwlock.write().await.unwrap();
-                    //citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    //citadel_io::time::sleep(std::time::Duration::from_millis(1)).await;
                     log::trace!(target: "citadel", "****Server obtained write lock {} w/val {:?}", idx, &*lock);
                     do_read = true;
                     *lock = idx;
@@ -1204,13 +1204,13 @@ mod tests {
             for idx in 0..COUNT {
                 if do_read {
                     let lock = rwlock.read().await.unwrap();
-                    //citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    //citadel_io::time::sleep(std::time::Duration::from_millis(1)).await;
                     log::trace!(target: "citadel", "****Server obtained read lock {} w/val {:?}", idx, &*lock);
                     do_read = false;
                     assert_eq!(client_ref.load(Ordering::Relaxed), *lock);
                 } else {
                     let mut lock = rwlock.write().await.unwrap();
-                    //citadel_io::tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                    //citadel_io::time::sleep(std::time::Duration::from_millis(1)).await;
                     log::trace!(target: "citadel", "****Server obtained write lock {} w/val {:?}", idx, &*lock);
                     do_read = true;
                     *lock = idx;

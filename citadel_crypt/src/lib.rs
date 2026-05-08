@@ -75,3 +75,11 @@ pub mod toolset;
 /// For secure messaging with concurrent ratcheting operations
 pub mod messaging;
 pub mod ordered_channel;
+
+/// Re-export `init_thread_pool` for WASM parallel crypto via Web Workers.
+///
+/// Call this once at startup before any encryption operations when using
+/// the `wasm-threads` feature. Requires Cross-Origin Isolation headers
+/// (COOP/COEP) in the browser.
+#[cfg(feature = "wasm-threads")]
+pub use wasm_bindgen_rayon::init_thread_pool;

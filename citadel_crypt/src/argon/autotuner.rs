@@ -91,7 +91,7 @@ pub async fn calculate_optimal_argon_params(
     let mut mem_cost = available_memory_kb;
 
     loop {
-        let init_time = citadel_io::tokio::time::Instant::now();
+        let init_time = citadel_io::time::Instant::now();
         let settings_this_round = ArgonSettings::new_gen_salt(
             vec![],
             lanes,

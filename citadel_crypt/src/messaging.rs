@@ -179,7 +179,7 @@ where
                         break;
                     }
                     log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): waiting for {queue_size} queued messages before shutdown");
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    citadel_io::time::sleep(Duration::from_millis(100)).await;
                     retries += 1;
                 }
             }
@@ -190,7 +190,7 @@ where
             let _ = manager_for_shutdown.shutdown();
         };
 
-        drop(tokio::task::spawn(background_task));
+        drop(citadel_io::spawn(background_task));
 
         Self {
             sink: RatchetManagerMessengerLayerTx {

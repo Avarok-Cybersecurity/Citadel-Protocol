@@ -45,9 +45,10 @@
 use crate::prelude::{CitadelClientServerConnection, TargetLockedRemote};
 use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
+use citadel_io::tokio_util::io::StreamReader;
 use citadel_proto::prelude::NetworkError;
 use citadel_proto::prelude::*;
-use citadel_proto::re_imports::{StreamReader, UnboundedReceiverStream};
 use citadel_types::crypto::SecBuffer;
 use futures::StreamExt;
 use std::future::Future;

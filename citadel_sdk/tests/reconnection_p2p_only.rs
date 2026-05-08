@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Test 3: P2P-Only Disconnect
 //!
 //! Verifies P2P can be re-established while C2S stays active.
@@ -160,8 +161,8 @@ mod tests {
 
                     barrier2.wait().await;
 
-                    // Wait for P2P disconnect signal from B (generous for CI release builds)
-                    citadel_io::tokio::time::sleep(Duration::from_millis(1500)).await;
+                    // Wait for actual P2P disconnect signal from B
+                    state.wait_for_p2p_disconnect(Duration::from_secs(30)).await;
 
                     log::info!(
                         "[Peer A] Phase 2 complete, p2p_disconnect_recv={}",
@@ -325,9 +326,6 @@ mod tests {
                     state.set_phase(3);
                     barrier3.wait().await;
 
-                    // Pause before reconnect (generous for CI release builds)
-                    citadel_io::tokio::time::sleep(Duration::from_millis(1000)).await;
-
                     // Reconnect P2P - already registered, just need to connect
                     let peer_handle2 = conn.find_target(conn.cid, peer_username.clone()).await?;
                     let p2p2 = peer_handle2.connect_to_peer().await?;
@@ -379,8 +377,12 @@ mod tests {
             },
         );
 
-        let client_a = NodeBuilder::default().build(client_a_kernel).unwrap();
-        let client_b = NodeBuilder::default().build(client_b_kernel).unwrap();
+        let client_a = DefaultNodeBuilder::default()
+            .build(client_a_kernel)
+            .unwrap();
+        let client_b = DefaultNodeBuilder::default()
+            .build(client_b_kernel)
+            .unwrap();
 
         let clients = futures::future::try_join(client_a, client_b);
 
@@ -391,7 +393,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
+        let result = citadel_io::tokio::time::timeout(Duration::from_secs(240), task)
             .await
             .expect("Test timed out");
 

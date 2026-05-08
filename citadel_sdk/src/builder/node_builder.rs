@@ -37,40 +37,43 @@
 
 use citadel_proto::prelude::*;
 
+use citadel_io::ServerMode;
 use citadel_proto::kernel::KernelExecutorArguments;
 use citadel_proto::macros::{ContextRequirements, LocalContextRequirements};
-use citadel_proto::re_imports::RustlsClientConfig;
 use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey};
 use futures::Future;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
-use std::path::Path;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 
 /// Used to construct a running client/peer or server instance
-pub struct NodeBuilder<R: Ratchet = StackedRatchet> {
+pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTransport> {
     hypernode_type: Option<NodeType>,
-    underlying_protocol: Option<ServerUnderlyingProtocol>,
+    underlying_protocol: Option<ServerMode<T>>,
     backend_type: Option<BackendType>,
     server_argon_settings: Option<ArgonDefaultServerSettings>,
     #[cfg(feature = "google-services")]
     services: Option<ServicesConfig>,
     server_misc_settings: Option<ServerMiscSettings>,
-    client_tls_config: Option<RustlsClientConfig>,
+    client_tls_config: Option<T::ClientConfig>,
     kernel_executor_settings: Option<KernelExecutorSettings>,
     stun_servers: Option<Vec<String>>,
+    turn_servers: Option<Vec<TurnServerConfig>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
+    websocket_listen_addr: Option<std::net::SocketAddr>,
+    #[cfg(target_family = "wasm")]
+    serverless_config: Option<ServerlessConfig>,
     _ratchet: PhantomData<R>,
+    _transport: PhantomData<T>,
 }
 
-/// Default node builder type
-pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet>;
+/// Default node builder type using platform-appropriate transport
+pub type DefaultNodeBuilder = NodeBuilder<StackedRatchet, DefaultTransport>;
+/// Lightweight node builder using `MonoRatchet` for reduced cryptographic overhead
+pub type LightweightNodeBuilder = NodeBuilder<MonoRatchet, DefaultTransport>;
 
-pub type LightweightNodeBuilder = NodeBuilder<MonoRatchet>;
-
-impl<R: Ratchet> Default for NodeBuilder<R> {
+impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
     fn default() -> Self {
         Self {
             hypernode_type: None,
@@ -83,8 +86,13 @@ impl<R: Ratchet> Default for NodeBuilder<R> {
             client_tls_config: None,
             kernel_executor_settings: None,
             stun_servers: None,
+            turn_servers: None,
             local_only_server_settings: None,
+            websocket_listen_addr: None,
+            #[cfg(target_family = "wasm")]
+            serverless_config: None,
             _ratchet: Default::default(),
+            _transport: Default::default(),
         }
     }
 }
@@ -131,7 +139,7 @@ impl<K> Future for NodeFuture<'_, K> {
     }
 }
 
-impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
+impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
     /// Returns a future that represents the both the protocol and kernel execution
     pub fn build<'a, 'b: 'a, K: NetKernel<R> + 'b>(
         &'a mut self,
@@ -139,46 +147,63 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
     ) -> anyhow::Result<NodeFuture<'b, K>> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
-        let backend_type = self.backend_type.take().unwrap_or_else(|| {
-            if cfg!(feature = "filesystem") {
-                // set the home dir for fs type to the home directory
-                let mut home_dir = dirs2::home_dir().unwrap();
-                home_dir.push(format!(".citadel/{}", uuid::Uuid::new_v4().as_u128()));
-                return BackendType::Filesystem(home_dir.to_str().unwrap().to_string());
-            }
-
-            BackendType::InMemory
-        });
+        let backend_type = self.backend_type.take().unwrap_or_default();
         let server_argon_settings = self.server_argon_settings.take();
         #[cfg(feature = "google-services")]
         let server_services_cfg = self.services.take();
         #[cfg(not(feature = "google-services"))]
         let server_services_cfg = None;
         let server_misc_settings = self.server_misc_settings.take();
-        let client_config = self.client_tls_config.take().map(Arc::new);
+        let client_config = self.client_tls_config.take();
         let kernel_executor_settings = self.kernel_executor_settings.take().unwrap_or_default();
         let stun_servers = self.stun_servers.take();
-
-        let underlying_proto = if let Some(proto) = self.underlying_protocol.take() {
-            proto
-        } else {
-            // default to TLS self-signed to enforce hybrid cryptography
-            ServerUnderlyingProtocol::new_tls_self_signed()
-                .map_err(|err| anyhow::Error::msg(err.into_string()))?
-        };
-
-        if matches!(underlying_proto, ServerUnderlyingProtocol::Tcp(..)) {
-            citadel_logging::warn!(target: "citadel", "⚠️ WARNING ⚠️ TCP is discouraged for production use until The Citadel Protocol has been reviewed. Use TLS automatically by not changing the underlying protocol");
-        }
-
+        let turn_servers = self.turn_servers.take();
+        let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = self.local_only_server_settings.take();
+        let websocket_listen_addr = self.websocket_listen_addr.take();
+        #[cfg(target_family = "wasm")]
+        let serverless_config = self.serverless_config.take();
 
         Ok(NodeFuture {
             _pd: Default::default(),
             inner: Box::pin(async move {
+                let underlying_proto = match underlying_proto {
+                    Some(proto) => proto,
+                    None => T::default_server_config().await.map_err(|err| {
+                        NetworkError::Generic(format!(
+                            "Failed to create default server config: {err}"
+                        ))
+                    })?,
+                };
+
+                T::config_warnings(&underlying_proto);
+
+                // Serverless mode: perform signaling and override node
+                // type, listener, and client config based on assigned role.
+                #[cfg(target_family = "wasm")]
+                let (pre_built_listener, client_config, hypernode_type) = if let Some(sl_config) =
+                    serverless_config
+                {
+                    let conn = establish_serverless_connection(
+                        sl_config.signaling.as_ref(),
+                        &sl_config.room_token,
+                        &sl_config.ice_servers,
+                        sl_config.poll_interval_ms,
+                        sl_config.timeout_ms,
+                    )
+                    .await
+                    .map_err(|e: std::io::Error| NetworkError::Generic(e.to_string()))?;
+
+                    T::setup_serverless_transport(conn.stream, conn.is_server_role, client_config)
+                } else {
+                    (None, client_config, hypernode_type)
+                };
+
+                #[cfg(not(target_family = "wasm"))]
+                let pre_built_listener = None;
+
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
-                let rt = citadel_io::tokio::runtime::Handle::try_current()
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                let rt = citadel_io::try_current_runtime().map_err(NetworkError::Generic)?;
                 log::trace!(target: "citadel", "[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(
                     backend_type,
@@ -188,7 +213,7 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
                 )
                 .await?;
 
-                let args = KernelExecutorArguments {
+                let args: KernelExecutorArguments<_, _, T> = KernelExecutorArguments {
                     rt,
                     hypernode_type,
                     account_manager,
@@ -197,7 +222,10 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
                     client_config,
                     kernel_executor_settings,
                     stun_servers,
+                    turn_servers,
                     server_only_session_init_settings,
+                    websocket_listen_addr,
+                    pre_built_listener,
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
@@ -248,7 +276,7 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
 
     /// Attaches a google services json path, allowing the use of Google Auth and other dependent services like Realtime Database for android/IOS messaging. Required when using [`Self::with_google_realtime_database_config`]
     #[cfg(feature = "google-services")]
-    pub fn with_google_services_json_path<T: Into<String>>(&mut self, path: T) -> &mut Self {
+    pub fn with_google_services_json_path<V: Into<String>>(&mut self, path: V) -> &mut Self {
         let cfg = self.get_or_create_services();
         cfg.google_services_json_path = Some(path.into());
         self
@@ -263,10 +291,10 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
     /// Creates a Google Realtime Database configuration given the project URL and API Key. Requires the use of [`Self::with_google_services_json_path`] to allow minting of JsonWebTokens
     /// at the central server
     #[cfg(feature = "google-services")]
-    pub fn with_google_realtime_database_config<T: Into<String>, R: Into<String>>(
+    pub fn with_google_realtime_database_config<V: Into<String>, W: Into<String>>(
         &mut self,
-        url: T,
-        api_key: R,
+        url: V,
+        api_key: W,
     ) -> &mut Self {
         let cfg = self.get_or_create_services();
         cfg.google_rtdb = Some(RtdbConfig {
@@ -276,10 +304,16 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
         self
     }
 
-    /// Sets the underlying protocol for the server
-    /// Default: TLS transport w/ self-signed cert
-    pub fn with_underlying_protocol(&mut self, proto: ServerUnderlyingProtocol) -> &mut Self {
+    /// Sets the underlying protocol / server configuration for the transport.
+    /// Default: TLS transport w/ self-signed cert (for NativeIO)
+    pub fn with_underlying_protocol(&mut self, proto: ServerMode<T>) -> &mut Self {
         self.underlying_protocol = Some(proto);
+        self
+    }
+
+    /// Sets the client-side transport configuration.
+    pub fn with_client_config(&mut self, config: T::ClientConfig) -> &mut Self {
+        self.client_tls_config = Some(config);
         self
     }
 
@@ -294,51 +328,43 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
         }
     }
 
-    /// Loads the accepted cert chain stored by the local operating system
-    /// If a custom set of certs is required, run [`Self::with_custom_certs`]
-    /// This is the default if no [`RustlsClientConfig`] is specified
-    pub async fn with_native_certs(&mut self) -> anyhow::Result<&mut Self> {
-        let certs = citadel_proto::re_imports::load_native_certs_async().await?;
-        self.client_tls_config = Some(citadel_proto::re_imports::cert_vec_to_secure_client_config(
-            &certs,
-        )?);
-        Ok(self)
-    }
-
-    /// The client will skip unconditionally server certificate verification
-    /// This is not recommended
-    pub fn with_insecure_skip_cert_verification(&mut self) -> &mut Self {
-        self.client_tls_config = Some(citadel_proto::re_imports::insecure::rustls_client_config());
+    /// Specifies custom STUN servers. If left unspecified, will use the defaults (twilio and Google STUN servers)
+    pub fn with_stun_servers<V: Into<String>, S: Into<Vec<V>>>(&mut self, servers: S) -> &mut Self {
+        self.stun_servers = Some(servers.into().into_iter().map(|t| t.into()).collect());
         self
     }
 
-    /// Loads a custom list of certs into the acceptable certificate list. Connections that present server certificates
-    /// that are outside of this list during the handshake process are refused
-    pub fn with_custom_certs<T: AsRef<[u8]>>(
-        &mut self,
-        custom_certs: &[T],
-    ) -> anyhow::Result<&mut Self> {
-        let cfg = citadel_proto::re_imports::create_rustls_client_config(custom_certs)?;
-        self.client_tls_config = Some(cfg);
-        Ok(self)
+    /// Specifies TURN servers for relay-based NAT traversal.
+    ///
+    /// TURN servers relay traffic when direct peer-to-peer connections fail
+    /// due to restrictive NAT configurations. On WASM targets, these are
+    /// passed as ICE servers to the WebRTC peer connection.
+    pub fn with_turn_servers<S: Into<Vec<TurnServerConfig>>>(&mut self, servers: S) -> &mut Self {
+        self.turn_servers = Some(servers.into());
+        self
     }
 
-    /// The file should be a PEM formatted certificate
-    #[cfg(feature = "std")]
-    pub async fn with_pem_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<&mut Self> {
-        use citadel_wire::exports::{Certificate, PemObject};
-        let mut der = std::io::Cursor::new(citadel_io::tokio::fs::read(path).await?);
-        let certs: Vec<Certificate<'static>> =
-            Certificate::pem_reader_iter(&mut der).collect::<Result<Vec<_>, _>>()?;
-        self.client_tls_config = Some(citadel_proto::re_imports::create_rustls_client_config(
-            &certs,
-        )?);
-        Ok(self)
+    /// Adds an optional WebSocket listener to a server node.
+    ///
+    /// When set, the server will accept both its primary transport (TCP/TLS/QUIC)
+    /// AND WebSocket connections on the specified address. This enables browser
+    /// clients (via WASM) to connect to the same server.
+    ///
+    /// Has no effect on client/peer nodes.
+    pub fn with_websocket_listener(&mut self, addr: std::net::SocketAddr) -> &mut Self {
+        self.websocket_listen_addr = Some(addr);
+        self
     }
 
-    /// Specifies custom STUN servers. If left unspecified, will use the defaults (twilio and Google STUN servers)
-    pub fn with_stun_servers<T: Into<String>, S: Into<Vec<T>>>(&mut self, servers: S) -> &mut Self {
-        self.stun_servers = Some(servers.into().into_iter().map(|t| t.into()).collect());
+    /// Enables serverless browser-to-browser mode. Both peers run identical code;
+    /// one is automatically assigned the server role and the other the client role
+    /// via deterministic signaling through the provided [`ServerlessConfig`].
+    ///
+    /// When set, `hypernode_type`, `underlying_protocol`, and `client_config` are
+    /// determined automatically after signaling completes.
+    #[cfg(target_family = "wasm")]
+    pub fn with_no_central_server(&mut self, config: ServerlessConfig) -> &mut Self {
+        self.serverless_config = Some(config);
         self
     }
 
@@ -346,7 +372,7 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
     /// If no value is set, any client can connect to the server. If a pre-shared key
     /// is specified, the client must have the matching pre-shared key in order to
     /// register and connect with the server.
-    pub fn with_server_password<T: Into<PreSharedKey>>(&mut self, password: T) -> &mut Self {
+    pub fn with_server_password<V: Into<PreSharedKey>>(&mut self, password: V) -> &mut Self {
         let mut server_only_settings = self.local_only_server_settings.clone().unwrap_or_default();
         server_only_settings.declared_pre_shared_key = Some(password.into());
         self.local_only_server_settings = Some(server_only_settings);
@@ -354,9 +380,9 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
     }
 
     /// Sets the header obfuscator settings for the server
-    pub fn with_server_declared_header_obfuscation<T: Into<HeaderObfuscatorSettings>>(
+    pub fn with_server_declared_header_obfuscation<V: Into<HeaderObfuscatorSettings>>(
         &mut self,
-        header_obfuscator_settings: T,
+        header_obfuscator_settings: V,
     ) -> &mut Self {
         let mut server_only_settings = self.local_only_server_settings.clone().unwrap_or_default();
         server_only_settings.declared_header_obfuscation_setting =
@@ -387,13 +413,66 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R> {
     }
 }
 
-#[cfg(test)]
+/// NativeIO-specific builder methods for TLS certificate configuration
+#[cfg(not(target_family = "wasm"))]
+impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
+    /// Loads the accepted cert chain stored by the local operating system
+    /// If a custom set of certs is required, run [`Self::with_custom_certs`]
+    /// This is the default if no client TLS config is specified
+    pub async fn with_native_certs(&mut self) -> anyhow::Result<&mut Self> {
+        let certs = citadel_proto::re_imports::load_native_certs_async().await?;
+        self.client_tls_config = Some(std::sync::Arc::new(
+            citadel_proto::re_imports::cert_vec_to_secure_client_config(&certs)?,
+        ));
+        Ok(self)
+    }
+
+    /// The client will skip unconditionally server certificate verification
+    /// This is not recommended
+    pub fn with_insecure_skip_cert_verification(&mut self) -> &mut Self {
+        self.client_tls_config = Some(std::sync::Arc::new(
+            citadel_proto::re_imports::insecure::rustls_client_config(),
+        ));
+        self
+    }
+
+    /// Loads a custom list of certs into the acceptable certificate list. Connections that present server certificates
+    /// that are outside of this list during the handshake process are refused
+    pub fn with_custom_certs<V: AsRef<[u8]>>(
+        &mut self,
+        custom_certs: &[V],
+    ) -> anyhow::Result<&mut Self> {
+        let cfg = citadel_proto::re_imports::create_rustls_client_config(custom_certs)?;
+        self.client_tls_config = Some(std::sync::Arc::new(cfg));
+        Ok(self)
+    }
+
+    /// The file should be a PEM formatted certificate
+    #[cfg(feature = "std")]
+    pub async fn with_pem_file<P: AsRef<std::path::Path>>(
+        &mut self,
+        path: P,
+    ) -> anyhow::Result<&mut Self> {
+        use citadel_wire::exports::{Certificate, PemObject};
+        let mut der = std::io::Cursor::new(citadel_io::tokio::fs::read(path).await?);
+        let certs: Vec<Certificate<'static>> =
+            Certificate::pem_reader_iter(&mut der).collect::<Result<Vec<_>, _>>()?;
+        self.client_tls_config = Some(std::sync::Arc::new(
+            citadel_proto::re_imports::create_rustls_client_config(&certs)?,
+        ));
+        Ok(self)
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::builder::node_builder::DefaultNodeBuilder;
     use crate::prefabs::server::empty::EmptyKernel;
     use crate::prelude::{BackendType, NodeType};
     use citadel_io::tokio;
-    use citadel_proto::prelude::{KernelExecutorSettings, ServerUnderlyingProtocol};
+    use citadel_proto::prelude::{
+        KernelExecutorSettings, NativeIO, NativeP2PConfig, NativeSecureConfig, ServerMode,
+    };
     use rstest::rstest;
     use std::str::FromStr;
 
@@ -429,9 +508,9 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(60))]
     #[allow(clippy::let_underscore_must_use)]
     async fn test_options(
-        #[values(ServerUnderlyingProtocol::new_quic_self_signed(), ServerUnderlyingProtocol::new_tls_self_signed().unwrap()
+        #[values(ServerMode::P2P(NativeP2PConfig::self_signed()), ServerMode::OrderedReliableSecure(NativeSecureConfig::self_signed().unwrap())
         )]
-        underlying_protocol: ServerUnderlyingProtocol,
+        underlying_protocol: ServerMode<NativeIO>,
         #[values(NodeType::Peer, NodeType::Server(std::net::SocketAddr::from_str("127.0.0.1:9999").unwrap()
         ))]
         node_type: NodeType,

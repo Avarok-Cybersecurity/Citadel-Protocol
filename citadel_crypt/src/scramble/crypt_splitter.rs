@@ -27,7 +27,9 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::{Range, RangeBounds};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use citadel_io::time::Instant;
 
 use bitvec::vec::BitVec;
 use bytes::{BufMut, BytesMut};
@@ -40,8 +42,6 @@ use crate::prelude::CryptError;
 use crate::ratchets::entropy_bank::EntropyBank;
 use crate::ratchets::Ratchet;
 pub use citadel_types::prelude::ObjectId;
-#[cfg(not(target_family = "wasm"))]
-use rayon::prelude::*;
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;
@@ -257,29 +257,17 @@ where
 
     log::trace!(target: "citadel", "[crypt_splitter]: Plaintext len for group {}: {}", cfg.group_id, cfg.plaintext_length);
 
-    #[cfg(not(target_family = "wasm"))]
-    let chunks = plain_text.par_chunks(cfg.max_plaintext_wave_length as usize);
-    #[cfg(target_family = "wasm")]
-    let chunks = plain_text.chunks(cfg.max_plaintext_wave_length as usize);
-
-    let packets = chunks
-        .enumerate()
-        .map(|(wave_idx, bytes_to_encrypt_for_this_wave)| {
-            scramble_encrypt_wave(
-                wave_idx,
-                bytes_to_encrypt_for_this_wave,
-                &cfg,
-                msg_entropy_bank,
-                msg_pqc,
-                scramble_entropy_bank,
-                target_cid,
-                object_id,
-                header_size_bytes,
-                &header_inscriber,
-            )
-        })
-        .flatten()
-        .collect::<HashMap<usize, PacketCoordinate>>();
+    let packets = encrypt_waves(
+        &plain_text,
+        &cfg,
+        msg_entropy_bank,
+        msg_pqc,
+        scramble_entropy_bank,
+        target_cid,
+        object_id,
+        header_size_bytes,
+        &header_inscriber,
+    );
 
     debug_assert_ne!(cfg.last_plaintext_wave_length, 0);
 
@@ -1001,6 +989,69 @@ impl<const N: usize> GroupSenderDevice<N> {
     /// we need to define a timeout that completely halts the sending of packets if a WAVE_ACK is not received by a certain deadline
     pub fn has_expired(&self, timeout: Duration) -> bool {
         self.last_wave_ack_received.elapsed() > timeout
+    }
+}
+
+/// Chunk plaintext into waves and encrypt each wave, collecting into a packet map.
+///
+/// On native: uses `rayon::par_chunks` for parallel encryption across CPU cores.
+/// On WASM: uses sequential `chunks` (rayon unavailable).
+#[allow(clippy::too_many_arguments)]
+fn encrypt_waves<F>(
+    plain_text: &[u8],
+    cfg: &GroupReceiverConfig,
+    msg_entropy_bank: &EntropyBank,
+    msg_pqc: &PostQuantumContainer,
+    scramble_entropy_bank: &EntropyBank,
+    target_cid: u64,
+    object_id: ObjectId,
+    header_size_bytes: usize,
+    header_inscriber: &F,
+) -> HashMap<usize, PacketCoordinate>
+where
+    F: Fn(&PacketVector, &EntropyBank, ObjectId, u64, &mut BytesMut) + Send + Sync,
+{
+    let chunk_size = cfg.max_plaintext_wave_length as usize;
+
+    let encrypt_chunk = |(wave_idx, bytes_to_encrypt_for_this_wave): (usize, &[u8])| {
+        scramble_encrypt_wave(
+            wave_idx,
+            bytes_to_encrypt_for_this_wave,
+            cfg,
+            msg_entropy_bank,
+            msg_pqc,
+            scramble_entropy_bank,
+            target_cid,
+            object_id,
+            header_size_bytes,
+            header_inscriber,
+        )
+    };
+
+    chunks_maybe_parallel(plain_text, chunk_size, encrypt_chunk)
+}
+
+/// Chunk data and flat-map, using rayon parallelism when available and sequential otherwise.
+///
+/// Rayon is available on native (via the `std` feature) and on WASM when
+/// the `wasm-threads` feature is enabled (requires SharedArrayBuffer).
+fn chunks_maybe_parallel<K, V, F>(data: &[u8], chunk_size: usize, f: F) -> HashMap<K, V>
+where
+    K: Eq + std::hash::Hash + Send,
+    V: Send,
+    F: Fn((usize, &[u8])) -> Vec<(K, V)> + Sync + Send,
+{
+    #[cfg(feature = "rayon")]
+    {
+        use rayon::prelude::*;
+        data.par_chunks(chunk_size)
+            .enumerate()
+            .flat_map(&f)
+            .collect()
+    }
+    #[cfg(not(feature = "rayon"))]
+    {
+        data.chunks(chunk_size).enumerate().flat_map(f).collect()
     }
 }
 

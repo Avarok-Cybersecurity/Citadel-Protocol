@@ -123,6 +123,10 @@ embed-doc-image = { version = "0.1.4" }
 hyper = { version = "0.14.25" }
 sha256 = { version = "1.5.0" }
 tokio-openssl = { version = "0.6.3" }
+tokio-tungstenite = { version = "0.28", default-features = false }
 ml-dsa = { version = "0.0.4" }
 fn-dsa = { version = "0.3.0", default-features = false }
 ts-rs = { version = "11", features = ["bytes"] }
+wasm-bindgen = { version = "0.2", default-features = false }
+web-sys = { version = "0.3", default-features = false }
+js-sys = { version = "0.3", default-features = false }

@@ -64,15 +64,19 @@
 //! in the changelog. It is recommended to specify exact version requirements
 //! in your `Cargo.toml`.
 #![doc(html_no_source)]
-#![forbid(unsafe_code)]
+// Native: forbid unsafe entirely. WASM: deny (allows targeted #[allow] for
+// Send/Sync impls on single-threaded web_sys types — the standard WASM pattern).
+#![cfg_attr(not(target_family = "wasm"), forbid(unsafe_code))]
+#![cfg_attr(target_family = "wasm", deny(unsafe_code))]
 #![deny(
     trivial_numeric_casts,
     unused_extern_crates,
     unused_import_braces,
     variant_size_differences,
-    unused_features,
-    dead_code
+    unused_features
 )]
+#![cfg_attr(not(target_family = "wasm"), deny(dead_code))]
+#![cfg_attr(target_family = "wasm", warn(dead_code))]
 #![allow(rustdoc::broken_intra_doc_links)]
 
 use crate::error::NetworkError;
@@ -119,7 +123,7 @@ pub mod macros {
     impl<T: ContextRequirements + Future> FutureRequirements for T {}
 
     pub type WeakBorrowType<T> = std::rc::Weak<std::cell::RefCell<T>>;
-    pub type SessionBorrow<'a, R> = std::cell::RefMut<'a, CitadelSessionInner<R>>;
+    pub type SessionBorrow<'a, R, T> = std::cell::RefMut<'a, CitadelSessionInner<R, T>>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::rc::Weak<std::cell::RefCell<T>>,
@@ -316,7 +320,7 @@ pub mod macros {
     impl<T: ContextRequirements + Future> FutureRequirements for T {}
 
     pub type WeakBorrowType<T> = std::sync::Weak<citadel_io::RwLock<T>>;
-    pub type SessionBorrow<'a, R> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner<R>>;
+    pub type SessionBorrow<'a, R, T> = citadel_io::RwLockWriteGuard<'a, CitadelSessionInner<R, T>>;
 
     pub struct WeakBorrow<T> {
         pub inner: std::sync::Weak<citadel_io::RwLock<T>>,
@@ -494,7 +498,6 @@ pub mod macros {
 
 #[cfg(not(target_family = "wasm"))]
 pub mod re_imports {
-    pub use async_trait::*;
     pub use bytes::BufMut;
     pub use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
     pub use futures::future::try_join3;
@@ -503,7 +506,6 @@ pub mod re_imports {
     pub use citadel_io::tokio_util::io::{SinkWriter, StreamReader};
     pub use citadel_pqcrypto::build_tag;
     pub use citadel_wire::exports::ClientConfig as RustlsClientConfig;
-    pub use citadel_wire::hypernode_type::NodeType;
     pub use citadel_wire::quic::insecure;
     pub use citadel_wire::tls::{
         cert_vec_to_secure_client_config, create_rustls_client_config, load_native_certs_async,
@@ -512,7 +514,7 @@ pub mod re_imports {
 
 pub mod prelude {
     pub use citadel_crypt::argon::argon_container::ArgonDefaultServerSettings;
-    #[cfg(not(coverage))]
+    #[cfg(all(not(coverage), not(target_family = "wasm")))]
     pub use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
     pub use citadel_crypt::ratchets::mono::keys::FcmKeys;
     pub use citadel_crypt::ratchets::mono::MonoRatchet;
@@ -533,9 +535,40 @@ pub mod prelude {
     pub use crate::kernel::{
         kernel_executor::KernelExecutor, kernel_trait::NetKernel, KernelExecutorSettings,
     };
+
+    // Unconditional exports available on all platforms
+    pub use async_trait::async_trait;
+    pub use citadel_wire::hypernode_type::NodeType;
+
+    // Native-only prelude exports
+    #[cfg(not(target_family = "wasm"))]
+    #[doc(hidden)]
+    pub use crate::proto::misc::net::GenericNetworkStream;
+    #[cfg(not(target_family = "wasm"))]
+    pub use {
+        crate::proto::misc::native_config::{
+            NativeOrderedReliableConfig, NativeP2PConfig, NativeSecureConfig, NativeServerModeExt,
+        },
+        crate::proto::misc::native_io::NativeIO,
+        crate::proto::misc::native_upgrade::{QuicRedirectSignal, TcpToQuicUpgrade},
+    };
+
+    // WASM-only prelude exports
+    #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::serverless::{establish_serverless_connection, ServerlessConfig};
+    #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::signaling::SignalingService;
+    #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::signaling_firebase::{FirebaseSignaling, FirebaseSignalingConfig};
+    #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::wasm_io::*;
+
+    pub use crate::proto::misc::platform_ops::{DefaultTransport, PlatformOps, TransferMetadata};
+
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
+    #[doc(hidden)]
+    pub use crate::proto::misc::safe_split_stream;
     pub use crate::proto::misc::session_security_settings::SessionSecuritySettingsBuilder;
-    pub use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
     pub use crate::proto::node::CitadelNode;
     pub use crate::proto::outbound_sender::OutboundUdpSender;
     pub use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -547,7 +580,7 @@ pub mod prelude {
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
     pub use crate::proto::remote::Ticket;
     pub use crate::proto::state_container::VirtualTargetType;
-    pub use crate::re_imports::{async_trait, NodeType};
+    pub use citadel_io::ServerMode;
     pub use citadel_types::crypto::SecrecyMode;
     pub use citadel_types::proto::ClientConnectionType;
     pub use citadel_types::proto::ConnectMode;
@@ -555,8 +588,6 @@ pub mod prelude {
     pub use citadel_user::backend::utils::{ObjectTransferHandler, ObjectTransferHandlerInner};
     pub use citadel_user::serialization::SyncIO;
 
-    #[doc(hidden)]
-    pub use crate::proto::misc::net::{safe_split_stream, GenericNetworkStream};
     pub use crate::proto::node_request::*;
     pub use crate::proto::node_result::*;
     pub use crate::proto::remote::*;
@@ -565,6 +596,7 @@ pub mod prelude {
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
     pub use crate::proto::session::ServerOnlySessionInitSettings;
+    pub use crate::proto::session::TurnServerConfig;
     pub use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
     pub use citadel_types::crypto::EncryptionAlgorithm;
     pub use citadel_types::crypto::KemAlgorithm;

@@ -29,28 +29,21 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::net::SocketAddr;
-use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::tokio::io::AsyncRead;
 use citadel_io::Mutex;
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
-use citadel_wire::exports::tokio_rustls::rustls::{pki_types, ClientConfig};
-use citadel_wire::exports::Endpoint;
 use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
-use citadel_wire::quic::{QuicEndpointConnector, QuicNode, QuicServer, SELF_SIGNED_DOMAIN};
-use citadel_wire::tls::client_config_to_tls_connector;
 use futures::StreamExt;
 use netbeam::time_tracker::TimeTracker;
 
-use crate::constants::{MAX_OUTGOING_UNPROCESSED_REQUESTS, TCP_CONN_TIMEOUT};
+use crate::constants::MAX_OUTGOING_UNPROCESSED_REQUESTS;
 use crate::error::NetworkError;
-use crate::functional::PairMap;
 use crate::kernel::kernel_communicator::{
     KernelAsyncCallbackHandler, KernelAsyncCallbackHandlerInner,
 };
@@ -58,10 +51,6 @@ use crate::kernel::kernel_executor::LocalSet;
 use crate::kernel::RuntimeFuture;
 use crate::prelude::ActiveSessions;
 use crate::prelude::{DeleteObject, PullObject};
-use crate::proto::misc::net::{
-    DualListener, FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener,
-};
-use crate::proto::misc::underlying_proto::ServerUnderlyingProtocol;
 use crate::proto::node_request::{
     ConnectToHypernode, DeregisterFromHypernode, DisconnectFromHypernode, GroupBroadcastCommand,
     NodeRequest, PeerCommand, ReKey, RegisterToHypernode, SendObject,
@@ -69,35 +58,37 @@ use crate::proto::node_request::{
 use crate::proto::node_result::{InternalServerError, NodeResult, SessionList};
 use crate::proto::outbound_sender::{BoundedReceiver, BoundedSender, UnboundedSender};
 use crate::proto::packet_processor::includes::Duration;
-use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{HdpSessionInitMode, ServerOnlySessionInitSettings};
 use crate::proto::session_manager::CitadelSessionManager;
+use citadel_io::ServerMode;
 
 pub type TlsDomain = Option<String>;
 
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
-define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet>, <R>);
+define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet, T: PlatformOps>, <R, T>);
 
 /// Inner device for the [`CitadelNode`]
-pub struct CitadelNodeInner<R: Ratchet> {
-    primary_socket: Option<DualListener>,
+pub struct CitadelNodeInner<R: Ratchet, T: PlatformOps> {
+    primary_socket: Option<citadel_io::Mutex<T::Listener>>,
+    /// Server bind address (set during init for server nodes).
+    bind_address: Option<T::Addr>,
     /// Key: cid (to account for multiple clients from the same node)
-    session_manager: CitadelSessionManager<R>,
+    session_manager: CitadelSessionManager<R, T>,
     to_kernel: UnboundedSender<NodeResult<R>>,
     local_node_type: NodeType,
     // Applies only to listeners, not outgoing connections
-    underlying_proto: ServerUnderlyingProtocol,
+    underlying_proto: ServerMode<T>,
     nat_type: NatType,
     // for TLS params
-    client_config: Arc<ClientConfig>,
+    client_config: T::ClientConfig,
     // All connecting/registering clients must present this pre-shared password in order to register and connect
     // to the server. This is an additional security measure to prevent unauthorized connections.
     server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
 }
 
-impl<R: Ratchet> CitadelNode<R> {
+impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
     /// Creates a new [`CitadelNode`]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn init(
@@ -105,10 +96,13 @@ impl<R: Ratchet> CitadelNode<R> {
         to_kernel: UnboundedSender<NodeResult<R>>,
         account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
-        underlying_proto: ServerUnderlyingProtocol,
-        client_config: Option<Arc<ClientConfig>>,
+        underlying_proto: ServerMode<T>,
+        client_config: Option<T::ClientConfig>,
         stun_servers: Option<Vec<String>>,
+        turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
+        websocket_listen_addr: Option<std::net::SocketAddr>,
+        pre_built_listener: Option<T::Listener>,
     ) -> io::Result<(
         NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
@@ -117,16 +111,24 @@ impl<R: Ratchet> CitadelNode<R> {
     )> {
         let (primary_socket, bind_addr) = match local_node_type {
             NodeType::Server(bind_addr) => {
-                Self::server_create_primary_listen_socket(underlying_proto.clone(), bind_addr)?
-                    .map_left(Some)
-                    .map_right(Some)
+                if let Some(listener) = pre_built_listener {
+                    // Serverless mode: use injected listener.
+                    let addr = T::from_socket_addr(bind_addr);
+                    (Some(citadel_io::Mutex::new(listener)), Some(addr))
+                } else {
+                    // Normal mode: bind to address.
+                    let (listener, addr) =
+                        T::bind(underlying_proto.clone(), T::from_socket_addr(bind_addr)).await?;
+                    let listener = T::bind_with_websocket(listener, websocket_listen_addr).await?;
+                    (Some(citadel_io::Mutex::new(listener)), Some(addr))
+                }
             }
 
             NodeType::Peer => (None, None),
         };
 
-        if let Some(local_bind_addr) = bind_addr {
-            log::info!(target: "citadel", "Citadel server established on {local_bind_addr}");
+        if let Some(local_bind_addr) = &bind_addr {
+            log::info!(target: "citadel", "Citadel server established on {local_bind_addr:?}");
         } else {
             log::info!(target: "citadel", "Citadel client established")
         }
@@ -134,11 +136,7 @@ impl<R: Ratchet> CitadelNode<R> {
         let client_config = if let Some(config) = client_config {
             config
         } else {
-            let native_certs = citadel_wire::tls::load_native_certs_async().await?;
-            Arc::new(
-                citadel_wire::tls::create_rustls_client_config(&native_certs)
-                    .map_err(|err| generic_error(err.to_string()))?,
-            )
+            T::default_client_config().await?
         };
 
         let time_tracker = TimeTracker::new();
@@ -149,14 +147,16 @@ impl<R: Ratchet> CitadelNode<R> {
             time_tracker,
             client_config.clone(),
             stun_servers.clone(),
+            turn_servers,
         );
 
-        let nat_type = NatType::identify(stun_servers).await?;
+        let nat_type = T::identify_nat_type(stun_servers).await?;
 
         let inner = CitadelNodeInner {
             underlying_proto,
             local_node_type,
             primary_socket,
+            bind_address: bind_addr,
             to_kernel,
             session_manager,
             nat_type,
@@ -175,7 +175,7 @@ impl<R: Ratchet> CitadelNode<R> {
     #[allow(clippy::type_complexity)]
     #[allow(unused_results, unused_must_use)]
     fn load(
-        this: CitadelNode<R>,
+        this: CitadelNode<R, T>,
         account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
     ) -> (
@@ -216,66 +216,23 @@ impl<R: Ratchet> CitadelNode<R> {
 
         drop(read);
 
-        let (
-            outbound_kernel_request_handler,
-            primary_stream_listener,
-            peer_container,
-            localset_opt,
-        ) = {
-            #[cfg(feature = "multi-threaded")]
-            {
-                let outbound_kernel_request_handler = Self::outbound_kernel_request_handler(
-                    this.clone(),
-                    kernel_tx.clone(),
-                    outbound_send_request_rx,
-                );
-                let primary_stream_listener = if node_type.is_server() {
-                    Some(Self::listen_primary(
-                        this.clone(),
-                        tt,
-                        kernel_tx.clone(),
-                        server_only_session_settings,
-                    ))
-                } else {
-                    None
-                };
-                let peer_container = CitadelSessionManager::run_peer_container(session_manager);
-                let localset_opt = None;
-                (
-                    outbound_kernel_request_handler,
-                    primary_stream_listener,
-                    peer_container,
-                    localset_opt,
-                )
-            }
-
-            #[cfg(not(feature = "multi-threaded"))]
-            {
-                let localset = LocalSet::new();
-                let outbound_kernel_request_handler = Self::outbound_kernel_request_handler(
-                    this.clone(),
-                    kernel_tx.clone(),
-                    outbound_send_request_rx,
-                );
-                let primary_stream_listener = if node_type.is_server() {
-                    Some(Self::listen_primary(
-                        this.clone(),
-                        tt,
-                        kernel_tx.clone(),
-                        server_only_session_settings,
-                    ))
-                } else {
-                    None
-                };
-                let peer_container = CitadelSessionManager::run_peer_container(session_manager);
-                (
-                    outbound_kernel_request_handler,
-                    primary_stream_listener,
-                    peer_container,
-                    Some(localset),
-                )
-            }
+        let localset_opt = crate::proto::misc::threading::create_localset();
+        let outbound_kernel_request_handler = Self::outbound_kernel_request_handler(
+            this.clone(),
+            kernel_tx.clone(),
+            outbound_send_request_rx,
+        );
+        let primary_stream_listener = if node_type.is_server() {
+            Some(Self::listen_primary(
+                this.clone(),
+                tt,
+                kernel_tx.clone(),
+                server_only_session_settings,
+            ))
+        } else {
+            None
         };
+        let peer_container = CitadelSessionManager::run_peer_container(session_manager);
 
         let server_future = async move {
             let res = if let Some(primary_stream_listener) = primary_stream_listener {
@@ -306,7 +263,7 @@ impl<R: Ratchet> CitadelNode<R> {
             // the kernel will wait until the server shuts down to prevent cleanup tasks from being killed too early
             shutdown.send(());
 
-            citadel_io::tokio::time::timeout(Duration::from_millis(1000), sess_mgr.shutdown())
+            citadel_io::time::timeout(Duration::from_millis(1000), sess_mgr.shutdown())
                 .await
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
@@ -324,274 +281,6 @@ impl<R: Ratchet> CitadelNode<R> {
         )
     }
 
-    pub fn server_create_primary_listen_socket<T: ToSocketAddrs>(
-        underlying_proto: ServerUnderlyingProtocol,
-        full_bind_addr: T,
-    ) -> io::Result<(DualListener, SocketAddr)> {
-        match &underlying_proto {
-            ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp(..) => {
-                Self::create_listen_socket(underlying_proto, None, None, full_bind_addr)
-                    .map(|r| (DualListener::new(r.0, None), r.1))
-            }
-
-            ServerUnderlyingProtocol::Quic(_, domain, is_self_signed) => {
-                // we need two sockets: one for TCP connection to allow connecting peers to determine the protocol, then another for QUIC
-                let (tcp_listener, bind_addr) = Self::create_listen_socket(
-                    ServerUnderlyingProtocol::tcp(),
-                    Some((domain.clone(), *is_self_signed)),
-                    None,
-                    full_bind_addr,
-                )?;
-                let (quic_listener, _bind_addr_quic) =
-                    Self::create_listen_socket(underlying_proto, None, None, bind_addr)?;
-                Ok((
-                    DualListener::new(tcp_listener, Some(quic_listener)),
-                    bind_addr,
-                ))
-            }
-        }
-    }
-
-    pub fn create_listen_socket<T: ToSocketAddrs>(
-        underlying_proto: ServerUnderlyingProtocol,
-        redirect_to_quic: Option<(TlsDomain, bool)>,
-        quic_endpoint_opt: Option<QuicNode>,
-        full_bind_addr: T,
-    ) -> io::Result<(GenericNetworkListener, SocketAddr)> {
-        let bind: SocketAddr = full_bind_addr
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::bind_defaults(underlying_proto, redirect_to_quic, quic_endpoint_opt, bind)
-    }
-
-    /// redirect_to_quic is only applicable when using TCP
-    /// - quic_endpoint_opt is only relevant (yet optional) when the underlying proto specified is quic
-    fn bind_defaults(
-        underlying_proto: ServerUnderlyingProtocol,
-        redirect_to_quic: Option<(TlsDomain, bool)>,
-        quic_endpoint_opt: Option<QuicNode>,
-        bind: SocketAddr,
-    ) -> io::Result<(GenericNetworkListener, SocketAddr)> {
-        match underlying_proto {
-            ServerUnderlyingProtocol::Tcp(Some(listener)) => {
-                let listener = listener.lock().take().ok_or_else(|| {
-                    std::io::Error::other(
-                        "TCP listener already taken",
-                    )
-                })?;
-
-                let bind = listener.local_addr()?;
-
-                Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic)?, bind))
-            }
-            ServerUnderlyingProtocol::Tls(..) | ServerUnderlyingProtocol::Tcp(None) => {
-                citadel_wire::socket_helpers::get_tcp_listener(bind)
-                    .and_then(|listener| {
-                        log::trace!(target: "citadel", "Setting up {:?} listener socket on {:?}", &underlying_proto, bind);
-                        let bind = listener.local_addr()?;
-                        match underlying_proto {
-                            ServerUnderlyingProtocol::Tcp(None) => {
-                                Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic)?, bind))
-                            }
-
-                            ServerUnderlyingProtocol::Tls(interop, domain, is_self_signed) => {
-                                let tls_listener = TlsListener::new(listener, interop.tls_acceptor, domain, is_self_signed)?;
-                                Ok((GenericNetworkListener::new_tls(tls_listener)?, bind))
-                            }
-
-                            _ => {
-                                unreachable!("TCP listener called, but not the right listener")
-                            }
-                        }
-                    }).map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))
-            }
-
-            ServerUnderlyingProtocol::Quic(crypto, domain, is_self_signed) => {
-                log::trace!(target: "citadel", "Setting up QUIC listener socket on {bind:?} | Self-signed? {is_self_signed}");
-
-                let mut quic = if let Some(quic) = quic_endpoint_opt {
-                    quic
-                } else {
-                    let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind).map_err(generic_error)?;
-                    QuicServer::create(udp_socket, crypto).map_err(generic_error)?
-                };
-
-                let bind = quic.endpoint.local_addr()?;
-
-                quic.tls_domain_opt = domain;
-
-                Ok((GenericNetworkListener::from_quic_node(quic, is_self_signed)?, bind))
-            }
-        }
-    }
-
-    /// Returns a TcpStream to the remote addr, as well as a local TcpListener on the same bind addr going to remote
-    /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
-    /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
-    /// It is expected that the listener_underlying_proto is QUIC here since this is called for p2p connections!
-    pub(crate) async fn create_session_transport_init<T: ToSocketAddrs>(
-        remote: T,
-        default_client_config: &Arc<ClientConfig>,
-    ) -> io::Result<GenericNetworkStream> {
-        // We start by creating a client to server connection
-        let (stream, _quic_endpoint_generated_during_connect) =
-            Self::create_c2s_connect_socket(remote, None, default_client_config).await?;
-
-        log::trace!(target: "citadel", "[Client] Finished connecting to server {} w/ proto {:?}", stream.peer_addr()?, &stream);
-        Ok(stream)
-    }
-
-    /// - force_use_default_config: if true, this will unconditionally use the default client config already present inside the quic_endpoint parameter
-    pub async fn quic_p2p_connect_defaults(
-        quic_endpoint: Endpoint,
-        timeout: Option<Duration>,
-        domain: TlsDomain,
-        remote: SocketAddr,
-        secure_client_config: Arc<ClientConfig>,
-    ) -> io::Result<GenericNetworkStream> {
-        log::trace!(target: "citadel", "Connecting to QUIC node {remote:?}");
-        // when using p2p quic, if domain is some, then we will use the default cfg
-        let cfg = if domain.is_some() {
-            citadel_wire::quic::rustls_client_config_to_quinn_config(secure_client_config)?
-        } else {
-            // if there is no domain specified, assume self-signed (For now)
-            // this is non-blocking since native certs won't be loaded
-            citadel_wire::quic::insecure::configure_client()
-        };
-
-        log::trace!(target: "citadel", "Using cfg={cfg:?} to connect to {remote:?}");
-
-        // we MUST use the connect_biconn_WITH below since we are using the server quic instance to make this outgoing connection
-        let (conn, sink, stream) = citadel_io::tokio::time::timeout(
-            timeout.unwrap_or(TCP_CONN_TIMEOUT),
-            quic_endpoint.connect_biconn_with(
-                remote,
-                domain.as_deref().unwrap_or(SELF_SIGNED_DOMAIN),
-                Some(cfg),
-            ),
-        )
-        .await?
-        .map_err(generic_error)?;
-        Ok(GenericNetworkStream::Quic(
-            sink,
-            stream,
-            quic_endpoint,
-            Some(conn),
-            remote,
-        ))
-    }
-
-    /// Only for client to server conns
-    pub async fn create_c2s_connect_socket<T: ToSocketAddrs>(
-        remote: T,
-        timeout: Option<Duration>,
-        default_client_config: &Arc<ClientConfig>,
-    ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
-        let remote: SocketAddr = remote
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::c2s_connect_defaults(timeout, remote, default_client_config).await
-    }
-
-    pub async fn c2s_connect_defaults(
-        timeout: Option<Duration>,
-        remote: SocketAddr,
-        default_client_config: &Arc<ClientConfig>,
-    ) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
-        log::trace!(target: "citadel", "C2S connect defaults to {remote:?}");
-        let mut stream = citadel_wire::socket_helpers::get_tcp_stream(
-            remote,
-            timeout.unwrap_or(TCP_CONN_TIMEOUT),
-        )
-        .await
-        .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
-        let bind_addr = stream.local_addr()?;
-        log::trace!(target: "citadel", "C2S Bind addr: {bind_addr:?}");
-        let first_packet = Self::read_first_packet(&mut stream, timeout).await?;
-
-        match first_packet {
-            FirstPacket::Tcp { external_addr } => {
-                log::trace!(target: "citadel", "Host claims TCP DEFAULT CONNECTION. External ADDR: {external_addr:?}");
-                Ok((GenericNetworkStream::Tcp(stream), None))
-            }
-
-            FirstPacket::Tls {
-                domain,
-                external_addr,
-                is_self_signed,
-            } => {
-                log::trace!(target: "citadel", "Host claims TLS CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", &domain, external_addr, is_self_signed);
-
-                let connector = if is_self_signed {
-                    citadel_wire::tls::create_client_dangerous_config()
-                } else {
-                    client_config_to_tls_connector(default_client_config.clone())
-                };
-
-                let stream = connector
-                    .connect(
-                        pki_types::ServerName::try_from(
-                            domain
-                                .clone()
-                                .unwrap_or_else(|| SELF_SIGNED_DOMAIN.to_string()),
-                        )
-                        .map_err(|err| generic_error(err.to_string()))?,
-                        stream,
-                    )
-                    .await
-                    .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err))?;
-                Ok((GenericNetworkStream::Tls(Box::new(stream.into())), None))
-            }
-            FirstPacket::Quic {
-                domain,
-                external_addr,
-                is_self_signed,
-            } => {
-                log::trace!(target: "citadel", "Host claims QUIC CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", &domain, external_addr, is_self_signed);
-                let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind_addr)
-                    .map_err(generic_error)?; // bind to same address as tcp for firewall purposes
-                let mut quic_endpoint = if is_self_signed {
-                    citadel_wire::quic::QuicClient::new_no_verify(udp_socket)
-                        .map_err(generic_error)?
-                } else {
-                    citadel_wire::quic::QuicClient::new_with_rustls_config(
-                        udp_socket,
-                        default_client_config.clone(),
-                    )
-                    .map_err(generic_error)?
-                };
-
-                quic_endpoint.tls_domain_opt.clone_from(&domain);
-
-                Self::quic_p2p_connect_defaults(
-                    quic_endpoint.endpoint.clone(),
-                    timeout,
-                    domain,
-                    remote,
-                    default_client_config.clone(),
-                )
-                .await
-                .map(|r| (r, Some(quic_endpoint)))
-            }
-        }
-    }
-
-    async fn read_first_packet<Read: AsyncRead + Unpin>(
-        stream: Read,
-        timeout: Option<Duration>,
-    ) -> std::io::Result<FirstPacket> {
-        let (_stream, ret) = citadel_io::tokio::time::timeout(
-            timeout.unwrap_or(TCP_CONN_TIMEOUT),
-            super::misc::read_one_packet_as_framed(stream),
-        )
-        .await
-        .map_err(|err| std::io::Error::new(std::io::ErrorKind::TimedOut, err.to_string()))?
-        .map_err(|err| generic_error(err.into_string()))?;
-        Ok(ret)
-    }
-
     /// In impersonal mode, each hypernode needs to check for incoming connections on the primary port.
     /// Once a TcpStream is established, it is passed into the underlying HdpSessionManager and a Session
     /// is created to handle the stream.
@@ -599,18 +288,20 @@ impl<R: Ratchet> CitadelNode<R> {
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
     async fn listen_primary(
-        server: CitadelNode<R>,
+        server: CitadelNode<R, T>,
         _tt: TimeTracker,
         to_kernel: UnboundedSender<NodeResult<R>>,
         server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<(), NetworkError> {
         let primary_port_future = {
             let mut this = inner_mut!(server);
-            let listener = this.primary_socket.take().unwrap();
+            let listener = this.primary_socket.take().unwrap().into_inner();
+            let bind_address = this.bind_address.clone().unwrap();
             let session_manager = this.session_manager.clone();
             let local_nat_type = this.nat_type.clone();
             drop(this);
             Self::primary_session_creator_loop(
+                bind_address,
                 to_kernel,
                 local_nat_type,
                 session_manager,
@@ -623,19 +314,21 @@ impl<R: Ratchet> CitadelNode<R> {
     }
 
     async fn primary_session_creator_loop(
+        local_bind_addr: T::Addr,
         to_kernel: UnboundedSender<NodeResult<R>>,
         local_nat_type: NatType,
-        session_manager: CitadelSessionManager<R>,
-        mut socket: DualListener,
+        session_manager: CitadelSessionManager<R, T>,
+        mut socket: T::Listener,
         server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<(), NetworkError> {
         loop {
             match socket.next().await {
                 Some(Ok((stream, peer_addr))) => {
                     log::trace!(target: "citadel", "Received stream from {peer_addr:?}");
-                    let local_bind_addr = stream.local_addr().unwrap();
+                    let local_bind_addr = T::to_socket_addr(&local_bind_addr);
+                    let peer_addr = T::to_socket_addr(&peer_addr);
 
-                    log::trace!(target: "citadel", "[Server] Starting connection with remote={} w/ proto={:?}", peer_addr, &stream);
+                    log::trace!(target: "citadel", "[Server] Starting connection with remote={peer_addr:?}");
 
                     match session_manager.process_new_inbound_connection(
                         local_bind_addr,
@@ -654,7 +347,7 @@ impl<R: Ratchet> CitadelNode<R> {
                                     ticket_opt: None,
                                     cid_opt: None,
                                     message: format!(
-                                        "HDP Server dropping connection to {peer_addr}. Reason: {err}"
+                                        "HDP Server dropping connection to {peer_addr:?}. Reason: {err}"
                                     ),
                                 },
                             ))?;
@@ -678,7 +371,7 @@ impl<R: Ratchet> CitadelNode<R> {
     }
 
     async fn outbound_kernel_request_handler(
-        this: CitadelNode<R>,
+        this: CitadelNode<R, T>,
         to_kernel_tx: UnboundedSender<NodeResult<R>>,
         mut outbound_send_request_rx: BoundedReceiver<(NodeRequest, Ticket)>,
     ) -> Result<(), NetworkError> {

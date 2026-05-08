@@ -435,7 +435,7 @@ pub(crate) mod do_connect {
             target_cid: U64::new(0),
         };
 
-        let uses_filesystem = matches!(backend_type, BackendType::Filesystem(..));
+        let uses_filesystem = backend_type.is_filesystem_backend();
 
         let payload = DoConnectStage0Packet {
             proposed_credentials,
@@ -501,7 +501,7 @@ pub(crate) mod do_connect {
             packet_flags::cmd::aux::do_connect::FAILURE
         };
 
-        let is_filesystem = matches!(backend_type, BackendType::Filesystem(..));
+        let is_filesystem = backend_type.is_filesystem_backend();
 
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),

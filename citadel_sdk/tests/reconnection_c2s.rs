@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Test 1: C2S Reconnection
 //!
 //! Verifies client can disconnect from server and reconnect with same CID.
@@ -111,9 +112,6 @@ mod tests {
                 conn.disconnect().await?;
                 log::info!("[Client] Disconnected");
 
-                // Small delay to ensure server processes disconnect
-                citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
-
                 // ===== PHASE 3: Reconnect Setup =====
                 state.set_phase(3);
                 log::info!("[Client] Phase 3: Reconnect");
@@ -174,7 +172,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let task = async move {
             citadel_io::tokio::select! {

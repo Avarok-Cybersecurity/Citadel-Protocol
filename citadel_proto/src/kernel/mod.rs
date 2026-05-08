@@ -33,15 +33,13 @@
 use crate::proto::session::ServerOnlySessionInitSettings;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Future;
-use citadel_io::tokio::runtime::Handle;
 use citadel_user::account_manager::AccountManager;
-use citadel_wire::exports::ClientConfig;
 use citadel_wire::hypernode_type::NodeType;
-use std::sync::Arc;
 
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
-use crate::prelude::ServerUnderlyingProtocol;
+use crate::proto::misc::platform_ops::PlatformOps;
+use citadel_io::ServerMode;
 
 /// for handling easy asynchronous callbacks
 pub mod kernel_communicator;
@@ -53,6 +51,10 @@ pub mod kernel_trait;
 
 pub trait RuntimeFuture: Future<Output = Result<(), NetworkError>> + ContextRequirements {}
 impl<T: Future<Output = Result<(), NetworkError>> + ContextRequirements> RuntimeFuture for T {}
+
+/// On native, wraps a real tokio runtime Handle (needed for multi-threaded spawn).
+/// On WASM (always single-threaded), the handle is unused so we substitute `()`.
+pub type RuntimeHandle = citadel_io::RuntimeHandle;
 
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 /// Used for fine-tuning parameters within the [`KernelExecutor`]
@@ -69,14 +71,19 @@ impl KernelExecutorSettings {
     }
 }
 
-pub struct KernelExecutorArguments<K, R: Ratchet> {
-    pub rt: Handle,
+pub struct KernelExecutorArguments<K, R: Ratchet, T: PlatformOps> {
+    pub rt: RuntimeHandle,
     pub hypernode_type: NodeType,
     pub account_manager: AccountManager<R, R>,
     pub kernel: K,
-    pub underlying_proto: ServerUnderlyingProtocol,
-    pub client_config: Option<Arc<ClientConfig>>,
+    pub underlying_proto: ServerMode<T>,
+    pub client_config: Option<T::ClientConfig>,
     pub kernel_executor_settings: KernelExecutorSettings,
     pub stun_servers: Option<Vec<String>>,
+    pub turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
+    pub websocket_listen_addr: Option<std::net::SocketAddr>,
+    /// Pre-built listener for serverless server-role mode.
+    /// When `Some`, `CitadelNode::init()` skips `T::bind()` and uses this listener.
+    pub pre_built_listener: Option<T::Listener>,
 }

@@ -1,3 +1,4 @@
+#![cfg(not(target_family = "wasm"))]
 //! Stress Test: C2S Iterative Disconnect/Reconnect
 //!
 //! Registers once, then loops N iterations of:
@@ -95,9 +96,6 @@ mod tests {
                     // Disconnect
                     conn.disconnect().await?;
                     log::info!("[C2S Stress] Iteration {} complete", i + 1);
-
-                    // Brief pause between iterations
-                    citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
                 }
 
                 let total_msgs = ITERATIONS * MSGS_PER_ITERATION;
@@ -122,7 +120,7 @@ mod tests {
             },
         );
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
         let task = async move {
             citadel_io::tokio::select! {

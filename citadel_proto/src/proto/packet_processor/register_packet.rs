@@ -31,6 +31,7 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};
 use citadel_crypt::endpoint_crypto_container::{
     AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto,
@@ -49,8 +50,8 @@ use citadel_user::serialization::SyncIO;
     fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
     )
 ))]
-pub async fn process_register<R: Ratchet>(
-    session_ref: &CitadelSession<R>,
+pub async fn process_register<R: Ratchet, T: PlatformOps>(
+    session_ref: &CitadelSession<R, T>,
     packet: HdpPacket,
     remote_addr: SocketAddr,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -107,7 +108,7 @@ pub async fn process_register<R: Ratchet>(
 
                         // Heavy: new_bob + stage0_bob + finish (off-thread)
                         let (transfer_out, finished_ratchet) =
-                            citadel_io::tokio::task::spawn_blocking(move || {
+                            citadel_io::spawn_blocking(move || {
                                 let mut bob_constructor =
                                     <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                         cid,
@@ -206,7 +207,7 @@ pub async fn process_register<R: Ratchet>(
 
                     // Offload stage1_alice + finish (avoid capturing session in closure)
                     let psk = session.session_password.clone();
-                    let new_ratchet = citadel_io::tokio::task::spawn_blocking(move || {
+                    let new_ratchet = citadel_io::spawn_blocking(move || {
                         alice_constructor
                             .stage1_alice(transfer, psk.as_ref())
                             .map_err(|err| NetworkError::Generic(err.to_string()))?;
