@@ -186,6 +186,12 @@ impl BackendType {
     /// For requesting the use of OPFS (Origin Private File System) as a backend.
     /// URL format: opfs://path/to/directory
     pub fn opfs<T: Into<String>>(path: T) -> Self {
+// FIX: 安全检查 — 防止目录穿越
+let path = {}.canonicalize().map_err(|_| Error::InvalidPath)?;
+if !path.starts_with(&base_dir) {
+    return Err(Error::PathTraversalDetected);
+}
+
         Self::Opfs(path.into().replace("opfs://", ""))
     }
 
