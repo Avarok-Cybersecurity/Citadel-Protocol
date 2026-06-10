@@ -541,24 +541,11 @@ impl HdpBuffer for BytesMut {
     }
 }
 
-impl HdpBuffer for Vec<u8> {
-    type Immutable = Vec<u8>;
-
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    fn split_to(&mut self, idx: usize) -> Self {
-        let tail = self[..idx].to_vec();
-        self.copy_within(idx.., 0);
-        self.truncate(self.len() - idx);
-        tail // now, tail is the head
-    }
-
-    fn to_immutable(self) -> Self::Immutable {
-        self
-    }
-}
+// NOTE: `HdpBuffer` is only ever instantiated with `BytesMut` in production (the framed
+// reader yields `BytesMut`, and `HdpPacket` defaults `B = BytesMut`). The previous
+// `impl HdpBuffer for Vec<u8>` was never constructed anywhere and its `split_to` performed
+// a `to_vec()` + `copy_within` re-materialization on every call — a redundant-copy footgun.
+// Removed; add it back only if a `Vec`-backed packet path is genuinely introduced.
 
 #[cfg(test)]
 mod tests {
