@@ -380,7 +380,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .collect();
         let _: Vec<_> = cids
             .iter()
-            .zip(metadata.into_iter())
+            .zip(metadata)
             .map(|(&cid, user_data)| {
                 peer_info.insert(
                     cid,
