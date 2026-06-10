@@ -104,10 +104,12 @@ pub(crate) mod group {
     pub(crate) fn validate_header(payload: &BytesMut) -> Option<GroupHeader> {
         let mut group_header = GroupHeader::deserialize_from_vector(payload).ok()?;
         if let GroupHeader::Standard(group_receiver_config, _) = &mut group_header {
-            if group_receiver_config.plaintext_length as usize
-                > citadel_user::prelude::MAX_BYTES_PER_GROUP
-            {
-                log::error!(target: "citadel", "The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
+            // Reject configs that are internally inconsistent or would drive an out-of-proportion
+            // receiver-side allocation (memory-exhaustion DoS). This bounds every allocation field
+            // (wave_count, packets_needed, max_payload_size, max_packets_per_wave), not just
+            // plaintext_length, which is the only field the legacy check covered.
+            if let Err(err) = group_receiver_config.validate() {
+                log::error!(target: "citadel", "The provided GroupReceiverConfiguration was rejected: {err:?}. Dropping ...");
                 return None;
             }
         }
@@ -247,14 +249,20 @@ pub(crate) mod pre_connect {
         >,
         NetworkError,
     > {
-        // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
-        let static_auxiliary_ratchet = cnac.refresh_static_ratchet();
+        // Use the NON-mutating accessor for validation. refresh_static_ratchet() resets transient
+        // session-crypto state (group-id counters, anti-replay counters) on the shared, persistent
+        // CNAC; doing that *before* validating the SYN would let a forged or replayed SYN (which has
+        // not yet proven device-key possession) interrupt an already-active session. The static
+        // ratchet *keys* are identical before and after a refresh, so validation is unaffected.
+        let static_auxiliary_ratchet = cnac.get_static_auxiliary_ratchet();
         let (header, payload, _, _) = packet.decompose();
         // After this point, we validate that the other end had the right static symmetric key. This proves device identity, thought not necessarily account identity
         let (header, payload) =
             super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload).ok_or(
                 NetworkError::InternalError("Unable to validate initial packet"),
             )?;
+        // Device identity is now proven; it is safe to (re)initialize the session crypto state.
+        let _ = cnac.refresh_static_ratchet();
 
         let transfer = SynPacket::<R>::deserialize_from_vector(&payload)
             .map_err(|err| NetworkError::Generic(err.into_string()))?;

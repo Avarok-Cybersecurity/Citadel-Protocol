@@ -493,6 +493,30 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
     }
 }
 
+/// Ensures a sender-supplied file-transfer name cannot be used for path traversal.
+///
+/// The name must be non-empty and consist solely of normal path components (optionally `.`):
+/// no root/prefix (absolute paths), and no `..` parent-directory components. Component-based
+/// checking (rather than substring matching) correctly permits literal filenames that merely
+/// contain ".." while rejecting actual traversal segments.
+fn validate_file_transfer_name(name: &str) -> Result<(), AccountError> {
+    use std::path::Component;
+    if name.is_empty() {
+        return Err(AccountError::IoError(
+            "File transfer target name is empty".into(),
+        ));
+    }
+    let safe = Path::new(name)
+        .components()
+        .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
+    if !safe {
+        return Err(AccountError::IoError(format!(
+            "File transfer target name {name:?} is not permitted (possible path traversal)"
+        )));
+    }
+    Ok(())
+}
+
 async fn get_file_path(
     source_cid: u64,
     transfer_type: &TransferType,
@@ -507,6 +531,11 @@ async fn get_file_path(
                     "File transfer type specified, yet, no target name given".into(),
                 )
             })?;
+            // `name` is sender-supplied (VirtualObjectMetadata.name). Reject anything that is not a
+            // relative path made solely of normal components, so it cannot escape the per-CID
+            // transfer directory. `PathBuf::push` with an absolute component (`/etc/...`, `C:\...`)
+            // replaces the base entirely, and `..` segments traverse upward — both are blocked here.
+            validate_file_transfer_name(name)?;
             let save_path = directory_store.file_transfer_dir.as_str();
             let base_path_str = format!("{save_path}{source_cid}");
             file_io.create_dir_all(&base_path_str).await?;
@@ -546,4 +575,49 @@ async fn delete_paths<T: AsRef<Path>>(
         file_io.remove_file(&path_str).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod file_transfer_name_tests {
+    use super::validate_file_transfer_name;
+
+    #[test]
+    fn accepts_plain_filenames() {
+        for name in [
+            "file.txt",
+            "report.pdf",
+            "my..weird..name.bin",
+            "a/b/c.dat",
+            "./rel.txt",
+        ] {
+            assert!(
+                validate_file_transfer_name(name).is_ok(),
+                "expected {name:?} to be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_traversal_and_absolute() {
+        let bad = [
+            "",
+            "../escape.txt",
+            "../../etc/passwd",
+            "a/../../b",
+            "/etc/passwd",
+            "/abs/path",
+        ];
+        for name in bad {
+            assert!(
+                validate_file_transfer_name(name).is_err(),
+                "expected {name:?} to be rejected"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_windows_absolute() {
+        assert!(validate_file_transfer_name(r"C:\\windows\\system32").is_err());
+    }
 }

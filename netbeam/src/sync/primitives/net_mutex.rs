@@ -454,11 +454,12 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
     send_release: bool,
 ) -> Result<LocalLockHolder<T>, anyhow::Error> {
     if send_release {
+        // Propagate (rather than panic on) a serialization failure: a panic here aborts the lock
+        // protocol task and would deadlock the peer waiting on the release.
+        let serialized = bincode::serialize(&lock.deref().0)
+            .map_err(|err| anyhow::Error::msg(err.to_string()))?;
         channel
-            .send_serialized(UpdatePacket::Released(
-                bincode::serialize(&lock.deref().0).unwrap(),
-                false,
-            ))
+            .send_serialized(UpdatePacket::Released(serialized, false))
             .await?;
     }
 
@@ -545,7 +546,12 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(
                         UpdatePacket::Released(_, false)
                         | UpdatePacket::ReleasedVerified
                         | UpdatePacket::LockAcquired => {
-                            unreachable!("[BG] RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED should only be received in the yield_lock subroutine.");
+                            // These are normally consumed by the yield_lock subroutine, but a packet
+                            // from a previous cycle can be delivered here under reordering. Ignore it
+                            // defensively rather than panicking: a panic aborts this background task
+                            // and would deadlock the peer. (Mirrors the active-channel handler.)
+                            log::warn!(target: "citadel", "[BG] {:?} ignoring stray RELEASED/RELEASED_VERIFIED/LOCK_ACQUIRED packet", channel.node_type());
+                            continue;
                         }
 
                         UpdatePacket::Halt => {

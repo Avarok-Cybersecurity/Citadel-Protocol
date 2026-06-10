@@ -122,6 +122,10 @@ pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatche
     node_argon_settings: ArgonSettings,
     server_misc_settings: ServerMiscSettings,
     backend_ty: BackendType,
+    /// Serializes the username-exists check and the subsequent CNAC save during registration so two
+    /// concurrent registrations of the same username cannot both pass the existence check and race
+    /// to save (last-writer-wins / duplicate account). Shared across clones via `Arc`.
+    registration_lock: std::sync::Arc<citadel_io::tokio::sync::Mutex<()>>,
 }
 
 impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
@@ -198,6 +202,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             services_handler,
             node_argon_settings: server_argon_settings.unwrap_or_default().into(),
             server_misc_settings: server_misc_settings.unwrap_or_default(),
+            registration_lock: std::sync::Arc::new(citadel_io::tokio::sync::Mutex::new(())),
         };
 
         // Allow the local node to use the backend to store arbitrary data
@@ -242,7 +247,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         let pers = &self.persistence_handler;
 
-        // We must lock the config to ensure that the obtained CID gets added into the database before any competing threads may get called
+        // Hold the registration lock across the existence check AND the save so two concurrent
+        // registrations of the same username cannot both observe "does not exist" and then race to
+        // save (which on SQL/Redis is an upsert => silent last-writer-wins / duplicate account).
+        let _registration_guard = self.registration_lock.lock().await;
         log::trace!(target: "citadel", "Checking username {} for correspondence ...", auth_store.username());
 
         let username = auth_store.username().to_string();

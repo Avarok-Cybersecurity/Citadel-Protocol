@@ -158,7 +158,7 @@ impl EntropyBank {
         buf: &mut T,
         function: impl FnOnce(&mut T, &ArrayVec<u8, LARGEST_NONCE_LEN>) -> Result<(), CryptError>,
     ) -> Result<(), CryptError> {
-        let transient_id = self.transient_counter.fetch_add(1, Ordering::Relaxed);
+        let transient_id = self.transient_counter.next_id();
         let nonce = &self.get_nonce(transient_id);
         function(buf, nonce)?;
         buf.extend_from_slice(&transient_id.to_be_bytes())
@@ -191,7 +191,7 @@ impl EntropyBank {
         input: T,
         function: impl FnOnce(&[u8], &ArrayVec<u8, LARGEST_NONCE_LEN>) -> Result<Vec<u8>, CryptError>,
     ) -> Result<Vec<u8>, CryptError> {
-        let transient_id = self.transient_counter.fetch_add(1, Ordering::Relaxed);
+        let transient_id = self.transient_counter.next_id();
         let nonce = &self.get_nonce(transient_id);
         let input = input.as_ref();
         let mut out = function(input, nonce)?;
@@ -307,7 +307,59 @@ pub struct EntropyBank {
     pub(crate) cid: u64,
     pub(crate) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
     pub(crate) scramble_mappings: Zeroizing<Vec<(u16, u16)>>,
-    pub(crate) transient_counter: AtomicU64,
+    pub(crate) transient_counter: TransientNonceCounter,
+}
+
+/// Per-instance counter used to derive unique AEAD nonces for an [`EntropyBank`].
+///
+/// Security invariant: a `(key, nonce)` pair must never repeat. The same key can outlive a single
+/// process run — most notably the static auxiliary ratchet, whose key is reused across reconnects —
+/// and bank state is persisted and cloned via serde. Restoring a *stale* counter value (e.g. after
+/// a crash before the next save, from an older serialized snapshot, or from a serde clone) would let
+/// a fresh run re-emit nonce-deriving ids already used under that key, which is catastrophic for
+/// AES-GCM/ChaCha20-Poly1305.
+///
+/// To make rollback impossible, the counter is **never restored**: every freshly-constructed *or*
+/// deserialized instance starts at an independent random 63-bit base. That gives ~2^63 headroom
+/// before wrap and a negligible probability that two instances' incrementing ranges overlap. The
+/// value is still written and read as a `u64`, so the serialized byte layout is unchanged (the
+/// transmitted id, not this local value, is what the receiver uses to derive the nonce).
+#[derive(Debug)]
+pub(crate) struct TransientNonceCounter(AtomicU64);
+
+impl TransientNonceCounter {
+    fn random_base() -> u64 {
+        // Clear the top bit so there are always ~2^63 increments of headroom before wraparound.
+        thread_rng().gen::<u64>() >> 1
+    }
+
+    /// Atomically returns the next unique nonce id for this instance.
+    #[inline]
+    pub(crate) fn next_id(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
+impl Default for TransientNonceCounter {
+    fn default() -> Self {
+        Self(AtomicU64::new(Self::random_base()))
+    }
+}
+
+impl Serialize for TransientNonceCounter {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Preserve the historical 8-byte (u64) layout for storage/wire compatibility.
+        self.0.load(Ordering::Relaxed).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TransientNonceCounter {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Consume the persisted u64 (so the layout is unchanged) but discard it: a restored counter
+        // must never be reused. Start from a fresh random base instead.
+        let _persisted = u64::deserialize(deserializer)?;
+        Ok(Self::default())
+    }
 }
 
 /// Returns the approximate number of bytes needed to serialize a Drill
@@ -323,5 +375,43 @@ impl Debug for EntropyBank {
             self.get_version(),
             self.get_cid()
         )
+    }
+}
+
+#[cfg(test)]
+mod nonce_counter_tests {
+    use super::*;
+    use citadel_types::crypto::EncryptionAlgorithm;
+
+    #[test]
+    fn counter_is_rerandomized_on_deserialize_not_restored() {
+        let bank = EntropyBank::new(1, 0, EncryptionAlgorithm::AES_GCM_256).unwrap();
+        // Advance the live counter as if packets had been encrypted.
+        for _ in 0..16 {
+            let _ = bank.transient_counter.next_id();
+        }
+        let bytes = bank.serialize_to_vec().unwrap();
+
+        // Two independent reloads of the SAME persisted bytes must NOT produce the same nonce base.
+        // If the persisted counter were restored verbatim, both would start identically — exactly
+        // the rollback condition that causes catastrophic AEAD nonce reuse. Re-randomization makes
+        // a collision astronomically unlikely (~2^-63).
+        let a = EntropyBank::deserialize_from(&bytes).unwrap();
+        let b = EntropyBank::deserialize_from(&bytes).unwrap();
+        assert_ne!(
+            a.transient_counter.next_id(),
+            b.transient_counter.next_id(),
+            "counter base must be re-randomized per instance, not restored from serialized state"
+        );
+    }
+
+    #[test]
+    fn serialized_layout_roundtrips() {
+        // The counter newtype must still occupy its u64 slot so the serialized layout is unchanged.
+        let bank = EntropyBank::new(7, 3, EncryptionAlgorithm::AES_GCM_256).unwrap();
+        let bytes = bank.serialize_to_vec().unwrap();
+        let restored = EntropyBank::deserialize_from(&bytes).unwrap();
+        assert_eq!(restored.get_cid(), 7);
+        assert_eq!(restored.get_version(), 3);
     }
 }

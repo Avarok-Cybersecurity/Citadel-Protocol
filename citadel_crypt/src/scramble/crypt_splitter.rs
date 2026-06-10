@@ -419,6 +419,9 @@ pub struct GroupReceiver {
     waves_received: BitVec,
     packets_needed: usize,
     packets_received: usize,
+    /// Running total of decrypted plaintext bytes written into `unified_plaintext_slab`. Used at
+    /// group completion to verify the waves fully cover the slab (no zero-padded gaps).
+    plaintext_bytes_written: usize,
     last_packet_recv_time: Instant,
     max_payload_size: usize,
     /// All packets will necessarily be the same size, except for the last packet (although, it is possible for it to be the same size)
@@ -523,11 +526,105 @@ impl GroupReceiverConfig {
     }
 
     pub fn get_packet_count_in_wave(&self, wave_id: u32) -> u32 {
-        if wave_id == self.wave_count - 1 {
+        if wave_id == self.wave_count.saturating_sub(1) {
             self.packets_in_last_wave
         } else {
             self.max_packets_per_wave
         }
+    }
+
+    /// Validates that an externally-supplied (peer-deserialized) `GroupReceiverConfig` is
+    /// internally consistent and that the receiver-side allocations it implies are bounded.
+    ///
+    /// A `GroupHeader` is AEAD-authenticated before it reaches here, so the sender is an
+    /// authenticated peer; nonetheless a malicious/buggy peer must not be able to drive the
+    /// receiver into an out-of-proportion allocation (memory-exhaustion DoS) by declaring
+    /// huge `wave_count`/`packets_needed`/`max_payload_size`/`max_packets_per_wave` while
+    /// keeping `plaintext_length` small. All arithmetic is checked: any overflow is a
+    /// rejection rather than a silent wrap.
+    pub fn validate(&self) -> Result<(), CryptError<String>> {
+        // Hard ceiling on the total bytes `GroupReceiver::new` may allocate for one group.
+        // A legitimate group allocates ~= plaintext_length (slab) + ciphertext (~plaintext +
+        // AEAD overhead) + small bitmaps. 4x MAX_BYTES_PER_GROUP leaves generous headroom for
+        // those plus per-wave bookkeeping while still bounding worst-case memory to a fixed value.
+        const MAX_RECEIVER_ALLOCATION: u64 = (MAX_BYTES_PER_GROUP as u64).saturating_mul(4);
+        // Generous per-wave bookkeeping estimate (HashMap node + TempWaveStore) so a config that
+        // declares a huge number of (small) waves is rejected even when its buffers are tiny.
+        const PER_WAVE_OVERHEAD_BYTES: u64 = 128;
+
+        let reject = |msg: &str| {
+            Err(CryptError::Decrypt(format!(
+                "Invalid GroupReceiverConfig: {msg}"
+            )))
+        };
+
+        if self.plaintext_length > MAX_BYTES_PER_GROUP as u64 {
+            return reject("plaintext_length exceeds MAX_BYTES_PER_GROUP");
+        }
+        if self.max_payload_size == 0 {
+            return reject("max_payload_size is zero");
+        }
+        if self.max_packets_per_wave == 0 {
+            return reject("max_packets_per_wave is zero");
+        }
+        if self.wave_count == 0 || self.packets_needed == 0 {
+            return reject("wave_count/packets_needed is zero");
+        }
+        // At most one partial (last) wave, matching how the sender derives the layout.
+        if self.number_of_partial_waves > 1 {
+            return reject("number_of_partial_waves > 1");
+        }
+        // wave_count == number_of_full_waves + number_of_partial_waves
+        let derived_wave_count = self
+            .number_of_full_waves
+            .checked_add(self.number_of_partial_waves)
+            .ok_or_else(|| CryptError::Decrypt("wave count overflow".to_string()))?;
+        if derived_wave_count != self.wave_count {
+            return reject("wave_count inconsistent with full/partial wave counts");
+        }
+        // packets_needed == number_of_full_waves * max_packets_per_wave + packets_in_last_wave
+        let derived_packets_needed = self
+            .number_of_full_waves
+            .checked_mul(self.max_packets_per_wave)
+            .and_then(|v| v.checked_add(self.packets_in_last_wave))
+            .ok_or_else(|| CryptError::Decrypt("packets_needed overflow".to_string()))?;
+        if derived_packets_needed != self.packets_needed {
+            return reject("packets_needed inconsistent with wave layout");
+        }
+        if self.packets_in_last_wave == 0 || self.packets_in_last_wave > self.max_packets_per_wave {
+            return reject("packets_in_last_wave out of range");
+        }
+        if self.last_payload_size > self.max_payload_size {
+            return reject("last_payload_size exceeds max_payload_size");
+        }
+
+        // Estimate (with checked arithmetic) the total allocation GroupReceiver::new performs and
+        // reject configs that would exceed the hard ceiling.
+        let full_wave_cipher = (self.number_of_full_waves as u64)
+            .checked_mul(self.max_payload_size)
+            .and_then(|v| v.checked_mul(self.max_packets_per_wave as u64))
+            .ok_or_else(|| CryptError::Decrypt("ciphertext size overflow".to_string()))?;
+        // Last wave: (packets_in_last_wave - 1) full payloads + last_payload_size.
+        let last_wave_cipher = (self.packets_in_last_wave.saturating_sub(1) as u64)
+            .checked_mul(self.max_payload_size)
+            .and_then(|v| v.checked_add(self.last_payload_size))
+            .ok_or_else(|| CryptError::Decrypt("last wave size overflow".to_string()))?;
+        let wave_overhead = (self.wave_count as u64)
+            .checked_mul(PER_WAVE_OVERHEAD_BYTES)
+            .ok_or_else(|| CryptError::Decrypt("wave overhead overflow".to_string()))?;
+        let total = self
+            .plaintext_length
+            .checked_add(full_wave_cipher)
+            .and_then(|v| v.checked_add(last_wave_cipher))
+            .and_then(|v| v.checked_add((self.packets_needed as u64) / 8 + 1))
+            .and_then(|v| v.checked_add((self.wave_count as u64) / 8 + 1))
+            .and_then(|v| v.checked_add(wave_overhead))
+            .ok_or_else(|| CryptError::Decrypt("total allocation overflow".to_string()))?;
+        if total > MAX_RECEIVER_ALLOCATION {
+            return reject("implied receiver allocation exceeds ceiling");
+        }
+
+        Ok(())
     }
 }
 
@@ -565,7 +662,7 @@ impl GroupReceiver {
 
         for wave_id_cur in 0..cfg.wave_count {
             let (ciphertext_buffer_alloc_size_for_single_wave, packets_in_wave) =
-                if wave_id_cur == cfg.wave_count - 1 {
+                if wave_id_cur == cfg.wave_count.saturating_sub(1) {
                     // The last wave requires a different buffer size
                     //let packets_in_last_wave = cfg.packets_needed % max_packets_per_wave;
                     let packets_in_last_wave = cfg.get_packet_count_in_wave(wave_id_cur);
@@ -574,12 +671,15 @@ impl GroupReceiver {
                     // unless the data splits evenly
                     let normal_packet_count = packets_in_last_wave.saturating_sub(1);
                     (
-                        (normal_packet_count as u64 * cfg.max_payload_size) + cfg.last_payload_size,
+                        (normal_packet_count as u64)
+                            .saturating_mul(cfg.max_payload_size)
+                            .saturating_add(cfg.last_payload_size),
                         packets_in_last_wave,
                     )
                 } else {
                     (
-                        cfg.max_payload_size * max_packets_per_wave as u64,
+                        cfg.max_payload_size
+                            .saturating_mul(max_packets_per_wave as u64),
                         max_packets_per_wave,
                     )
                 };
@@ -613,6 +713,7 @@ impl GroupReceiver {
             temp_wave_store,
             packets_received_order,
             packets_received: 0,
+            plaintext_bytes_written: 0,
             packets_needed: cfg.packets_needed as usize,
             last_packet_recv_time,
             max_payload_size: cfg.max_payload_size as usize,
@@ -722,11 +823,20 @@ impl GroupReceiver {
                             dest_bytes.len()
                         );
                         dest_bytes.copy_from_slice(plaintext);
+                        self.plaintext_bytes_written =
+                            self.plaintext_bytes_written.saturating_add(plaintext.len());
 
                         // Free the memory
                         assert!(self.temp_wave_store.remove(&wave_id).is_some());
 
                         if self.temp_wave_store.is_empty() {
+                            // All waves decrypted. Verify the waves fully covered the plaintext slab
+                            // before declaring the group complete, so a config whose wave windows
+                            // leave gaps cannot yield a silently zero-padded "valid" object.
+                            if self.plaintext_bytes_written != self.unified_plaintext_slab.len() {
+                                log::error!(target: "citadel", "Group reassembly coverage mismatch: wrote {} of {} plaintext bytes", self.plaintext_bytes_written, self.unified_plaintext_slab.len());
+                                return GroupReceiverStatus::CORRUPT_WAVE;
+                            }
                             // We are entirely done! Return the bytes
                             GroupReceiverStatus::GROUP_COMPLETE(wave_id)
                         } else {
@@ -1058,4 +1168,106 @@ where
 fn check_bounds<T: AsRef<[u8]>, R: RangeBounds<usize>>(buf: T, range: R) -> bool {
     let buf = buf.as_ref();
     !range.contains(&buf.len())
+}
+
+#[cfg(test)]
+mod group_config_validation_tests {
+    use super::{GroupReceiverConfig, MAX_BYTES_PER_GROUP};
+    use citadel_types::proto::ObjectId;
+
+    /// Builds an internally-consistent config that `validate()` must accept.
+    fn valid_config() -> GroupReceiverConfig {
+        let number_of_full_waves = 2u32;
+        let number_of_partial_waves = 1u32;
+        let max_packets_per_wave = 4u32;
+        let packets_in_last_wave = 3u32;
+        GroupReceiverConfig {
+            packets_needed: number_of_full_waves * max_packets_per_wave + packets_in_last_wave,
+            max_packets_per_wave,
+            plaintext_length: 1000,
+            max_payload_size: 100,
+            last_payload_size: 50,
+            number_of_full_waves,
+            number_of_partial_waves,
+            wave_count: number_of_full_waves + number_of_partial_waves,
+            max_plaintext_wave_length: 360,
+            last_plaintext_wave_length: 200,
+            packets_in_last_wave,
+            header_size_bytes: 72,
+            group_id: 0,
+            object_id: ObjectId::from(0u128),
+            transfer_type: None,
+            empty_transfer: false,
+        }
+    }
+
+    #[test]
+    fn accepts_legitimate_config() {
+        assert!(valid_config().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_oversized_plaintext() {
+        let mut cfg = valid_config();
+        cfg.plaintext_length = MAX_BYTES_PER_GROUP as u64 + 1;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_zero_fields() {
+        for mutate in [
+            |c: &mut GroupReceiverConfig| c.wave_count = 0,
+            |c: &mut GroupReceiverConfig| c.packets_needed = 0,
+            |c: &mut GroupReceiverConfig| c.max_payload_size = 0,
+            |c: &mut GroupReceiverConfig| c.max_packets_per_wave = 0,
+        ] {
+            let mut cfg = valid_config();
+            mutate(&mut cfg);
+            assert!(cfg.validate().is_err(), "zeroed field should be rejected");
+        }
+    }
+
+    #[test]
+    fn rejects_inconsistent_wave_layout() {
+        let mut cfg = valid_config();
+        cfg.wave_count = 99; // no longer == full + partial
+        assert!(cfg.validate().is_err());
+
+        let mut cfg = valid_config();
+        cfg.packets_needed = 9999; // no longer == full*per_wave + last
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_allocation_bomb_with_small_plaintext() {
+        // The DoS vector: tiny plaintext_length, but huge allocation-driving fields.
+        let mut cfg = valid_config();
+        cfg.plaintext_length = 1;
+        cfg.wave_count = u32::MAX;
+        cfg.number_of_full_waves = u32::MAX;
+        cfg.number_of_partial_waves = 0;
+        cfg.max_packets_per_wave = u32::MAX;
+        cfg.packets_needed = u32::MAX;
+        cfg.max_payload_size = u64::MAX;
+        assert!(
+            cfg.validate().is_err(),
+            "allocation bomb config must be rejected"
+        );
+    }
+
+    #[test]
+    fn rejects_huge_wave_count_even_with_tiny_buffers() {
+        // wave_count huge but per-wave buffers tiny: still rejected via the per-wave overhead bound.
+        let mut cfg = valid_config();
+        cfg.plaintext_length = 10;
+        cfg.number_of_full_waves = 5_000_000;
+        cfg.number_of_partial_waves = 0;
+        cfg.max_packets_per_wave = 1;
+        cfg.packets_in_last_wave = 1;
+        cfg.wave_count = 5_000_000;
+        cfg.packets_needed = 5_000_000;
+        cfg.max_payload_size = 1;
+        cfg.last_payload_size = 1;
+        assert!(cfg.validate().is_err());
+    }
 }

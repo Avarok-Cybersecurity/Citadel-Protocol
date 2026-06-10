@@ -100,6 +100,21 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
             // Node is Bob. Bob gets the encrypted username and password (separately encrypted)
             packet_flags::cmd::aux::do_connect::STAGE0 => {
                 log::trace!(target: "citadel", "STAGE 0 CONNECT PACKET");
+                // Idempotency / replay guard: STAGE0 drives the one-time connection-upgrade path
+                // (init_new_c2s_virtual_connection -> upgrade_connection -> ConnectSuccess). The
+                // top-level guard above intentionally lets packets through once last_stage == SUCCESS
+                // (so the client can process the final status packet), but a replayed/duplicated
+                // STAGE0 reaching an already-SUCCESS session would re-run that path and churn/evict
+                // the live connection. Drop it here.
+                {
+                    let state_container = inner_state!(session.state_container);
+                    if state_container.connect_state.last_stage
+                        == packet_flags::cmd::aux::do_connect::SUCCESS
+                    {
+                        log::warn!(target: "citadel", "Dropping duplicate/replayed STAGE0 connect packet; session already reached SUCCESS");
+                        return Ok(PrimaryProcessorResult::Void);
+                    }
+                }
                 let task = {
                     match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
                         Ok(stage0_packet) => {

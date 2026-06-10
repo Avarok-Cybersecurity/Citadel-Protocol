@@ -112,7 +112,7 @@ pub struct ChannelSendHalf<T: NetObject, S: Subscribable + 'static> {
 impl<T: NetObject, S: Subscribable + 'static> ChannelSendHalf<T, S> {
     /// Sends an item over the channel.
     pub async fn send_item(&self, t: T) -> Result<(), anyhow::Error> {
-        if self.recv_halt.load(Ordering::Relaxed) {
+        if self.recv_halt.load(Ordering::Acquire) {
             Err(anyhow::Error::msg(
                 "Receiving end not receiving any new values",
             ))
@@ -146,7 +146,7 @@ impl<T: NetObject, S: Subscribable + 'static> ChannelRecvHalf<T, S> {
             ChannelPacket::Packet(res) => Ok(res),
 
             _ => {
-                self.recv_halt.store(true, Ordering::Relaxed);
+                self.recv_halt.store(true, Ordering::Release);
                 Err(anyhow::Error::msg("Halt received"))
             }
         }
@@ -184,7 +184,7 @@ impl<T: NetObject, S: Subscribable + 'static> Channel<T, S> {
 
         let stream = async_stream::try_stream! {
             loop {
-                if recv_halt_inner_receiver.load(Ordering::Relaxed) {
+                if recv_halt_inner_receiver.load(Ordering::Acquire) {
                     Err(anyhow::Error::msg("Adjacent node no longer sending values"))?
                 } else {
                     let ret = chan_stream.recv_serialized::<ChannelPacket<T>>().await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
@@ -232,7 +232,7 @@ impl<T: NetObject, S: Subscribable + 'static> Stream for ChannelRecvHalf<T, S> {
             ..
         } = &mut *self;
 
-        if recv_halt.load(Ordering::Relaxed) {
+        if recv_halt.load(Ordering::Acquire) {
             return Poll::Ready(None);
         }
 
@@ -254,12 +254,12 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
 
         if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
             rt.spawn(async move {
-                log::trace!(target: "citadel", "[Drop] on {:?} | recv_halt: {}", chan.node_type(), recv_halt.load(Ordering::Relaxed));
+                log::trace!(target: "citadel", "[Drop] on {:?} | recv_halt: {}", chan.node_type(), recv_halt.load(Ordering::Acquire));
                 // if we haven't yet received a halt signal, send signal to parallel side
-                if !recv_halt.load(Ordering::Relaxed) {
+                if !recv_halt.load(Ordering::Acquire) {
                     chan.send_serialized(ChannelPacket::<T>::Halt).await?;
                     // now, toggle to prevent further packets from being sent outbound locally
-                    recv_halt.store(true, Ordering::Relaxed);
+                    recv_halt.store(true, Ordering::Release);
                 } else {
                     return chan.send_serialized(ChannelPacket::<T>::HaltVerified).await;
                 }

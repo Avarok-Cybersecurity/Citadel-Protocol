@@ -43,7 +43,10 @@ impl Decoder for BytesCodec {
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<BytesMut>, io::Error> {
         if buf.capacity() < CODEC_MIN_BUFFER {
-            buf.reserve(self.0 - buf.capacity());
+            // saturating_sub guards against underflow if a BytesCodec is ever constructed with a
+            // capacity below CODEC_MIN_BUFFER (otherwise `self.0 - buf.capacity()` would panic in
+            // debug / request a huge reserve in release).
+            buf.reserve(self.0.saturating_sub(buf.capacity()));
         }
         if !buf.is_empty() {
             let len = buf.len();

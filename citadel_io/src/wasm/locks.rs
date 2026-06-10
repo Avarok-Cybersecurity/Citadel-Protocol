@@ -52,7 +52,10 @@ impl<T> RwLockWasm<T> {
     /// The lock will be automatically released when the returned guard is dropped.
     /// Since WebAssembly is single-threaded, this will never actually block.
     pub fn read(&self) -> RwLockReadGuard<'_, T> {
-        self.inner.read().unwrap()
+        // Recover the guard if the lock was poisoned by a panic-while-held, matching the native
+        // (parking_lot) non-poisoning semantics. Otherwise a single panic would wedge every
+        // component sharing this lock via cascading unwrap panics.
+        self.inner.read().unwrap_or_else(|err| err.into_inner())
     }
 
     /// Acquires a write lock, blocking the current thread until it is available.
@@ -60,7 +63,7 @@ impl<T> RwLockWasm<T> {
     /// The lock will be automatically released when the returned guard is dropped.
     /// Since WebAssembly is single-threaded, this will never actually block.
     pub fn write(&self) -> RwLockWriteGuard<'_, T> {
-        self.inner.write().unwrap()
+        self.inner.write().unwrap_or_else(|err| err.into_inner())
     }
 }
 
@@ -77,11 +80,13 @@ impl<T> MutexWasm<T> {
     /// The lock will be automatically released when the returned guard is dropped.
     /// Since WebAssembly is single-threaded, this will never actually block.
     pub fn lock(&self) -> MutexGuard<'_, T> {
-        self.inner.lock().unwrap()
+        self.inner.lock().unwrap_or_else(|err| err.into_inner())
     }
 
     /// Consumes the mutex and returns the inner value.
     pub fn into_inner(self) -> T {
-        self.inner.into_inner().unwrap()
+        self.inner
+            .into_inner()
+            .unwrap_or_else(|err| err.into_inner())
     }
 }

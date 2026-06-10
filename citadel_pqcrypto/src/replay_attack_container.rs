@@ -85,45 +85,54 @@ impl AntiReplayAttackContainer {
         self.counter_out.fetch_add(1, ORDERING)
     }
 
-    /// If the value already exists, this will return an error. If not, this will save
-    /// the PID in the internal circular buffer
+    /// Validates a received PID against a sliding anti-replay window and records it.
+    ///
+    /// Returns `true` if the PID is fresh (and records it), or `false` if it is a replay
+    /// (already seen) or too old (below the window floor).
+    ///
+    /// The window is `[high_water - HISTORY_LEN, high_water)` where `high_water` is one past the
+    /// largest PID accepted so far (stored in `history.0`). Within that window, out-of-order
+    /// delivery is permitted; every accepted PID is remembered in `history.1` so exact duplicates
+    /// are rejected, and PIDs older than the floor are rejected outright (delayed-replay defense).
+    /// The remembered set is bounded to at most `HISTORY_LEN` entries: as the floor advances,
+    /// PIDs that drop below it are evicted, so memory cannot grow without bound.
     #[allow(unused_results)]
     pub fn on_pid_received(&self, pid_received: u64) -> bool {
         let mut queue = self.history.lock();
-        //log::trace!(target: "citadel", "Circular queue: {:?}", &queue.1);
-        if queue.1.contains(&pid_received) {
+        let (high_water, seen) = &mut *queue;
+
+        // Floor of the acceptance window: the lowest PID we will still consider. PIDs below the
+        // floor have aged out of the window and are rejected to prevent delayed replays.
+        let floor = high_water.saturating_sub(HISTORY_LEN);
+
+        if pid_received < floor {
+            log::error!(target: "citadel", "[ARA] out of window! Recv: {pid_received}. Floor: {floor}");
+            return false;
+        }
+
+        if !seen.insert(pid_received) {
+            // Already present => exact replay.
             log::error!(target: "citadel", "[ARA] packet {pid_received} already arrived!");
-            false
-        } else {
-            // this means the PID is not in the history. HOWEVER, it may still be possible that the packet
-            // was withheld long enough for the history to be cleared, thus enabling a delayed replay attack.
-            // To ensure we protect against a delayed replay attack, check to see that the received PID is
-            // within HISTORY_LEN of counter_in
-            //let min = queue.0.saturating_sub(HISTORY_LEN);
-            let min = queue.0.saturating_sub(HISTORY_LEN);
-            //let max = queue.0 + HISTORY_LEN;
-            //log::trace!(target: "citadel", "RECV {}. Must be >= {} (st: {})", pid_received, min, queue.0);
-            // TODO: Consider logic of this section of code. This may not do what I want it to do
-            if pid_received >= min {
-                if queue.1.len() >= HISTORY_LEN as _ {
-                    let lowest = queue.0;
+            return false;
+        }
 
-                    // remove the lowest value. Only increment if the lowest value exists
-                    if queue.1.remove(&lowest) {
-                        queue.0 += 1;
-                    }
-                }
-
-                //queue.0 += 1;
-
-                queue.1.insert(pid_received);
-
-                true
+        // Advance the high-water mark (one past the largest accepted PID) and evict any entries
+        // that have fallen below the new floor, keeping the tracked set bounded.
+        let new_high_water = (*high_water).max(pid_received.saturating_add(1));
+        let new_floor = new_high_water.saturating_sub(HISTORY_LEN);
+        if new_floor > floor {
+            if new_floor.saturating_sub(floor) >= HISTORY_LEN {
+                // Large forward jump: cheaper to retain than to remove one-by-one.
+                seen.retain(|&pid| pid >= new_floor);
             } else {
-                log::error!(target: "citadel", "[ARA] out of range! Recv: {pid_received}. Expected >= {min}");
-                false
+                for stale in floor..new_floor {
+                    seen.remove(&stale);
+                }
             }
         }
+        *high_water = new_high_water;
+
+        true
     }
 
     pub fn has_tracked_packets(&self) -> bool {
@@ -181,5 +190,88 @@ impl<T: IsEnabled> BuildHasher for NoHashHasher<T> {
 
     fn build_hasher(&self) -> Self::Hasher {
         Self::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AntiReplayAttackContainer, HISTORY_LEN};
+
+    #[test]
+    fn accepts_in_order_pids() {
+        let ara = AntiReplayAttackContainer::default();
+        for pid in 0..2048u64 {
+            assert!(
+                ara.on_pid_received(pid),
+                "in-order pid {pid} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_exact_duplicates() {
+        let ara = AntiReplayAttackContainer::default();
+        assert!(ara.on_pid_received(5));
+        assert!(!ara.on_pid_received(5), "exact replay must be rejected");
+        // Other fresh pids near it still work.
+        assert!(ara.on_pid_received(6));
+        assert!(!ara.on_pid_received(6));
+    }
+
+    #[test]
+    fn accepts_out_of_order_within_window() {
+        let ara = AntiReplayAttackContainer::default();
+        assert!(ara.on_pid_received(10));
+        // Earlier pids within the window arrive late: still accepted exactly once.
+        assert!(ara.on_pid_received(3));
+        assert!(ara.on_pid_received(7));
+        assert!(!ara.on_pid_received(3), "late-but-seen pid is a replay");
+    }
+
+    #[test]
+    fn rejects_pids_below_window_floor() {
+        let ara = AntiReplayAttackContainer::default();
+        // Advance the high-water mark far ahead.
+        let high = HISTORY_LEN * 4;
+        assert!(ara.on_pid_received(high));
+        // Anything more than HISTORY_LEN below the high-water mark has aged out and is rejected,
+        // closing the delayed-replay window.
+        assert!(
+            !ara.on_pid_received(high - HISTORY_LEN - 1),
+            "pid below the floor must be rejected"
+        );
+        // A pid just inside the window is still accepted.
+        assert!(ara.on_pid_received(high - HISTORY_LEN + 1));
+    }
+
+    #[test]
+    fn tracked_set_stays_bounded() {
+        let ara = AntiReplayAttackContainer::default();
+        // Feed far more than HISTORY_LEN strictly-increasing pids; the tracked set must not grow
+        // without bound (the previous implementation grew unboundedly).
+        for pid in 0..(HISTORY_LEN * 8) {
+            assert!(ara.on_pid_received(pid));
+        }
+        let len = ara.history.lock().1.len() as u64;
+        assert!(
+            len <= HISTORY_LEN + 1,
+            "tracked set len {len} exceeded window bound {HISTORY_LEN}"
+        );
+    }
+
+    #[test]
+    fn large_forward_jump_is_bounded_and_evicts_old() {
+        let ara = AntiReplayAttackContainer::default();
+        assert!(ara.on_pid_received(0));
+        assert!(ara.on_pid_received(1));
+        // Huge jump forward: old low pids must age out of the window.
+        let high = HISTORY_LEN * 100;
+        assert!(ara.on_pid_received(high));
+        assert!(!ara.on_pid_received(0), "pid 0 aged out after the jump");
+        let len = ara.history.lock().1.len() as u64;
+        assert!(
+            len <= HISTORY_LEN + 1,
+            "tracked set len {len} not bounded after jump"
+        );
     }
 }
