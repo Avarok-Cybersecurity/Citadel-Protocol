@@ -634,7 +634,9 @@ struct TempWaveStore {
     bytes_written: usize,
     #[allow(dead_code)]
     last_packet_recv_time: Option<Instant>,
-    ciphertext_buffer: Vec<u8>,
+    // BytesMut (not Vec<u8>) so the assembled wave can be decrypted in place, avoiding a per-wave
+    // plaintext allocation + copy.
+    ciphertext_buffer: BytesMut,
 }
 
 impl GroupReceiver {
@@ -692,7 +694,7 @@ impl GroupReceiver {
             };
 
             let ciphertext_buffer =
-                vec![0u8; ciphertext_buffer_alloc_size_for_single_wave as usize];
+                BytesMut::zeroed(ciphertext_buffer_alloc_size_for_single_wave as usize);
             let tmp_wave_store_container = TempWaveStore {
                 bytes_written: 0,
                 packets_received: 0,
@@ -794,8 +796,6 @@ impl GroupReceiver {
             wave_store.last_packet_recv_time = Some(Instant::now());
             self.packets_received_order.set(true_sequence, true);
             if wave_store.packets_received == wave_store.packets_in_wave {
-                let ciphertext_bytes_for_this_wave =
-                    &wave_store.ciphertext_buffer[..wave_store.bytes_written];
                 let (msg_pqc, msg_entropy_bank) = match ratchet
                     .get_message_pqc_and_entropy_bank_at_layer(None)
                 {
@@ -806,9 +806,23 @@ impl GroupReceiver {
                     }
                 };
 
-                match msg_entropy_bank.decrypt(msg_pqc, ciphertext_bytes_for_this_wave) {
-                    Ok(plaintext) => {
-                        let plaintext = plaintext.as_slice();
+                // Take ownership of the just-completed wave and decrypt its assembled ciphertext IN
+                // PLACE (the buffer is over-allocated to the wave size, so truncate to the bytes
+                // actually received first). This avoids the per-wave plaintext Vec allocation; the
+                // ciphertext buffer becomes the plaintext, which is then placed into the slab.
+                let mut completed_wave = self
+                    .temp_wave_store
+                    .remove(&wave_id)
+                    .expect("the just-completed wave must be present");
+                completed_wave
+                    .ciphertext_buffer
+                    .truncate(completed_wave.bytes_written);
+
+                match msg_entropy_bank
+                    .decrypt_in_place(msg_pqc, &mut completed_wave.ciphertext_buffer)
+                {
+                    Ok(()) => {
+                        let plaintext = &completed_wave.ciphertext_buffer[..];
 
                         let plaintext_insert_index =
                             Self::get_plaintext_buffer_insertion_range_by_wave_id(
@@ -825,9 +839,6 @@ impl GroupReceiver {
                         dest_bytes.copy_from_slice(plaintext);
                         self.plaintext_bytes_written =
                             self.plaintext_bytes_written.saturating_add(plaintext.len());
-
-                        // Free the memory
-                        assert!(self.temp_wave_store.remove(&wave_id).is_some());
 
                         if self.temp_wave_store.is_empty() {
                             // All waves decrypted. Verify the waves fully covered the plaintext slab
@@ -857,8 +868,7 @@ impl GroupReceiver {
                     }
 
                     Err(err) => {
-                        let sample_bytes = std::cmp::min(10, ciphertext_bytes_for_this_wave.len());
-                        log::error!(target: "citadel", "Unable to decrypt wave {}. Reason: {} | len: {} | First bytes: {:?}", wave_id, err.into_string(), ciphertext_bytes_for_this_wave.len(), &ciphertext_bytes_for_this_wave[0..sample_bytes]);
+                        log::error!(target: "citadel", "Unable to decrypt wave {}. Reason: {} | ciphertext len: {}", wave_id, err.into_string(), completed_wave.bytes_written);
                         GroupReceiverStatus::CORRUPT_WAVE
                     }
                 }
