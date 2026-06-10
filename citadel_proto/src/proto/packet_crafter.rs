@@ -235,25 +235,31 @@ pub(crate) mod group {
             target_cid: U64::new(target_cid),
         };
 
-        let mut packet = if let Some(ratchet_message) = processor.is_message.take() {
-            // For messages, the RatchetManager/Messenger will provide SecureMessagePackets for us, stored inside the below field
-            // The header, as always, will need to be written
-            // We no long have to worry about setting up key exchange here; that is taken care of by the Messenger
-            // In fact, on the receiving end, we just forward this packet to the messenger, where it will automatically
-            // be forwarded to the consumer, bytpassing the kernel
-            let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_HEADER_BASE_LEN);
-            header.inscribe_into(&mut packet);
-            let header = GroupHeader::Ratchet(ratchet_message, processor.object_id);
-            header.serialize_into_buf(&mut packet).unwrap();
-            packet
+        // For messages, the RatchetManager/Messenger provides SecureMessagePackets, stored in the
+        // field below; otherwise we send the Standard group config. Either way the HDP header is
+        // written first, then the serialized GroupHeader, then the packet is AEAD-protected in place.
+        let group_header = if let Some(ratchet_message) = processor.is_message.take() {
+            GroupHeader::Ratchet(ratchet_message, processor.object_id)
         } else {
-            let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_HEADER_BASE_LEN);
-            header.inscribe_into(&mut packet);
-            let header =
-                GroupHeader::Standard(processor.group_config.clone().unwrap(), virtual_target);
-            header.serialize_into_buf(&mut packet).unwrap();
-            packet
+            GroupHeader::Standard(processor.group_config.clone().unwrap(), virtual_target)
         };
+
+        // Pre-size the buffer to header + serialized payload + per-layer crypto overhead so the
+        // in-place `protect_message_packet` never reallocates (and thus never copies the growing
+        // packet). Falls back to the small base length if the size can't be computed up front.
+        let security_layers = processor.security_level.value() as usize + 1;
+        let capacity = group_header
+            .serialized_size()
+            .map(|payload_len| {
+                HDP_HEADER_BYTE_LEN
+                    + payload_len
+                    + security_layers * packet_sizes::MESSAGE_PACKET_PER_LAYER_OVERHEAD
+            })
+            .unwrap_or(packet_sizes::GROUP_HEADER_BASE_LEN);
+
+        let mut packet = BytesMut::with_capacity(capacity);
+        header.inscribe_into(&mut packet);
+        group_header.serialize_into_buf(&mut packet).unwrap();
 
         processor
             .ratchet

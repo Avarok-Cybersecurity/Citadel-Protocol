@@ -169,6 +169,13 @@ pub(crate) mod packet_sizes {
     /// Group packets
     pub(crate) const GROUP_HEADER_BASE_LEN: usize = HDP_HEADER_BYTE_LEN + 1;
     pub(crate) const GROUP_HEADER_ACK_LEN: usize = HDP_HEADER_BYTE_LEN + 1 + 1 + 4 + 4;
+
+    /// Wire overhead added per AEAD security layer when a packet is protected in place:
+    /// the anti-replay PID (u64) + the AEAD authentication tag (16) + the per-packet nonce
+    /// transient-id trailer (u64). Used to pre-size message buffers so the in-place
+    /// `protect_message_packet` never reallocates. (The Kyber-hybrid AEAD expands more and may
+    /// trigger one realloc — acceptable, as that path is dominated by PKE/signature cost.)
+    pub(crate) const MESSAGE_PACKET_PER_LAYER_OVERHEAD: usize = 8 + 16 + 8;
 }
 
 #[derive(Debug, FromZeroes, AsBytes, FromBytes, Unaligned, Clone)]
