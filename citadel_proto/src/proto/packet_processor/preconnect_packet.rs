@@ -88,7 +88,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                 // first make sure the cid isn't already connected
                 let can_proceed_with_connection = session
                     .session_manager
-                    .can_proceed_with_new_incoming_connection(header.session_cid.get())
+                    .can_proceed_with_new_incoming_connection(header.session_cid.get(), true)
                     .await;
                 let account_manager = session.account_manager.clone();
 
