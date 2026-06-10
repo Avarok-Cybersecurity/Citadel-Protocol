@@ -172,7 +172,21 @@ impl SecBuffer {
     }
 
     pub fn reserve(&mut self, additional: usize) {
-        self.inner.reserve(additional)
+        let required = self.inner.len().saturating_add(additional);
+        if required <= self.inner.capacity() {
+            // Sufficient capacity already; no reallocation, so no secrets can be left behind.
+            return;
+        }
+        // Grow manually so the old, secret-bearing allocation is zeroized BEFORE it is freed.
+        // Delegating to BytesMut::reserve would reallocate and free the old buffer in the clear,
+        // leaving plaintext lingering in freed heap until some later allocation overwrites it.
+        self.unlock();
+        let mut grown = BytesMut::with_capacity(required);
+        grown.extend_from_slice(&self.inner[..]);
+        // Wipe the old allocation's live bytes, then drop it (replaced below).
+        self.zeroize();
+        self.inner = grown;
+        self.lock();
     }
 
     pub fn is_empty(&self) -> bool {

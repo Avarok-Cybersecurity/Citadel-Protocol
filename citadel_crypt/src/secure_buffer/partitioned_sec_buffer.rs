@@ -102,6 +102,10 @@ impl<const N: usize> PartitionedSecBuffer<N> {
     /// or if previous partitions have not been reserved
     pub fn reserve_partition(&mut self, idx: usize, len: u32) -> std::io::Result<()> {
         self.check_reserve(idx)?;
+        // Grow capacity first via SecBuffer's zeroizing reserve, so the subsequent in-place
+        // put_bytes cannot trigger a BytesMut reallocation that would free the prior partitions'
+        // plaintext in the clear.
+        self.buffer.reserve(len as usize);
         self.buffer.handle().put_bytes(0, len as _);
         self.layout[idx] = len;
 
