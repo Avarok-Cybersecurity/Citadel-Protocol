@@ -206,6 +206,22 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
         self.send(SecBuffer::from(buf)).await
     }
 
+    /// Consumes the send half and returns a socket-like [`futures::Sink`] of `Bytes`, so
+    /// callers can `forward` a stream of payloads into the channel. Each item is moved into
+    /// a [`SecBuffer`] (zero-copy when the `Bytes` uniquely owns its allocation), sealed,
+    /// and sent through the same ordered-reliable path as [`Self::send`].
+    pub fn into_sink(self) -> impl futures::Sink<bytes::Bytes, Error = NetworkError> + Unpin {
+        // Box::pin so the returned sink is `Unpin` and usable directly with `SinkExt`
+        // (the `unfold` state future is not `Unpin`); one allocation per channel.
+        Box::pin(futures::sink::unfold(
+            self,
+            |mut this, item: bytes::Bytes| async move {
+                this.send(item).await?;
+                Ok::<_, NetworkError>(this)
+            },
+        ))
+    }
+
     /// used to identify this channel in the network
     pub fn channel_id(&self) -> Ticket {
         self.channel_id
