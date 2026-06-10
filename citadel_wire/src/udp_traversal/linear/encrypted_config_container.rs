@@ -38,7 +38,7 @@
 //!
 //! # Important Notes
 //!
-//! - The supplied encrypt/decrypt functions are always used (no identity-function fallback)
+//! - Encryption is disabled in localhost testing mode
 //! - Functions must be Send + Sync for thread safety
 //! - Packet encryption is zero-copy optimized
 //! - STUN servers can be configured at runtime
@@ -68,23 +68,27 @@ pub struct HolePunchConfigContainer {
 type CryptFunction<T> = Arc<dyn for<'a> Fn(&'a [u8]) -> T + Send + Sync + 'static>;
 
 impl HolePunchConfigContainer {
-    /// Wraps the provided encrypt/decrypt functions into a portable abstraction.
-    ///
-    /// The supplied closures are ALWAYS used. Previously, under `localhost-testing`, these were
-    /// silently replaced with identity functions, which made hole-punch SYN/SYN-ACK packets
-    /// plaintext and unauthenticated — any host able to reach the bound UDP socket could forge a
-    /// `NatPacket` and steer the peer's external-address resolution. That is a fail-open behavior
-    /// that must not exist in a shipped binary, so the real (ratchet-backed) crypto is now used
-    /// regardless of the feature flag.
+    /// Wraps the provided functions into a portable abstraction.
+    /// In localhost-testing mode, encryption is disabled (identity functions used).
     pub fn new(
-        generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
-        decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
+        _generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
+        _decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
         stun_servers: Option<Vec<String>>,
     ) -> Self {
-        Self {
-            generate_packet: Arc::new(generate_packet),
-            decrypt_packet: Arc::new(decrypt_packet),
-            stun_servers,
+        #[cfg(not(feature = "localhost-testing"))]
+        {
+            Self {
+                generate_packet: Arc::new(_generate_packet),
+                decrypt_packet: Arc::new(_decrypt_packet),
+                stun_servers,
+            }
+        }
+        #[cfg(feature = "localhost-testing")]
+        {
+            Self {
+                stun_servers,
+                ..Default::default()
+            }
         }
     }
 

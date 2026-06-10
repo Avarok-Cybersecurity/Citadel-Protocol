@@ -180,8 +180,14 @@ impl SecBuffer {
         // Grow manually so the old, secret-bearing allocation is zeroized BEFORE it is freed.
         // Delegating to BytesMut::reserve would reallocate and free the old buffer in the clear,
         // leaving plaintext lingering in freed heap until some later allocation overwrites it.
+        //
+        // Grow with amortized headroom (at least double the current capacity) rather than to the
+        // exact size, so a sequence of incremental reservations does not reallocate-and-zeroize the
+        // whole accumulated buffer each time — that would be O(n^2) secret-wiping copies. Doubling
+        // keeps the (necessarily copying) reallocations amortized O(1).
+        let new_capacity = required.max(self.inner.capacity().saturating_mul(2));
         self.unlock();
-        let mut grown = BytesMut::with_capacity(required);
+        let mut grown = BytesMut::with_capacity(new_capacity);
         grown.extend_from_slice(&self.inner[..]);
         // Wipe the old allocation's live bytes, then drop it (replaced below).
         self.zeroize();
