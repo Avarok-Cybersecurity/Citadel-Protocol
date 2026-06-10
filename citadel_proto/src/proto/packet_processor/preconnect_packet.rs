@@ -155,6 +155,12 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                 session.session_cid.set(Some(header.session_cid.get()));
                                 sc.session_security_settings = Some(session_security_settings);
                             }
+                            // The provisional connection is now associated with this CID, so the
+                            // reservation taken in can_proceed_with_new_incoming_connection is no
+                            // longer needed to fend off a concurrent same-CID SYN.
+                            session
+                                .session_manager
+                                .release_provisional_cid_reservation(header.session_cid.get());
                             session
                                 .peer_only_connect_protocol
                                 .set(Some(peer_only_connect_mode));
@@ -163,11 +169,17 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                         }
 
                         Err(err) => {
+                            session
+                                .session_manager
+                                .release_provisional_cid_reservation(header.session_cid.get());
                             const REASON: &str = "Invalid SYN Packet received. Bad PSK or keys?";
                             send_error_and_end_session(&header, Some(err), REASON)
                         }
                     }
                 } else {
+                    session
+                        .session_manager
+                        .release_provisional_cid_reservation(header.session_cid.get());
                     const REASON: &str = "CID not registered to this node";
                     let bad_cid = header.session_cid.get();
                     let error_message = format!("CID {bad_cid} is not registered to this node");
