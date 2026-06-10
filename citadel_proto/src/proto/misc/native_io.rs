@@ -12,6 +12,37 @@ use crate::proto::misc::native_config::{
 use crate::proto::misc::native_upgrade::TcpToQuicUpgrade;
 use crate::proto::misc::net::{DualListener, GenericNetworkStream};
 
+/// Native client TLS configuration plus connection policy.
+///
+/// Bundles the rustls client config with a flag controlling whether the peer may downgrade the
+/// connection to no-certificate-verification. Cloning is cheap (the rustls config is behind an Arc).
+#[derive(Clone)]
+pub struct NativeClientConfig {
+    /// The rustls client configuration (verifier, roots, ALPN, etc.).
+    pub config: Arc<ClientConfig>,
+    /// When true, the client refuses to fall back to no-verification even if the peer's FirstPacket
+    /// advertises a self-signed server. This prevents an active attacker from forcing the insecure
+    /// (accept-any-cert) TLS/QUIC path by flipping the `is_self_signed`/absent-`domain` signal.
+    /// Defaults to false so the self-signed deployment mode (and its tests) keep working.
+    pub require_cert_verification: bool,
+}
+
+impl NativeClientConfig {
+    /// Wraps a rustls client config with the default (permissive) verification policy.
+    pub fn new(config: Arc<ClientConfig>) -> Self {
+        Self {
+            config,
+            require_cert_verification: false,
+        }
+    }
+}
+
+impl From<Arc<ClientConfig>> for NativeClientConfig {
+    fn from(config: Arc<ClientConfig>) -> Self {
+        Self::new(config)
+    }
+}
+
 /// Default [`ProtocolIO`] implementation for native platforms.
 ///
 /// Wraps TCP/TLS/QUIC for ordered streams, UDP for unreliable datagrams,
@@ -27,7 +58,7 @@ impl ProtocolIO for NativeIO {
     type OrderedReliableConfig = NativeOrderedReliableConfig;
     type SecureConfig = NativeSecureConfig;
     type P2PConfig = NativeP2PConfig;
-    type ClientConfig = Arc<ClientConfig>;
+    type ClientConfig = NativeClientConfig;
     type Rng = ThreadRng;
 
     async fn bind(
@@ -61,7 +92,7 @@ impl ProtocolIO for NativeIO {
         let native_certs = citadel_wire::tls::load_native_certs_async().await?;
         let config = citadel_wire::tls::create_rustls_client_config(&native_certs)
             .map_err(|e| io::Error::other(e.to_string()))?;
-        Ok(Arc::new(config))
+        Ok(NativeClientConfig::new(Arc::new(config)))
     }
 
     fn server_identity(config: &ServerMode<Self>) -> Option<String> {
@@ -106,8 +137,8 @@ impl ProtocolIO for NativeIO {
         stream.take_p2p_connection().map(|c| Box::new(c) as _)
     }
 
-    fn client_config_to_any(config: &Arc<ClientConfig>) -> Option<Box<dyn std::any::Any + Send>> {
-        Some(Box::new(config.clone()))
+    fn client_config_to_any(config: &NativeClientConfig) -> Option<Box<dyn std::any::Any + Send>> {
+        Some(Box::new(config.config.clone()))
     }
 
     async fn bind_with_websocket(

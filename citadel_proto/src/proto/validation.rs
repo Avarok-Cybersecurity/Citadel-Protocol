@@ -249,20 +249,18 @@ pub(crate) mod pre_connect {
         >,
         NetworkError,
     > {
-        // Use the NON-mutating accessor for validation. refresh_static_ratchet() resets transient
-        // session-crypto state (group-id counters, anti-replay counters) on the shared, persistent
-        // CNAC; doing that *before* validating the SYN would let a forged or replayed SYN (which has
-        // not yet proven device-key possession) interrupt an already-active session. The static
-        // ratchet *keys* are identical before and after a refresh, so validation is unaffected.
-        let static_auxiliary_ratchet = cnac.get_static_auxiliary_ratchet();
+        // refresh_static_ratchet() resets the static auxiliary ratchet's transient state, including
+        // its anti-replay container. This MUST happen before validating the SYN: a legitimate
+        // reconnect reuses low packet IDs (starting at 0), so validating against the previous
+        // connection's anti-replay window would reject it. (An attacker cannot exploit this without
+        // already possessing the static device key required to pass the AEAD check below.)
+        let static_auxiliary_ratchet = cnac.refresh_static_ratchet();
         let (header, payload, _, _) = packet.decompose();
         // After this point, we validate that the other end had the right static symmetric key. This proves device identity, thought not necessarily account identity
         let (header, payload) =
             super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload).ok_or(
                 NetworkError::InternalError("Unable to validate initial packet"),
             )?;
-        // Device identity is now proven; it is safe to (re)initialize the session crypto state.
-        let _ = cnac.refresh_static_ratchet();
 
         let transfer = SynPacket::<R>::deserialize_from_vector(&payload)
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
