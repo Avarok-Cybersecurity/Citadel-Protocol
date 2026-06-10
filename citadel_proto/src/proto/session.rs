@@ -34,9 +34,8 @@ use std::sync::atomic::Ordering;
 //use async_std::prelude::*;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::includes::Instant;
-use bytes::{Bytes, BytesMut};
-use citadel_io::tokio_util::codec::LengthDelimitedCodec;
-use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
+use bytes::BytesMut;
+use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::{ClientConnectionType, UdpMode};
@@ -57,7 +56,6 @@ use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 //use futures_codec::Framed;
 use crate::proto::misc;
-use crate::proto::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
@@ -821,34 +819,45 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         S: citadel_io::tokio::io::AsyncWrite
             + citadel_io::tokio::io::AsyncRead
             + Unpin
-            + crate::macros::ContextRequirements,
+            + crate::macros::ContextRequirements
+            + 'static,
     >(
         primary_outbound_rx: OutboundPrimaryStreamReceiver,
-        mut writer: CleanShutdownSink<S, LengthDelimitedCodec, Bytes>,
+        mut writer: misc::PrimaryStreamWriter<S>,
         mut header_obfuscator: HeaderObfuscator,
     ) -> Result<(), NetworkError> {
+        let to_net_err = |err: std::io::Error| NetworkError::Generic(err.to_string());
+
         if let Some(first_packet) = header_obfuscator.first_packet.take() {
             log::trace!(target: "citadel", "[Header Obfuscator] Sending first key packet {:?} of len {}", &first_packet.as_bytes()[..HDP_HEADER_BYTE_LEN.min(first_packet.len())], first_packet.len());
-            writer.send(first_packet.freeze()).await?;
-        };
+            // The key packet must reach the peer before subsequent ciphered headers, so
+            // flush it immediately rather than batching it with later traffic.
+            writer
+                .write_raw_frame(first_packet.freeze())
+                .await
+                .map_err(to_net_err)?;
+            writer.flush().await.map_err(to_net_err)?;
+        }
 
-        primary_outbound_rx
-            .0
-            .map(|packet| {
-                #[cfg_attr(
-                    feature = "localhost-testing",
-                    tracing::instrument(level = "trace", target = "citadel", skip_all, fields(packet_length = r.len()
-                    ))
-                )]
-                fn process_outbound_packet(r: BytesMut, header_obfuscator: &HeaderObfuscator) -> Bytes {
-                    header_obfuscator.prepare_outbound(r)
-                }
+        let mut rx = primary_outbound_rx.0;
+        while let Some(packet) = rx.next().await {
+            writer
+                .write_packet(packet, &header_obfuscator)
+                .await
+                .map_err(to_net_err)?;
+            // Drain packets already queued and write them via vectored I/O before a single
+            // flush, preserving the write batching that the `forward`-into-codec path
+            // provided (one flush per burst rather than one per packet).
+            while let Some(Some(next)) = rx.next().now_or_never() {
+                writer
+                    .write_packet(next, &header_obfuscator)
+                    .await
+                    .map_err(to_net_err)?;
+            }
+            writer.flush().await.map_err(to_net_err)?;
+        }
 
-                Ok(process_outbound_packet(packet, &header_obfuscator))
-            })
-            .forward(writer)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
-            .await
+        Ok(())
     }
 
     /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
@@ -860,9 +869,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         S: citadel_io::tokio::io::AsyncRead
             + citadel_io::tokio::io::AsyncWrite
             + Unpin
-            + crate::macros::ContextRequirements,
+            + crate::macros::ContextRequirements
+            + 'static,
     >(
-        mut reader: CleanShutdownStream<S, LengthDelimitedCodec, Bytes>,
+        mut reader: misc::PrimaryStreamReader<S>,
         this_main: CitadelSession<R, T>,
         p2p_handle: Option<P2PInboundHandle<R>>,
         header_obfuscator: HeaderObfuscator,
