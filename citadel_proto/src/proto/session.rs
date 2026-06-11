@@ -848,28 +848,44 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         const OUTBOUND_FLUSH_BURST: usize = 32;
 
         let mut rx = primary_outbound_rx.0;
-        while let Some(packet) = rx.next().await {
+        // [QHANG] instrumentation: pinpoint where the QUIC P2P writer stalls under NAT.
+        // The last [QHANG] line before silence in a hung container log tells us whether the
+        // writer is stuck mid-write (which buffer), mid-flush, or idle-waiting (reader-side).
+        let mut qseq: u64 = 0;
+        loop {
+            log::info!(target: "citadel", "[QHANG] writer seq={qseq} idle-wait");
+            let Some(packet) = rx.next().await else { break };
+            let plen = packet.body_len();
+            log::info!(target: "citadel", "[QHANG] writer seq={qseq} start-write len={plen}");
             writer
                 .write_packet(packet, &header_obfuscator)
                 .await
                 .map_err(to_net_err)?;
+            log::info!(target: "citadel", "[QHANG] writer seq={qseq} wrote");
+            qseq += 1;
             // Drain a bounded burst of already-queued packets before a single flush, to
             // batch writes the way the old `forward`-into-codec path did.
             let mut burst = 0usize;
             while burst < OUTBOUND_FLUSH_BURST {
                 match rx.next().now_or_never() {
                     Some(Some(next)) => {
+                        let nlen = next.body_len();
+                        log::info!(target: "citadel", "[QHANG] writer seq={qseq} start-drain-write len={nlen}");
                         writer
                             .write_packet(next, &header_obfuscator)
                             .await
                             .map_err(to_net_err)?;
+                        log::info!(target: "citadel", "[QHANG] writer seq={qseq} drain-wrote");
+                        qseq += 1;
                         burst += 1;
                     }
                     // Channel empty right now, or closed: stop draining and flush.
                     _ => break,
                 }
             }
+            log::info!(target: "citadel", "[QHANG] writer seq={qseq} flushing burst={burst}");
             writer.flush().await.map_err(to_net_err)?;
+            log::info!(target: "citadel", "[QHANG] writer seq={qseq} flushed");
             // Cooperatively yield so the inbound reader half makes progress even when the
             // outbound channel stays saturated. Without this, the old codec sink's
             // ~8 KB-buffer flush was the only yield point; the direct writer has none, so a

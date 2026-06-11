@@ -107,9 +107,13 @@ async fn write_frame_buffers<W: AsyncWrite + Unpin>(w: &mut W, bufs: &[&[u8]]) -
         bufs.first().map(|b| b.len()).unwrap_or(0) == LEN_PREFIX_LEN,
         "first buffer must be the {LEN_PREFIX_LEN}-byte length prefix"
     );
-    for buf in bufs {
+    for (i, buf) in bufs.iter().enumerate() {
         if !buf.is_empty() {
+            // [QHANG] per-buffer trace: a "buf#i write" with no matching "done" in a hung
+            // log identifies the exact poll_write that stalled (0=len, 1=header, 2=payload).
+            log::info!(target: "citadel", "[QHANG] buf#{i} write len={}", buf.len());
             w.write_all(buf).await?;
+            log::info!(target: "citadel", "[QHANG] buf#{i} done");
         }
     }
     Ok(())
