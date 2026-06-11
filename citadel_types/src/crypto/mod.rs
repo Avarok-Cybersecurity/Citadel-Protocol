@@ -257,6 +257,14 @@ impl From<BytesMut> for SecBuffer {
     }
 }
 
+impl From<Bytes> for SecBuffer {
+    fn from(inner: Bytes) -> Self {
+        // Zero-copy when the `Bytes` uniquely owns its allocation (e.g. came from a
+        // `Vec`/`BytesMut`); otherwise reclaims by copying. Mirrors the `Vec<u8>` path.
+        Self::from(BytesMut::from(inner))
+    }
+}
+
 impl<const N: usize> From<[u8; N]> for SecBuffer {
     fn from(this: [u8; N]) -> Self {
         Self::from(&this as &[u8])
