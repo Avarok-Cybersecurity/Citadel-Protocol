@@ -1,36 +1,42 @@
-//! Vectored, copy-free framing for the primary outbound stream.
+//! Direct, copy-free framing for the primary outbound stream.
 //!
 //! The standard `LengthDelimitedCodec` write path copies every packet body into the
 //! codec's internal encode buffer before flushing it to the socket. This writer bypasses
 //! that copy: it frames each packet as `[u32-BE length | body]` and writes the length
-//! prefix together with the body buffer(s) directly to the underlying `AsyncWrite` using
-//! vectored I/O (`writev`). For a [`OutboundPacket::Split`] packet the header and the
-//! (shared, ref-counted) ciphertext payload are written as two separate buffers, removing
-//! the per-chunk copy that concatenating them into one contiguous packet would require.
+//! prefix and the body buffer(s) **directly** to the underlying `AsyncWrite`. For a
+//! [`OutboundPacket::Split`] packet the header and the (shared, ref-counted) ciphertext
+//! payload are written as two separate buffers, removing the per-chunk copy that
+//! concatenating them into one contiguous packet would require.
 //!
 //! The on-wire bytes are byte-identical to the `LengthDelimitedCodec` configuration used
 //! by the reader (`length_field_offset(0)`, `u32` big-endian length field, no length
-//! adjustment, 64 MB max frame) — only the in-process assembly differs. On transports
-//! whose `AsyncWrite` does not implement true vectored writes (TLS/QUIC/WASM), the buffers
-//! are written sequentially via the `advance_slices` loop, which remains correct (the same
-//! bytes reach the wire) while raw TCP gets a single `writev` syscall.
+//! adjustment, 64 MB max frame) — only the in-process assembly differs.
+//!
+//! Buffers are written sequentially with `write_all` (which uses `poll_write`), **not** a
+//! single `write_vectored`. quinn's QUIC `poll_write_vectored` can return `Pending` under
+//! stream flow-control backpressure without re-arming the task waker, which permanently
+//! stalled P2P transfers (the outbound writer parked forever mid-stream). `poll_write` is
+//! the exact primitive the previous `FramedWrite` path used and handles backpressure
+//! correctly on every transport. The per-burst `flush` in the outbound loop coalesces
+//! these writes on buffered transports (TLS/QUIC), so the copy-elimination win is kept
+//! without the vectored-write hazard.
 
 use crate::macros::ContextRequirements;
 use crate::proto::outbound_sender::OutboundPacket;
 use crate::proto::packet::HeaderObfuscator;
 use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncWrite, AsyncWriteExt};
-use std::io::{self, IoSlice};
+use std::io;
 
 /// Length prefix width — matches `LengthDelimitedCodec::builder().length_field_type::<u32>()`.
 const LEN_PREFIX_LEN: usize = 4;
 
-/// Writes length-delimited frames to `W` using vectored I/O, avoiding the codec encode copy.
-pub struct VectoredFrameWriter<W: AsyncWrite + Unpin + ContextRequirements + 'static> {
+/// Writes length-delimited frames to `W` directly, avoiding the codec encode copy.
+pub struct DirectFrameWriter<W: AsyncWrite + Unpin + ContextRequirements + 'static> {
     write: Option<W>,
 }
 
-impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> VectoredFrameWriter<W> {
+impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> DirectFrameWriter<W> {
     pub fn new(write: W) -> Self {
         Self { write: Some(write) }
     }
@@ -39,7 +45,7 @@ impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> VectoredFrameWriter<
     fn writer(&mut self) -> &mut W {
         self.write
             .as_mut()
-            .expect("VectoredFrameWriter used after close")
+            .expect("DirectFrameWriter used after close")
     }
 
     /// Frame and write a queued outbound packet. The header obfuscator cipher is applied in
@@ -55,14 +61,14 @@ impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> VectoredFrameWriter<
             OutboundPacket::Contiguous(buf) => {
                 // `prepare_outbound` applies the cipher in place and freezes (no copy).
                 let body = header_obfuscator.prepare_outbound(buf);
-                write_all_vectored(self.writer(), &[&len_prefix, &body]).await
+                write_frame_buffers(self.writer(), &[&len_prefix, &body]).await
             }
             OutboundPacket::Split {
                 mut header,
                 payload,
             } => {
                 header_obfuscator.obfuscate_header(&mut header);
-                write_all_vectored(self.writer(), &[&len_prefix, &header, &payload]).await
+                write_frame_buffers(self.writer(), &[&len_prefix, &header, &payload]).await
             }
         }
     }
@@ -71,7 +77,7 @@ impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> VectoredFrameWriter<
     /// length prefix, without applying the cipher. Does not flush.
     pub async fn write_raw_frame(&mut self, body: Bytes) -> io::Result<()> {
         let len_prefix = (body.len() as u32).to_be_bytes();
-        write_all_vectored(self.writer(), &[&len_prefix, &body]).await
+        write_frame_buffers(self.writer(), &[&len_prefix, &body]).await
     }
 
     pub async fn flush(&mut self) -> io::Result<()> {
@@ -79,11 +85,11 @@ impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> VectoredFrameWriter<
     }
 }
 
-impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> Drop for VectoredFrameWriter<W> {
+impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> Drop for DirectFrameWriter<W> {
     fn drop(&mut self) {
         if let Some(mut write) = self.write.take() {
-            // Mirror `CleanShutdownSink`: gracefully shut down the write half (sends the
-            // TLS close_notify / TCP FIN) on a detached task so drop stays synchronous.
+            // Gracefully shut down the write half (sends the TLS close_notify / TCP FIN /
+            // QUIC stream finish) on a detached task so drop stays synchronous.
             let shutdown_future = async move {
                 let _ = write.shutdown().await;
             };
@@ -92,25 +98,19 @@ impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> Drop for VectoredFra
     }
 }
 
-/// Write every buffer in `bufs` (in order) to `w` using vectored writes, looping until all
-/// bytes are flushed. `LEN_PREFIX_LEN` is referenced to keep the framing contract explicit.
-async fn write_all_vectored<W: AsyncWrite + Unpin>(w: &mut W, bufs: &[&[u8]]) -> io::Result<()> {
+/// Write every buffer in `bufs` (in order) directly to `w` via `write_all`. The first
+/// buffer is always the `LEN_PREFIX_LEN`-byte length prefix. Sequential `write_all` (i.e.
+/// `poll_write`) is used deliberately instead of `write_vectored` — see the module docs:
+/// quinn's QUIC vectored write can stall under flow-control backpressure.
+async fn write_frame_buffers<W: AsyncWrite + Unpin>(w: &mut W, bufs: &[&[u8]]) -> io::Result<()> {
     debug_assert!(
         bufs.first().map(|b| b.len()).unwrap_or(0) == LEN_PREFIX_LEN,
         "first buffer must be the {LEN_PREFIX_LEN}-byte length prefix"
     );
-    let mut slices: Vec<IoSlice<'_>> = bufs
-        .iter()
-        .filter(|b| !b.is_empty())
-        .map(|b| IoSlice::new(b))
-        .collect();
-    let mut remaining: &mut [IoSlice<'_>] = &mut slices;
-    while !remaining.is_empty() {
-        let n = w.write_vectored(remaining).await?;
-        if n == 0 {
-            return Err(io::Error::from(io::ErrorKind::WriteZero));
+    for buf in bufs {
+        if !buf.is_empty() {
+            w.write_all(buf).await?;
         }
-        IoSlice::advance_slices(&mut remaining, n);
     }
     Ok(())
 }
