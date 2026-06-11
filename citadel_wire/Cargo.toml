@@ -13,6 +13,10 @@ license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lints.rust]
+# `coverage` is set by cargo-llvm-cov during coverage runs (see #[cfg_attr(coverage, ...)] usage).
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
+
 [features]
 default = ["std"]
 std = [

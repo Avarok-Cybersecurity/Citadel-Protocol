@@ -153,6 +153,36 @@ impl EntropyBank {
         })
     }
 
+    /// In-place equivalent of [`Self::encrypt`] (no header AAD, no anti-replay PID): encrypts `buf`
+    /// in place, appends the AEAD tag, and appends the 8-byte nonce transient-id trailer. Avoids
+    /// the fresh `Vec` allocation `encrypt` performs — used by the scramble/group wave path.
+    pub fn encrypt_in_place<T: EzBuffer>(
+        &self,
+        quantum_container: &PostQuantumContainer,
+        buf: &mut T,
+    ) -> Result<(), CryptError<String>> {
+        self.wrap_with_unique_nonce_enx(buf, move |buf, nonce| {
+            quantum_container
+                .encrypt_in_place(buf, nonce)
+                .map_err(|err| CryptError::Encrypt(err.to_string()))
+        })
+    }
+
+    /// In-place equivalent of [`Self::decrypt`], matching [`Self::encrypt_in_place`] / `encrypt`:
+    /// reads + removes the nonce transient-id trailer, then decrypts `buf` in place (removing the
+    /// AEAD tag). Avoids the fresh `Vec` allocation `decrypt` performs.
+    pub fn decrypt_in_place<T: EzBuffer>(
+        &self,
+        quantum_container: &PostQuantumContainer,
+        buf: &mut T,
+    ) -> Result<(), CryptError<String>> {
+        self.wrap_with_unique_nonce_dex(buf, move |buf, nonce| {
+            quantum_container
+                .decrypt_in_place(buf, nonce)
+                .map_err(|err| CryptError::Encrypt(err.to_string()))
+        })
+    }
+
     fn wrap_with_unique_nonce_enx<T: EzBuffer>(
         &self,
         buf: &mut T,
