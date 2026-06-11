@@ -5,13 +5,11 @@
 
 use std::io;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
 use citadel_io::{ProtocolUpgrade, ServerMode, UpgradeListenerPair};
 use citadel_user::serialization::SyncIO;
-use citadel_wire::exports::tokio_rustls::rustls::ClientConfig;
 use citadel_wire::quic::{QuicClient, QuicEndpointConnector, QuicServer, SELF_SIGNED_DOMAIN};
 
 use crate::constants::TCP_CONN_TIMEOUT;
@@ -118,16 +116,20 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
         signal: Self::Signal,
         local_addr: SocketAddr,
         remote_addr: SocketAddr,
-        client_config: &Arc<ClientConfig>,
+        client_config: &super::native_io::NativeClientConfig,
     ) -> io::Result<GenericNetworkStream> {
         // Bind UDP to same local address for NAT/firewall compatibility
         let udp_socket = citadel_wire::socket_helpers::get_udp_socket(local_addr)
             .map_err(|e| io::Error::other(e.to_string()))?;
 
-        let mut quic_endpoint = if signal.is_self_signed {
+        // Honor the local client policy: a peer must not be able to force the no-verification path
+        // by advertising self-signed / omitting a domain when the client requires verification.
+        let require_cert_verification = client_config.require_cert_verification;
+
+        let mut quic_endpoint = if signal.is_self_signed && !require_cert_verification {
             QuicClient::new_no_verify(udp_socket)
         } else {
-            QuicClient::new_with_rustls_config(udp_socket, client_config.clone())
+            QuicClient::new_with_rustls_config(udp_socket, client_config.config.clone())
         }
         .map_err(|e| io::Error::other(e.to_string()))?;
 
@@ -135,7 +137,11 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
 
         // Select QUIC client config based on cert type
         let cfg = if signal.domain.is_some() {
-            citadel_wire::quic::rustls_client_config_to_quinn_config(client_config.clone())?
+            citadel_wire::quic::rustls_client_config_to_quinn_config(client_config.config.clone())?
+        } else if require_cert_verification {
+            return Err(io::Error::other(
+                "Certificate verification is required, but the peer advertised no domain (would force an insecure QUIC connection)",
+            ));
         } else {
             citadel_wire::quic::insecure::configure_client()
         };

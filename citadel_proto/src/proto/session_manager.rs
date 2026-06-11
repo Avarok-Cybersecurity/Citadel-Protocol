@@ -100,6 +100,13 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [CitadelSessionManager] and thereafter placed inside an appropriate session
     pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, CitadelSession<R, T>)>,
+    /// Reserves a CID the instant an incoming connection is cleared to proceed, closing the window
+    /// between `can_proceed_with_new_incoming_connection` and the SYN commit (which is when the
+    /// provisional connection first becomes findable by CID). Without this, two SYNs for the same
+    /// CID arriving on different sockets could both pass the check and race to commit. Entries are
+    /// released on commit/failure and auto-expire as a safety net so a dropped attempt cannot
+    /// permanently block the CID.
+    provisional_cid_reservations: HashMap<u64, Instant>,
     kernel_tx: UnboundedSender<NodeResult<R>>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
@@ -110,6 +117,12 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
 }
+
+/// Safety-net lifetime for a provisional CID reservation. Reservations are released explicitly on
+/// SYN commit and on connection failure; this bounds how long an unexpectedly-dropped attempt can
+/// block a CID. It only needs to outlive the (fast) window between clearing `can_proceed` and the
+/// SYN commit that associates the CID with the provisional connection.
+const PROVISIONAL_CID_RESERVATION_TTL: Duration = Duration::from_secs(30);
 
 impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Creates a new [SessionManager] which handles individual connections
@@ -136,6 +149,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             incoming_cxn_count,
             account_manager,
             provisional_connections: HashMap::new(),
+            provisional_cid_reservations: HashMap::new(),
             kernel_tx,
             time_tracker,
             client_config,
@@ -162,9 +176,19 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     }
 
     /// Determines if `cid` is connected
-    pub async fn can_proceed_with_new_incoming_connection(&self, cid: u64) -> bool {
+    /// `reserve`: when true (the server-side incoming-SYN path), the CID is reserved on success so a
+    /// concurrent same-CID SYN cannot also proceed; the reservation is released by the SYN handler on
+    /// commit/failure. When false (the client-side outgoing-connect pre-check), this only *checks* for
+    /// an existing/connecting session and never takes a reservation — taking one there would leak
+    /// (nothing releases it) and block legitimate reconnects until the TTL expires.
+    pub async fn can_proceed_with_new_incoming_connection(&self, cid: u64, reserve: bool) -> bool {
         let await_for_drop_rx = {
-            let this = inner!(self);
+            let mut this = inner_mut!(self);
+
+            // Drop any reservations that have outlived the commit window (failed/abandoned attempts)
+            // so a dropped SYN cannot permanently block the CID.
+            this.provisional_cid_reservations
+                .retain(|_, reserved_at| reserved_at.elapsed() < PROVISIONAL_CID_RESERVATION_TTL);
 
             if let Some(sess) = this.sessions.get(&cid).map(|(_, sess)| sess).or_else(|| {
                 this.provisional_connections
@@ -203,7 +227,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                 await_for_drop_rx
             } else {
-                // No session exists, so we can proceed with the connection attempt
+                // No live or provisional session for this CID. On the server incoming-SYN path,
+                // guard against a concurrent SYN for the same CID (on another socket) that has not
+                // yet committed: if it already reserved the CID, yield to it; otherwise reserve and
+                // proceed. The client outgoing path (reserve == false) only checks and never reserves.
+                if reserve {
+                    if this.provisional_cid_reservations.contains_key(&cid) {
+                        citadel_logging::warn!(target: "citadel", "A concurrent connection attempt for {cid} is already in progress; yielding");
+                        return false;
+                    }
+                    this.provisional_cid_reservations
+                        .insert(cid, Instant::now());
+                }
                 return true;
             }
         };
@@ -227,9 +262,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let mut this = inner_mut!(self);
                 this.sessions.remove(&cid);
                 this.provisional_connections.retain(|_, sess| sess.2.session_cid.get().unwrap_or(0) != cid);
+                this.provisional_cid_reservations.remove(&cid);
                 true
             },
         }
+    }
+
+    /// Releases the provisional CID reservation taken by
+    /// [`Self::can_proceed_with_new_incoming_connection`]. Called once the SYN has committed (the
+    /// provisional connection is now findable by CID) or when the attempt fails, so the CID is not
+    /// blocked longer than necessary. Idempotent.
+    pub fn release_provisional_cid_reservation(&self, cid: u64) {
+        let _ = inner_mut!(self).provisional_cid_reservations.remove(&cid);
     }
 
     /// Called by the higher-level [CitadelNode] async writer loop
@@ -327,7 +371,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                     // Wait for any disconnecting session to clean up before proceeding
                     if let Some(cid) = cnac.as_ref().map(|c| c.get_cid()) {
-                        if !self.can_proceed_with_new_incoming_connection(cid).await {
+                        if !self
+                            .can_proceed_with_new_incoming_connection(cid, false)
+                            .await
+                        {
                             return Err(NetworkError::Generic(format!(
                                 "Session for CID {cid} already exists. Disconnect first before reconnecting."
                             )));

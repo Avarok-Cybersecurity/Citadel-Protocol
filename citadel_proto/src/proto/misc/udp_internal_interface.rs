@@ -15,13 +15,12 @@ use std::task::{Context, Poll};
 
 // ── Platform-independent trait definitions ──────────────────────────────
 
-pub(crate) trait UdpSink:
-    Sink<Bytes, Error = NetworkError> + Unpin + ContextRequirements
-{
-}
+// `pub` (not `pub(crate)`): surfaced through `UdpSplittableTypes::split`, which is reachable via the
+// public `PlatformOps` trait. A blanket-impl marker trait, so widening visibility is inert.
+pub trait UdpSink: Sink<Bytes, Error = NetworkError> + Unpin + ContextRequirements {}
 impl<T: Sink<Bytes, Error = NetworkError> + Unpin + ContextRequirements> UdpSink for T {}
 
-pub(crate) trait UdpStream:
+pub trait UdpStream:
     Stream<Item = Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin + ContextRequirements
 {
 }
@@ -54,7 +53,10 @@ mod native {
     use futures::stream::{SplitSink, SplitStream};
     use futures::StreamExt;
 
-    pub(crate) enum UdpSplittableTypes {
+    // `pub` (not `pub(crate)`) because it is exposed through the public `PlatformOps` trait's
+    // method signatures; rustc 1.83+ rejects leaking a crate-private type through a public trait
+    // (E0446). The variant payload structs are likewise `pub` but keep their fields private.
+    pub enum UdpSplittableTypes {
         Quic(QuicUdpSocketConnector),
         Raw(RawUdpSocketConnector),
     }
@@ -108,7 +110,7 @@ mod native {
         }
     }
 
-    pub(crate) struct QuicUdpSocketConnector {
+    pub struct QuicUdpSocketConnector {
         pub(super) sink: QuicUdpSendHalf,
         stream: QuicUdpRecvHalf,
         local_addr: SocketAddr,
@@ -202,7 +204,7 @@ mod native {
         }
     }
 
-    pub(crate) struct RawUdpSocketConnector {
+    pub struct RawUdpSocketConnector {
         sink: RawUdpSocketSink,
         stream: RawUdpSocketStream,
         local_addr: std::io::Result<SocketAddr>,
@@ -293,7 +295,9 @@ mod wasm {
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::JsCast;
 
-    pub(crate) enum UdpSplittableTypes {
+    // `pub` for the same reason as the native variant: it is surfaced by the public `PlatformOps`
+    // trait and a crate-private type cannot leak through a public interface (E0446).
+    pub enum UdpSplittableTypes {
         WebRtc(WebRtcDataChannelConnector),
     }
 
@@ -327,7 +331,7 @@ mod wasm {
 
     /// Wraps a WebRTC `RtcDataChannel` configured in unordered mode
     /// (the browser equivalent of UDP datagrams).
-    pub(crate) struct WebRtcDataChannelConnector {
+    pub struct WebRtcDataChannelConnector {
         sink: DataChannelSink,
         stream: DataChannelStream,
         local_addr: SocketAddr,

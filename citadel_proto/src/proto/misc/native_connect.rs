@@ -30,7 +30,7 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 pub async fn c2s_connect(
     timeout: Option<Duration>,
     remote: SocketAddr,
-    default_client_config: &Arc<ClientConfig>,
+    default_client_config: &super::native_io::NativeClientConfig,
 ) -> io::Result<GenericNetworkStream> {
     log::trace!(target: "citadel", "C2S connect defaults to {remote:?}");
     let mut stream =
@@ -54,10 +54,13 @@ pub async fn c2s_connect(
         } => {
             log::trace!(target: "citadel", "Host claims OrderedReliableSecure (TLS) CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", &domain, external_addr, is_self_signed);
 
-            let connector = if is_self_signed {
+            // Only fall back to the accept-any-cert connector when the server advertises self-signed
+            // AND the local client policy permits it. Otherwise an active attacker could flip
+            // `is_self_signed` to force the insecure path even against a CA-backed server.
+            let connector = if is_self_signed && !default_client_config.require_cert_verification {
                 citadel_wire::tls::create_client_dangerous_config()
             } else {
-                client_config_to_tls_connector(default_client_config.clone())
+                client_config_to_tls_connector(default_client_config.config.clone())
             };
 
             let stream = connector
@@ -124,10 +127,17 @@ pub async fn quic_p2p_connect(
     domain: TlsDomain,
     remote: SocketAddr,
     secure_client_config: Arc<ClientConfig>,
+    require_cert_verification: bool,
 ) -> io::Result<GenericNetworkStream> {
     log::trace!(target: "citadel", "Connecting to QUIC node {remote:?}");
     let cfg = if domain.is_some() {
         citadel_wire::quic::rustls_client_config_to_quinn_config(secure_client_config)?
+    } else if require_cert_verification {
+        // Strict client policy: a peer that supplies no domain would force the accept-any-cert QUIC
+        // path. Refuse rather than silently downgrade to no verification.
+        return Err(generic_error(
+            "Certificate verification is required, but the peer advertised no domain (would force an insecure QUIC connection)",
+        ));
     } else {
         citadel_wire::quic::insecure::configure_client()
     };
@@ -187,6 +197,9 @@ pub async fn p2p_connect_from_socket(
         domain,
         remote_addr,
         client_config,
+        // P2P hole-punched peers use ephemeral self-signed certs (no CA exists for them); the
+        // ratchet layer authenticates the peer, so cert verification is not applicable here.
+        false,
     )
     .await
 }

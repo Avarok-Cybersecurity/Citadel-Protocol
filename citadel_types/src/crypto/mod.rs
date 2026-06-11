@@ -172,7 +172,27 @@ impl SecBuffer {
     }
 
     pub fn reserve(&mut self, additional: usize) {
-        self.inner.reserve(additional)
+        let required = self.inner.len().saturating_add(additional);
+        if required <= self.inner.capacity() {
+            // Sufficient capacity already; no reallocation, so no secrets can be left behind.
+            return;
+        }
+        // Grow manually so the old, secret-bearing allocation is zeroized BEFORE it is freed.
+        // Delegating to BytesMut::reserve would reallocate and free the old buffer in the clear,
+        // leaving plaintext lingering in freed heap until some later allocation overwrites it.
+        //
+        // Grow with amortized headroom (at least double the current capacity) rather than to the
+        // exact size, so a sequence of incremental reservations does not reallocate-and-zeroize the
+        // whole accumulated buffer each time — that would be O(n^2) secret-wiping copies. Doubling
+        // keeps the (necessarily copying) reallocations amortized O(1).
+        let new_capacity = required.max(self.inner.capacity().saturating_mul(2));
+        self.unlock();
+        let mut grown = BytesMut::with_capacity(new_capacity);
+        grown.extend_from_slice(&self.inner[..]);
+        // Wipe the old allocation's live bytes, then drop it (replaced below).
+        self.zeroize();
+        self.inner = grown;
+        self.lock();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -234,6 +254,14 @@ impl From<BytesMut> for SecBuffer {
         let this = Self { inner };
         this.lock();
         this
+    }
+}
+
+impl From<Bytes> for SecBuffer {
+    fn from(inner: Bytes) -> Self {
+        // Zero-copy when the `Bytes` uniquely owns its allocation (e.g. came from a
+        // `Vec`/`BytesMut`); otherwise reclaims by copying. Mirrors the `Vec<u8>` path.
+        Self::from(BytesMut::from(inner))
     }
 }
 

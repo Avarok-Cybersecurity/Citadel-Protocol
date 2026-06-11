@@ -500,7 +500,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             {
                 return Ok(peer_info
                     .into_iter()
-                    .zip(is_onlines.into_iter())
+                    .zip(is_onlines)
                     .filter_map(|(peer_info, is_online)| {
                         peer_info.map(|info| LocalGroupPeerFullInfo {
                             cid: info.cid,
@@ -549,7 +549,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             {
                 return Ok(peer_info
                     .into_iter()
-                    .zip(is_onlines.into_iter())
+                    .zip(is_onlines)
                     .filter_map(|(peer_info, is_online)| {
                         peer_info.map(|info| LocalGroupPeerFullInfo {
                             cid: info.cid,
