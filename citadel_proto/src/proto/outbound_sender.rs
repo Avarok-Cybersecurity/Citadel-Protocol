@@ -35,7 +35,7 @@
 
 use crate::error::NetworkError;
 use crate::proto::packet::packet_flags;
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 pub use citadel_io::tokio::sync::mpsc::{
     error::SendError, Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
 };
@@ -69,64 +69,28 @@ pub fn channel<T>(len: usize) -> (Sender<T>, Receiver<T>) {
     citadel_io::tokio::sync::mpsc::channel(len)
 }
 
-/// A unit of work queued for the primary outbound stream.
-///
-/// `Contiguous` carries a single `[header | payload]` buffer (control, message, and
-/// single-packet paths). `Split` carries the header and the (shared) ciphertext payload
-/// as two independent buffers so the wire writer can emit them with vectored I/O,
-/// avoiding the per-chunk copy that concatenating them would require. In both cases the
-/// on-wire bytes are identical to a single `[length | header | payload]` frame.
-#[derive(Debug)]
-pub enum OutboundPacket {
-    Contiguous(BytesMut),
-    Split { header: BytesMut, payload: Bytes },
-}
-
-impl OutboundPacket {
-    /// Total on-wire body length (the value written into the length-delimited frame prefix).
-    #[inline]
-    pub fn body_len(&self) -> usize {
-        match self {
-            OutboundPacket::Contiguous(buf) => buf.len(),
-            OutboundPacket::Split { header, payload } => header.len() + payload.len(),
-        }
-    }
-}
-
 #[derive(Clone)]
-pub struct OutboundPrimaryStreamSender(UnboundedSender<OutboundPacket>);
+pub struct OutboundPrimaryStreamSender(UnboundedSender<bytes::BytesMut>);
 
 impl OutboundPrimaryStreamSender {
     #[inline]
-    pub fn unbounded_send(&self, item: bytes::BytesMut) -> Result<(), SendError<OutboundPacket>> {
-        self.0.unbounded_send(OutboundPacket::Contiguous(item))
-    }
-
-    /// Queue a packet whose header and payload are sent as two buffers via vectored I/O,
-    /// eliminating the copy that materializing a single contiguous packet would require.
-    #[inline]
-    pub fn unbounded_send_split(
-        &self,
-        header: BytesMut,
-        payload: Bytes,
-    ) -> Result<(), SendError<OutboundPacket>> {
-        self.0
-            .unbounded_send(OutboundPacket::Split { header, payload })
+    pub fn unbounded_send(&self, item: bytes::BytesMut) -> Result<(), SendError<BytesMut>> {
+        self.0.unbounded_send(item)
     }
 }
 
-impl From<UnboundedSender<OutboundPacket>> for OutboundPrimaryStreamSender {
-    fn from(inner: UnboundedSender<OutboundPacket>) -> Self {
+impl From<UnboundedSender<bytes::BytesMut>> for OutboundPrimaryStreamSender {
+    fn from(inner: UnboundedSender<BytesMut>) -> Self {
         Self(inner)
     }
 }
 
 pub struct OutboundPrimaryStreamReceiver(
-    pub citadel_io::tokio_stream::wrappers::UnboundedReceiverStream<OutboundPacket>,
+    pub citadel_io::tokio_stream::wrappers::UnboundedReceiverStream<bytes::BytesMut>,
 );
 
-impl From<UnboundedReceiver<OutboundPacket>> for OutboundPrimaryStreamReceiver {
-    fn from(inner: UnboundedReceiver<OutboundPacket>) -> Self {
+impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundPrimaryStreamReceiver {
+    fn from(inner: UnboundedReceiver<BytesMut>) -> Self {
         Self(citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(inner))
     }
 }

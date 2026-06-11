@@ -801,13 +801,14 @@ mod tests {
             let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
             log::trace!(target: "citadel", "{:?}", &config);
 
-            while let Some(packet) = scramble_transmitter.get_next_packet() {
+            while let Some(mut packet) = scramble_transmitter.get_next_packet() {
+                let packet_payload = packet.packet.split_off(HEADER_SIZE_BYTES);
                 let _result = receiver.on_packet_received(
                     0,
                     packet.vector.true_sequence,
                     packet.vector.wave_id,
                     &ratchet_bob,
-                    packet.payload,
+                    packet_payload,
                 );
             }
 
@@ -1002,13 +1003,14 @@ mod tests {
             let group_id = config.group_id;
             let mut _seq = 0;
             let _now = Instant::now();
-            'here: while let Some(packet) = gs.get_next_packet() {
+            'here: while let Some(mut packet) = gs.get_next_packet() {
+                let packet_payload = packet.packet.split_off(HEADER_LEN);
                 let result = receiver.on_packet_received(
                     group_id,
                     packet.vector.true_sequence,
                     packet.vector.wave_id,
                     &bob,
-                    packet.payload,
+                    packet_payload,
                 );
                 //dbg!(&result);
                 if let GroupReceiverStatus::GROUP_COMPLETE(_group_id) = result {

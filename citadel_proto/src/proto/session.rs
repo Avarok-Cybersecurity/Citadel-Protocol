@@ -34,8 +34,9 @@ use std::sync::atomic::Ordering;
 //use async_std::prelude::*;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::includes::Instant;
-use bytes::BytesMut;
-use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use bytes::{Bytes, BytesMut};
+use citadel_io::tokio_util::codec::LengthDelimitedCodec;
+use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::{ClientConnectionType, UdpMode};
@@ -56,6 +57,7 @@ use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 //use futures_codec::Framed;
 use crate::proto::misc;
+use crate::proto::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
@@ -819,66 +821,34 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         S: citadel_io::tokio::io::AsyncWrite
             + citadel_io::tokio::io::AsyncRead
             + Unpin
-            + crate::macros::ContextRequirements
-            + 'static,
+            + crate::macros::ContextRequirements,
     >(
         primary_outbound_rx: OutboundPrimaryStreamReceiver,
-        mut writer: misc::PrimaryStreamWriter<S>,
+        mut writer: CleanShutdownSink<S, LengthDelimitedCodec, Bytes>,
         mut header_obfuscator: HeaderObfuscator,
     ) -> Result<(), NetworkError> {
-        let to_net_err = |err: std::io::Error| NetworkError::Generic(err.to_string());
-
         if let Some(first_packet) = header_obfuscator.first_packet.take() {
             log::trace!(target: "citadel", "[Header Obfuscator] Sending first key packet {:?} of len {}", &first_packet.as_bytes()[..HDP_HEADER_BYTE_LEN.min(first_packet.len())], first_packet.len());
-            // The key packet must reach the peer before subsequent ciphered headers, so
-            // flush it immediately rather than batching it with later traffic.
-            writer
-                .write_raw_frame(first_packet.freeze())
-                .await
-                .map_err(to_net_err)?;
-            writer.flush().await.map_err(to_net_err)?;
-        }
+            writer.send(first_packet.freeze()).await?;
+        };
 
-        // Max packets drained into one flushed burst. Bounds how long the drain loop can
-        // run without yielding: the outbound writer and the inbound reader share a single
-        // task via `select!`, and `rx.next()` resolves synchronously while the channel is
-        // saturated, so an unbounded drain would starve the reader and stall protocol
-        // ACK/WAVE_ACK processing (deadlocking windowed P2P transfers under QUIC
-        // backpressure). 32 keeps writes batched while bounding reader starvation tightly.
-        const OUTBOUND_FLUSH_BURST: usize = 32;
-
-        let mut rx = primary_outbound_rx.0;
-        while let Some(packet) = rx.next().await {
-            writer
-                .write_packet(packet, &header_obfuscator)
-                .await
-                .map_err(to_net_err)?;
-            // Drain a bounded burst of already-queued packets before a single flush, to
-            // batch writes the way the old `forward`-into-codec path did.
-            let mut burst = 0usize;
-            while burst < OUTBOUND_FLUSH_BURST {
-                match rx.next().now_or_never() {
-                    Some(Some(next)) => {
-                        writer
-                            .write_packet(next, &header_obfuscator)
-                            .await
-                            .map_err(to_net_err)?;
-                        burst += 1;
-                    }
-                    // Channel empty right now, or closed: stop draining and flush.
-                    _ => break,
+        primary_outbound_rx
+            .0
+            .map(|packet| {
+                #[cfg_attr(
+                    feature = "localhost-testing",
+                    tracing::instrument(level = "trace", target = "citadel", skip_all, fields(packet_length = r.len()
+                    ))
+                )]
+                fn process_outbound_packet(r: BytesMut, header_obfuscator: &HeaderObfuscator) -> Bytes {
+                    header_obfuscator.prepare_outbound(r)
                 }
-            }
-            writer.flush().await.map_err(to_net_err)?;
-            // Cooperatively yield so the inbound reader half makes progress even when the
-            // outbound channel stays saturated. Without this, the old codec sink's
-            // ~8 KB-buffer flush was the only yield point; the direct writer has none, so a
-            // saturated channel would monopolize the shared task and the peer's WAVE_ACKs
-            // would never be read — the QUIC P2P stall observed under restricted NAT.
-            citadel_io::tokio::task::yield_now().await;
-        }
 
-        Ok(())
+                Ok(process_outbound_packet(packet, &header_obfuscator))
+            })
+            .forward(writer)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .await
     }
 
     /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
@@ -890,10 +860,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         S: citadel_io::tokio::io::AsyncRead
             + citadel_io::tokio::io::AsyncWrite
             + Unpin
-            + crate::macros::ContextRequirements
-            + 'static,
+            + crate::macros::ContextRequirements,
     >(
-        mut reader: misc::PrimaryStreamReader<S>,
+        mut reader: CleanShutdownStream<S, LengthDelimitedCodec, Bytes>,
         this_main: CitadelSession<R, T>,
         p2p_handle: Option<P2PInboundHandle<R>>,
         header_obfuscator: HeaderObfuscator,

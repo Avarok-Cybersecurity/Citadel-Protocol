@@ -373,19 +373,16 @@ impl HeaderObfuscator {
         }
     }
 
-    /// Applies the outbound header cipher in place. Only obfuscates buffers that are at
-    /// least HDP_HEADER_BYTE_LEN (the cipher covers the header region at the start of the
-    /// buffer). Used directly by the vectored wire writer, which keeps the header in its
-    /// own buffer rather than concatenated with the payload.
-    pub fn obfuscate_header(&self, packet: &mut BytesMut) {
+    /// This will only obfuscate packets that are at least HDP_HEADER_BYTE_LEN
+    pub fn prepare_outbound(&self, mut packet: BytesMut) -> Bytes {
         if self.client_intends_disable.get() && self.disabled.get() {
-            return;
+            return packet.freeze();
         }
 
         if let Some(key) = self.load() {
             if packet.len() >= HDP_HEADER_BYTE_LEN {
                 log::trace!(target: "citadel", "[Header Obfuscator] Applying outbound cipher w/key {key}");
-                apply_cipher(key, false, packet);
+                apply_cipher(key, false, &mut packet);
 
                 if self.client_intends_disable.get() {
                     // Prevent further use of the obfuscator
@@ -393,11 +390,7 @@ impl HeaderObfuscator {
                 }
             }
         }
-    }
 
-    /// This will only obfuscate packets that are at least HDP_HEADER_BYTE_LEN
-    pub fn prepare_outbound(&self, mut packet: BytesMut) -> Bytes {
-        self.obfuscate_header(&mut packet);
         packet.freeze()
     }
 

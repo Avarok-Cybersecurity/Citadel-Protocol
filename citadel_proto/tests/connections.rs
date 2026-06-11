@@ -7,8 +7,8 @@ pub mod tests {
     use citadel_proto::re_imports::NativeClientConfig;
     use citadel_wire::socket_helpers::is_ipv6_enabled;
     use futures::stream::FuturesUnordered;
-    use futures::StreamExt;
     use futures::TryStreamExt;
+    use futures::{SinkExt, StreamExt};
     use rstest::*;
     use std::net::SocketAddr;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -229,9 +229,8 @@ pub mod tests {
         let packet = stream.next().await.unwrap()?;
         log::trace!(target: "citadel", "[Server] Received packet");
         assert_eq!(&packet[..], &[100u8]);
-        sink.write_raw_frame(BytesMut::from(&[100u8] as &[u8]).freeze())
+        sink.send(BytesMut::from(&[100u8] as &[u8]).freeze())
             .await?;
-        sink.flush().await?;
         log::trace!(target: "citadel", "[Server] Sent packet");
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(())
@@ -240,9 +239,8 @@ pub mod tests {
     async fn on_client_received_stream(stream: GenericNetworkStream) -> std::io::Result<()> {
         let (mut sink, mut stream) = safe_split_stream(stream);
         log::trace!(target: "citadel", "Client connected");
-        sink.write_raw_frame(BytesMut::from(&[100u8] as &[u8]).freeze())
+        sink.send(BytesMut::from(&[100u8] as &[u8]).freeze())
             .await?;
-        sink.flush().await?;
         log::trace!(target: "citadel", "Client - sent packet");
         let packet_opt = stream.next().await;
         log::trace!(target: "citadel", "Client - next: {packet_opt:?}");

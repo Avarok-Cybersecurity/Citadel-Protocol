@@ -28,16 +28,18 @@
 
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
-use crate::proto::misc::direct_frame_writer::DirectFrameWriter;
+use crate::proto::misc::clean_shutdown::{
+    clean_framed_shutdown, CleanShutdownSink, CleanShutdownStream,
+};
 use bytes::Bytes;
-use citadel_io::tokio::io::{split, AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
+use citadel_io::tokio::io::{AsyncRead, AsyncWrite};
 use citadel_io::tokio_stream::StreamExt;
-use citadel_io::tokio_util::codec::{FramedRead, LengthDelimitedCodec};
+use citadel_io::tokio_util::codec::LengthDelimitedCodec;
 use futures::SinkExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-pub mod direct_frame_writer;
+pub mod clean_shutdown;
 pub mod dual_cell;
 pub mod dual_late_init;
 pub mod dual_rwlock;
@@ -82,37 +84,23 @@ pub(crate) mod wasm_rtc;
 #[cfg(target_family = "wasm")]
 pub(crate) mod wasm_stream;
 
-/// The copy-free writer half of a split primary stream (see [`DirectFrameWriter`]).
-pub type PrimaryStreamWriter<S> = DirectFrameWriter<WriteHalf<S>>;
-/// The length-delimited reader half of a split primary stream.
-pub type PrimaryStreamReader<S> = FramedRead<ReadHalf<S>, LengthDelimitedCodec>;
-
-/// Builds the `LengthDelimitedCodec` configuration shared by the reader and the direct
-/// writer so both sides agree on the wire framing (SSOT). The writer in
-/// `direct_frame_writer.rs` reproduces these exact bytes (`u32` big-endian length prefix,
-/// no adjustment) without going through the codec's encode buffer.
-fn primary_stream_codec_builder() -> citadel_io::tokio_util::codec::length_delimited::Builder {
-    let mut builder = LengthDelimitedCodec::builder();
-    builder
+/// Wraps a stream into a split interface for I/O that safely shuts-down the interface
+/// upon drop
+#[doc(hidden)]
+pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements>(
+    stream: S,
+) -> (
+    CleanShutdownSink<S, LengthDelimitedCodec, Bytes>,
+    CleanShutdownStream<S, LengthDelimitedCodec, Bytes>,
+) {
+    let framed = LengthDelimitedCodec::builder()
         .length_field_offset(0)
         .max_frame_length(1024 * 1024 * 64) // 64 MB
         .length_field_type::<u32>()
-        .length_adjustment(0);
-    builder
-}
+        .length_adjustment(0)
+        .new_framed(stream);
 
-/// Splits a stream into a copy-free direct writer and a length-delimited reader. The
-/// writer writes the length frame and body directly to the socket, bypassing the codec
-/// encode copy; the reader keeps the standard `LengthDelimitedCodec`. Dropping the writer
-/// gracefully shuts down the write half (TLS close_notify / TCP FIN).
-#[doc(hidden)]
-pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements + 'static>(
-    stream: S,
-) -> (PrimaryStreamWriter<S>, PrimaryStreamReader<S>) {
-    let (read_half, write_half) = split(stream);
-    let reader = primary_stream_codec_builder().new_read(read_half);
-    let writer = DirectFrameWriter::new(write_half);
-    (writer, reader)
+    clean_framed_shutdown(framed)
 }
 
 pub async fn read_one_packet_as_framed<S: AsyncRead + Unpin, D: DeserializeOwned + Serialize>(

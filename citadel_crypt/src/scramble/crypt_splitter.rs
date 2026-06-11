@@ -32,7 +32,7 @@ use std::time::Duration;
 use citadel_io::time::Instant;
 
 use bitvec::vec::BitVec;
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, BytesMut};
 use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
 use rand::Rng;
@@ -197,29 +197,14 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
     Ok((cfg, msg_entropy_bank, msg_pqc, scramble_entropy_bank.1))
 }
 
-/// Each packet is the pairing of an inscribed header with a slice of the wave's ciphertext.
-/// The header and payload are kept as separate buffers so the wire writer can emit them
-/// with vectored I/O (no copy); the payload is a ref-counted [`Bytes`] slice that shares
-/// the single per-wave ciphertext allocation rather than copying each chunk.
+/// Each packet contains an empty array open to inscription of a header coupled with a ciphertext
+/// The vector contains the orientation data
 #[derive(Clone)]
 pub struct PacketCoordinate {
-    /// The inscribed packet header.
-    pub header: BytesMut,
-    /// The ciphertext payload — a zero-copy slice of the shared per-wave ciphertext.
-    pub payload: Bytes,
+    /// The encrypted packet
+    pub packet: BytesMut,
     /// The coordinate data of the packet along the wave
     pub vector: PacketVector,
-}
-
-impl PacketCoordinate {
-    /// Materialize the packet as a single `[header | payload]` buffer. Used by datagram
-    /// paths and tests that need contiguous bytes; the reliable (TCP/QUIC) path sends the
-    /// header and payload as two buffers via vectored I/O instead, avoiding this copy.
-    pub fn into_contiguous(self) -> BytesMut {
-        let mut packet = self.header;
-        packet.extend_from_slice(&self.payload);
-        packet
-    }
 }
 
 /// header_size_bytes: This size (in bytes) of each packet's header
@@ -297,7 +282,7 @@ where
             .values()
             .filter_map(|r| {
                 if r.vector.wave_id == last_wave_idx {
-                    Some(r.payload.len())
+                    Some(r.packet.len() - N)
                 } else {
                     None
                 }
@@ -336,45 +321,32 @@ fn scramble_encrypt_wave(
     header_size_bytes: usize,
     header_inscriber: impl Fn(&PacketVector, &EntropyBank, ObjectId, u64, &mut BytesMut) + Send + Sync,
 ) -> Vec<(usize, PacketCoordinate)> {
-    // Encrypt the whole wave once into a single allocation, then hand each packet a
-    // ref-counted slice of it (no per-chunk copy). `Bytes::from(Vec)` is zero-copy.
-    let ciphertext: Bytes = msg_entropy_bank
+    let ciphertext = msg_entropy_bank
         .encrypt(msg_pqc, bytes_to_encrypt_for_this_wave)
-        .unwrap()
-        .into();
+        .unwrap();
 
-    let max_payload_size = cfg.max_payload_size as usize;
-    let mut packets = Vec::with_capacity(ciphertext.len().div_ceil(max_payload_size));
-
-    let mut offset = 0;
-    let mut relative_packet_idx = 0;
-    while offset < ciphertext.len() {
-        let end = (offset + max_payload_size).min(ciphertext.len());
-        let payload = ciphertext.slice(offset..end); // ref-count bump, not a copy
-        debug_assert_ne!(payload.len(), 0);
-        let true_packet_sequence =
-            (wave_idx * cfg.max_packets_per_wave as usize) + relative_packet_idx;
-        let vector =
-            generate_packet_vector(true_packet_sequence, cfg.group_id, scramble_entropy_bank);
-        let mut header = BytesMut::with_capacity(header_size_bytes);
-        header_inscriber(
-            &vector,
-            scramble_entropy_bank,
-            object_id,
-            target_cid,
-            &mut header,
-        );
-        packets.push((
-            true_packet_sequence,
-            PacketCoordinate {
-                header,
-                payload,
-                vector,
-            },
-        ));
-        offset = end;
-        relative_packet_idx += 1;
-    }
+    let mut packets = ciphertext
+        .chunks(cfg.max_payload_size as usize)
+        .enumerate()
+        .map(|(relative_packet_idx, ciphertext_packet_bytes)| {
+            debug_assert_ne!(ciphertext_packet_bytes.len(), 0);
+            let mut packet =
+                BytesMut::with_capacity(ciphertext_packet_bytes.len() + header_size_bytes);
+            let true_packet_sequence =
+                (wave_idx * cfg.max_packets_per_wave as usize) + relative_packet_idx;
+            let vector =
+                generate_packet_vector(true_packet_sequence, cfg.group_id, scramble_entropy_bank);
+            header_inscriber(
+                &vector,
+                scramble_entropy_bank,
+                object_id,
+                target_cid,
+                &mut packet,
+            );
+            packet.put(ciphertext_packet_bytes);
+            (true_packet_sequence, PacketCoordinate { packet, vector })
+        })
+        .collect::<Vec<(usize, PacketCoordinate)>>();
     packets.shuffle(&mut ThreadRng::default());
 
     packets
