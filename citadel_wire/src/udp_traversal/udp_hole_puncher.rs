@@ -358,7 +358,7 @@ mod tests {
     }
 
     /// Regression test for the hole-punch consensus failure under high coordination-channel
-    /// lag. With ~600ms per-message lag the multi-round-trip NAT-exchange + winner consensus
+    /// lag. With ~450ms per-message lag the multi-round-trip NAT-exchange + winner consensus
     /// takes longer than the per-attempt timeout used to be (`IDENTIFY_TIMEOUT + 5s` = 8s);
     /// the attempt was then cancelled mid-consensus and retried, and each retry re-creates
     /// the subscription/NetMutex so the two peers drift onto different coordination instances
@@ -367,6 +367,10 @@ mod tests {
     /// passes. Guards against regressing the per-attempt timeout below the consensus cost.
     /// (This was the root cause of the P2P-over-QUIC hole-punch hang under hard NAT.)
     #[cfg(not(target_os = "windows"))]
+    // Skipped under coverage: llvm-cov instrumentation slows the consensus past the
+    // (production) per-attempt timeout, deadlocking this lag-calibrated test in the
+    // instrumented environment only. It still runs uninstrumented in the core_libs CI job.
+    #[cfg_attr(coverage, ignore)]
     #[tokio::test]
     async fn test_dual_hole_puncher_high_lag_consensus() {
         use std::time::Duration;
