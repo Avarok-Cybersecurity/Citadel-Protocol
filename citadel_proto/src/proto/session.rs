@@ -839,22 +839,43 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             writer.flush().await.map_err(to_net_err)?;
         }
 
+        // Max packets drained into one flushed burst. Bounds how long the drain loop can
+        // run without yielding: the outbound writer and the inbound reader share a single
+        // task via `select!`, and `rx.next()` resolves synchronously while the channel is
+        // saturated, so an unbounded drain would starve the reader and stall protocol
+        // ACK/WAVE_ACK processing (deadlocking windowed P2P transfers under QUIC
+        // backpressure). 32 keeps writes batched while bounding reader starvation tightly.
+        const OUTBOUND_FLUSH_BURST: usize = 32;
+
         let mut rx = primary_outbound_rx.0;
         while let Some(packet) = rx.next().await {
             writer
                 .write_packet(packet, &header_obfuscator)
                 .await
                 .map_err(to_net_err)?;
-            // Drain packets already queued and write them via vectored I/O before a single
-            // flush, preserving the write batching that the `forward`-into-codec path
-            // provided (one flush per burst rather than one per packet).
-            while let Some(Some(next)) = rx.next().now_or_never() {
-                writer
-                    .write_packet(next, &header_obfuscator)
-                    .await
-                    .map_err(to_net_err)?;
+            // Drain a bounded burst of already-queued packets before a single flush, to
+            // batch writes the way the old `forward`-into-codec path did.
+            let mut burst = 0usize;
+            while burst < OUTBOUND_FLUSH_BURST {
+                match rx.next().now_or_never() {
+                    Some(Some(next)) => {
+                        writer
+                            .write_packet(next, &header_obfuscator)
+                            .await
+                            .map_err(to_net_err)?;
+                        burst += 1;
+                    }
+                    // Channel empty right now, or closed: stop draining and flush.
+                    _ => break,
+                }
             }
             writer.flush().await.map_err(to_net_err)?;
+            // Cooperatively yield so the inbound reader half makes progress even when the
+            // outbound channel stays saturated. Without this, the old codec sink's
+            // ~8 KB-buffer flush was the only yield point; the direct writer has none, so a
+            // saturated channel would monopolize the shared task and the peer's WAVE_ACKs
+            // would never be read — the QUIC P2P stall observed under restricted NAT.
+            citadel_io::tokio::task::yield_now().await;
         }
 
         Ok(())
