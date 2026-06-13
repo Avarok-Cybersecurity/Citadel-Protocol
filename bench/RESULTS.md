@@ -67,6 +67,29 @@ stress_test_c2s_messaging (TCP/TLS/MlKemHybrid) pass; clippy -D warnings clean.*
 Deliberately NOT sizing TCP SO_RCVBUF/SNDBUF: manual sizing disables the Linux kernel TCP autotuner
 and commonly regresses throughput.
 
+## Phase 0 macro bench — C2S messaging throughput + latency (FOUNDATION, done)
+`citadel_sdk/benches/macro_throughput.rs` (custom harness). Full stack: connect → ratchet handshake
+→ per-message AEAD+serialization on the reliable channel. Echo server + a pipelined throughput phase
+and a serial ping-pong latency phase, synchronized by a per-config barrier so teardown can't race the
+last receive. 4 KiB messages. Far less thermally sensitive than the micro-benches (sustained work),
+and it is the PGO training workload. Writes `bench/macro_results.json` (gitignored — host-specific).
+
+Run: `cargo bench -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput`
+(env: `BENCH_MSGS`, `BENCH_LAT_ROUNDS`).
+
+Representative baseline (this aarch64 laptop, current tree = aes_armv8 + LTO + TCP_NODELAY; 20k msgs,
+2k rtts — indicative, not a regression gate; use CI for deltas):
+
+| config | msgs/s | MiB/s | p50 | p99 |
+|---|---|---|---|---|
+| AES-GCM-256 / BestEffort | 25,217 | 98.5 | 360 µs | 880 µs |
+| AES-GCM-256 / Perfect (PFS) | 1,325 | 5.2 | 1136 µs | 1190 µs |
+| ChaCha20 / BestEffort | 23,573 | 92.1 | 442 µs | 906 µs |
+
+Sanity: AES-GCM now edges out ChaCha20 (HW AES engaged); PFS per-message rekey is ~19× the
+BestEffort path (expected). This is the harness deltas (mimalloc, QUIC tuning, PGO, nonce) get
+measured against — reliably in CI, indicatively here.
+
 ## Remaining (decisions / CI-gated) — see handoff
 - **Nonce derivation SHA3-256 → BLAKE3** (Phase 3): biggest remaining per-message win, but
   WIRE/CRYPTO-BREAKING + security-sensitive (nonce uniqueness/unpredictability on the patent-pending
