@@ -90,6 +90,24 @@ Sanity: AES-GCM now edges out ChaCha20 (HW AES engaged); PFS per-message rekey i
 BestEffort path (expected). This is the harness deltas (mimalloc, QUIC tuning, PGO, nonce) get
 measured against — reliably in CI, indicatively here.
 
+## Phase 4 — PGO + BOLT pipeline (latest-method, user-requested)
+Profile-Guided Optimization (+ optional BOLT post-link) wired as opt-in cargo-make tasks and a
+non-blocking CI workflow. Training workload = the macro bench (real connect+handshake+per-message
+crypto/serde paths), so the profiles reflect production hot code.
+
+- `cargo make release-pgo` — instrument (`cargo pgo bench`) → train on the macro bench → optimized
+  rebuild+measure (`cargo pgo optimize bench`). Works on all tier-1 targets incl. aarch64. Needs
+  `llvm-tools-preview` (auto-added) + cargo-pgo (auto-installed).
+- `cargo make release-pgo-bolt` — extends the above with a BOLT post-link pass. x86-64-Linux only
+  (needs an LLVM built with BOLT); gracefully skips elsewhere.
+- CI: `.github/workflows/release-optimized.yml` — manual + weekly (NOT on the PR path). Runs the
+  plain-release baseline, then PGO, then PGO+BOLT on an x86-64 Linux runner, and uploads the
+  msgs/sec + p50/p99 snapshots. This is the authoritative environment for the PGO/BOLT win (the
+  laptop's thermal noise can't resolve it; CI can).
+
+PGO measured win (macro bench, optimize-step run vs the plain-release baseline above): _to be
+recorded from the first `cargo make release-pgo` / CI run_.
+
 ## Remaining (decisions / CI-gated) — see handoff
 - **Nonce derivation SHA3-256 → BLAKE3** (Phase 3): biggest remaining per-message win, but
   WIRE/CRYPTO-BREAKING + security-sensitive (nonce uniqueness/unpredictability on the patent-pending
