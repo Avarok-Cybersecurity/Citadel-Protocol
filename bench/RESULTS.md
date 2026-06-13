@@ -44,15 +44,39 @@ AES-GCM now *beats* ChaCha20 (as expected with HW AES). Also speeds the AES-GCM 
 x86-64 unaffected (already runtime-detects AES-NI). Safe for application-class aarch64
 (Apple Silicon / Graviton / modern ARM servers all have FEAT_AES).
 
-### LTO=fat + codegen-units=1 + strip — effect below local noise floor
+### LTO=fat + codegen-units=1 + strip — compiles clean; effect below local noise floor
 Root `Cargo.toml [profile.release]`. Expected ~8-15% from cross-crate inlining/vectorization on the
 per-packet crypto/serialization/scramble paths that span citadel_crypt/pqcrypto/proto. **Could not
 resolve locally** (thermal noise > expected delta; a re-measure showed a uniform ~+45% across all
 algos that recovered ~-13% after a 20s cooldown — i.e. throttling, not a real regression). Kept as
 standard best-practice; **real effect to be measured on CI / the macro throughput bench**. NOT
 `panic=abort` (a server must keep unwinding so one panicking task can't abort the process).
+**Build validated**: full-workspace `cargo build --release -p citadel_sdk` finishes in 3m25s,
+exit 0 — fat LTO + cgu=1 compiles cleanly across all 13 crates, no OOM.
 
-## TODO (this run)
-- macro throughput/latency + multi-session bench (less thermal-sensitive; the metric the user cares
-  about: msgs/sec, file MiB/s).
-- mimalloc allocator; multiversioning; transport tuning; PGO+BOLT; io_uring; concurrency scaling.
+## Phase 2 — Transport tuning
+
+### TCP_NODELAY on all long-lived TCP data paths — CORRECTNESS-VALIDATED
+Nagle was only disabled on the brief QUIC-redirect handshake stream. The reliable-TCP data paths
+(`OrderedReliable` plain TCP + `OrderedReliableSecure` TLS) ran WITH Nagle on both ends, coalescing
+the protocol's small framed packets and adding per-message latency. Now `set_nodelay(true)` at every
+TCP acquisition chokepoint (client connect + raw-TCP/TLS/WebSocket server accept). TCP-only — does
+NOT touch the UDP/QUIC hole-punch path, so no NAT-matrix risk. **Validated: 8/8
+stress_test_c2s_messaging (TCP/TLS/MlKemHybrid) pass; clippy -D warnings clean.** Latency delta
+(esp. p99 on small messages) to be quantified by the macro bench / on a real WAN link.
+Deliberately NOT sizing TCP SO_RCVBUF/SNDBUF: manual sizing disables the Linux kernel TCP autotuner
+and commonly regresses throughput.
+
+## Remaining (decisions / CI-gated) — see handoff
+- **Nonce derivation SHA3-256 → BLAKE3** (Phase 3): biggest remaining per-message win, but
+  WIRE/CRYPTO-BREAKING + security-sensitive (nonce uniqueness/unpredictability on the patent-pending
+  ratchet) + sub-noise locally. Needs construction sign-off + CI measurement. NOT done autonomously.
+- **QUIC transport tuning** (Phase 2): flow-control windows / MTU / BBR — needs the docker NAT 16/16
+  matrix to validate (can't run locally), and must not perturb hole-punch timing.
+- **mimalloc** (Phase 1): a library must not define `#[global_allocator]` (conflict risk); land it
+  in the project's own binaries + an opt-in feature, measured via the macro bench.
+- **PGO+BOLT** (Phase 4), **io_uring/Linux** (Phase 5), **StateContainer granularization + bounded
+  channels** (Phase 6): larger efforts; PGO/io_uring need a Linux/CI environment to build+measure.
+- **Macro throughput/latency bench**: foundation for measuring all of the above in CI + PGO training
+  workload. Harness pattern identified (reuse `server_info_reactive` + `SingleClientServerConnectionKernel`
+  + the `handle_send_receive_e2e` loop from tests/stress_tests.rs).
