@@ -116,16 +116,41 @@ cargo-pgo-vs-LLVM-22 tooling gap on a bleeding-edge toolchain, not a pipeline de
 numbers from that local run were therefore plain-release±thermal, not PGO, and are not recorded as a
 PGO win. The CI workflow (clean x86-64 Linux toolchain) is the authoritative measurement.
 
-## Remaining (decisions / CI-gated) — see handoff
-- **Nonce derivation SHA3-256 → BLAKE3** (Phase 3): biggest remaining per-message win, but
-  WIRE/CRYPTO-BREAKING + security-sensitive (nonce uniqueness/unpredictability on the patent-pending
-  ratchet) + sub-noise locally. Needs construction sign-off + CI measurement. NOT done autonomously.
-- **QUIC transport tuning** (Phase 2): flow-control windows / MTU / BBR — needs the docker NAT 16/16
-  matrix to validate (can't run locally), and must not perturb hole-punch timing.
-- **mimalloc** (Phase 1): a library must not define `#[global_allocator]` (conflict risk); land it
-  in the project's own binaries + an opt-in feature, measured via the macro bench.
-- **PGO+BOLT** (Phase 4), **io_uring/Linux** (Phase 5), **StateContainer granularization + bounded
-  channels** (Phase 6): larger efforts; PGO/io_uring need a Linux/CI environment to build+measure.
-- **Macro throughput/latency bench**: foundation for measuring all of the above in CI + PGO training
-  workload. Harness pattern identified (reuse `server_info_reactive` + `SingleClientServerConnectionKernel`
-  + the `handle_send_receive_e2e` loop from tests/stress_tests.rs).
+## Landed (this sweep)
+aes_armv8 · release LTO · TCP_NODELAY · macro bench · PGO+BOLT pipeline · **mimalloc** (opt-in,
+Phase 1) · **nonce SHA3→BLAKE3** (Phase 3, wire-breaking, proto v9→v10, 4 new nonce tests) · **QUIC
+stream window 8 MiB + send 16 MiB + UDP buffers** (Phase 2, 7/7 P2P-over-QUIC stress pass). See git
+log on `perf/optimization-sweep`.
+
+## Investigated and deliberately NOT landed (concrete blockers, not conservatism)
+These were each researched to file:line; each has a real blocker that makes a blind, locally-
+unvalidatable change unsafe on the just-stabilized datapath. Recorded so they can be done properly.
+
+- **Runtime multiversioning** (Phase 1): **no valid target.** The data-parallel hot paths are already
+  optimal — AEAD dispatches to AES-NI/ARMv8 at runtime, wave reassembly is memcpy. The plan's
+  candidate `generate_packet_vector` (packet_vector.rs) is scalar (div-mod + map lookup), not a
+  vectorizable loop. Applying `#[multiversion]` here = speculative bloat with no measured win →
+  skipped per measure-first.
+- **Bounded outbound channels** (Phase 6): **would deadlock.** 74 `unbounded_send`/`_split` call
+  sites feed the primary stream, and many run *inside the session task's own packet-processing loop*
+  (raw_primary_packet, peer_cmd, keep_alive, preconnect, …) — the same task that drains the channel
+  via `select!`. A bounded `send().await` from that task while full deadlocks it; the failure only
+  shows under load/NAT. The existing burst(32)+`yield_now` drain (session.rs ~848) is the correct
+  mitigation. Safer future direction: a producer-admission soft-cap (reject new *application*
+  messages above a queue-depth threshold) that never makes the wire channel itself blocking.
+- **StateContainer granularization** (Phase 6): **cross-collection atomicity blocks a blind split.**
+  10 sites hold the single guard across ≥2 hot collections (e.g. `on_group_payload_received` touches
+  inbound_groups→inbound_files→file_transfer_handles atomically; state_container.rs ~1551). Splitting
+  those into independent DashMaps breaks the invariants without CAS/versioning, and the contention
+  *win* is unmeasurable on this box (needs the multi-session contention bench, not yet built). Do it
+  per-collection with that bench + the NAT/stress suites green between steps — not in one blind pass.
+- **io_uring backend** (Phase 5): **cannot be built or run on this darwin/aarch64 host.** It's
+  Linux-only and needs a completion-vs-readiness shim behind `citadel_io` (boundary mapped:
+  citadel_io re-exports tokio at lib.rs ~94-111; sockets created in socket_helpers via `from_std`).
+  A non-functional feature-flag stub adds churn for no value; the real backend is a Linux-CI effort.
+
+## Needs CI / its own environment to MEASURE (code is landed)
+- **PGO/BOLT win** — run `.github/workflows/release-optimized.yml` on x86-64 Linux (the local
+  toolchain can't emit profiles; see [[pgo-local-llvm22-profile-mismatch]] equivalent note above).
+- **QUIC/UDP + nonce + mimalloc deltas** — the macro bench in CI (thermal-stable) + the docker NAT
+  16/16 matrix for the transport change (consensus-neutral by construction, but confirm in CI).
