@@ -52,7 +52,7 @@
 use futures::Future;
 use quinn::{
     Accept, ClientConfig, Connection, Endpoint, EndpointConfig, RecvStream, SendStream,
-    ServerConfig, TokioRuntime,
+    ServerConfig, TokioRuntime, VarInt,
 };
 
 use crate::exports::{Certificate, PrivateKey};
@@ -294,6 +294,15 @@ fn load_hole_punch_friendly_quic_transport_config<'a>(
     let mut transport_cfg = TransportConfig::default();
     transport_cfg.keep_alive_interval(Some(Duration::from_millis(8000)));
     transport_cfg.max_concurrent_uni_streams(0u8.into());
+
+    // Throughput tuning for high bandwidth-delay-product (WAN) links. quinn's per-stream receive
+    // window defaults to ~1.25 MB (sized for 100 Mbps × 100 ms), which caps single-stream throughput
+    // once BDP exceeds that — the connection-level `receive_window` already defaults to VarInt::MAX,
+    // so the per-stream window is the binding constraint. Raise it to 8 MiB and the send window to
+    // 16 MiB to keep the pipe full. This only governs flow control on the established QUIC stream; it
+    // does NOT touch keep-alive, migration, MTU, or the hole-punch consensus path.
+    transport_cfg.stream_receive_window(VarInt::from_u32(8 * 1024 * 1024));
+    transport_cfg.send_window(16 * 1024 * 1024);
 
     match cfg {
         Either::Left(cfg) => {
