@@ -21,6 +21,17 @@ exclude = [
     "./target/*",
 ]
 
+# Aggressive release optimization. `lto = "fat"` + `codegen-units = 1` let the optimizer inline
+# and vectorize across crate boundaries (the per-packet crypto/serialization/scramble paths span
+# citadel_crypt/pqcrypto/proto). NOT `panic = "abort"` — a server must keep unwinding so one
+# panicking session task can't abort the whole process. `bench` inherits these, so benchmarks
+# measure the shipped profile.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+
 [workspace.lints.clippy]
 await_holding_lock = "warn"
 
