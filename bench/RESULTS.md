@@ -105,8 +105,16 @@ crypto/serde paths), so the profiles reflect production hot code.
   msgs/sec + p50/p99 snapshots. This is the authoritative environment for the PGO/BOLT win (the
   laptop's thermal noise can't resolve it; CI can).
 
-PGO measured win (macro bench, optimize-step run vs the plain-release baseline above): _to be
-recorded from the first `cargo make release-pgo` / CI run_.
+PGO measured win: **to be measured in CI** (Linux). Local validation on this aarch64 box ran the
+full pipeline end-to-end (instrument build 2m11s → instrumented training run of all 3 configs →
+optimize step, exit 0) but the instrumented binary emitted **no profiles** —
+`LLVM Profile Error: Runtime and instrumentation version mismatch : expected 10, but get 8`. The
+toolchain is internally consistent (rustc 1.96 / LLVM 22.1.2, matching llvm-profdata), so this is a
+cargo-pgo-vs-LLVM-22 tooling gap on a bleeding-edge toolchain, not a pipeline defect. Consequently
+`optimize` would have silently produced a NON-PGO binary — so `release-pgo` now **hard-fails** if no
+`.profraw`/`.profdata` is generated (guard added), and the same guard protects the CI run. The
+numbers from that local run were therefore plain-release±thermal, not PGO, and are not recorded as a
+PGO win. The CI workflow (clean x86-64 Linux toolchain) is the authoritative measurement.
 
 ## Remaining (decisions / CI-gated) — see handoff
 - **Nonce derivation SHA3-256 → BLAKE3** (Phase 3): biggest remaining per-message win, but

@@ -448,6 +448,16 @@ set -euo pipefail
 echo "[pgo] toolchain check:"; cargo pgo info || true
 echo "[pgo] 1/2 instrument + train (cargo pgo bench) ..."
 cargo pgo bench -- -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput
+# Fail loudly if the instrumented run produced no profiles, instead of letting `optimize` silently
+# build a NON-PGO binary that looks optimized but isn't. Known trigger: an LLVM profiler version
+# mismatch ("Runtime and instrumentation version mismatch : expected N, but get M") from stale
+# instrumented artifacts — `cargo clean` first — or a fat-LTO × instrumentation interaction.
+if ! ls target/pgo-profiles/*.profraw target/pgo-profiles/*.profdata >/dev/null 2>&1; then
+  echo "[pgo] ERROR: no profiles in target/pgo-profiles — the instrumented run emitted none."
+  echo "[pgo]        Refusing to build a silently non-PGO binary. Try 'cargo clean' and re-run;"
+  echo "[pgo]        if it persists, check 'cargo pgo info' / the LLVM profiler version."
+  exit 1
+fi
 echo "[pgo] 2/2 optimized rebuild from profiles (cargo pgo optimize) ..."
 cargo pgo optimize bench -- -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput
 echo "[pgo] done. PGO-optimized bench under target/*/release/deps; profiles in target/pgo-profiles."
