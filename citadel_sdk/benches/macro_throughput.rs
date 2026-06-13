@@ -12,6 +12,13 @@
 //! Run: `cargo bench -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput`
 //! Env overrides: `BENCH_MSGS` (throughput message count), `BENCH_LAT_ROUNDS` (latency ping-pongs).
 
+// Opt-in mimalloc global allocator (run with `--features mimalloc` to measure its effect under the
+// bench's multi-session allocation load). A bench binary is the correct place for #[global_allocator]
+// (never the library). Wired here so the macro bench / CI can A/B it.
+#[cfg(all(feature = "mimalloc", not(target_family = "wasm")))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[cfg(all(
     feature = "localhost-testing",
     feature = "multi-threaded",

@@ -18,7 +18,7 @@ exclude = ["./target/*"]
 [features]
 default = ["filesystem", "std"]
 filesystem = []
-std = ["citadel_pqcrypto/std", "byteorder/std", "rand/std", "citadel_io/std", "rayon"]
+std = ["citadel_pqcrypto/std", "byteorder/std", "rand/std", "citadel_io/std", "rayon", "blake3/std"]
 wasm-threads = ["rayon", "wasm-bindgen-rayon"]
 skip-argon-tests = []
 
@@ -39,6 +39,7 @@ citadel_io = { workspace = true }
 bitvec = { workspace = true, features = ["alloc"] }
 rust-argon2 = { workspace = true, features = ["serde", "crossbeam-utils"] }
 sha3 = { workspace = true }
+blake3 = { workspace = true }
 auto_impl = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
 citadel_types = { workspace = true }

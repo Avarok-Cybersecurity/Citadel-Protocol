@@ -84,16 +84,20 @@ impl EntropyBank {
     // the nonce_version should come from either the transient counter, or,
     // the appended u32 at the end of each packet
     fn get_nonce(&self, nonce_version: u64) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
-        // optimize this using an array instead of a vec
-        let mut symmetric_entropy = [0u8; BYTES_PER_STORE + 8];
-        symmetric_entropy[..BYTES_PER_STORE].copy_from_slice(&*self.entropy);
-        symmetric_entropy[BYTES_PER_STORE..]
-            .as_mut()
-            .put_u64(nonce_version);
-
-        let mut hasher = sha3::Sha3_256::default();
-        hasher.update(symmetric_entropy);
-        let out: [u8; LARGEST_NONCE_LEN] = hasher.finalize().into();
+        // Per-message nonce KDF as a BLAKE3 keyed-hash PRF: the 32-byte secret `entropy` is the key
+        // and the packet's `nonce_version` is the input. This is a SIMD-accelerated drop-in for the
+        // previous `SHA3-256(entropy || nonce_version)` construction (a Keccak permutation per
+        // packet was a measured hot spot). Security is preserved:
+        //   * Uniqueness — `nonce_version` is unique per packet (transient counter / packet trailer),
+        //     and a keyed PRF is deterministic + collision-resistant in its input, so each packet
+        //     gets a distinct nonce (no AEAD nonce reuse).
+        //   * Unpredictability — the key (`entropy`) is secret, so outputs are PRF-indistinguishable.
+        // BLAKE3's keyed mode is purpose-built for keyed derivation (unlike a bare hash of a secret
+        // prefix). NIST SHA3 is retained for ratchet key-evolution and the post-quantum layer — only
+        // this nonce KDF changes. WIRE-BREAKING: PROTOCOL_VERSION is bumped so a peer on the old
+        // derivation cannot interoperate (and thus cannot mis-derive a colliding nonce).
+        let hash = blake3::keyed_hash(&self.entropy, &nonce_version.to_be_bytes());
+        let out: [u8; LARGEST_NONCE_LEN] = *hash.as_bytes();
         out.into()
     }
 
@@ -322,11 +326,9 @@ impl EntropyBank {
 }
 
 use arrayvec::ArrayVec;
-use bytes::BufMut;
 use citadel_pqcrypto::bytes_in_place::EzBuffer;
 use citadel_types::crypto::EncryptionAlgorithm;
 use citadel_types::crypto::LARGEST_NONCE_LEN;
-use sha3::Digest;
 use zeroize::Zeroizing;
 
 /// A entropy bank is a fundamental dataset that continually morphs into new future sets
@@ -443,5 +445,45 @@ mod nonce_counter_tests {
         let restored = EntropyBank::deserialize_from(&bytes).unwrap();
         assert_eq!(restored.get_cid(), 7);
         assert_eq!(restored.get_version(), 3);
+    }
+
+    // --- BLAKE3 keyed-hash nonce KDF (get_nonce) security properties ---
+
+    #[test]
+    fn nonce_is_full_width_and_deterministic() {
+        let bank = EntropyBank::new(1, 0, EncryptionAlgorithm::AES_GCM_256).unwrap();
+        let n1 = bank.get_nonce(42);
+        let n2 = bank.get_nonce(42);
+        // Full BLAKE3 width so every AEAD's nonce_len() prefix is covered.
+        assert_eq!(n1.len(), LARGEST_NONCE_LEN);
+        // Determinism: both endpoints must derive the same nonce for the same version.
+        assert_eq!(n1, n2, "get_nonce must be deterministic in nonce_version");
+    }
+
+    #[test]
+    fn distinct_versions_yield_distinct_nonces() {
+        // Uniqueness is the AEAD-critical property: nonce reuse across packets is catastrophic.
+        // Sweep many versions (incl. adjacent + bit-flipped) and assert no collisions.
+        let bank = EntropyBank::new(2, 0, EncryptionAlgorithm::AES_GCM_256).unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for v in (0u64..4096).chain([u64::MAX, u64::MAX - 1, 1 << 32, 1 << 63]) {
+            assert!(
+                seen.insert(bank.get_nonce(v).to_vec()),
+                "nonce collision at version {v}"
+            );
+        }
+    }
+
+    #[test]
+    fn distinct_keys_yield_distinct_nonces() {
+        // Two banks (different secret entropy) must not derive the same nonce for the same version —
+        // i.e. the entropy genuinely keys the PRF.
+        let a = EntropyBank::new(3, 0, EncryptionAlgorithm::AES_GCM_256).unwrap();
+        let b = EntropyBank::new(3, 0, EncryptionAlgorithm::AES_GCM_256).unwrap();
+        assert_ne!(
+            a.get_nonce(7),
+            b.get_nonce(7),
+            "independent entropy must produce independent nonces"
+        );
     }
 }

@@ -33,7 +33,10 @@ use lazy_static::lazy_static;
 // Note: these values can each be up to 1024 in size, but, to be safe, we fix the upper
 // bound to 255 (u8::MAX) to ensure that the values fit inside the u32 bit packer
 pub const MAJOR_VERSION: u8 = 0;
-pub const MINOR_VERSION: u8 = 9;
+// Bumped 9 -> 10: the per-message nonce KDF changed from SHA3-256 to a BLAKE3 keyed-hash PRF
+// (citadel_crypt entropy_bank::get_nonce). This is wire-breaking — a peer on the old derivation
+// produces different nonces, so cross-version traffic must not interoperate.
+pub const MINOR_VERSION: u8 = 10;
 pub const PATCH_VERSION: u8 = 0;
 
 lazy_static! {

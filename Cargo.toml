@@ -62,6 +62,10 @@ log = { default-features = false, version = "0.4.17" }
 strum = { version = "0.27.1", default-features = false }
 strum_macros = { version = "0.27.1", default-features = false }
 sha3 = { version = "0.10", default-features = false }
+# BLAKE3 (SIMD) keyed-hash PRF for the per-message nonce KDF (faster than SHA3-256/Keccak). SHA3
+# remains for ratchet key-evolution + the PQ layer. `std` (enabled via citadel_crypt's std feature)
+# turns on x86 runtime SIMD feature detection.
+blake3 = { version = "1.5", default-features = false }
 kyber-pke = { version = "0.5.0", default-features = false }
 packed_struct = { version = "0.10.1" }
 getrandom = { version = "0.3.3", default-features = false }
