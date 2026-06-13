@@ -30,8 +30,9 @@ describe('Citadel Protocol Types', () => {
     assert.ok(pv.split('.').length === 3, 'protocol version should have 3 parts');
     assert.ok(sv.split('.').length === 3, 'SDK version should have 3 parts');
 
-    // Protocol version should be 0.9.0 based on constants.rs
-    assert.strictEqual(pv, '0.9.0', 'protocol version should match expected');
+    // Protocol version should be 0.10.0 based on constants.rs (bumped 9 -> 10 for the BLAKE3
+    // nonce-KDF wire change).
+    assert.strictEqual(pv, '0.10.0', 'protocol version should match expected');
   });
 });
 
