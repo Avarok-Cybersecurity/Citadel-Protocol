@@ -230,8 +230,11 @@ impl GenericNetworkListener {
                     addr: SocketAddr,
                     redirect_to_quic: &Option<(TlsDomain, bool)>,
                 ) -> std::io::Result<(GenericNetworkStream, SocketAddr)> {
+                    // Disable Nagle on every accepted TCP stream (not just the QUIC-redirect
+                    // handshake): the long-lived OrderedReliable data path needs low per-message
+                    // latency, and write-coalescing only adds delay.
+                    stream.set_nodelay(true)?;
                     let first_packet = if let Some((domain, is_self_signed)) = redirect_to_quic {
-                        stream.set_nodelay(true)?;
                         FirstPacket::P2P {
                             domain: domain.clone(),
                             external_addr: addr,
@@ -353,6 +356,8 @@ impl GenericNetworkListener {
         let future = async move {
             loop {
                 let (tcp_stream, addr) = listener.accept().await?;
+                // Disable Nagle before the WebSocket upgrade: framed packets need low latency.
+                tcp_stream.set_nodelay(true)?;
                 let send = send.clone();
 
                 let handle_ws = async move {
@@ -446,6 +451,9 @@ impl TlsListener {
                 let domain = domain.clone();
 
                 async fn handle_stream_non_terminating(stream: TcpStream, addr: SocketAddr, domain: TlsDomain, is_self_signed: bool, tls_acceptor: &TlsAcceptor) -> std::io::Result<(TlsStream<TcpStream>, SocketAddr)> {
+                    // Disable Nagle before the TLS upgrade: the encrypted data path carries small
+                    // framed packets and needs low per-message latency.
+                    stream.set_nodelay(true)?;
                     let serialized_first_packet = FirstPacket::OrderedReliableSecure { domain, external_addr: addr, is_self_signed }.serialize_to_vector().map_err(|err| generic_error(err.into_string()))?;
                     let stream = super::write_one_packet(stream, serialized_first_packet).await.map_err(|err| generic_error(err.into_string()))?;
                     // Upgrade TCP stream to TLS stream

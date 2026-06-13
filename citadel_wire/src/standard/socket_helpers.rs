@@ -160,7 +160,12 @@ async fn setup_connect(
 ) -> Result<TcpStream, anyhow::Error> {
     setup_base_socket(connect_addr, &socket, reuse)?;
     let socket = citadel_io::tokio::net::TcpSocket::from_std_stream(socket.into());
-    Ok(citadel_io::time::timeout(timeout, socket.connect(connect_addr)).await??)
+    let stream = citadel_io::time::timeout(timeout, socket.connect(connect_addr)).await??;
+    // Disable Nagle's algorithm on every outbound TCP stream. The protocol writes small framed
+    // packets and depends on low per-message latency, so write-coalescing only adds delay. This
+    // covers both plain-TCP and TLS-over-TCP (which wraps this same stream).
+    stream.set_nodelay(true)?;
+    Ok(stream)
 }
 
 fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
