@@ -231,32 +231,38 @@ impl TestBarrier {
     }
 }
 
+// `DEADLOCK_INIT` is always `true`; the background deadlock-detector thread only spawns when the
+// opt-in `deadlock-detection` feature is on (it requires `citadel_io::deadlock`, which only exists
+// then). This keeps `wait_for_peers`'s `assert!(*DEADLOCK_INIT)` valid in both configurations while
+// letting benches run without the process-global lock tracker.
 #[cfg(feature = "localhost-testing")]
 lazy_static::lazy_static! {
     static ref DEADLOCK_INIT: bool = {
-        let _ = std::thread::spawn(move || {
-            log::trace!(target: "citadel", "Executing deadlock detector ...");
-            use std::thread;
-            use std::time::Duration;
-            use citadel_io::deadlock;
-            loop {
-                std::thread::sleep(Duration::from_secs(5));
-                let deadlocks = deadlock::check_deadlock();
-                if deadlocks.is_empty() {
-                    log::trace!(target: "citadel", "No deadlocks detected");
-                    continue;
-                }
+        #[cfg(feature = "deadlock-detection")]
+        {
+            let _ = std::thread::spawn(move || {
+                log::trace!(target: "citadel", "Executing deadlock detector ...");
+                use std::time::Duration;
+                use citadel_io::deadlock;
+                loop {
+                    std::thread::sleep(Duration::from_secs(5));
+                    let deadlocks = deadlock::check_deadlock();
+                    if deadlocks.is_empty() {
+                        log::trace!(target: "citadel", "No deadlocks detected");
+                        continue;
+                    }
 
-                log::error!(target: "citadel", "{} deadlocks detected", deadlocks.len());
-                for (i, threads) in deadlocks.iter().enumerate() {
-                    log::error!(target: "citadel", "Deadlock #{}", i);
-                    for t in threads {
-                        log::error!(target: "citadel", "Thread Id {:#?}", t.thread_id());
-                        log::error!(target: "citadel", "{:#?}", t.backtrace());
+                    log::error!(target: "citadel", "{} deadlocks detected", deadlocks.len());
+                    for (i, threads) in deadlocks.iter().enumerate() {
+                        log::error!(target: "citadel", "Deadlock #{}", i);
+                        for t in threads {
+                            log::error!(target: "citadel", "Thread Id {:#?}", t.thread_id());
+                            log::error!(target: "citadel", "{:#?}", t.backtrace());
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
 
         true
     };

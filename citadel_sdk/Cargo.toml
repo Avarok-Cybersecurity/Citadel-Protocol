@@ -34,8 +34,12 @@ vendored = ["citadel_proto/vendored"]
 localhost-testing = [
     "citadel_proto/localhost-testing",
     "tracing",
-    "citadel_io/deadlock-detection",
 ]
+# Opt-in parking_lot deadlock detector. Decoupled from `localhost-testing` because it registers EVERY
+# parking_lot lock (incl. DashMap shards) with a process-global tracker on every lock/unlock — a giant
+# multi-core serialization point that confounds throughput benchmarks (and slows the whole test suite).
+# Tests/CI opt in for the safety net; benches run plain `localhost-testing` for valid scaling numbers.
+deadlock-detection = ["citadel_io/deadlock-detection"]
 localhost-testing-assert-no-proxy = [
     "citadel_proto/localhost-testing-assert-no-proxy",
 ]

@@ -3,6 +3,31 @@
 Branch: `perf/optimization-sweep` (off merged master). Measurement-driven: every change is
 justified by a benchmark delta and gated on the correctness/NAT suites.
 
+## Speed v2 — DGX (20-core ARM) measurement findings (READ FIRST, reframes the scaling story)
+
+Phase-0 of the v2 plan stood up a real many-core host (DGX: 10× Cortex-X925 + 10× Cortex-A725, Linux,
+hardware AES). Three findings reframe everything:
+
+1. **The multi-vconn *aggregate* ceiling is a BENCH ARTIFACT, not a protocol lock.** On 20 cores the
+   P2P-mesh aggregate still *collapses* (mesh=2 → 49k msgs/s, mesh=16 → 20k) while StateContainer
+   writes stay tiny (≤2.3k) and read-wait is ~600ns — the lock is provably idle. The mesh bench runs
+   all K nodes in ONE process over the OS loopback + one tokio runtime, so the ceiling is shared
+   process/loopback contention, NOT per-session lock contention. ⇒ multi-vconn *aggregate* is not a
+   valid protocol-scaling signal; **single-stream (the macro bench) is the clean target.**
+2. **`deadlock-detection` was confounding (and is decoupled now).** `citadel_sdk/localhost-testing`
+   pulled `citadel_io/deadlock-detection` (parking_lot's process-global lock tracker). Measured cost
+   ~5% at mesh=2 — real overhead, worth keeping out of benches, but NOT the ceiling (ruled out by a
+   with/without A/B on the DGX). Now opt-in: `localhost-testing` is harness-only; tests/CI add
+   `deadlock-detection` for the safety net; benches run without it.
+3. **Single-stream baseline (macro bench, DGX, no deadlock-detection):**
+   - AES-GCM best_effort: **12,752 msgs/s, 49.8 MiB/s, p50 484µs / p99 1781µs**
+   - ChaCha20 best_effort: 15,661 msgs/s, 61.2 MiB/s, p50 506µs / p99 1994µs
+   - AES-GCM **perfect (PFS): 762 msgs/s, 3.0 MiB/s, p50 1859µs / p99 3332µs** ← **~17× cliff**
+   Two new top levers the research pass missed: (a) **PFS per-message rekey is a ~17× throughput
+   cliff** — the single highest-impact win if Perfect mode is used; (b) **best_effort p50 ~500µs per
+   loopback round-trip is all per-message software overhead** (not network) — the target for the
+   latency wins (A1/A3/B6) + a single-stream flamegraph.
+
 ## Benchmarking environment caveat (READ FIRST)
 
 Local dev box is **Apple Silicon (aarch64) laptop** — thermally constrained. Back-to-back heavy
