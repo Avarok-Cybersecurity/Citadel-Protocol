@@ -125,12 +125,6 @@ pub struct MultiplexedConnInner<K: MultiplexedConnKey> {
     current_latest_subscribed: K::Container,
     /// The node type.
     node_type: RelativeNodeType,
-    /// When set, the local pre-reserved subscription fast-path is skipped so every subscription goes
-    /// through the Receiver-drives / Initiator-adopts handshake. The fast-path picks ids *locally*
-    /// on each side, so if the two peers' counters ever skew (e.g. a cancelled+retried hole-punch
-    /// attempt), they pick mismatched ids and desync. Forcing the handshake path lets the Initiator
-    /// catch up to the Receiver's id, keeping them paired across retries. Hole-punch conns enable it.
-    disable_prereserve: std::sync::atomic::AtomicBool,
 }
 
 /// A memory sender.
@@ -207,20 +201,8 @@ impl<K: MultiplexedConnKey> MultiplexedConn<K> {
                 current_latest_subscribed,
                 id_gen,
                 node_type,
-                disable_prereserve: std::sync::atomic::AtomicBool::new(false),
             }),
         }
-    }
-
-    /// Force every subscription through the Receiver-drives / Initiator-adopts handshake by skipping
-    /// the local pre-reserve fast-path. Hole-punch conns call this so a cancelled+retried attempt
-    /// cannot leave the two peers picking mismatched subscription ids (the desync that silently
-    /// failed the hole-punch consensus and downgraded UDP to TCP). Idempotent; must be set the same
-    /// on both peers (it is — both hole-punch endpoints enable it unconditionally).
-    pub fn disable_prereserve(&self) {
-        self.inner
-            .disable_prereserve
-            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -357,15 +339,6 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
     }
 
     fn get_next_prereserved(&self) -> Option<Self::BorrowedSubscriptionType> {
-        // Skip the local-pick fast-path on conns that disabled it (hole-punch), forcing every
-        // subscription through the Receiver-drives / Initiator-adopts handshake so the two peers
-        // can never pick mismatched ids after a cancelled/retried attempt. See `disable_prereserve`.
-        if self
-            .disable_prereserve
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            return None;
-        }
         let mut lock = self.subscribers.write();
         let next_key = K::get_proposed_next(&self.current_latest_subscribed);
         let pre_reserved_stream = lock.get_mut(&next_key)?;
