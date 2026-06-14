@@ -81,6 +81,11 @@ wasm-bindgen = "0.2"
 name = "macro_throughput"
 harness = false
 
+# Multi-session contention bench (server-side concurrency scaling; gates the StateContainer work).
+[[bench]]
+name = "multi_session_throughput"
+harness = false
+
 [package.metadata.cargo-all-features]
 # Features "foo" and "bar" are incompatible, so skip permutations including them
 skip_feature_sets = [["std", "wasm"]]

@@ -16,3 +16,4 @@ tmp/
 
 # Generated macro-bench output (thermal/host-specific; durable numbers live in bench/RESULTS.md)
 bench/macro_results.json
+bench/multi_session_results.json
