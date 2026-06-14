@@ -124,6 +124,38 @@ the version's crypto state (one chain per layer per direction, seeded from that 
 and calls the with-key seal instead of the fixed-key module — only on the pipelined path. The fixed-key
 path (BestEffort, Perfect n=1) is unchanged.
 
+## 5b. Live-ratchet plumbing constraints (discovered while wiring; SECURITY-REVIEW critical)
+
+Wiring the chain into `EntropyBank` surfaced four constraints the implementation + review MUST handle:
+
+1. **Need a NEW sequential chain index — cannot reuse `transient_counter`.** The transient counter
+   starts at a *random 63-bit base* on every construct/deserialize (`entropy_bank.rs:359-378`,
+   deliberate anti-nonce-rollback) and is per-instance, so it is neither `0,1,2,…` nor shared as a
+   chain position. The pipelined path needs the `SymmetricChain`'s own sequential index (`0,1,2,…`),
+   transmitted in the packet (replacing/with the transient-id trailer). The nonce can stay
+   `BLAKE3(entropy, chain_index)` (unique key per message makes nonce reuse harmless anyway).
+
+2. **`EntropyBank` is shared across both directions** — `encrypt`/`decrypt` use one `&self` bank and the
+   `PostQuantumContainer`'s `PQNode` (Alice/Bob) selects the AEAD key direction (`lib.rs:505-524`). So
+   the bank must hold **two** direction-labeled chains (`a2b`/`b2a`) seeded from the shared `entropy`;
+   `protect` advances `next_send_key` on the out-direction, `validate` calls `recv_key` on the
+   in-direction, chosen by `PQNode`. Direction labels (not send/recv roles) make Alice's send chain
+   equal Bob's recv chain.
+
+3. **Chain send-index rollback safety (CRITICAL).** Re-emitting `MK_i` after a rollback reuses a
+   forward-secure key — catastrophic. Unlike the nonce counter, the chain index is inherently sequential
+   so it CANNOT use a random base. Therefore the chain state must be `#[serde(skip)]` (never persisted)
+   **and** the protocol must guarantee a *fresh ratchet version (new KEM root → new chain @ index 0)*
+   whenever a bank is restored/reconnected for the pipelined mode — i.e. pipelined sessions must rekey
+   on restore, never resume a mid-version send chain. This invariant is a required review item.
+
+4. **Interior mutability** — `encrypt`/`decrypt` are `&self`; the chains advance, so they need a lock
+   (mirror `TransientNonceCounter`'s interior-mutable pattern) and must be lazily seeded on first use
+   (the `PQNode`/orientation is only known when the `PostQuantumContainer` is passed in).
+
+These are why a security review is mandatory before this path is enabled. The two crypto primitives
+(commits a1070901, f6ec7099) are independently safe and unused until this plumbing lands.
+
 ## 5. Integration points (no code yet — for scoping)
 
 - `citadel_crypt/src/ratchets/entropy_bank.rs` — replace the fixed-key AEAD seal/open with a
