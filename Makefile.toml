@@ -423,3 +423,66 @@ docker compose -f ./docker/wasm_p2p.yml up --build --abort-on-container-exit --e
 command = "cargo"
 args = ["--config=Cargo.wasix.toml", "wasix", "${@}", "--profile=wasix"]
 dependencies = ["install-nextest", "install-cargo-wasix"]
+
+# ── Phase 4: PGO + BOLT (profile-guided + post-link optimization) ────────────────────────────────
+# Training workload = the macro_throughput bench (full stack: connect + ratchet handshake +
+# per-message AEAD/serialization). PGO works on all tier-1 targets, incl. aarch64. BOLT is
+# x86-64-Linux-only (needs an LLVM built with BOLT); it is gated to linux and primarily exercised
+# by the `release-optimized` CI workflow. Both build on the release profile (fat LTO).
+
+[tasks.install-pgo-llvm-tools]
+command = "rustup"
+args = ["component", "add", "llvm-tools-preview"]
+
+[tasks.install-cargo-pgo]
+install_crate = { crate_name = "cargo-pgo", binary = "cargo", test_arg = ["pgo", "--version"] }
+dependencies = ["install-pgo-llvm-tools"]
+
+[tasks.release-pgo]
+description = "PGO build: instrument + train on the macro bench, then rebuild using the gathered profiles."
+dependencies = ["install-cargo-pgo"]
+env = { "BENCH_MSGS" = "30000", "BENCH_LAT_ROUNDS" = "3000" }
+script_runner = "@shell"
+script = '''
+set -euo pipefail
+echo "[pgo] toolchain check:"; cargo pgo info || true
+echo "[pgo] 1/2 instrument + train (cargo pgo bench) ..."
+cargo pgo bench -- -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput
+# Fail loudly if the instrumented run produced no profiles, instead of letting `optimize` silently
+# build a NON-PGO binary that looks optimized but isn't. Known trigger: an LLVM profiler version
+# mismatch ("Runtime and instrumentation version mismatch : expected N, but get M") from stale
+# instrumented artifacts — `cargo clean` first — or a fat-LTO × instrumentation interaction.
+if ! ls target/pgo-profiles/*.profraw target/pgo-profiles/*.profdata >/dev/null 2>&1; then
+  echo "[pgo] ERROR: no profiles in target/pgo-profiles — the instrumented run emitted none."
+  echo "[pgo]        Refusing to build a silently non-PGO binary. Try 'cargo clean' and re-run;"
+  echo "[pgo]        if it persists, check 'cargo pgo info' / the LLVM profiler version."
+  exit 1
+fi
+echo "[pgo] 2/2 optimized rebuild from profiles (cargo pgo optimize) ..."
+cargo pgo optimize bench -- -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput
+echo "[pgo] done. PGO-optimized bench under target/*/release/deps; profiles in target/pgo-profiles."
+'''
+
+[tasks.release-pgo-bolt]
+description = "PGO + BOLT (x86-64 Linux only). Extends release-pgo with a BOLT post-link pass on the bench binary."
+condition = { platforms = ["linux"] }
+dependencies = ["release-pgo"]
+env = { "BENCH_MSGS" = "30000", "BENCH_LAT_ROUNDS" = "3000" }
+script_runner = "@shell"
+script = '''
+set -euo pipefail
+if ! command -v llvm-bolt >/dev/null 2>&1; then
+  echo "[bolt] llvm-bolt not found. BOLT needs an LLVM built with BOLT (x86-64 Linux). Skipping (PGO build above still applies)."
+  exit 0
+fi
+FEAT="-p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput"
+echo "[bolt] 1/3 instrument the PGO-optimized bench for BOLT ..."
+cargo pgo bolt build --with-pgo -- $FEAT
+echo "[bolt] 2/3 run the BOLT-instrumented bench to gather profiles ..."
+BIN=$(find target -type f -name 'macro_throughput-*' -perm -u+x -newer target/pgo-profiles 2>/dev/null | head -n1 || true)
+if [ -z "${BIN:-}" ]; then BIN=$(ls -t target/*/release/deps/macro_throughput-* 2>/dev/null | grep -v '\.d$' | head -n1 || true); fi
+if [ -n "${BIN:-}" ]; then "$BIN" --bench || true; else echo "[bolt] WARN: could not locate instrumented bench binary to run"; fi
+echo "[bolt] 3/3 optimize with gathered BOLT profiles ..."
+cargo pgo bolt optimize --with-pgo -- $FEAT
+echo "[bolt] done. BOLT+PGO bench under target/*/release/deps."
+'''

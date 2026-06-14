@@ -13,3 +13,6 @@ target_ide/
 .ci_logs/
 local_test_logs/
 tmp/
+
+# Generated macro-bench output (thermal/host-specific; durable numbers live in bench/RESULTS.md)
+bench/macro_results.json

@@ -1,3 +1,11 @@
+# Enable ARMv8 hardware AES (FEAT_AES) for the RustCrypto `aes` crate on aarch64. The 0.8.x
+# `aes` crate gates its aarch64 hardware backend behind `--cfg aes_armv8` (x86-64 AES-NI is
+# already runtime-detected and needs nothing here). Measured: AES-GCM per-message protect
+# 2.33us -> 0.80us (-65%) on Apple Silicon; also speeds the file-scramble path. Safe for
+# application-class aarch64 (Apple Silicon, AWS Graviton, modern ARM servers all have FEAT_AES).
+[target.'cfg(target_arch = "aarch64")']
+rustflags = ["--cfg", "aes_armv8"]
+
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
 

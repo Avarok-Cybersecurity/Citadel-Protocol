@@ -1,0 +1,91 @@
+name: Release-Optimized Build (PGO + BOLT)
+
+# NON-BLOCKING by design: this never runs on the pull_request critical path. PGO/BOLT builds are
+# expensive (two fat-LTO builds + instrumented training run), so they run on manual dispatch and a
+# weekly schedule only. It measures the PGO- and (x86-64-Linux) BOLT-optimized macro bench against
+# the plain release profile, and uploads the msgs/sec + p50/p99 snapshots as artifacts.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+concurrency:
+  group: release-optimized-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  RUST_MIN_STACK: 40971520
+  IN_CI: "true"
+
+jobs:
+  pgo-bolt:
+    name: PGO + BOLT optimized bench (x86-64 Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup dependencies
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+
+      - name: Rust toolchain + llvm-tools-preview
+        run: |
+          rustup component add llvm-tools-preview
+          rustc --version && cargo --version
+
+      - name: Install cargo-make, cargo-pgo, cargo-nextest
+        run: |
+          cargo install cargo-binstall --locked || true
+          cargo binstall -y cargo-make cargo-pgo cargo-nextest \
+            || { cargo install cargo-make --locked; cargo install cargo-pgo --locked; cargo install cargo-nextest --locked; }
+
+      - name: Install BOLT (best-effort; PGO still runs without it)
+        run: |
+          sudo apt-get update || true
+          # BOLT ships inside LLVM; package layout varies by Ubuntu/LLVM version.
+          sudo apt-get install -y llvm bolt || sudo apt-get install -y llvm || true
+          BOLT=$(ls /usr/bin/llvm-bolt* /usr/lib/llvm-*/bin/llvm-bolt 2>/dev/null | head -n1 || true)
+          if [ -n "$BOLT" ] && [ ! -e /usr/local/bin/llvm-bolt ]; then sudo ln -sf "$BOLT" /usr/local/bin/llvm-bolt; fi
+          (command -v llvm-bolt && llvm-bolt --version) || echo "llvm-bolt unavailable -> BOLT step will gracefully skip"
+
+      - name: Baseline (plain release profile) macro bench
+        env:
+          BENCH_MSGS: "30000"
+          BENCH_LAT_ROUNDS: "3000"
+        run: |
+          cargo bench -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput | tee /tmp/baseline.txt
+          cp bench/macro_results.json /tmp/baseline.json || true
+
+      - name: PGO build + measure
+        run: cargo make release-pgo | tee /tmp/pgo.txt
+
+      - name: PGO + BOLT build + measure (skips if llvm-bolt absent)
+        run: cargo make release-pgo-bolt | tee /tmp/pgo_bolt.txt
+
+      - name: Summarize
+        if: always()
+        run: |
+          echo "## Release-optimized bench (msgs/sec, p50/p99)" >> "$GITHUB_STEP_SUMMARY"
+          echo '### Plain release (baseline)' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "msgs/s" /tmp/baseline.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '### PGO-optimized' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "msgs/s" /tmp/pgo.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '### PGO + BOLT' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "msgs/s" /tmp/pgo_bolt.txt >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-optimized-results
+          path: |
+            bench/macro_results.json
+            /tmp/baseline.json
+            /tmp/baseline.txt
+            /tmp/pgo.txt
+            /tmp/pgo_bolt.txt
+          if-no-files-found: ignore
