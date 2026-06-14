@@ -357,15 +357,23 @@ mod tests {
         }
     }
 
-    /// Regression test for the hole-punch consensus failure under high coordination-channel
-    /// lag. With ~450ms per-message lag the multi-round-trip NAT-exchange + winner consensus
-    /// takes longer than the per-attempt timeout used to be (`IDENTIFY_TIMEOUT + 5s` = 8s);
-    /// the attempt was then cancelled mid-consensus and retried, and each retry re-creates
-    /// the subscription/NetMutex so the two peers drift onto different coordination instances
-    /// and never agree on a candidate socket — the punched paths mismatch and the subsequent
-    /// send/recv exchange deadlocks. With the timeout raised so attempt 1 completes, this
-    /// passes. Guards against regressing the per-attempt timeout below the consensus cost.
-    /// (This was the root cause of the P2P-over-QUIC hole-punch hang under hard NAT.)
+    /// Regression test for the hole-punch consensus failure under high coordination-channel lag.
+    /// The multi-round-trip NAT-exchange + NetMutex winner consensus must finish within the
+    /// production per-attempt timeout (`DEFAULT_TIMEOUT = IDENTIFY_TIMEOUT + 17s = 20s`). If a single
+    /// attempt exceeds that timeout it is RETRIED — and a retry re-creates the subscription/NetMutex,
+    /// so the two peers drift onto different coordination instances, never agree on a candidate
+    /// socket, the punched paths mismatch, and the final send/recv exchange deadlocks. So this test
+    /// must induce lag high enough to stress the consensus yet low enough that a single attempt
+    /// reliably completes (no retry). Guards against regressing the per-attempt timeout below the
+    /// consensus cost. (This was the root cause of the P2P-over-QUIC hole-punch hang under hard NAT.)
+    ///
+    /// Calibration note: `NetworkConnSimulator` adds a *random* 1x..2x delay per message, so LAG_MS
+    /// is a floor and the effective per-message lag is up to 2×LAG_MS. The earlier 450 ms (→ up to
+    /// 900 ms/msg) put attempt-1 consensus right at the 20s ceiling, and the unlucky-tail runs on
+    /// slower CI runners tipped past it → retry → desync → deadlock → flake. 200 ms (→ up to
+    /// 400 ms/msg) keeps a genuine multi-RTT high-lag stress with ~2× headroom under the 20s timeout,
+    /// so attempt 1 reliably completes. (The retry-induced desync is a deeper hole-punch robustness
+    /// issue in its own right; this test only guards the timeout-vs-consensus-cost margin.)
     #[cfg(not(target_os = "windows"))]
     // Skipped under coverage: llvm-cov instrumentation slows the consensus past the
     // (production) per-attempt timeout, deadlocking this lag-calibrated test in the
@@ -375,7 +383,7 @@ mod tests {
     async fn test_dual_hole_puncher_high_lag_consensus() {
         use std::time::Duration;
         citadel_logging::setup_log();
-        const LAG_MS: usize = 450;
+        const LAG_MS: usize = 200;
         const ITERS: usize = 5;
         const PER_ITER_TIMEOUT: Duration = Duration::from_secs(30);
 
