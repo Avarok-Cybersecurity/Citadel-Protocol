@@ -132,7 +132,11 @@ impl<R: Ratchet> SessionQueueWorkerHandle<R> {
     ) {
         self.insert_reserved(
             Some(QueueWorkerTicket::Periodic(
-                idx + QUEUE_WORKER_RESERVED_INDEX + self.rolling_idx.fetch_add(1, Ordering::SeqCst),
+                // Relaxed is sufficient: this counter only mints a unique periodic-ticket index; it
+                // guards no other memory and needs no happens-before ordering, so SeqCst's full
+                // fence is unnecessary (and costlier on weak-memory archs like aarch64).
+                idx + QUEUE_WORKER_RESERVED_INDEX
+                    + self.rolling_idx.fetch_add(1, Ordering::Relaxed),
                 target_cid,
             )),
             timeout,
