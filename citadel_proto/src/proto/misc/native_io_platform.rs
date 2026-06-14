@@ -68,6 +68,10 @@ impl PlatformOps for NativeIO {
             let endpoint = NetworkEndpoint::register(node_type, stream)
                 .await
                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
+            // Force the Receiver-drives/Initiator-adopts subscription handshake (no local pre-reserve
+            // fast-path) so a cancelled+retried hole-punch attempt can't desync the two peers onto
+            // mismatched multiplex ids — which silently failed the consensus and downgraded UDP.
+            endpoint.disable_prereserve();
             log::trace!(target: "citadel", "{node_type:?} created for C2S hole punch");
 
             let config = generate_hole_punch_crypt_container(
@@ -125,6 +129,10 @@ impl PlatformOps for NativeIO {
             .await
             {
                 Ok(Ok(app)) => {
+                    // Force the Receiver-drives/Initiator-adopts subscription handshake (no local
+                    // pre-reserve fast-path) so a cancelled+retried hole-punch attempt can't desync
+                    // the two peers onto mismatched multiplex ids.
+                    app.disable_prereserve();
                     let encrypted_config_container = generate_hole_punch_crypt_container(
                         endpoint_ratchet,
                         SecurityLevel::Standard,

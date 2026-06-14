@@ -357,23 +357,21 @@ mod tests {
         }
     }
 
-    /// Regression test for the hole-punch consensus failure under high coordination-channel lag.
-    /// The multi-round-trip NAT-exchange + NetMutex winner consensus must finish within the
-    /// production per-attempt timeout (`DEFAULT_TIMEOUT = IDENTIFY_TIMEOUT + 17s = 20s`). If a single
-    /// attempt exceeds that timeout it is RETRIED — and a retry re-creates the subscription/NetMutex,
-    /// so the two peers drift onto different coordination instances, never agree on a candidate
-    /// socket, the punched paths mismatch, and the final send/recv exchange deadlocks. So this test
-    /// must induce lag high enough to stress the consensus yet low enough that a single attempt
-    /// reliably completes (no retry). Guards against regressing the per-attempt timeout below the
-    /// consensus cost. (This was the root cause of the P2P-over-QUIC hole-punch hang under hard NAT.)
+    /// Regression test for the hole-punch consensus under high coordination-channel lag — and, since
+    /// the retry-desync fix, for the RETRY-RECOVERY path itself. `NetworkConnSimulator` adds a random
+    /// 1x..2x delay per message, so 450 ms here means up to 900 ms/msg. That puts a single consensus
+    /// attempt right at the production per-attempt timeout (`DEFAULT_TIMEOUT = IDENTIFY_TIMEOUT + 17s
+    /// = 20s`), so the unlucky-tail runs exceed it and trigger a RETRY.
     ///
-    /// Calibration note: `NetworkConnSimulator` adds a *random* 1x..2x delay per message, so LAG_MS
-    /// is a floor and the effective per-message lag is up to 2×LAG_MS. The earlier 450 ms (→ up to
-    /// 900 ms/msg) put attempt-1 consensus right at the 20s ceiling, and the unlucky-tail runs on
-    /// slower CI runners tipped past it → retry → desync → deadlock → flake. 200 ms (→ up to
-    /// 400 ms/msg) keeps a genuine multi-RTT high-lag stress with ~2× headroom under the 20s timeout,
-    /// so attempt 1 reliably completes. (The retry-induced desync is a deeper hole-punch robustness
-    /// issue in its own right; this test only guards the timeout-vs-consensus-cost margin.)
+    /// Previously a retry was fatal: re-running the driver re-created the multiplex subscriptions,
+    /// and because each attempt consumes a *variable* number of ids, a cancelled attempt left the two
+    /// peers' subscription counters skewed — every later subscription then paired on mismatched ids,
+    /// the consensus never agreed, the punched paths mismatched, and the exchange deadlocked. The fix
+    /// (netbeam: hole-punch conns disable the local pre-reserve fast-path + `subscribe` catches up to
+    /// the peer-driven id instead of panicking on a gap) lets a retry RECOVER: the Initiator simply
+    /// re-pairs on the Receiver's next id. So at 450 ms this now passes by *succeeding on retry* —
+    /// which is exactly what we want to guard. The budget below is sized to absorb a 20s attempt
+    /// timeout + the recovering retry.
     #[cfg(not(target_os = "windows"))]
     // Skipped under coverage: llvm-cov instrumentation slows the consensus past the
     // (production) per-attempt timeout, deadlocking this lag-calibrated test in the
@@ -383,9 +381,12 @@ mod tests {
     async fn test_dual_hole_puncher_high_lag_consensus() {
         use std::time::Duration;
         citadel_logging::setup_log();
-        const LAG_MS: usize = 200;
+        const LAG_MS: usize = 450;
         const ITERS: usize = 5;
-        const PER_ITER_TIMEOUT: Duration = Duration::from_secs(30);
+        // Big enough to absorb a 20s attempt-timeout followed by a recovering retry (the retry now
+        // re-pairs instead of deadlocking). A genuine failure (consensus never agreeing) still trips
+        // it within MAX_RETRIES × DEFAULT_TIMEOUT.
+        const PER_ITER_TIMEOUT: Duration = Duration::from_secs(75);
 
         for i in 0..ITERS {
             let (server_stream, client_stream) = create_streams_with_addrs_and_lag(LAG_MS).await;

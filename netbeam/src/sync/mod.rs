@@ -56,6 +56,12 @@ impl From<u64> for SymmetricConvID {
     }
 }
 
+impl From<SymmetricConvID> for u64 {
+    fn from(item: SymmetricConvID) -> Self {
+        item.0
+    }
+}
+
 #[cfg(not(target_family = "wasm"))]
 pub mod test_utils {
     use async_trait::async_trait;

@@ -72,6 +72,12 @@ pub trait IDGen<Key: MultiplexedConnKey> {
     fn generate_next(container: &Self::Container) -> Self;
     /// Gets the proposed next ID in the sequence.
     fn get_proposed_next(container: &Self::Container) -> Key;
+    /// Advance `container` so the last-handed-out id becomes `id`, tolerating forward gaps and never
+    /// moving backward. Returns `true` if `id` was the strictly-next id (the normal, no-gap case).
+    /// A gap appears when a peer operation was cancelled/retried mid-handshake, leaving this side's
+    /// counter behind the peer's; the skipped ids are dead (their subscriptions belonged to the
+    /// cancelled attempt), so catching up to `id` is safe and keeps both sides paired.
+    fn catch_up_to(container: &Self::Container, id: Key) -> bool;
 }
 
 impl IDGen<SymmetricConvID> for SymmetricConvID {
@@ -87,6 +93,14 @@ impl IDGen<SymmetricConvID> for SymmetricConvID {
 
     fn get_proposed_next(container: &Self::Container) -> SymmetricConvID {
         (1 + container.load(Ordering::Relaxed)).into()
+    }
+
+    fn catch_up_to(container: &Self::Container, id: SymmetricConvID) -> bool {
+        let id_val: u64 = id.into();
+        // `fetch_max` advances to `id` only if it is ahead (forward catch-up), never backward, and
+        // returns the prior value. `prior + 1 == id` iff there was no gap (the normal case).
+        let prior = container.fetch_max(id_val, Ordering::Relaxed);
+        prior + 1 == id_val
     }
 }
 
@@ -111,6 +125,12 @@ pub struct MultiplexedConnInner<K: MultiplexedConnKey> {
     current_latest_subscribed: K::Container,
     /// The node type.
     node_type: RelativeNodeType,
+    /// When set, the local pre-reserved subscription fast-path is skipped so every subscription goes
+    /// through the Receiver-drives / Initiator-adopts handshake. The fast-path picks ids *locally*
+    /// on each side, so if the two peers' counters ever skew (e.g. a cancelled+retried hole-punch
+    /// attempt), they pick mismatched ids and desync. Forcing the handshake path lets the Initiator
+    /// catch up to the Receiver's id, keeping them paired across retries. Hole-punch conns enable it.
+    disable_prereserve: std::sync::atomic::AtomicBool,
 }
 
 /// A memory sender.
@@ -187,8 +207,20 @@ impl<K: MultiplexedConnKey> MultiplexedConn<K> {
                 current_latest_subscribed,
                 id_gen,
                 node_type,
+                disable_prereserve: std::sync::atomic::AtomicBool::new(false),
             }),
         }
+    }
+
+    /// Force every subscription through the Receiver-drives / Initiator-adopts handshake by skipping
+    /// the local pre-reserve fast-path. Hole-punch conns call this so a cancelled+retried attempt
+    /// cannot leave the two peers picking mismatched subscription ids (the desync that silently
+    /// failed the hole-punch consensus and downgraded UDP to TCP). Idempotent; must be set the same
+    /// on both peers (it is — both hole-punch endpoints enable it unconditionally).
+    pub fn disable_prereserve(&self) {
+        self.inner
+            .disable_prereserve
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -325,6 +357,15 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
     }
 
     fn get_next_prereserved(&self) -> Option<Self::BorrowedSubscriptionType> {
+        // Skip the local-pick fast-path on conns that disabled it (hole-punch), forcing every
+        // subscription through the Receiver-drives / Initiator-adopts handshake so the two peers
+        // can never pick mismatched ids after a cancelled/retried attempt. See `disable_prereserve`.
+        if self
+            .disable_prereserve
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return None;
+        }
         let mut lock = self.subscribers.write();
         let next_key = K::get_proposed_next(&self.current_latest_subscribed);
         let pre_reserved_stream = lock.get_mut(&next_key)?;
@@ -354,7 +395,15 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
                 }
             )
             .is_none());
-        assert_eq!(K::generate_next(&self.current_latest_subscribed), id);
+        // Catch up to the peer-driven `id` instead of asserting a strict +1 sequence. A forward gap
+        // means a prior peer operation was cancelled/retried mid-handshake, leaving this side's
+        // counter behind; the skipped ids are dead, and panicking here (the old assert_eq!) is what
+        // desynced every subsequent subscription and silently failed the hole-punch consensus on
+        // retry. Duplicate/backward ids are still rejected by the `insert(...).is_none()` assert
+        // above. No-op in the normal no-gap case.
+        if !K::catch_up_to(&self.current_latest_subscribed, id) {
+            log::trace!(target: "citadel", "Multiplex: tolerated subscription id gap up to {id:?} (a prior peer op was cancelled/retried)");
+        }
         // TODO: on GAT stabalization, remove into
         sub.into()
     }
@@ -388,6 +437,31 @@ mod tests {
 
     #[derive(Serialize, Deserialize)]
     struct Packet(usize);
+
+    // Validates the primitive behind the hole-punch retry-desync fix: a node that has fallen behind
+    // (because a prior peer subscription was cancelled/retried, skipping ids) must be able to CATCH
+    // UP to the peer-driven id instead of panicking — while never moving its counter backward.
+    #[test]
+    fn catch_up_to_tolerates_forward_gaps_only() {
+        use crate::multiplex::IDGen;
+        use crate::sync::SymmetricConvID;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+        type S = SymmetricConvID;
+        let c = Arc::new(AtomicU64::new(0));
+        // Sequential ids: no gap.
+        assert!(<S as IDGen<S>>::catch_up_to(&c, 1.into()));
+        assert!(<S as IDGen<S>>::catch_up_to(&c, 2.into()));
+        assert_eq!(c.load(Ordering::Relaxed), 2);
+        // Forward gap (3,4,5 were dead ids from a cancelled attempt): tolerated, counter catches up.
+        assert!(!<S as IDGen<S>>::catch_up_to(&c, 6.into()));
+        assert_eq!(c.load(Ordering::Relaxed), 6);
+        // Sequential again from the caught-up base.
+        assert!(<S as IDGen<S>>::catch_up_to(&c, 7.into()));
+        // Backward id never moves the counter back (true duplicates are caught by the subscriber map).
+        assert!(!<S as IDGen<S>>::catch_up_to(&c, 5.into()));
+        assert_eq!(c.load(Ordering::Relaxed), 7);
+    }
 
     #[tokio::test]
     async fn nested_multiplexed_stream() {
