@@ -29,23 +29,25 @@ use crate::proto::packet_processor::includes::Instant;
 /// This works for both inbound and outbound direction for groups, as well as files (which will make use of the outbound direction for checking)
 /// under low to medium traffic workloads, this probably won't matter. This is for high workloads
 pub struct MetaExpiryState {
-    last_valid_event: Instant,
+    // Interior-mutable so `on_event_confirmation` takes `&self`: the per-message hot path bumps this
+    // on every confirmed packet, and we want that path to hold only a read lock on the StateContainer.
+    last_valid_event: citadel_io::Mutex<Instant>,
 }
 
 impl MetaExpiryState {
     pub fn expired(&self) -> bool {
-        self.last_valid_event.elapsed() > GROUP_EXPIRE_TIME_MS
+        self.last_valid_event.lock().elapsed() > GROUP_EXPIRE_TIME_MS
     }
     /// Whenever a packet is confirmed, call this
-    pub fn on_event_confirmation(&mut self) {
-        self.last_valid_event = Instant::now()
+    pub fn on_event_confirmation(&self) {
+        *self.last_valid_event.lock() = Instant::now()
     }
 }
 
 impl Default for MetaExpiryState {
     fn default() -> Self {
         Self {
-            last_valid_event: Instant::now(),
+            last_valid_event: citadel_io::Mutex::new(Instant::now()),
         }
     }
 }

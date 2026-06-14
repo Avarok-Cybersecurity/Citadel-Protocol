@@ -209,21 +209,43 @@ endpoint_container.to_ordered_local_channel.on_packet_received(&mut self)`) and 
 messaging the convoy is N vconns serializing their independent per-vconn deliveries on the one global
 write lock — exactly what the profiler shows.
 
-**Surgical fix (designed, evidence-backed):** make the per-message delivery path read-only at the
-StateContainer level by pushing its two tiny mutations behind interior locks, so the hot branch holds
-only `inner_state!` (read) and N vconns deliver concurrently:
-1. `citadel_crypt::ordered_channel::OrderedChannel`: move the reorder `map` + `last_message_received`
-   behind a `parking_lot::Mutex` (the `sink` is already `&self`-send) → `on_packet_received(&self)`.
-2. `MetaExpiryState { last_valid_event: Instant }`: make it an atomic (nanos) → `on_event_confirmation
-   (&self)` / `expired(&self)`.
-3. `forward_data_to_ordered_channel(&self)`.
-4. `primary_group_packet.rs` process fn: acquire `inner_state!` (read) for the common prefix +
-   message-delivery branch; the genuinely-mutating branches (GROUP_PAYLOAD file, GROUP_HEADER_ACK,
-   WAVE_ACK) drop the read guard and re-acquire `inner_mut_state!` (write). Hot messaging branch ends
-   up read-only → no write convoy.
-This is the highest-risk edit in the whole sweep (hottest packet path + a crypto-crate channel type),
-so it lands as its own increment: local compile + bench/profiler (write-wait must stop scaling with K)
-+ stress suites, then the docker NAT 16/16 matrix in CI before merge.
+**Attempt 1 — read/write split (TRIED, MEASURED, REVERTED): the wrong tool.** Hypothesis: push the
+per-message delivery's two mutations behind interior locks so the hot receive branch holds only a read
+lock and N vconns deliver concurrently. Implemented + validated correct (15/15 c2s+p2p messaging
+stress, strict ordering; rekey + reserve-write green), then profiled (mesh 2/4/8, `lock-profiling`):
+
+| metric @ mesh=8 | before (write-only) | after read-flip |
+|---|---|---|
+| writes | 44,502 @ 125µs | **21,476 @ 168µs** (count halved, wait ↑) |
+| reads  | 27,988 @ 104µs | **71,523 @ 40µs** (wait ↓ ~2.6×) |
+| aggregate msgs/s | 11,608 | **11,720 (no change)** |
+
+The flip worked *structurally* (receive-deliver moved to reads, read-wait fell sharply) but **did not
+move throughput** — and write-wait *rose*. Root cause: **every message still needs ≥1 write** (the
+*sender's* `GROUP_HEADER_ACK` → `on_group_header_ack_received` mutates `outbound_transmitters`).
+Flooding the `RwLock` with reads just **starves the remaining writers**. Conclusion: read/write
+splitting can't dissolve this convoy because the write floor is one-write-per-message. Reverted the
+`primary_group_packet.rs`/proxy lock-mode flips (no win + starvation on the hottest path).
+
+**KEPT (foundation, behavior-preserving, tested):** the interior-mutability that the *right* fix needs:
+1. `citadel_crypt::ordered_channel::OrderedChannel`: reorder `map`+`last_message_received` behind a
+   `citadel_io::Mutex`; `sink` already `&self`-send → `on_packet_received(&self)`. (3 ordering tests
+   pass, incl. concurrent.)
+2. `MetaExpiryState`: `last_valid_event` behind `citadel_io::Mutex<Instant>` → `on_event_confirmation
+   (&self)`.
+3. `forward_data_to_ordered_channel(&self)` (via the `&self` endpoint getter).
+
+These are required because the real fix is **per-collection sharding**, where delivery goes through a
+`DashMap::get` **shared** ref — so per-vconn `OrderedChannel`/meta_expiry mutation *must* be `&self`.
+
+**Attempt 2 — the actual path (next increment): DashMap-shard the per-message collections.** Move
+`active_virtual_connections` (receive-deliver) **and** `outbound_transmitters` (sender-ack) out from
+under the coarse `RwLock` into `DashMap`s on the `StateContainer` wrapper, so *no* per-message op takes
+a global lock (neither read nor write) — only per-key entry locks, which different vconns never share.
+Preserve the `create_virtual_connection` simultaneous-connect tie-break (co-locks
+`active_virtual_connections`+`peer_kem_states`+`stale_p2p_ratchets`) with a small dedicated guard or
+CAS. Validate per step: `lock-profiling` (per-key wait must stay flat as K grows) + the messaging
+stress suite + docker NAT 16/16 in CI. This is the increment that should finally flatten the convoy.
 
 **Bounded outbound channels — wire channel must stay unbounded.** Re-confirmed: 74 `unbounded_send`
 sites, many in the session task that also drains via `select!` → bounded `send().await` deadlocks.

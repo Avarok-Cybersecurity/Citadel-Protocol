@@ -148,7 +148,7 @@ where
                 }
             };
 
-            let mut ordered_channel = OrderedChannel::new(tx);
+            let ordered_channel = OrderedChannel::new(tx);
 
             let ordered_receiver = async move {
                 while let Some(message) = payload_rx.recv().await {
