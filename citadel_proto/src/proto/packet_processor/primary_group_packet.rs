@@ -89,7 +89,13 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
 
     let timestamp = time_tracker.get_global_time_ns();
 
-    let mut state_container = inner_mut_state!(state_container);
+    // Read-default: the common prefix (ratchet, validation, meta_expiry), the fast-message delivery
+    // branch (interior-mutable OrderedChannel), and the GROUP_HEADER_ACK branch (outbound_transmitters
+    // is now a DashMap → `&self`) are all read-only, so concurrent vconns deliver + ack concurrently.
+    // Only the genuinely-mutating file/wave branches escalate to a write lock via the wrapper. The
+    // owned `ratchet` below survives the read→write guard swap.
+    let state_container_wrapper = state_container;
+    let state_container = inner_state!(state_container_wrapper);
     let udp_mode = state_container.udp_mode;
     // get the proper pqc
     let header_bytes = &header[..];
@@ -108,6 +114,9 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
     match header.cmd_aux {
         packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
             log::trace!(target: "citadel", "RECV GROUP PAYLOAD {header:?}");
+            // Mutating (file payload) branch: escalate read → write.
+            drop(state_container);
+            let mut state_container = inner_mut_state!(state_container_wrapper);
             // These packets do not get encrypted with the message key. They get scrambled and encrypted
             match state_container.on_group_payload_received(&header, payload.freeze(), &ratchet) {
                 Ok(res) => {
@@ -211,6 +220,10 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                 }
 
                                 GroupHeader::Standard(group_receiver_config, virtual_target) => {
+                                    // Mutating (file header) branch: escalate read → write.
+                                    drop(state_container);
+                                    let mut state_container =
+                                        inner_mut_state!(state_container_wrapper);
                                     // First, check to make sure the virtual target can accept
                                     let object_id = group_receiver_config.object_id;
                                     let ticket = header.context_info.get().into();
@@ -392,6 +405,9 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
 
                         packet_flags::cmd::aux::group::WAVE_ACK => {
                             log::trace!(target: "citadel", "RECV WAVE ACK");
+                            // Mutating (wave-ack) branch: escalate read → write.
+                            drop(state_container);
+                            let mut state_container = inner_mut_state!(state_container_wrapper);
                             match validation::group::validate_wave_ack(&payload) {
                                 Some(WaveAck { range }) => {
                                     if range.is_some() {

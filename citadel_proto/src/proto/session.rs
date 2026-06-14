@@ -1749,7 +1749,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                     return;
                                 }
 
-                                let mut state_container = inner_mut_state!(sess.state_container);
+                                // Read lock: registering the transmitter is a DashMap insert (`&self`)
+                                // and the endpoint/ratchet lookup is read-only, so concurrent sends
+                                // don't serialize on the coarse write lock.
+                                let state_container = inner_state!(sess.state_container);
                                 let latest_proper_ratchet = match state_container
                                     .get_endpoint_container(virtual_target.get_target_cid())
                                 {
@@ -1814,49 +1817,57 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                             let kernel_tx2 = kernel_tx.clone();
                             this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
-                            if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
+                            // Read the expiry decision while only holding the DashMap `Ref`, then let
+                            // it drop before mutating other collections — the `Ref` holds a shard
+                            // read-borrow to end-of-scope (unlike the old `&V`, freed at last use).
+                            let expired = {
+                                let Some(transmitter) = state_container.outbound_transmitters.get(&key) else {
+                                    // it finished
+                                    return QueueWorkerResult::Complete;
+                                };
                                 // as long as a wave ACK has been received, proceed with the timeout check
-                                // The reason why is because this group may be loaded, but the previous one isn't done
-                                if transmitter.has_begun {
-                                    let transmitter = transmitter.burst_transmitter.group_transmitter.as_ref().expect("transmitter should exist");
-                                    if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
-                                        if state_container.meta_expiry_state.expired() {
-                                            log::error!(target: "citadel", "Outbound group {group_id} has expired; dropping entire transfer");
-                                            //std::mem::drop(transmitter);
-                                            if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
-                                                if let Some(stop) = outbound_container.stop_tx.take() {
-                                                    if stop.send(()).is_err() {
-                                                        log::error!(target: "citadel", "Unable to send stop signal");
-                                                    }
-                                                }
-                                            } else {
-                                                log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", &file_key);
-                                            }
-
-                                            if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
-                                                ticket_opt: Some(ticket),
-                                                cid_opt: session_cid,
-                                                message: format!("Timeout on ticket {ticket}"),
-                                            })).is_err() {
-                                                log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
-                                                QueueWorkerResult::EndSession
-                                            } else {
-                                                QueueWorkerResult::Complete
-                                            }
-                                        } else {
-                                            log::trace!(target: "citadel", "Other outbound groups being processed; patiently awaiting group {group_id}");
-                                            QueueWorkerResult::Incomplete
-                                        }
-                                    } else {
-                                        // it hasn't expired yet, and is still transmitting
-                                        QueueWorkerResult::Incomplete
-                                    }
-                                } else {
+                                // (this group may be loaded, but the previous one isn't done)
+                                if !transmitter.has_begun {
                                     // WAVE_ACK hasn't been received yet; try again later
-                                    QueueWorkerResult::Incomplete
+                                    return QueueWorkerResult::Incomplete;
+                                }
+                                transmitter
+                                    .burst_transmitter
+                                    .group_transmitter
+                                    .as_ref()
+                                    .expect("transmitter should exist")
+                                    .has_expired(GROUP_EXPIRE_TIME_MS)
+                            };
+
+                            if !expired {
+                                // it hasn't expired yet, and is still transmitting
+                                return QueueWorkerResult::Incomplete;
+                            }
+
+                            if !state_container.meta_expiry_state.expired() {
+                                log::trace!(target: "citadel", "Other outbound groups being processed; patiently awaiting group {group_id}");
+                                return QueueWorkerResult::Incomplete;
+                            }
+
+                            log::error!(target: "citadel", "Outbound group {group_id} has expired; dropping entire transfer");
+                            if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
+                                if let Some(stop) = outbound_container.stop_tx.take() {
+                                    if stop.send(()).is_err() {
+                                        log::error!(target: "citadel", "Unable to send stop signal");
+                                    }
                                 }
                             } else {
-                                // it finished
+                                log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", &file_key);
+                            }
+
+                            if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                                ticket_opt: Some(ticket),
+                                cid_opt: session_cid,
+                                message: format!("Timeout on ticket {ticket}"),
+                            })).is_err() {
+                                log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
+                                QueueWorkerResult::EndSession
+                            } else {
                                 QueueWorkerResult::Complete
                             }
                         });

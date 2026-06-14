@@ -37,6 +37,7 @@
 //! - Group keys are securely managed
 //! - File transfers are encrypted end-to-end
 
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::RangeInclusive;
@@ -133,7 +134,10 @@ pub struct StateContainerInner<R: Ratchet> {
     pub(super) outbound_files: HashMap<FileKey, OutboundFileTransfer>,
     pub(super) file_transfer_handles: HashMap<FileKey, UnboundedSender<ObjectTransferStatus>>,
     pub(super) inbound_groups: HashMap<GroupKey, GroupReceiverContainer>,
-    pub(super) outbound_transmitters: HashMap<GroupKey, OutboundTransmitterContainer<R>>,
+    // Concurrent map (per-entry shard locks): the sender registers a transmitter on send and removes
+    // it on the GROUP_HEADER_ACK — both per message. A `DashMap` lets those happen under a *read* lock
+    // on the StateContainer, so concurrent vconns' sends don't serialize on the coarse write lock.
+    pub(super) outbound_transmitters: DashMap<GroupKey, OutboundTransmitterContainer<R>>,
     pub(super) peer_kem_states: HashMap<u64, PeerKemStateContainer<R>>,
     // u64 is peer id, ticket is the local original ticket (ticket may
     // transform if a simultaneous connect)
@@ -497,7 +501,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             register_state: packet_flags::cmd::aux::do_register::STAGE0.into(),
             connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(),
             inbound_groups: HashMap::new(),
-            outbound_transmitters: HashMap::new(),
+            outbound_transmitters: DashMap::new(),
             peer_kem_states: HashMap::new(),
             inbound_files: HashMap::new(),
             outbound_files: HashMap::new(),
@@ -1495,7 +1499,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     #[allow(unused_results)]
     #[allow(clippy::too_many_arguments)]
     pub fn on_group_header_ack_received(
-        &mut self,
+        &self,
         peer_cid: u64,
         group_id: u64,
         object_id: ObjectId,
@@ -1510,7 +1514,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             return true;
         }
 
-        let outbound_container = self.outbound_transmitters.get_mut(&key).unwrap();
+        let mut outbound_container = self.outbound_transmitters.get_mut(&key).unwrap();
         outbound_container.waves_in_current_window = next_window.unwrap_or(0..=0).count();
         // file-transfer, or TCP only mode since next_window is none. Use TCP
         outbound_container
@@ -1751,7 +1755,10 @@ impl<R: Ratchet> StateContainerInner<R> {
         let mut delete_group = false;
 
         // file transfer
-        if let Some(transmitter_container) = self.outbound_transmitters.get_mut(&key) {
+        if let Some(mut transmitter_container) = self.outbound_transmitters.get_mut(&key) {
+            // Re-borrow the DashMap `RefMut` as a plain `&mut` so the borrow checker can field-split
+            // the container (a `RefMut` derefs as a whole, defeating disjoint-field access below).
+            let transmitter_container = &mut *transmitter_container;
             // we set has_begun here instead of the transmit_tcp, simply because we want the first wave to ACK
             transmitter_container.has_begun = true;
             let transmitter = transmitter_container

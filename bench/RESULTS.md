@@ -238,14 +238,43 @@ splitting can't dissolve this convoy because the write floor is one-write-per-me
 These are required because the real fix is **per-collection sharding**, where delivery goes through a
 `DashMap::get` **shared** ref — so per-vconn `OrderedChannel`/meta_expiry mutation *must* be `&self`.
 
-**Attempt 2 — the actual path (next increment): DashMap-shard the per-message collections.** Move
-`active_virtual_connections` (receive-deliver) **and** `outbound_transmitters` (sender-ack) out from
-under the coarse `RwLock` into `DashMap`s on the `StateContainer` wrapper, so *no* per-message op takes
-a global lock (neither read nor write) — only per-key entry locks, which different vconns never share.
-Preserve the `create_virtual_connection` simultaneous-connect tie-break (co-locks
-`active_virtual_connections`+`peer_kem_states`+`stale_p2p_ratchets`) with a small dedicated guard or
-CAS. Validate per step: `lock-profiling` (per-key wait must stay flat as K grows) + the messaging
-stress suite + docker NAT 16/16 in CI. This is the increment that should finally flatten the convoy.
+**Attempt 2 — DashMap-shard `outbound_transmitters` (DONE): the convoy is eliminated.** Scope shrank
+once the foundation landed: the per-message path only *reads* `active_virtual_connections` (delivery
+mutates the now-interior-mutable `OrderedChannel`; `last_delivered_message_timestamp` is `DualCell`),
+so only **`outbound_transmitters`** — structurally mutated per message (sender `insert` on send,
+`remove` on `GROUP_HEADER_ACK`) — needed concurrency. Changed it to `dashmap::DashMap` (wasm-checked),
+made `on_group_header_ack_received(&self)`, and flipped the three per-message hot paths to a *read*
+lock: receive-deliver (`primary_group_packet` GROUP_HEADER::Ratchet), sender-ack (GROUP_HEADER_ACK),
+and the send-register path (`session.rs` group-sender loop). File/wave branches escalate read→write
+via a wrapper alias. `on_wave_ack_received` + the outbound-file timeout closure were restructured for
+DashMap's `Ref`/`RefMut` borrow semantics (re-borrow `&mut *guard` for field-splitting; read the flag
+then drop the `Ref` before mutating other collections).
+
+Profiled (mesh 2/4/8, `lock-profiling`) — **per-message StateContainer writes are gone**:
+
+| metric | mesh=2 | mesh=4 | mesh=8 |
+|---|---|---|---|
+| writes (was 1.9k / 9.6k / 44.5k) | **5** | **103** | **574** |
+| avg read-wait (was 0.1 / 77 / 104 µs) | 37 ns | **1.07 µs** | **1.03 µs** |
+
+The write count fell ~99% (mesh=8: 44,502→574) and read-wait collapsed ~100× (104µs→1µs) — the convoy
+the profiler attributed is **eliminated**, the metric that isolates the fix. (The 574 residual writes
+are rare setup/teardown ops — `create_virtual_connection` etc. — totalling 162ms of wait over the
+window, negligible.) Correctness: builds on
+multi-threaded + single-threaded + **wasm**; clippy `-D warnings` clean; 17/17 c2s+p2p messaging
+stress (strict ordering) + reserve-write + rekey; 9/9 file-transfer + reconnection.
+
+**Aggregate throughput on this box stays flat (eff still ~0.02–0.07) — and that's expected.** With the
+lock convoy gone, the remaining ceiling is the single-process **CPU/crypto saturation** confounder
+flagged in the "READ FIRST" caveat: a fixed core count divided across K meshed nodes, each doing
+per-message AEAD. The lock-wait metric (writes ~eliminated, read-wait ~1µs) is the correct measure
+that the *lock* is fixed; the aggregate-throughput payoff needs a many-core box where CPU isn't the
+binding constraint (run this bench on a CI server / many-core host to see it). Unlike the reverted
+read/write-split (Attempt 1, which didn't even move the lock metric), this is a real, measured win on
+the contention metric — landed. Remaining for a future pass: `active_virtual_connections` is still a
+HashMap under the lock (only read per message, so not on the convoy path); shard it too only if a
+many-core profile shows the read-side RwLock atomic (read-wait grew 37ns→1µs with K) becoming the next
+ceiling. Docker NAT 16/16 validates in CI.
 
 **Bounded outbound channels — wire channel must stay unbounded.** Re-confirmed: 74 `unbounded_send`
 sites, many in the session task that also drains via `select!` → bounded `send().await` deadlocks.
