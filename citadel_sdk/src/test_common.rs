@@ -207,6 +207,14 @@ impl TestBarrier {
     pub async fn wait(&self) {
         let _ = self.inner.wait().await;
     }
+
+    /// Unconditionally (re)installs the global test barrier. Unlike [`Self::setup`], which panics if
+    /// a barrier is already present, this replaces any existing one. Intended for benches that run
+    /// several peer-count configs back-to-back in a single process (each config needs a fresh barrier
+    /// sized to that config's node count); not for the nextest-per-process test flow.
+    pub fn reset(count: usize) {
+        *TEST_BARRIER.lock() = Some(Self::new(count));
+    }
 }
 
 #[cfg(not(feature = "localhost-testing"))]

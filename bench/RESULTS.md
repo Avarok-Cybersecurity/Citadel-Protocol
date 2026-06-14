@@ -147,6 +147,36 @@ win; (2) first try converting hot read-only `inner_mut!`→`inner!` accesses (co
 lets concurrent readers proceed) before splitting; (3) split per-collection with NAT+stress green
 between steps.
 
+## StateContainer phase (`perf/iouring-statecontainer`) — multi-vconn contention bench + first data
+
+**Multi-vconn contention bench** (`citadel_sdk/benches/multi_vconn_throughput.rs`): the measurement
+the lock-split actually needs. Drives a full P2P **mesh** of K peers so each peer's *single* session
+holds K-1 peer vconns in *one* StateContainer; all pairs message simultaneously, so K-1 concurrent
+inbound packet streams funnel through that session's single `inner_mut_state!` write guard. (The
+other two benches each touch only one vconn per container — macro = 1 C2S vconn; multi-session = N
+*separate* containers — so neither sees intra-session contention.) Added `TestBarrier::reset()` so one
+process can sweep mesh sizes.
+
+First local sweep (laptop, `bench` profile, 500 msgs/vconn/dir):
+
+| mesh K | vconns/session | aggregate msgs/s | per-vconn | scaling-eff |
+|---|---|---|---|---|
+| 2 | 1 | 29,471 | 14,736 | 1.00 |
+| 4 | 3 | 10,041 |   837 | 0.06 |
+| 6 | 5 | 12,001 |   400 | 0.03 |
+| 8 | 7 | 11,608 |   207 | 0.01 |
+
+**Reading it — strong signal, one honest confounder.** Aggregate throughput *drops* ~3× from K=2→4
+then plateaus ~10–12k while offered concurrency keeps rising. A throughput *collapse* under added
+load (not a plateau) is the classic write-lock **convoy** signature — consistent with the per-packet
+`inner_mut_state!` write lock on the single `Arc<RwLock<StateContainerInner>>` serializing + cache-
+line-bouncing across concurrent vconns. Confounder: this is one process on a thermally-constrained
+laptop, so whole-process CPU/crypto saturation is partly mixed into the K≥4 plateau; and the K=2
+baseline is unusually high (2 nodes, minimal scheduling). So the bench *strongly motivates* the split
+and gives the baseline to verify against, but clean attribution to the lock (vs. CPU) wants either a
+flamegraph/lock-wait profile under K=8 or a many-core CI run. **Do not split blind on these numbers** —
+profile first, then granularize, then re-run this bench to confirm the convoy flattens.
+
 **Bounded outbound channels — wire channel must stay unbounded.** Re-confirmed: 74 `unbounded_send`
 sites, many in the session task that also drains via `select!` → bounded `send().await` deadlocks.
 The existing burst(32)+`yield_now` is the correct anti-starvation design. The safe OOM-under-

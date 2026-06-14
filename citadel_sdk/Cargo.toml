@@ -88,6 +88,13 @@ harness = false
 name = "multi_session_throughput"
 harness = false
 
+# Multi-vconn contention bench: one session's StateContainer holding N peer vconns (full P2P mesh).
+# This is the measurement that actually gates the StateContainer lock-granularization work — the
+# other two benches each touch only a single vconn per StateContainer and miss intra-session contention.
+[[bench]]
+name = "multi_vconn_throughput"
+harness = false
+
 [package.metadata.cargo-all-features]
 # Features "foo" and "bar" are incompatible, so skip permutations including them
 skip_feature_sets = [["std", "wasm"]]
