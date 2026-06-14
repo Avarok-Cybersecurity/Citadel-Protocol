@@ -12,6 +12,9 @@ use std::fmt::Debug;
 
 /// Organizes the different types of entropy_banks that can be used. Currently, there is only one: The Standard Drill
 pub mod entropy_bank;
+/// Forward-secure symmetric KDF chain (Double-Ratchet sending/receiving chain) — the per-message
+/// forward-secrecy primitive behind the pipelined-PFS mode. See `docs/pfs-symmetric-ratchet-design.md`.
+pub mod message_chain;
 pub mod mono;
 /// `RatchetManager` provides a robust, sync-safe method to rekey across networks between two nodes
 pub mod ratchet_manager;
