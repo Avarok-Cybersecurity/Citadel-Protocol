@@ -82,6 +82,9 @@ pub mod replay_attack_container;
 /// For abstracting-away the use of aead
 pub mod encryption;
 
+/// Per-message AEAD keying (fresh cipher from a chain-derived key) for pipelined PFS.
+pub mod per_message_aead;
+
 pub mod constructor_opts;
 
 pub mod wire;

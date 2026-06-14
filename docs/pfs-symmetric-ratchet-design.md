@@ -104,6 +104,26 @@ per-key nonce. No reuse within a key (one message per key).
 unchanged. `MK_i`/`CK[i]` use `Zeroizing`. The skipped-key cache is bounded (`MAX_SKIP`) to prevent a
 memory-exhaustion DoS from a forged large gap.
 
+## 5a. Step-2 integration findings (verified in citadel_pqcrypto)
+
+The AEAD layer is algorithm-dependent (`export.rs:145` `keys_to_aead_store`):
+- **AES-GCM-256 → `AesModule`, ChaCha20 → `ChaChaModule`, Ascon → `AsconModule`** — plain symmetric
+  ciphers keyed once with a 32-byte (Ascon: 20-byte) key via `impl_basic_aead_module!` (`lib.rs:1279`).
+  Send vs recv pick `alice_module`/`bob_module` by orientation (`get_encryption_key`/`get_decryption_key`,
+  `lib.rs:505-524`). ⇒ **per-message re-keying is clean here**: construct a fresh cipher from `MK_i`.
+- **MlKemHybrid → `KyberModule`** (`lib.rs:154-161`) — per-message KEM-OTP + signature, a heavier
+  per-message-asymmetric construction. **OUT OF SCOPE for pipelining v1** (it is already per-message
+  asymmetric; pipelining it is a separate effort). `PerfectPipelined` is offered only for the symmetric
+  ciphers (AES/ChaCha/Ascon); selecting it with MlKemHybrid falls back to today's per-message KEM.
+
+**Step-2 plan:** add stateless `seal_in_place_with_key(alg, &MK_i, nonce, ad, buf)` /
+`open_in_place_with_key(...)` to citadel_pqcrypto (fresh cipher from `MK_i`; per-cipher key length —
+AES/ChaCha take `MK_i[..32]`, Ascon `MK_i[..20]`). The per-direction `SymmetricChain` state lives with
+the version's crypto state (one chain per layer per direction, seeded from that version's KEM secret);
+`entropy_bank.rs`'s `wrap_with_unique_nonce_*` derives `MK_i` (index = the existing `transient_counter`)
+and calls the with-key seal instead of the fixed-key module — only on the pipelined path. The fixed-key
+path (BestEffort, Perfect n=1) is unchanged.
+
 ## 5. Integration points (no code yet — for scoping)
 
 - `citadel_crypt/src/ratchets/entropy_bank.rs` — replace the fixed-key AEAD seal/open with a
