@@ -17,6 +17,8 @@ default = ["filesystem", "std"]
 filesystem = ["citadel_proto/filesystem", "dirs2"]
 opfs = ["citadel_proto/opfs"]
 multi-threaded = ["citadel_proto/multi-threaded"]
+# Opt-in StateContainer lock-contention profiling (diagnostics/benches only); forwarded to citadel_proto.
+lock-profiling = ["citadel_proto/lock-profiling"]
 sql = ["citadel_proto/sql"]
 redis = ["citadel_proto/redis"]
 webrtc = ["citadel_proto/webrtc"]

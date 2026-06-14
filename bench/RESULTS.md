@@ -177,6 +177,27 @@ and gives the baseline to verify against, but clean attribution to the lock (vs.
 flamegraph/lock-wait profile under K=8 or a many-core CI run. **Do not split blind on these numbers** —
 profile first, then granularize, then re-run this bench to confirm the convoy flattens.
 
+**ATTRIBUTION DONE — it's the lock, decisively.** Added an opt-in `lock-profiling` feature
+(`citadel_proto::lock_profiling`, fed by the `inner_state!`/`inner_mut_state!` macros — which are used
+*only* on `state_container`) that times each acquire-wait; the bench prints it per mesh size:
+
+| mesh K | avg **write** acquire-wait | total write-wait (window) | aggregate msgs/s |
+|---|---|---|---|
+| 2 | **94 ns** | 0.2 ms | 20,697 |
+| 4 | **101,060 ns** (~101 µs) | 970 ms | 10,959 |
+| 8 | **125,304 ns** (~125 µs) | 5,576 ms | 13,187 |
+
+The mean StateContainer write-lock acquire-wait jumps **~1,075×** (94 ns → 101 µs) the instant a
+session holds >1 vconn, and total write-wait at K=8 is **5.6 s** of thread-time parked on one lock
+during the window. CPU starvation cannot inflate *acquire-wait* (it slows work *between* acquisitions,
+not the blocking on the lock itself) — this is a textbook write-lock **convoy**. So the single
+`Arc<RwLock<StateContainerInner>>` write lock IS the multi-vconn ceiling, and granularization is
+warranted. Roadmap unchanged but now evidence-backed: (1) cheap win first — flip hot read-only
+`inner_mut!`→`inner!` so readers stop serializing; (2) split the hottest independently-accessed
+collections to their own guards/DashMaps, preserving the `create_virtual_connection` cross-collection
+tie-break; (3) re-run this bench under `lock-profiling` after each step — success = the avg write-wait
+stops scaling with K.
+
 **Bounded outbound channels — wire channel must stay unbounded.** Re-confirmed: 74 `unbounded_send`
 sites, many in the session task that also drains via `select!` → bounded `send().await` deadlocks.
 The existing burst(32)+`yield_now` is the correct anti-starvation design. The safe OOM-under-

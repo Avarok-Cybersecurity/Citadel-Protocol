@@ -66,6 +66,10 @@ pub mod net;
 pub(crate) mod platform_ops;
 pub(crate) mod threading;
 pub mod udp_internal_interface;
+// StateContainer lock-contention profiling. Compiled only under the opt-in `lock-profiling` feature;
+// the `inner_state!`/`inner_mut_state!` macros feed it. Diagnostics/benches only.
+#[cfg(feature = "lock-profiling")]
+pub mod lock_profiling;
 
 #[cfg(target_family = "wasm")]
 pub mod serverless;

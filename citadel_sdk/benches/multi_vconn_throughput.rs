@@ -156,9 +156,29 @@ mod imp {
         }
 
         connected.wait().await;
+        // Zero the StateContainer lock counters at the timer start so we measure only the steady-state
+        // exchange window (connection setup also takes the lock, but that's outside the timer).
+        #[cfg(feature = "lock-profiling")]
+        citadel_proto::lock_profiling::reset();
         let t0 = Instant::now();
         done.wait().await;
         let elapsed = t0.elapsed().as_secs_f64();
+
+        // Attribution: if the avg write acquire-wait balloons with mesh size, the throughput ceiling
+        // is the per-session StateContainer write lock (convoy); if it stays flat, the ceiling is CPU.
+        #[cfg(feature = "lock-profiling")]
+        {
+            let s = citadel_proto::lock_profiling::snapshot();
+            println!(
+                "[mesh={}] StateContainer lock | writes {} @ avg {:.0}ns wait (total {:.1}ms) | reads {} @ avg {:.0}ns wait",
+                peers,
+                s.write_count,
+                s.avg_write_wait_ns(),
+                s.write_wait_nanos as f64 / 1e6,
+                s.read_count,
+                s.avg_read_wait_ns(),
+            );
+        }
 
         for c in clients {
             let _ = c.await;
