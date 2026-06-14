@@ -198,6 +198,33 @@ collections to their own guards/DashMaps, preserving the `create_virtual_connect
 tie-break; (3) re-run this bench under `lock-profiling` after each step — success = the avg write-wait
 stops scaling with K.
 
+**Corrected hot-path finding (messaging ≠ file transfer).** Tracing the bench workload (plain
+messages, not file transfers): the per-message receive path is `primary_group_packet.rs:92`
+`inner_mut_state!` → the `GROUP_HEADER::Ratchet` fast-message branch →
+`forward_data_to_ordered_channel` (state_container.rs:553). That takes the **write** lock only to (a)
+deliver into *one* vconn's `OrderedChannel` reorder buffer (`active_virtual_connections[target].
+endpoint_container.to_ordered_local_channel.on_packet_received(&mut self)`) and (b) bump
+`meta_expiry_state` (a single `Instant`). It does **not** touch `inbound_files`/`inbound_groups`/
+`outbound_transmitters` (those are the *file-transfer* paths the first access-map focused on). So for
+messaging the convoy is N vconns serializing their independent per-vconn deliveries on the one global
+write lock — exactly what the profiler shows.
+
+**Surgical fix (designed, evidence-backed):** make the per-message delivery path read-only at the
+StateContainer level by pushing its two tiny mutations behind interior locks, so the hot branch holds
+only `inner_state!` (read) and N vconns deliver concurrently:
+1. `citadel_crypt::ordered_channel::OrderedChannel`: move the reorder `map` + `last_message_received`
+   behind a `parking_lot::Mutex` (the `sink` is already `&self`-send) → `on_packet_received(&self)`.
+2. `MetaExpiryState { last_valid_event: Instant }`: make it an atomic (nanos) → `on_event_confirmation
+   (&self)` / `expired(&self)`.
+3. `forward_data_to_ordered_channel(&self)`.
+4. `primary_group_packet.rs` process fn: acquire `inner_state!` (read) for the common prefix +
+   message-delivery branch; the genuinely-mutating branches (GROUP_PAYLOAD file, GROUP_HEADER_ACK,
+   WAVE_ACK) drop the read guard and re-acquire `inner_mut_state!` (write). Hot messaging branch ends
+   up read-only → no write convoy.
+This is the highest-risk edit in the whole sweep (hottest packet path + a crypto-crate channel type),
+so it lands as its own increment: local compile + bench/profiler (write-wait must stop scaling with K)
++ stress suites, then the docker NAT 16/16 matrix in CI before merge.
+
 **Bounded outbound channels — wire channel must stay unbounded.** Re-confirmed: 74 `unbounded_send`
 sites, many in the session task that also drains via `select!` → bounded `send().await` deadlocks.
 The existing burst(32)+`yield_now` is the correct anti-starvation design. The safe OOM-under-
