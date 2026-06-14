@@ -19,6 +19,11 @@ multi-threaded = []
 sql = ["citadel_user/sql"]
 redis = ["citadel_user/redis"]
 webrtc = ["webrtc-util"]
+# Linux-only io_uring backend for the raw-UDP inbound recv path. Off by default; forwarded to
+# citadel_io, where the unsafe ring code lives (this crate is `forbid(unsafe_code)`). When enabled it
+# attempts io_uring at socket setup and falls back to the standard tokio path if init fails (old
+# kernels, restricted sandboxes). No effect on non-Linux/WASM targets — a harmless no-op there.
+io-uring = ["citadel_io/io-uring"]
 localhost-testing = [
     "citadel_wire/localhost-testing",
     "citadel_user/localhost-testing",

@@ -154,11 +154,24 @@ adversarial-load path is a producer-admission soft-cap (atomic queue-depth count
 `OutboundPrimaryStreamSender`; the file-transfer wave producer — a separate task — pauses when
 congested), NOT making the wire channel blocking. Scoped for dedicated flow-control work.
 
-**io_uring — Linux-only, dedicated effort.** Boundary mapped (citadel_io re-exports tokio at
-lib.rs ~94-111; sockets via `from_std` in socket_helpers). A transparent backend needs a
-completion↔readiness shim (tokio-uring runtime swap or an `io-uring`-crate socket type) with epoll
-fallback; it can't be built/run on this darwin host and a non-functional feature stub is pure churn.
-Best done in a Linux dev/CI loop.
+**io_uring — LANDED (Linux-only, opt-in `io-uring` feature).** The inbound raw-UDP recv half now has
+an io_uring backend. The unsafe ring code lives in `citadel_io` (`standard/udp_io_uring.rs`) because
+`citadel_proto` is `forbid(unsafe_code)`. It runs a single-shot (re-armed) `recvmsg` loop on a
+dedicated OS thread over a `dup(2)`'d socket fd, bridging completions to the async side via an
+unbounded channel; `RawUdpSocketStream` became a `Standard | IoUring` enum and only the io_uring
+reader consumes the socket (the standard `SplitStream` is dropped). Graceful fallback: if
+`io_uring_setup(2)` fails (old kernel / seccomp sandbox / fd-dup failure) `try_spawn` returns `None`
+and the standard tokio path is used; the send half is untouched. Source addresses are decoded from
+the kernel-filled `msg_name`, so behavior is byte-identical to the `UdpFramed`/`recv_from` path.
+Validated on real Linux (arm64) via an OrbStack container, `cargo check`/`clippy` clean with the
+feature, and **both datapaths proven**: (1) io_uring **active** (`--security-opt seccomp=unconfined`)
+— the "Raw UDP recv using io_uring backend" trace fires on *both* ends of a C2S connection and the
+8/8 UDP stress suite passes; (2) **fallback** — Docker's default seccomp blocks `io_uring_setup(2)`,
+so `try_spawn` returns `None`, the standard tokio path is used, and the same suite passes. CI: a new
+ubuntu-only `io_uring` job in `validate.yml` compile-checks both thread models and runs the UDP
+stress tests (GitHub-hosted runners execute steps directly on the VM, so io_uring is typically
+permitted there; either way the job is fallback-safe). Future optimization: provided-buffer multishot
+(`RecvMsgMulti` + buf_ring) to amortize the per-recv SQE.
 
 ## Investigated and deliberately NOT landed (concrete blockers, not conservatism)
 These were each researched to file:line; each has a real blocker that makes a blind, locally-
@@ -182,10 +195,9 @@ unvalidatable change unsafe on the just-stabilized datapath. Recorded so they ca
   those into independent DashMaps breaks the invariants without CAS/versioning, and the contention
   *win* is unmeasurable on this box (needs the multi-session contention bench, not yet built). Do it
   per-collection with that bench + the NAT/stress suites green between steps — not in one blind pass.
-- **io_uring backend** (Phase 5): **cannot be built or run on this darwin/aarch64 host.** It's
-  Linux-only and needs a completion-vs-readiness shim behind `citadel_io` (boundary mapped:
-  citadel_io re-exports tokio at lib.rs ~94-111; sockets created in socket_helpers via `from_std`).
-  A non-functional feature-flag stub adds churn for no value; the real backend is a Linux-CI effort.
+- **io_uring backend** (Phase 5): **LANDED** — see the io_uring entry above. Built and run on real
+  Linux via an OrbStack container (the darwin host can't run it natively); opt-in, fallback-safe, and
+  CI-validated by the new `io_uring` job.
 
 ## Needs CI / its own environment to MEASURE (code is landed)
 - **PGO/BOLT win** — run `.github/workflows/release-optimized.yml` on x86-64 Linux (the local

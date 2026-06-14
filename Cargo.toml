@@ -94,6 +94,7 @@ rust-argon2 = { version = "3.0", default-features = false }
 tokio-stream = { default-features = false, version = "0.1.17" }
 zeroize = { default-features = false, version = "1.5.7" }
 libc = { version = "0.2.139", default-features = false }
+io-uring = { version = "0.7.9", default-features = false }
 kernel32-sys = { version = "0.2.2", default-features = false }
 rayon = { default-features = false, version = "1.7.0" }
 sysinfo = { default-features = false, version = "0.29.8" }

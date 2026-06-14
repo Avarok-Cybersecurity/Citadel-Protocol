@@ -67,6 +67,9 @@ pub use wasm::locks::*;
 #[cfg(not(target_family = "wasm"))]
 pub use standard::locks::*;
 
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub use standard::udp_io_uring::IoUringUdpReceiver;
+
 #[cfg(all(feature = "deadlock-detection", not(target_family = "wasm")))]
 pub use parking_lot::deadlock;
 

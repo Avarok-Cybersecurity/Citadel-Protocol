@@ -19,6 +19,9 @@ std = ["net"]
 wasi = ["socket2_wasm"]
 deadlock-detection = ["parking_lot/deadlock_detection"]
 net = ["tokio/net", "tokio-util/net"]
+# Linux-only io_uring inbound-UDP backend. Off by default; the unsafe ring code lives here behind this
+# feature. On non-Linux targets the deps resolve to nothing, so enabling it is a harmless no-op.
+io-uring = ["dep:io-uring", "dep:libc"]
 
 [dependencies]
 rand = { workspace = true }
@@ -39,6 +42,12 @@ tokio = { workspace = true, features = [
 tokio-util = { workspace = true, features = ["codec", "time", "io"] }
 tokio-stream = { workspace = true }
 parking_lot = { workspace = true }
+
+# io_uring backend deps live only on Linux (the io-uring crate does not build elsewhere). Optional and
+# gated behind the `io-uring` feature, so a default build pulls in neither.
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 tokio_wasm = { package = "tokio", version = "=1.36.0", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = [

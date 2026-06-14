@@ -20,6 +20,8 @@ multi-threaded = ["citadel_proto/multi-threaded"]
 sql = ["citadel_proto/sql"]
 redis = ["citadel_proto/redis"]
 webrtc = ["citadel_proto/webrtc"]
+# Linux-only io_uring inbound UDP backend (no-op on other targets); see citadel_proto's feature.
+io-uring = ["citadel_proto/io-uring"]
 
 std = ["citadel_proto/std"]
 wasm-threads = ["citadel_proto/wasm-threads"]
