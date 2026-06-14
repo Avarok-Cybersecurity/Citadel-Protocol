@@ -122,6 +122,44 @@ Phase 1) · **nonce SHA3→BLAKE3** (Phase 3, wire-breaking, proto v9→v10, 4 n
 stream window 8 MiB + send 16 MiB + UDP buffers** (Phase 2, 7/7 P2P-over-QUIC stress pass). See git
 log on `perf/optimization-sweep`.
 
+## Follow-up sweep (`perf/sweep-followups`) — the four deferred items, revisited
+**Landed:**
+- **Multi-session contention bench** (`citadel_sdk/benches/multi_session_throughput.rs`): N concurrent
+  C2S sessions → aggregate msgs/sec + per-session scaling efficiency. Local sample (laptop, CPU/
+  loopback-confounded): eff 1.00→0.42(4)→0.14(16) — a real shared bottleneck; clean attribution
+  needs a many-core CI runner + profiling.
+- **Atomic ordering**: `session_queue_handler.rs` periodic-ticket counter `SeqCst → Relaxed` (counter
+  only mints unique IDs; no happens-before needed). Cheaper fence on aarch64/ARM.
+
+**Multiversioning — CONCLUSIVELY no target (no code).** Verified in `scramble_encrypt_wave`
+(crypt_splitter.rs): the "scramble" is AEAD-encrypt (AES-NI/ARMv8, already dispatched) + zero-copy
+ref-counted slicing + scalar port mapping + a packet-*order* shuffle. The data-parallel work is AEAD
+and memcpy, both already SIMD. `#[multiversion]` anywhere here = bloat with no measured win.
+
+**StateContainer split — warranted but a dedicated refactor.** Confirmed real intra-session
+contention: `execute_inbound_stream` processes packets with `try_for_each_concurrent(None, …)`
+(unbounded concurrency), so a single busy session's packet processors all serialize on its one
+`StateContainer` write lock. BUT the hot collection (`active_virtual_connections`) is co-accessed
+atomically with `stale_p2p_ratchets` + `peer_kem_states` in `create_virtual_connection` (the
+simultaneous-connect tie-break), so splitting it needs CAS/coarse-guard preservation, not a naive
+DashMap swap. Roadmap: (1) profile lock-wait on a many-core box with the new bench to confirm the
+win; (2) first try converting hot read-only `inner_mut!`→`inner!` accesses (compiler-verified safe,
+lets concurrent readers proceed) before splitting; (3) split per-collection with NAT+stress green
+between steps.
+
+**Bounded outbound channels — wire channel must stay unbounded.** Re-confirmed: 74 `unbounded_send`
+sites, many in the session task that also drains via `select!` → bounded `send().await` deadlocks.
+The existing burst(32)+`yield_now` is the correct anti-starvation design. The safe OOM-under-
+adversarial-load path is a producer-admission soft-cap (atomic queue-depth counter on
+`OutboundPrimaryStreamSender`; the file-transfer wave producer — a separate task — pauses when
+congested), NOT making the wire channel blocking. Scoped for dedicated flow-control work.
+
+**io_uring — Linux-only, dedicated effort.** Boundary mapped (citadel_io re-exports tokio at
+lib.rs ~94-111; sockets via `from_std` in socket_helpers). A transparent backend needs a
+completion↔readiness shim (tokio-uring runtime swap or an `io-uring`-crate socket type) with epoll
+fallback; it can't be built/run on this darwin host and a non-functional feature stub is pure churn.
+Best done in a Linux dev/CI loop.
+
 ## Investigated and deliberately NOT landed (concrete blockers, not conservatism)
 These were each researched to file:line; each has a real blocker that makes a blind, locally-
 unvalidatable change unsafe on the just-stabilized datapath. Recorded so they can be done properly.
