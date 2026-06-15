@@ -63,6 +63,33 @@ hardware AES). Three findings reframe everything:
   vconn) for zero benefit. Not implemented — fails the "must win on the metric that isolates it" gate
   a priori.
 
+### PFS pipelining — the 17× cliff is CLOSED (headline win)
+
+`SecrecyMode::Perfect` was reworked from a per-message ML-KEM rekey (RTT-bound, head-of-line blocked)
+to a **forward-secure symmetric ratchet chain** (Signal-style sending/receiving chain): every message
+still gets a unique, forward-secure key MK_i, but from a *local* KDF — no per-message round-trip. The
+ML-KEM rekey is demoted to opportunistic (post-compromise healing). Forward secrecy is preserved (the
+chain key is one-way + zeroized per step); only the post-compromise *cadence* relaxes. See
+`docs/pfs-symmetric-ratchet-design.md` and the `feat(...PFS Step 1/2/3)` commits.
+
+Macro bench (this laptop, 4 KiB msgs, 4000 msgs — indicative; AES-GCM-256):
+
+| config | before (per-msg KEM) | after (pipelined chain) | delta |
+|---|---|---|---|
+| Perfect msgs/s | ~1,325 (DGX: 762) | **23,444** | **~17.7×** |
+| Perfect p50 | 1136 µs | **814 µs** | −28% |
+| BestEffort msgs/s (control) | 28,110 | 28,110 | unchanged |
+
+Perfect now runs at **~83% of BestEffort throughput** (was ~5%). The cliff is gone. BestEffort is
+byte-unchanged (fixed-key path untouched). MlKemHybrid falls back to its native per-message-asymmetric
+path (the symmetric chain doesn't apply). Wire/bank-breaking → PROTOCOL_VERSION 10→11.
+
+Validation: c2s+p2p messaging both modes × AES/ChaCha/Ascon, reconnection, rekey, stress-reconnect
+(17/17); crypto-layer FS/out-of-order/replay/wrong-direction unit tests; AES Perfect confirmed to
+exercise the chain (2040 protect hits in one c2s run). **Independent security review still required
+before this is default-blessed** (the design mandates it; FS argument + KDF + cadence + DoS bound).
+DGX re-measure on the 20-core host is the next step for a clean throughput number.
+
 ## Benchmarking environment caveat (READ FIRST)
 
 Local dev box is **Apple Silicon (aarch64) laptop** — thermally constrained. Back-to-back heavy

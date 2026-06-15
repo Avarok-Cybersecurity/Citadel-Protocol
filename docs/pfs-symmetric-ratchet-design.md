@@ -210,13 +210,25 @@ round-trip, out-of-order-within-window, replay rejection, per-message key unique
 distinct ciphertext), wrong-direction rejection. Fixed-key path byte-unchanged; serialize round-trip +
 nonce tests still green. The crypto datapath of pipelined PFS is now complete + verified in isolation.
 
-**Remaining (Step 3, focused follow-up + mandatory security review before default-on):** route the
-pipelined protect/validate at the proto packet-crafter/processor sites only when the session mode is
-`PerfectPipelined` (carry the bool from `SecrecyMode` to the bank/ratchet, §5c-6); add the cadence knob
-(`N≈8`/`T≈250ms`, §7-1) to `SessionSecuritySettings` + the periodic-rekey trigger + the pipelined
-(non-head-of-line-blocked) send arm in `messaging.rs`/`ratchet_manager.rs`; enforce the rekey-on-restore
-invariant (§5c-7); bump `PROTOCOL_VERSION`; e2e c2s+p2p strict-ordering + reconnection tests in both
-modes; DGX bench (target ≥8–10× of 762/s); then the §6 security review.
+**Step 3 — LANDED** (`feat(proto): make SecrecyMode::Perfect pipelined end-to-end`). Maintainer
+decision: the enum stays two-variant `{BestEffort, Perfect}` — `Perfect` now *means* pipelined (no
+separate `PerfectPipelined`). Routing flag lives on `EntropyBank` (`pipelined`, serde(default));
+`protect_packet`/`validate_packet_in_place_split` self-route, so the ~35 craft sites + validation are
+untouched. Flag rides `ConstructorOpts` (`set_pipelined_all`), applied at every initial KEX from
+`SecrecyMode::is_pipelined()` — c2s server-Bob (`validation.rs`, where banks are created + serialized to
+Alice), c2s/p2p Alice (`session.rs`, `peer_cmd_packet.rs`), p2p Bob; rekeys propagate via
+`get_next_constructor_opts`. Messaging `Perfect` arm now reuses BestEffort's pipelined send (FS from the
+chain, post-compromise from opportunistic KEM rekey) — no new cadence state machine (the §7-1 N/T knob
+is deferred; opportunistic rekey is the v1 cadence). MlKemHybrid forced fixed-key (§5a fallback).
+`PROTOCOL_VERSION` 10→11.
+
+**Measured (macro bench, AES-GCM, this laptop):** Perfect 1,325 → **23,444 msgs/s (~17.7×)**, p50
+1136→814 µs, now ~83% of BestEffort; BestEffort unchanged. The cliff is closed.
+
+**Still open:** the §6 **independent security review (REQUIRED before default-blessed)**; the
+rekey-on-restore invariant (§5c-7) is documented (chains are serde-skip) but not yet *enforced* by a
+restore-path rekey; `MonoRatchet` doesn't propagate the flag (StackedRatchet is the message ratchet);
+the explicit N/T cadence knob (§7-1); DGX 20-core re-measure for a clean number.
 
 ## 5. Integration points (no code yet — for scoping)
 
