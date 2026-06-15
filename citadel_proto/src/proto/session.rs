@@ -1080,8 +1080,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             }
         };
 
+        // Bound inbound concurrency. The inbound reader and the outbound writer share one task via the
+        // `select!` in `load_session`; with `None` (unbounded) a saturated inbound stream keeps pulling
+        // packets and never yields the task, starving the writer (ACK/WAVE_ACK flush, OUTBOUND_FLUSH_BURST
+        // = 32). A finite cap makes `try_for_each_concurrent` go Pending once it's full, giving the
+        // writer branch a turn. Ordering is enforced downstream by `OrderedChannel`, so a cap is safe.
+        // 64 (2x the flush burst) keeps inbound parallelism while bounding writer starvation. (Tunable —
+        // sweep on the bidirectional macro bench.)
+        const INBOUND_CONCURRENCY_LIMIT: usize = 64;
         let res = reader
-            .try_for_each_concurrent(None, |mut packet| async move {
+            .try_for_each_concurrent(Some(INBOUND_CONCURRENCY_LIMIT), |mut packet| async move {
                 log::trace!(
                     "RECV Raw packet (header only | is_server: {is_server}): {:?} | Len: {}",
                     &packet.as_bytes()[..HDP_HEADER_BYTE_LEN.min(packet.len())],
@@ -1108,6 +1116,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid);
                 if res.is_err() {
                     // TODO: remove this waiting logic for better code. Wait for any outgoing packets to get flushed
+                    // (A deterministic flush-barrier replacement was tried but broke c2s reconnection —
+                    // a flush() erroring on a closing socket changed the session exit reason; needs
+                    // careful teardown-semantics work. See bench/RESULTS.md "A1".)
                     citadel_io::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
 

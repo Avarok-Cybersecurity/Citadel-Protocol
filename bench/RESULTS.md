@@ -28,6 +28,23 @@ hardware AES). Three findings reframe everything:
    loopback round-trip is all per-message software overhead** (not network) — the target for the
    latency wins (A1/A3/B6) + a single-stream flamegraph.
 
+### Phase-A latency wins — outcomes
+- **A3 (landed):** bound the inbound `try_for_each_concurrent(None,…)` to `Some(64)` (session.rs). The
+  inbound reader + outbound writer share one `select!` task; unbounded inbound starves the writer
+  (ACK/WAVE_ACK, OUTBOUND_FLUSH_BURST=32). A finite cap makes the reader go `Pending` when full, giving
+  the writer a turn; ordering is enforced downstream by `OrderedChannel` so a cap is safe. (Correction:
+  the "drop per-packet Arc clone" sub-item was a non-issue — `this_main` is already a `&` reference.)
+- **A1 (attempted, REVERTED):** replacing the blind 100ms terminating-error sleep (session.rs:1111) with
+  a deterministic flush-barrier (a `Flush(oneshot)` `OutboundPacket` the writer drains+acks) **broke
+  `test_c2s_reconnection`**. Root cause: a `flush()` that errors on a closing socket made the writer's
+  `select!` branch exit with that error, changing the session exit reason. Reverted; needs careful
+  teardown-semantics work (best-effort flush that never changes the exit reason) — not a "safe" win yet.
+- **B6 (SKIPPED — unsafe):** a lock-free in-order fast path for `OrderedChannel` is incorrect under
+  concurrent delivery. `on_packet_received` can run concurrently for one channel (inbound
+  `try_for_each_concurrent`), and a CAS-claim-then-`sink.send` fast path lets two in-order sends race →
+  reordering. The `Mutex` is load-bearing (it serializes the send with the index advance; the reorder
+  map keeps order regardless of lock-acquisition order). Eliding it is unsafe; keeping it costs ~15ns.
+
 ## Benchmarking environment caveat (READ FIRST)
 
 Local dev box is **Apple Silicon (aarch64) laptop** — thermally constrained. Back-to-back heavy
