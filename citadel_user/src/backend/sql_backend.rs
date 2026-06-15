@@ -932,10 +932,9 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     async fn generate_conn(&self) -> Result<AnyPool, AccountError> {
         let opts: AnyPoolOptions = (&self.opts).into();
         log::trace!(target: "citadel", "Generating new connection ...");
-        Ok(opts
-            .connect(&self.url)
+        opts.connect(&self.url)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?)
+            .map_err(|e| AccountError::generic(e.to_string()))
     }
 
     fn row_to_cnac(
