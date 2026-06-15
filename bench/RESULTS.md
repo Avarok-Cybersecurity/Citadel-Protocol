@@ -44,6 +44,24 @@ hardware AES). Three findings reframe everything:
   `try_for_each_concurrent`), and a CAS-claim-then-`sink.send` fast path lets two in-order sends race →
   reordering. The `Mutex` is load-bearing (it serializes the send with the index advance; the reorder
   map keeps order regardless of lock-acquisition order). Eliding it is unsafe; keeping it costs ~15ns.
+- **A4 (landed):** de-dup the per-packet header parse in `process_primary_packet`'s tracing span
+  (`primary_group_packet.rs`). The `tracing::instrument` `fields(src = packet.parse()…, target =
+  packet.parse()…)` ran the zerocopy `parse()` **twice** at span entry, and the body parses the header a
+  third time — all under `localhost-testing` (the feature every bench runs with), inflating the dev-box
+  numbers the whole plan is gated on. Fix: declare `src`/`target` as `tracing::field::Empty` (keeping
+  `ret`/`err`) and `Span::record` them once from the header the body already parses → 3 parses → 1.
+  Release path (feature off) is unchanged (DCE'd). Validated: c2s messaging stress passes; both feature
+  states compile clean.
+- **B7 (SKIPPED — premise invalid):** the plan flagged the rekey worker's O(n) scan of
+  `active_virtual_connections` (session.rs:1209) as "meaningful at 40+ peers" and proposed a derived
+  initiator-P2P index maintained at insert/remove. But **every** rekey frequency
+  (`REKEY_UPDATE_FREQUENCY_{STANDARD..EXTREME}`) is **480 s**, and `DRILL_REKEY_WORKER` is the only
+  trigger — so the scan runs once per 8 minutes per session. An O(n) HashMap filter over even hundreds of
+  vconns, amortized over 480 000 ms, is unmeasurable; the lock is held for microseconds every 8 min.
+  Against that, a parallel index mutated at 4 removal sites across 4 files (session_manager,
+  peer_cmd_packet, p2p_conn_handler, wasm_p2p) is real SSOT/desync risk (a missed site → rekey on a dead
+  vconn) for zero benefit. Not implemented — fails the "must win on the metric that isolates it" gate
+  a priori.
 
 ## Benchmarking environment caveat (READ FIRST)
 

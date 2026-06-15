@@ -53,14 +53,15 @@ use std::ops::Deref;
 /// `proxy_cid_info`: is None if the packets were not proxied, and will thus use the session's pqcrypto to authenticate the data.
 /// If `proxy_cid_info` is Some, then a tuple of the original implicated cid (peer cid) and the original target cid (this cid)
 /// will be provided. In this case, we must use the virtual conn's crypto
+// `src`/`target` are declared `Empty` and recorded once (below) from the header the body already
+// parses, rather than re-parsing the packet per field — the zerocopy `parse()` ran 3x otherwise.
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
     level = "trace",
     target = "citadel",
     skip_all,
     ret,
     err,
-    fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
-    )
+    fields(is_server = session_ref.is_server, src = tracing::field::Empty, target = tracing::field::Empty)
 ))]
 pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
     session_ref: &CitadelSession<R, T>,
@@ -101,6 +102,12 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
     let header_bytes = &header[..];
     let header = return_if_none!(Ref::new(header_bytes), "Unable to load header [PGP]")
         as Ref<&[u8], HdpHeader>;
+    #[cfg(feature = "localhost-testing")]
+    {
+        let span = tracing::Span::current();
+        span.record("src", header.session_cid.get());
+        span.record("target", header.target_cid.get());
+    }
     let ratchet = return_if_none!(
         get_orientation_safe_ratchet(
             header.entropy_bank_version.get(),
