@@ -245,13 +245,20 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                         "Unable to get resp_target_cid [PGP]"
                                     );
 
-                                    // the below will return None if not ready to accept
-                                    let initial_wave_window = state_container
+                                    // Err => not ready to accept (logged with cause); the ack then
+                                    // carries a None window and no group-timeout device is registered.
+                                    let initial_wave_window = match state_container
                                         .on_group_header_received(
                                             &header,
                                             group_receiver_config,
                                             virtual_target,
-                                        );
+                                        ) {
+                                        Ok(window) => Some(window),
+                                        Err(err) => {
+                                            log::warn!(target: "citadel", "Group HEADER not accepted: {err}");
+                                            None
+                                        }
+                                    };
                                     if initial_wave_window.is_some() {
                                         // register group timeout device
                                         //std::mem::drop(state_container);

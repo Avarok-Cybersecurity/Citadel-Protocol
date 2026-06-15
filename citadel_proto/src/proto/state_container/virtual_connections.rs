@@ -137,7 +137,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         sess: &CitadelSession<R, T>,
         file_transfer_compatible: bool,
         p2p_connection_id: Ticket,
-    ) -> Option<PeerChannel<R>> {
+    ) -> Result<PeerChannel<R>, NetworkError> {
         let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) = unbounded();
         let (tx_to_outbound, rx_for_outbound) =
             crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS); // Put backpressure on requests
@@ -304,10 +304,12 @@ impl<R: Ratchet> StateContainerInner<R> {
                 log::info!(target: "citadel",
                     "Active vconn for peer {target_cid} already exists (simultaneous connect race), \
                      dropping duplicate Kex result");
-                // Return None so callers skip PeerChannelCreated and hole punch.
-                // The new vconn drops here. Its Drop calls ratchet_manager.shutdown(),
-                // which is safe — the new ratchet_manager was never connected to any stream.
-                return None;
+                // Err so callers skip PeerChannelCreated and hole punch (they treat this as a
+                // benign "duplicate suppressed", not a session failure). The new vconn drops here;
+                // its Drop calls ratchet_manager.shutdown(), safe — it was never connected to a stream.
+                return Err(NetworkError::msg(format!(
+                    "Active vconn for peer {target_cid} already exists (simultaneous connect race); duplicate Kex result dropped"
+                )));
             }
         }
 
@@ -317,7 +319,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         self.active_virtual_connections.insert(target_cid, vconn);
 
-        Some(peer_channel)
+        Ok(peer_channel)
     }
 
     /// Note: the `endpoint_crypto` container needs to be Some in order for transfer to occur between peers w/o encryption/decryption at the center point

@@ -12,7 +12,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         header: &Ref<&[u8], HdpHeader>,
         group_receiver_config: GroupReceiverConfig,
         virtual_target: VirtualTargetType,
-    ) -> Option<RangeInclusive<u32>> {
+    ) -> Result<RangeInclusive<u32>, NetworkError> {
         log::trace!(target: "citadel", "GRC config: {group_receiver_config:?}");
         let object_id = group_receiver_config.object_id;
         let group_id = header.group.get();
@@ -27,7 +27,13 @@ impl<R: Ratchet> StateContainerInner<R> {
                 INDIVIDUAL_WAVE_TIMEOUT_MS,
                 GROUP_TIMEOUT_MS,
             );
-            let security_level = SecurityLevel::for_value(header.security_level as usize)?;
+            let security_level = SecurityLevel::for_value(header.security_level as usize)
+                .ok_or_else(|| {
+                    NetworkError::msg(format!(
+                        "Invalid security level {} in group header",
+                        header.security_level
+                    ))
+                })?;
             let mut receiver_container = GroupReceiverContainer::new(
                 object_id,
                 receiver,
@@ -42,8 +48,9 @@ impl<R: Ratchet> StateContainerInner<R> {
                 if let Some(inbound_file_transfer) = self.inbound_files.get(&file_key) {
                     inbound_file_transfer.last_group_window_len
                 } else {
-                    log::error!(target: "citadel", "The GROUP HEADER implied the existence of a file transfer, but the key {:?} does not map to anything", &file_key);
-                    return None;
+                    return Err(NetworkError::msg(format!(
+                        "The GROUP HEADER implied a file transfer, but key {file_key:?} maps to nothing"
+                    )));
                 }
             } else {
                 0
@@ -65,10 +72,11 @@ impl<R: Ratchet> StateContainerInner<R> {
             };
 
             e.insert(receiver_container);
-            Some(wave_window)
+            Ok(wave_window)
         } else {
-            log::error!(target: "citadel", "Duplicate group HEADER detected ({group_id})");
-            None
+            Err(NetworkError::msg(format!(
+                "Duplicate group HEADER detected ({group_id})"
+            )))
         }
     }
 
