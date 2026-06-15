@@ -84,12 +84,9 @@ pub use wasm::rng::{WasmRng as ThreadRng, *};
 pub use rand::Rng;
 pub use rand::RngCore;
 
-/// Represents errors that can occur during I/O operations
-#[derive(Debug)]
-pub enum Error {
-    /// Wraps a standard I/O error
-    IoError(std::io::Error),
-}
+/// The workspace-wide canonical error type. See [`error::NetworkError`].
+pub mod error;
+pub use error::{ErrorCode, NetworkError};
 
 pub mod time;
 
