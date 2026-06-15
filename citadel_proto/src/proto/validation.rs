@@ -273,17 +273,11 @@ pub(crate) mod pre_connect {
         let _ = static_auxiliary_ratchet
             .verify_level(Some(transfer.session_security_settings.security_level))
             .map_err(|err| NetworkError::Generic(err.into_string()))?;
-        // Server-side (Bob) c2s connect: Bob creates + serializes the session message banks, so the
-        // pipelined-PFS flag (from the client's negotiated mode) MUST be applied here — this is where
-        // the flag enters the session ratchet and propagates to Alice with the serialized bank.
-        let opts = citadel_crypt::prelude::set_pipelined_all(
-            static_auxiliary_ratchet
-                .get_next_constructor_opts()
-                .into_iter()
-                .take((transfer.session_security_settings.security_level.value() + 1) as usize)
-                .collect(),
-            session_security_settings.secrecy_mode.is_pipelined(),
-        );
+        let opts = static_auxiliary_ratchet
+            .get_next_constructor_opts()
+            .into_iter()
+            .take((transfer.session_security_settings.security_level.value() + 1) as usize)
+            .collect();
         //let opts = ConstructorOpts::new_vec_init(Some(transfer.transfer.params), (transfer.transfer.security_level.value() + 1) as usize).into_i;
         let mut bob_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
             header.session_cid.get(),

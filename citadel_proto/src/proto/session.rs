@@ -91,7 +91,7 @@ use crate::proto::transfer_stats::TransferStats;
 use bytemuck::NoUninit;
 use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use citadel_crypt::messaging::MessengerLayerOrderedMessage;
-use citadel_crypt::prelude::{set_pipelined_all, ConstructorOpts};
+use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::scramble::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
 use citadel_io::time::{SystemTime, UNIX_EPOCH};
@@ -680,12 +680,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 // we supply 0,0 for cid and new entropy_bank vers by default, even though it will be reset by bob
                 let alice_constructor =
                     <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
-                        set_pipelined_all(
-                            ConstructorOpts::new_vec_init(
-                                Some(session_security_settings.crypto_params),
-                                session_security_settings.security_level,
-                            ),
-                            session_security_settings.secrecy_mode.is_pipelined(),
+                        ConstructorOpts::new_vec_init(
+                            Some(session_security_settings.crypto_params),
+                            session_security_settings.security_level,
                         ),
                         proposed_cid,
                         0,
@@ -763,14 +760,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let static_aux_hr = &cnac.refresh_static_ratchet();
         // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
         let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|_| NetworkError::InvalidRequest("The specified security setting for the session exceeds the registration security setting"))?;
-        let opts = set_pipelined_all(
-            static_aux_hr
-                .get_next_constructor_opts()
-                .into_iter()
-                .take((session_security_settings.security_level.value() + 1) as usize)
-                .collect(),
-            session_security_settings.secrecy_mode.is_pipelined(),
-        );
+        let opts = static_aux_hr
+            .get_next_constructor_opts()
+            .into_iter()
+            .take((session_security_settings.security_level.value() + 1) as usize)
+            .collect();
         let alice_constructor =
             <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(opts, cnac.get_cid(), 0)
                 .ok_or(NetworkError::InternalError(

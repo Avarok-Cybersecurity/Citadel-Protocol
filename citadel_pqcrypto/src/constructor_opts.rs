@@ -52,10 +52,6 @@ use serde::{Deserialize, Serialize};
 pub struct ConstructorOpts {
     pub cryptography: Option<CryptoParameters>,
     pub chain: Option<RecursiveChain>,
-    /// Whether the resulting ratchet's message entropy banks should use the pipelined-PFS path
-    /// (forward-secure symmetric chain per message). Derived from `SecrecyMode::Perfect` at the
-    /// initial KEX and propagated across rekeys. Both endpoints set it identically.
-    pub pipelined: bool,
 }
 
 pub trait ImpliedSecurityLevel {
@@ -82,7 +78,6 @@ impl ConstructorOpts {
         Self {
             cryptography: cryptography.map(|r| r.into()),
             chain: None,
-            pipelined: false,
         }
     }
 
@@ -103,22 +98,8 @@ impl ConstructorOpts {
         Self {
             cryptography: cryptography.map(|r| r.into()),
             chain: Some(previous_shared_secret),
-            pipelined: false,
         }
     }
-
-    /// Builder setter for the pipelined-PFS flag (see [`Self::pipelined`]).
-    pub fn with_pipelined(mut self, pipelined: bool) -> Self {
-        self.pipelined = pipelined;
-        self
-    }
-}
-
-/// Sets the pipelined-PFS flag on every option in a constructor-opts vector (one per security layer).
-pub fn set_pipelined_all(opts: Vec<ConstructorOpts>, pipelined: bool) -> Vec<ConstructorOpts> {
-    opts.into_iter()
-        .map(|o| o.with_pipelined(pipelined))
-        .collect()
 }
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -423,23 +423,13 @@ pub enum SecrecyMode {
     /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
     #[default]
     BestEffort,
-    /// Forward-secret: every message is encrypted with a unique, forward-secure key derived from a
-    /// local symmetric KDF chain (a Signal-style sending/receiving chain) — no per-message network
-    /// round-trip. Post-compromise healing is provided by a periodic ML-KEM rekey (cadence
-    /// configurable). This preserves forward secrecy while letting the send path pipeline like
-    /// [`Self::BestEffort`] (no head-of-line blocking). See `docs/pfs-symmetric-ratchet-design.md`.
+    /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key
     Perfect,
 }
 
 impl SecrecyMode {
     pub fn variants() -> Vec<String> {
         Self::VARIANTS.iter().map(|s| s.to_string()).collect()
-    }
-
-    /// Whether this mode uses the pipelined forward-secure symmetric chain (per-message key) for the
-    /// message datapath. SSOT for the "`Perfect` ⇒ chain" routing decision used at ratchet construction.
-    pub fn is_pipelined(&self) -> bool {
-        matches!(self, SecrecyMode::Perfect)
     }
 }
 

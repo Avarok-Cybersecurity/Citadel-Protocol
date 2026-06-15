@@ -82,9 +82,6 @@ pub mod replay_attack_container;
 /// For abstracting-away the use of aead
 pub mod encryption;
 
-/// Per-message AEAD keying (fresh cipher from a chain-derived key) for pipelined PFS.
-pub mod per_message_aead;
-
 pub mod constructor_opts;
 
 pub mod wire;
@@ -748,91 +745,6 @@ impl PostQuantumContainer {
         }
     }
 
-    /// The local node's role (Alice/Bob) in this exchange. Used by the pipelined-PFS path to pick the
-    /// direction-labeled symmetric chain so that one node's send chain equals the peer's recv chain.
-    pub fn node(&self) -> PQNode {
-        self.node
-    }
-
-    /// Pipelined-PFS variant of [`Self::protect_packet_in_place`]: the anti-replay PID + header-AAD +
-    /// `InPlaceBuffer` layout are identical, but the AEAD is keyed by the caller-supplied per-message
-    /// key `mk` (`MK_i` from the symmetric ratchet chain) instead of the fixed per-version module key.
-    /// Only the key source differs — the protected bytes are self-consistent with
-    /// [`Self::validate_packet_in_place_with_key`]. See `docs/pfs-symmetric-ratchet-design.md` §5c.
-    pub fn protect_packet_in_place_with_key<T: EzBuffer>(
-        &self,
-        header_len: usize,
-        full_packet: &mut T,
-        nonce: &[u8],
-        mk: &[u8],
-    ) -> Result<(), Error> {
-        let mut payload = full_packet.split_off(header_len);
-        let header = full_packet;
-
-        // Mirror protect_packet_in_place: push the ARA-generated PID inside the AEAD.
-        payload.put_u64(self.anti_replay_attack.get_next_pid());
-        let payload_len = payload.len();
-
-        let mut in_place_payload = InPlaceBuffer::new(&mut payload, 0..payload_len)
-            .ok_or(Error::Generic("Bad window range"))?;
-        crate::per_message_aead::seal_in_place_with_key(
-            self.params.encryption_algorithm,
-            mk,
-            nonce,
-            header.subset(0..header_len),
-            &mut in_place_payload,
-        )?;
-        header.unsplit(payload);
-        Ok(())
-    }
-
-    /// Pipelined-PFS counterpart to [`Self::validate_packet_in_place`] / the inverse of
-    /// [`Self::protect_packet_in_place_with_key`]: opens under the per-message key `mk`, then performs
-    /// the identical anti-replay PID check and strips it. See `docs/pfs-symmetric-ratchet-design.md` §5c.
-    pub fn validate_packet_in_place_with_key<T: EzBuffer, H: AsRef<[u8]>>(
-        &self,
-        header: H,
-        payload: &mut T,
-        nonce: &[u8],
-        mk: &[u8],
-    ) -> Result<(), Error> {
-        let header = header.as_ref();
-        let payload_len = payload.len();
-
-        {
-            let mut in_place_payload = InPlaceBuffer::new(payload, 0..payload_len)
-                .ok_or(Error::Generic("Bad window range"))?;
-            crate::per_message_aead::open_in_place_with_key(
-                self.params.encryption_algorithm,
-                mk,
-                nonce,
-                header,
-                &mut in_place_payload,
-            )?;
-        }
-
-        // Mirror validate_packet_in_place: verify + strip the trailing 8-byte anti-replay PID.
-        let end_idx = payload.len();
-        let start_idx = end_idx.saturating_sub(8);
-        if end_idx - start_idx == 8 {
-            let mut array: [u8; 8] = Default::default();
-            array.copy_from_slice(payload.subset(start_idx..end_idx));
-            if self
-                .anti_replay_attack
-                .on_pid_received(u64::from_be_bytes(array))
-            {
-                payload.truncate(start_idx);
-                Ok(())
-            } else {
-                Err(Error::Generic("Anti-replay-attack: invalid"))
-            }
-        } else {
-            Err(Error::Generic(
-                "Anti-replay-attack: Invalid inscription length",
-            ))
-        }
-    }
-
     /// Raw in-place AEAD encrypt with NO header AAD and NO anti-replay PID — byte-for-byte
     /// compatible with the output of [`Self::encrypt`]. Encrypts the whole buffer in place and
     /// appends the authentication tag, avoiding the fresh `Vec` allocation `encrypt` performs.
@@ -1491,86 +1403,5 @@ mod in_place_aead_tests {
             &plaintext[..],
             "in-place-encrypt -> Vec-decrypt mismatch"
         );
-    }
-
-    // The pipelined-PFS with-key path: alice protects with a per-message key MK_i, bob opens with the
-    // same MK_i (the caller, not the container's directional module, supplies the key). The header is
-    // authenticated as AAD and the anti-replay PID is preserved. A distinct MK_i per message (as the
-    // symmetric chain produces) must round-trip across several messages.
-    #[test]
-    fn protect_validate_with_key_roundtrip() {
-        let (alice, bob) = keyed_pair();
-        let nonce = [0x5Au8; 32];
-        let header = b"pipelined-pfs-header-0123456789";
-
-        for i in 0u8..16 {
-            // Each message gets its own key, standing in for MK_i from the chain.
-            let mk = [i ^ 0x42u8; 32];
-            let plaintext = format!("pipelined PFS msg #{i}").into_bytes();
-
-            let mut packet = BytesMut::from(&header[..]);
-            packet.extend_from_slice(&plaintext);
-            alice
-                .protect_packet_in_place_with_key(header.len(), &mut packet, &nonce, &mk)
-                .unwrap();
-            assert_ne!(
-                &packet[header.len()..],
-                &plaintext[..],
-                "ciphertext must differ from plaintext"
-            );
-
-            let mut payload = packet.split_off(header.len());
-            let hdr = packet;
-            bob.validate_packet_in_place_with_key(&hdr[..], &mut payload, &nonce, &mk)
-                .unwrap();
-            assert_eq!(
-                &payload[..],
-                &plaintext[..],
-                "with-key round-trip failed at {i}"
-            );
-        }
-    }
-
-    #[test]
-    fn validate_with_wrong_key_fails() {
-        let (alice, bob) = keyed_pair();
-        let nonce = [0x11u8; 32];
-        let header = b"hdr";
-        let plaintext = b"secret".to_vec();
-
-        let mut packet = BytesMut::from(&header[..]);
-        packet.extend_from_slice(&plaintext);
-        alice
-            .protect_packet_in_place_with_key(header.len(), &mut packet, &nonce, &[1u8; 32])
-            .unwrap();
-
-        let mut payload = packet.split_off(header.len());
-        let hdr = packet;
-        // A different per-message key must not authenticate.
-        assert!(bob
-            .validate_packet_in_place_with_key(&hdr[..], &mut payload, &nonce, &[2u8; 32])
-            .is_err());
-    }
-
-    #[test]
-    fn validate_with_tampered_header_fails() {
-        let (alice, bob) = keyed_pair();
-        let nonce = [0x33u8; 32];
-        let mk = [0x77u8; 32];
-        let header = b"authentic-header";
-        let plaintext = b"payload".to_vec();
-
-        let mut packet = BytesMut::from(&header[..]);
-        packet.extend_from_slice(&plaintext);
-        alice
-            .protect_packet_in_place_with_key(header.len(), &mut packet, &nonce, &mk)
-            .unwrap();
-
-        let mut payload = packet.split_off(header.len());
-        // Header is AAD; tampering it must break authentication.
-        let tampered = b"tampered-headerX";
-        assert!(bob
-            .validate_packet_in_place_with_key(&tampered[..], &mut payload, &nonce, &mk)
-            .is_err());
     }
 }

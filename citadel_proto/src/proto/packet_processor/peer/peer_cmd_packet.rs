@@ -37,7 +37,7 @@ use bytes::BytesMut;
 
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
-use citadel_crypt::prelude::{set_pipelined_all, ConstructorOpts};
+use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
 use citadel_types::proto::UdpMode;
@@ -302,12 +302,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
 
                                         let alice_constructor = return_if_none!(
                                             <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
-                                                set_pipelined_all(
-                                                    ConstructorOpts::new_vec_init(
-                                                        Some(endpoint_security_settings.crypto_params),
-                                                        endpoint_security_settings.security_level
-                                                    ),
-                                                    endpoint_security_settings.secrecy_mode.is_pipelined(),
+                                                ConstructorOpts::new_vec_init(
+                                                    Some(endpoint_security_settings.crypto_params),
+                                                    endpoint_security_settings.security_level
                                                 ),
                                                 conn.get_original_target_cid(),
                                                 0,
@@ -464,14 +461,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     let mut bob_constructor = return_if_none!(
                                         <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                             conn.get_original_target_cid(),
-                                            set_pipelined_all(
-                                                ConstructorOpts::new_vec_init(
-                                                    Some(session_security_settings.crypto_params),
-                                                    session_security_settings.security_level,
-                                                ),
-                                                session_security_settings
-                                                    .secrecy_mode
-                                                    .is_pipelined(),
+                                            ConstructorOpts::new_vec_init(
+                                                Some(session_security_settings.crypto_params),
+                                                session_security_settings.security_level,
                                             ),
                                             transfer_deser,
                                             session_password.as_ref(),

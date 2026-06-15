@@ -242,23 +242,14 @@ where
             message: message.into(),
         };
 
-        // Both modes use the same pipelined send path (no head-of-line blocking): send the message
-        // immediately, opportunistically attaching it to a rekey when a constructor is ready. The
-        // modes differ ONLY in the entropy bank's routing: in `Perfect`, the banks are pipelined
-        // (`SecrecyMode::Perfect` → `EntropyBank::pipelined`), so every message gets a unique
-        // forward-secure key MK_i from the local symmetric chain — perfect forward secrecy without a
-        // per-message KEM round-trip. `BestEffort` reuses the per-version key between rekeys. The
-        // opportunistic KEM rekey provides post-compromise healing in both. See
-        // `docs/pfs-symmetric-ratchet-design.md`.
         match self.secrecy_mode {
-            SecrecyMode::BestEffort | SecrecyMode::Perfect => {
+            SecrecyMode::BestEffort => {
                 if let Some(message_not_sent) = self
                     .manager
                     .trigger_rekey_with_payload(Some(message), false)
                     .await?
                 {
-                    // No constructor ready (rekey in flight): send immediately on the current version.
-                    // Forward secrecy is preserved in `Perfect` by the per-message chain key.
+                    // Just send through channel
                     self.manager
                         .sender
                         .lock()
@@ -269,9 +260,26 @@ where
                             CryptError::FatalError("Ratchet Manager's outbound stream died".into())
                         })
                 } else {
-                    // The message attached to a simultaneous rekey (goes out on the new version).
+                    // Success; this message will trigger a simultaneous rekey
                     Ok(())
                 }
+            }
+
+            SecrecyMode::Perfect => {
+                // In Perfect mode, each message requires its own rekey for perfect forward secrecy.
+                // When a rekey is already in progress, queue the message to be sent later.
+                // The background task drains the queue after each rekey completes.
+                if let Some(message_not_sent) = self
+                    .manager
+                    .trigger_rekey_with_payload(Some(message), false)
+                    .await?
+                {
+                    // Constructor unavailable (rekey in progress), enqueue for later
+                    let mut lock = self.enqueued_messages.lock().await;
+                    lock.push_back(message_not_sent);
+                }
+                // Success: either message was sent with rekey, or it's enqueued
+                Ok(())
             }
         }
     }
