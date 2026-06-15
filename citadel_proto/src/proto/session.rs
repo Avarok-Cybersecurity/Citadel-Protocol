@@ -364,10 +364,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     HdpSessionInitMode::Connect(auth) => {
                         match auth {
                             AuthenticationRequest::Credentialed { .. } => {
-                                let cnac = client_init_settings
-                                    .cnac
-                                    .clone()
-                                    .ok_or(NetworkError::invalid_request("Client does not exist"))?;
+                                let cnac = client_init_settings.cnac.clone().ok_or(
+                                    NetworkError::invalid_request("Client does not exist"),
+                                )?;
                                 let cid = cnac.get_cid();
                                 (Some(cnac), SessionState::NeedsConnect, Some(cid))
                             }
@@ -668,9 +667,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     .connect_state
                     .proposed_credentials
                     .as_ref()
-                    .ok_or(NetworkError::internal(
-                        "Proposed credentials not loaded",
-                    ))?
+                    .ok_or(NetworkError::internal("Proposed credentials not loaded"))?
                     .username();
                 let proposed_cid = persistence_handler.get_cid_by_username(proposed_username);
                 let passwordless = state_container
@@ -687,18 +684,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         proposed_cid,
                         0,
                     )
-                    .ok_or(NetworkError::internal(
-                        "Unable to construct Alice ratchet",
-                    ))?;
+                    .ok_or(NetworkError::internal("Unable to construct Alice ratchet"))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 log::trace!(target: "citadel", "Running stage0 alice");
-                let transfer =
-                    alice_constructor
-                        .stage0_alice()
-                        .ok_or(NetworkError::internal(
-                            "Unable to construct AliceToBob transfer",
-                        ))?;
+                let transfer = alice_constructor
+                    .stage0_alice()
+                    .ok_or(NetworkError::internal(
+                        "Unable to construct AliceToBob transfer",
+                    ))?;
 
                 let stage0_register_packet = packet_crafter::do_register::craft_stage0::<R>(
                     session_security_settings.crypto_params.into(),
@@ -767,9 +761,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .collect();
         let alice_constructor =
             <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(opts, cnac.get_cid(), 0)
-                .ok_or(NetworkError::internal(
-                "Unable to construct Alice ratchet",
-            ))?;
+                .ok_or(NetworkError::internal("Unable to construct Alice ratchet"))?;
         let transfer = alice_constructor
             .stage0_alice()
             .ok_or(NetworkError::internal(

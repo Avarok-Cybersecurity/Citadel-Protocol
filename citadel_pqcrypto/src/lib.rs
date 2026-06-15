@@ -343,7 +343,8 @@ impl PostQuantumContainer {
 
         let chain = opts.chain;
 
-        let data = Self::create_new_bob(tx_params).map_err(|err| Error::generic(err.to_string()))?;
+        let data =
+            Self::create_new_bob(tx_params).map_err(|err| Error::generic(err.to_string()))?;
         // We must call the below to refresh the internal state to allow get_shared_secret to function
         let ss = data.get_shared_secret().unwrap().clone();
         let kex = data.kex().clone();

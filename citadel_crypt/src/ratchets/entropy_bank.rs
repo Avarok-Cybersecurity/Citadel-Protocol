@@ -48,11 +48,7 @@ pub type DrillEndian = BigEndian;
 
 impl EntropyBank {
     /// Creates a new entropy_bank
-    pub fn new(
-        cid: u64,
-        version: u32,
-        algorithm: EncryptionAlgorithm,
-    ) -> Result<Self, CryptError> {
+    pub fn new(cid: u64, version: u32, algorithm: EncryptionAlgorithm) -> Result<Self, CryptError> {
         Self::generate_random_array().map(|bytes| {
             let port_mappings = create_port_mapping();
             let transient_counter = Default::default();

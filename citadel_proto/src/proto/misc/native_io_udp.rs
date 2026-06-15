@@ -224,9 +224,9 @@ async fn udp_outbound_sender<R: Ratchet, S: futures::SinkExt<bytes::Bytes> + Unp
             )
         })?;
         log::trace!(target: "citadel", "About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
-        sink.send(packet.freeze()).await.map_err(|_| {
-            NetworkError::internal("UDP sink unable to receive outbound requests")
-        })?;
+        sink.send(packet.freeze())
+            .await
+            .map_err(|_| NetworkError::internal("UDP sink unable to receive outbound requests"))?;
     }
 
     log::trace!(target: "citadel", "Outbound wave sender ending");

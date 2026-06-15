@@ -150,8 +150,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let read = self.clients.read();
-        let cnac0 = read.get(&cid0).ok_or(AccountError::account_client_non_exists(cid0))?;
-        let cnac1 = read.get(&cid1).ok_or(AccountError::account_client_non_exists(cid0))?;
+        let cnac0 = read
+            .get(&cid0)
+            .ok_or(AccountError::account_client_non_exists(cid0))?;
+        let cnac1 = read
+            .get(&cid1)
+            .ok_or(AccountError::account_client_non_exists(cid0))?;
         cnac0.register_hyperlan_p2p_as_server(cnac1)
     }
 
@@ -172,8 +176,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let read = self.clients.read();
-        let cnac0 = read.get(&cid0).ok_or(AccountError::account_client_non_exists(cid0))?;
-        let cnac1 = read.get(&cid1).ok_or(AccountError::account_client_non_exists(cid0))?;
+        let cnac0 = read
+            .get(&cid0)
+            .ok_or(AccountError::account_client_non_exists(cid0))?;
+        let cnac1 = read
+            .get(&cid1)
+            .ok_or(AccountError::account_client_non_exists(cid0))?;
 
         cnac0.deregister_hyperlan_p2p_as_server(cnac1)
     }

@@ -141,7 +141,9 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
                 _pd: Default::default(),
             })
             .await
-            .map_err(|_| TrackedCallbackError::channel_send("tracked callback channel send failed"))?;
+            .map_err(|_| {
+                TrackedCallbackError::channel_send("tracked callback channel send failed")
+            })?;
 
         rx.await.map_err(|_| TrackedCallbackError::channel_recv())
     }
@@ -165,13 +167,9 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
         payload: TrackedCallbackChannelPayload<R, T>,
     ) -> Result<(), TrackedCallbackError> {
         let sender = {
-            self.inner
-                .map
-                .lock()
-                .remove(&payload.id)
-                .ok_or_else(|| {
-                    TrackedCallbackError::channel_internal("Mapping does not exist for id")
-                })?
+            self.inner.map.lock().remove(&payload.id).ok_or_else(|| {
+                TrackedCallbackError::channel_internal("Mapping does not exist for id")
+            })?
         };
 
         sender

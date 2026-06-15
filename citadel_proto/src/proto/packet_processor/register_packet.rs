@@ -213,9 +213,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             .map_err(|err| NetworkError::generic(err.to_string()))?;
                         alice_constructor
                             .finish()
-                            .ok_or(NetworkError::internal(
-                                "Unable to finish alice constructor",
-                            ))
+                            .ok_or(NetworkError::internal("Unable to finish alice constructor"))
                     })
                     .await
                     .map_err(|err| NetworkError::generic(format!("Join error: {err}")))??;

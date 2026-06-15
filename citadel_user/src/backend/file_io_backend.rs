@@ -502,9 +502,7 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
 fn validate_file_transfer_name(name: &str) -> Result<(), AccountError> {
     use std::path::Component;
     if name.is_empty() {
-        return Err(AccountError::io(
-            "File transfer target name is empty",
-        ));
+        return Err(AccountError::io("File transfer target name is empty"));
     }
     let safe = Path::new(name)
         .components()
@@ -527,9 +525,7 @@ async fn get_file_path(
     match transfer_type {
         TransferType::FileTransfer => {
             let name = target_name.ok_or_else(|| {
-                AccountError::io(
-                    "File transfer type specified, yet, no target name given",
-                )
+                AccountError::io("File transfer type specified, yet, no target name given")
             })?;
             // `name` is sender-supplied (VirtualObjectMetadata.name). Reject anything that is not a
             // relative path made solely of normal components, so it cannot escape the per-CID

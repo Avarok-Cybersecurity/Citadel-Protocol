@@ -318,12 +318,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         });
 
         let mut subscription = self.send_callback_subscription(connect_request).await?;
-        let status = subscription
-            .next()
-            .await
-            .ok_or(NetworkError::internal(
-                "Internal kernel stream died (connect)",
-            ))?;
+        let status = subscription.next().await.ok_or(NetworkError::internal(
+            "Internal kernel stream died (connect)",
+        ))?;
 
         return match status.into_result()? {
             NodeResult::ConnectSuccess(ConnectSuccess {
@@ -764,9 +761,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::internal(
-            "REVFS File transfer stream died",
-        ))
+        Err(NetworkError::internal("REVFS File transfer stream died"))
     }
 
     /// Deletes the file from the RE-VFS. If the contents are desired on delete,
@@ -1132,9 +1127,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::internal(
-            "Create_group ended unexpectedly",
-        ))
+        Err(NetworkError::internal("Create_group ended unexpectedly"))
     }
 
     /// Lists all groups that which the current peer owns
@@ -1165,9 +1158,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::internal(
-            "List_members ended unexpectedly",
-        ))
+        Err(NetworkError::internal("List_members ended unexpectedly"))
     }
 
     /// Lists all active sessions, including the local nat type. For each active session,
@@ -1181,9 +1172,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             return Ok(result.sessions);
         }
 
-        Err(NetworkError::internal(
-            "List_sessions ended unexpectedly",
-        ))
+        Err(NetworkError::internal("List_sessions ended unexpectedly"))
     }
 
     /// Begins a re-key, updating the container in the process.

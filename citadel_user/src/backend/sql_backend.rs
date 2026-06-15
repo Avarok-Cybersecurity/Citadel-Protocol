@@ -193,7 +193,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             SqlVariant::MySQL => {
                 let _ = conn
                     .execute("DROP TRIGGER IF EXISTS post_cid_delete")
-                    .await.map_err(|e| AccountError::generic(e.to_string()))?;
+                    .await
+                    .map_err(|e| AccountError::generic(e.to_string()))?;
 
                 "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid"
             }
@@ -201,7 +202,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             SqlVariant::Sqlite => {
                 let _ = conn
                     .execute("DROP TRIGGER IF EXISTS post_cid_delete")
-                    .await.map_err(|e| AccountError::generic(e.to_string()))?;
+                    .await
+                    .map_err(|e| AccountError::generic(e.to_string()))?;
 
                 "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; END"
             }
@@ -209,13 +211,18 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             SqlVariant::Postgre => {
                 let _ = conn
                     .execute("DROP TRIGGER IF EXISTS post_cid_delete ON cnacs")
-                    .await.map_err(|e| AccountError::generic(e.to_string()))?;
+                    .await
+                    .map_err(|e| AccountError::generic(e.to_string()))?;
                 let _ = conn
                     .execute("DROP FUNCTION IF EXISTS post_cid_delete")
-                    .await.map_err(|e| AccountError::generic(e.to_string()))?;
+                    .await
+                    .map_err(|e| AccountError::generic(e.to_string()))?;
 
                 let create_function = "CREATE OR REPLACE FUNCTION post_cid_delete() RETURNS TRIGGER LANGUAGE PLPGSQL AS $$ BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; RETURN NULL; END; $$";
-                let _ = conn.execute(create_function).await.map_err(|e| AccountError::generic(e.to_string()))?;
+                let _ = conn
+                    .execute(create_function)
+                    .await
+                    .map_err(|e| AccountError::generic(e.to_string()))?;
 
                 "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW EXECUTE PROCEDURE post_cid_delete()"
             }
@@ -224,7 +231,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         // TODO: Create trigger for byte_map
 
         let joined: String = [cmd, cmd2, cmd3, cmd4.to_string()].join(";");
-        let _result = conn.execute(&*joined).await.map_err(|e| AccountError::generic(e.to_string()))?;
+        let _result = conn
+            .execute(&*joined)
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         Ok(())
     }
@@ -293,7 +303,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query = self.format("SELECT bin FROM cnacs WHERE cid = ? LIMIT 1");
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, cid)
             .fetch_optional(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
         self.row_to_cnac(query)
     }
 
@@ -302,7 +313,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let quert = self.format("SELECT cid FROM cnacs WHERE cid = ? LIMIT 1");
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&quert), self, cid)
             .fetch_all(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
         Ok(query.len() == 1)
     }
 
@@ -311,7 +323,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query = self.format("DELETE FROM cnacs WHERE cid = ?");
         let query: AnyQueryResult = gen_query!(sqlx::query(&query), self, cid)
             .execute(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         if query.rows_affected() != 0 {
             Ok(())
@@ -322,9 +335,18 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn purge(&self) -> Result<usize, AccountError> {
         let conn = &(self.get_conn().await?);
-        let _query: AnyQueryResult = sqlx::query("DELETE FROM peers").execute(conn).await.map_err(|e| AccountError::generic(e.to_string()))?;
-        let _query: AnyQueryResult = sqlx::query("DELETE FROM bytemap").execute(conn).await.map_err(|e| AccountError::generic(e.to_string()))?;
-        let query: AnyQueryResult = sqlx::query("DELETE FROM cnacs").execute(conn).await.map_err(|e| AccountError::generic(e.to_string()))?;
+        let _query: AnyQueryResult = sqlx::query("DELETE FROM peers")
+            .execute(conn)
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
+        let _query: AnyQueryResult = sqlx::query("DELETE FROM bytemap")
+            .execute(conn)
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
+        let query: AnyQueryResult = sqlx::query("DELETE FROM cnacs")
+            .execute(conn)
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
         Ok(query.rows_affected() as usize)
     }
 
@@ -339,7 +361,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Vec<AnyRow> = sqlx::query(self.format(cmd).as_str())
             .bind(false as i32)
             .fetch_all(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
         let ret: Vec<u64> = query
             .into_iter()
             .filter_map(|r| try_get_cid_from_row(&r, "cid"))
@@ -357,7 +380,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query = self.format("SELECT username FROM cnacs WHERE cid = ? LIMIT 1");
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, cid)
             .fetch_optional(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         if let Some(row) = query {
             Ok(Some(try_get_blob_as_utf8("username", &row)?))
@@ -371,7 +395,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query = self.format("SELECT full_name FROM cnacs WHERE cid = ? LIMIT 1");
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, cid)
             .fetch_optional(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         if let Some(row) = query {
             Ok(Some(try_get_blob_as_utf8("full_name", &row)?))
@@ -396,7 +421,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             cid1
         )
         .execute(conn)
-        .await.map_err(|e| AccountError::generic(e.to_string()))?;
+        .await
+        .map_err(|e| AccountError::generic(e.to_string()))?;
 
         Ok(())
     }
@@ -414,7 +440,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let _query = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
             .bind(peer_username)
             .execute(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
         Ok(())
     }
 
@@ -426,7 +453,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         );
         let _query = gen_query!(sqlx::query(&query), self, cid0, cid1, cid1, cid0)
             .execute(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         Ok(())
     }
@@ -437,19 +465,26 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         peer_cid: u64,
     ) -> Result<Option<MutualPeer>, AccountError> {
         let conn = &(self.get_conn().await?);
-        let mut tx = conn.begin().await.map_err(|e| AccountError::generic(e.to_string()))?;
+        let mut tx = conn
+            .begin()
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
         let query = self.format("SELECT username FROM peers WHERE peer_cid = ? AND cid = ?");
         let row: Option<AnyRow> = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
             .fetch_optional(tx.deref_mut())
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         if let Some(row) = row {
             let peer_username = try_get_blob_as_utf8("username", &row)?;
             let query = self.format("DELETE FROM peers WHERE peer_cid = ? AND cid = ?");
             let _query = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
                 .execute(tx.deref_mut())
-                .await.map_err(|e| AccountError::generic(e.to_string()))?;
-            tx.commit().await.map_err(|e| AccountError::generic(e.to_string()))?;
+                .await
+                .map_err(|e| AccountError::generic(e.to_string()))?;
+            tx.commit()
+                .await
+                .map_err(|e| AccountError::generic(e.to_string()))?;
 
             Ok(Some(MutualPeer {
                 cid: peer_cid,
@@ -469,7 +504,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query = self.format("SELECT peer_cid FROM peers WHERE cid = ?");
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         let map = query
             .into_iter()
@@ -491,7 +527,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query = self.format("SELECT is_personal, username, full_name, creation_date FROM cnacs WHERE cid = ? LIMIT 1");
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_optional(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         if let Some(query) = query {
             let is_personal = self.get_bool(&query, "is_personal")?;
@@ -523,7 +560,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs".to_string()
         };
 
-        let query: Vec<AnyRow> = sqlx::query(query.as_str()).fetch_all(conn).await.map_err(|e| AccountError::generic(e.to_string()))?;
+        let query: Vec<AnyRow> = sqlx::query(query.as_str())
+            .fetch_all(conn)
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         Ok(query
             .into_iter()
@@ -559,7 +599,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             self.format("SELECT username FROM peers WHERE cid = ? AND peer_cid = ? LIMIT 1");
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid, peer_cid)
             .fetch_optional(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         if let Some(query) = query {
             match try_get_blob_as_utf8("username", &query) {
@@ -586,7 +627,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .format("SELECT COUNT(*) as count FROM peers WHERE peer_cid = ? AND cid = ? LIMIT 1");
         let query: AnyRow = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
             .fetch_one(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         Ok(query.try_get::<i64, _>("count").unwrap_or(-1) == 1)
     }
@@ -608,7 +650,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query = self.format(format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}"));
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         let results = query
             .into_iter()
@@ -635,7 +678,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query = self.format(format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid, peers.username FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}"));
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         Ok(query
             .into_iter()
@@ -659,7 +703,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query = self.format("SELECT peers.peer_cid, peers.username FROM cnacs INNER JOIN peers ON cnacs.cid = peers.cid WHERE peers.cid = ?");
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
         let mut ret = Vec::with_capacity(query.len());
 
         for row in query {
@@ -690,23 +735,30 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         if !peers.is_empty() {
             let conn = &(self.get_conn().await?);
 
-            let mut tx = conn.begin().await.map_err(|e| AccountError::generic(e.to_string()))?;
+            let mut tx = conn
+                .begin()
+                .await
+                .map_err(|e| AccountError::generic(e.to_string()))?;
             let session_cid = cnac.get_cid();
 
             let query = self.format("DELETE FROM peers WHERE cid = ?");
             let _query = gen_query!(sqlx::query(&query), self, session_cid)
                 .execute(tx.deref_mut())
-                .await.map_err(|e| AccountError::generic(e.to_string()))?;
+                .await
+                .map_err(|e| AccountError::generic(e.to_string()))?;
             for MutualPeer { cid, username, .. } in peers {
                 let query =
                     self.format("INSERT INTO peers (peer_cid, cid, username) VALUES(?, ?, ?)");
                 let _ = gen_query!(sqlx::query(&query), self, cid, session_cid)
                     .bind(username.unwrap_or_else(|| "NULL".into()))
                     .execute(tx.deref_mut())
-                    .await.map_err(|e| AccountError::generic(e.to_string()))?;
+                    .await
+                    .map_err(|e| AccountError::generic(e.to_string()))?;
             }
 
-            tx.commit().await.map_err(|e| AccountError::generic(e.to_string()))?;
+            tx.commit()
+                .await
+                .map_err(|e| AccountError::generic(e.to_string()))?;
         }
 
         Ok(())
@@ -725,7 +777,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(key)
             .bind(sub_key)
             .fetch_optional(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         if let Some(row) = row {
             match row.try_get::<Vec<u8>, _>("bin") {
@@ -758,7 +811,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                 .bind(key)
                 .bind(sub_key)
                 .execute(conn)
-                .await.map_err(|e| AccountError::generic(e.to_string()))?;
+                .await
+                .map_err(|e| AccountError::generic(e.to_string()))?;
 
             Ok(Some(value))
         } else {
@@ -783,14 +837,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(key)
             .bind(sub_key)
             .fetch_optional(&conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         let _query = gen_query!(sqlx::query(&set_query), self, session_cid, peer_cid)
             .bind(key)
             .bind(sub_key)
             .bind(value)
             .execute(&conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         if let Some(row) = row {
             match row.try_get::<Vec<u8>, _>("bin") {
@@ -815,12 +871,15 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let rows: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid, peer_cid)
             .bind(key)
             .fetch_all(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         let mut ret = HashMap::new();
         for row in rows {
             log::info!(target: "citadel", "Rows: {:?}", row.columns());
-            let bin = row.try_get::<Vec<u8>, _>("bin").map_err(|e| AccountError::generic(e.to_string()))?;
+            let bin = row
+                .try_get::<Vec<u8>, _>("bin")
+                .map_err(|e| AccountError::generic(e.to_string()))?;
             let key = try_get_blob_as_utf8("sub_id", &row)?;
             let _ = ret.insert(key, bin);
         }
@@ -843,7 +902,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let _ = gen_query!(sqlx::query(&query), self, session_cid, peer_cid)
             .bind(key)
             .execute(conn)
-            .await.map_err(|e| AccountError::generic(e.to_string()))?;
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?;
 
         Ok(values)
     }
@@ -872,7 +932,10 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     async fn generate_conn(&self) -> Result<AnyPool, AccountError> {
         let opts: AnyPoolOptions = (&self.opts).into();
         log::trace!(target: "citadel", "Generating new connection ...");
-        Ok(opts.connect(&self.url).await.map_err(|e| AccountError::generic(e.to_string()))?)
+        Ok(opts
+            .connect(&self.url)
+            .await
+            .map_err(|e| AccountError::generic(e.to_string()))?)
     }
 
     fn row_to_cnac(
@@ -880,7 +943,9 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         query: Option<AnyRow>,
     ) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         if let Some(row) = query {
-            let bin = row.try_get::<Vec<u8>, _>("bin").map_err(|e| AccountError::generic(e.to_string()))?;
+            let bin = row
+                .try_get::<Vec<u8>, _>("bin")
+                .map_err(|e| AccountError::generic(e.to_string()))?;
             let cnac_inner = ClientNetworkAccount::<R, Fcm>::deserialize_from_owned_vector(bin)?;
             Ok(Some(cnac_inner))
         } else {
@@ -943,7 +1008,9 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     }
 
     fn get_bool(&self, row: &AnyRow, key: &str) -> Result<bool, AccountError> {
-        let int = row.try_get::<i32, _>(key).map_err(|e| AccountError::generic(e.to_string()))?;
+        let int = row
+            .try_get::<i32, _>(key)
+            .map_err(|e| AccountError::generic(e.to_string()))?;
         Ok(int != 0)
     }
 }
@@ -993,11 +1060,15 @@ impl TryFrom<&'_ BackendType> for SqlVariant {
 pub fn try_get_blob_as_utf8(key: &str, row: &AnyRow) -> Result<String, AccountError> {
     match row.column(key).type_info().kind() {
         AnyTypeInfoKind::Text => {
-            let blob = row.try_get::<String, _>(key).map_err(|e| AccountError::generic(e.to_string()))?;
+            let blob = row
+                .try_get::<String, _>(key)
+                .map_err(|e| AccountError::generic(e.to_string()))?;
             Ok(blob)
         }
         AnyTypeInfoKind::Blob => {
-            let blob = row.try_get::<Vec<u8>, _>(key).map_err(|e| AccountError::generic(e.to_string()))?;
+            let blob = row
+                .try_get::<Vec<u8>, _>(key)
+                .map_err(|e| AccountError::generic(e.to_string()))?;
             let blob = String::from_utf8(blob).map_err(|err| AccountError::msg(err.to_string()))?;
             Ok(blob)
         }

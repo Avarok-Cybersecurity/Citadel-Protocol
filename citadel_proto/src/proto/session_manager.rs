@@ -352,9 +352,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                         inner.account_manager.clone()
                                     };
 
-                                    let cnac = id.search(&acc_mgr).await?.ok_or(
-                                        NetworkError::internal("Client does not exist"),
-                                    )?;
+                                    let cnac = id
+                                        .search(&acc_mgr)
+                                        .await?
+                                        .ok_or(NetworkError::internal("Client does not exist"))?;
                                     let conn_info = cnac.get_connect_info();
                                     let peer_addr = conn_info.addr;
 
@@ -1410,9 +1411,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         };
 
         for _ in 0..len {
-            recv.recv().await.ok_or(NetworkError::internal(
-                "Unable to receive shutdown signal",
-            ))?;
+            recv.recv()
+                .await
+                .ok_or(NetworkError::internal("Unable to receive shutdown signal"))?;
         }
 
         log::trace!(target: "citadel", "All sessions dropped");

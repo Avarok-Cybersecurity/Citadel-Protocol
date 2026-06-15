@@ -1038,9 +1038,7 @@ where
                                     metadata,
                                 ))
                                 .await
-                                .map_err(|_err| {
-                                    CryptError::rekey_update("Sink send error")
-                                })?;
+                                .map_err(|_err| CryptError::rekey_update("Sink send error"))?;
 
                             log::info!(
                                 target: "citadel",
@@ -1188,9 +1186,7 @@ where
                         { self.constructors.lock().remove(&peer_metadata.next_version) };
                     if let Some(mut alice_constructor) = constructor.take() {
                         let transfer = bincode::deserialize(&transfer_data).map_err(|e| {
-                            CryptError::rekey_update(format!(
-                                "Failed to deserialize transfer: {e}"
-                            ))
+                            CryptError::rekey_update(format!("Failed to deserialize transfer: {e}"))
                         })?;
 
                         alice_constructor.stage1_alice(transfer, &self.psks)?;
@@ -1233,9 +1229,7 @@ where
                                     .await
                                     .send(RatchetMessage::Truncate(version_to_truncate))
                                     .await
-                                    .map_err(|_err| {
-                                        CryptError::rekey_update("Sink send error")
-                                    })?;
+                                    .map_err(|_err| CryptError::rekey_update("Sink send error"))?;
                                 // We need to wait to be marked as complete
                             } else {
                                 // Send LoserCanFinish to Bob so he can finish
@@ -1244,9 +1238,7 @@ where
                                     .await
                                     .send(RatchetMessage::LoserCanFinish)
                                     .await
-                                    .map_err(|_err| {
-                                        CryptError::rekey_update("Sink send error")
-                                    })?;
+                                    .map_err(|_err| CryptError::rekey_update("Sink send error"))?;
                             }
                         } else {
                             log::warn!(target:"citadel", "Client {} unexpected status as Leader: {status:?}", self.cid);

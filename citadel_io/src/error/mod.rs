@@ -94,7 +94,11 @@ mod tests {
     /// struct is 24 bytes; documented here so a regression (e.g. inlining a `String`) is caught.
     #[test]
     fn sizes_are_minimal() {
-        assert_eq!(core::mem::size_of::<ErrorCode>(), 2, "ErrorCode must stay 2 bytes");
+        assert_eq!(
+            core::mem::size_of::<ErrorCode>(),
+            2,
+            "ErrorCode must stay 2 bytes"
+        );
         assert!(
             core::mem::size_of::<NetworkError>() <= 24,
             "NetworkError grew beyond 24 bytes: {}",

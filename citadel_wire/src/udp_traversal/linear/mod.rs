@@ -196,9 +196,9 @@ impl SingleUDPHolePuncher {
 
                         None => {
                             log::trace!(target: "citadel", "Will end hole puncher {:?} since kill switch called", this.get_unique_id());
-                            post_kill_rebuild
-                                .send(None)
-                                .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))?;
+                            post_kill_rebuild.send(None).map_err(|err| {
+                                FirewallError::firewall_hole_punch(err.to_string())
+                            })?;
                         }
                     }
 

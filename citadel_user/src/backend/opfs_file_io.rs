@@ -147,8 +147,7 @@ impl FileIO for OpfsFileIO {
         let mut result = Vec::new();
 
         while let Some(entry) = entries_stream.next().await {
-            let (name, dir_entry) =
-                entry.map_err(|err| AccountError::io(format!("{err:?}")))?;
+            let (name, dir_entry) = entry.map_err(|err| AccountError::io(format!("{err:?}")))?;
             let full_path = format!("{}/{}", path.trim_end_matches('/'), name);
             let is_file = matches!(dir_entry, DirectoryEntry::File(_));
             let extension = if is_file {

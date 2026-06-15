@@ -372,11 +372,7 @@ where
                     session_cid: _,
                     ticket: _,
                     event: GroupBroadcast::CreateResponse { key: None },
-                }) => {
-                    return Err(NetworkError::internal(
-                        "Unable to create a message group",
-                    ))
-                }
+                }) => return Err(NetworkError::internal("Unable to create a message group")),
 
                 _ => {}
             }
@@ -628,9 +624,7 @@ mod tests {
                         }
                     }
 
-                    Err(NetworkError::internal(
-                        "signals_recv ended unexpectedly",
-                    ))
+                    Err(NetworkError::internal("signals_recv ended unexpectedly"))
                 },
             );
 
