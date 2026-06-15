@@ -72,7 +72,9 @@ impl From<std::io::Error> for NetworkError {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
+// Available on both native and wasm: `crate::tokio` resolves to the real tokio on native and to
+// tokio_wasm (which also exposes `sync::mpsc::error::SendError`) on wasm, and proto's `?` chains rely
+// on this conversion on both targets.
 impl<T> From<crate::tokio::sync::mpsc::error::SendError<T>> for NetworkError {
     fn from(err: crate::tokio::sync::mpsc::error::SendError<T>) -> Self {
         Self::coded(ErrorCode::ChannelSend, err.to_string())

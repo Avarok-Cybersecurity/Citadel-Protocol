@@ -57,7 +57,8 @@ impl<R: Ratchet> BrowserConnection<R> {
         let node_future = NodeBuilder::<R, DefaultTransport>::default()
             .with_no_central_server(config)
             .with_backend(BackendType::InMemory)
-            .build(kernel)?;
+            .build(kernel)
+            .map_err(|err| NetworkError::generic(err.to_string()))?;
 
         let kernel_task =
             citadel_io::tokio::task::spawn_local(async move { node_future.await.map(|_| ()) });

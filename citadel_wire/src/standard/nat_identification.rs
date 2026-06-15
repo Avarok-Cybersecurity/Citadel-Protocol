@@ -13,6 +13,7 @@
 //! - Multiple STUN server fallback support
 //! - NAT traversal strategy determination
 
+#[cfg(not(target_family = "wasm"))]
 use crate::error::FirewallError;
 use async_ip::IpAddressInfo;
 use itertools::Itertools;
