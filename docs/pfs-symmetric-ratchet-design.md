@@ -198,12 +198,25 @@ The following were verified against source while scoping Step 2 and resolve ever
    ratchet version (new KEM root → chain @ index 0) on any bank restore/reconnect — never resume a
    mid-version send chain (re-emitting `MK_i` reuses a forward-secure key).
 
-**Remaining (Step 2/3, focused follow-up + mandatory security review before default-on):** add the two
-`PostQuantumContainer` with-key methods (item 3); add the `EntropyBank` chain field + seed + pipelined
-protect/validate (items 4–6); add the cadence knob (`N≈8`/`T≈250ms`, §7-1) to `SessionSecuritySettings`
-and the periodic-rekey trigger + pipelined send arm in `messaging.rs`/`ratchet_manager.rs`; bump
-`PROTOCOL_VERSION`; entropy-bank-level round-trip + FS property + out-of-order-cache tests; DGX bench
-(target ≥8–10× of 762/s); then the §6 security review.
+**Step 2 — LANDED.** *Step 2a* (`citadel_pqcrypto`): `PostQuantumContainer::{protect,validate}
+_packet_in_place_with_key` + `node()` — mirror the fixed-key methods byte-for-byte (ARA PID +
+header-AAD + `InPlaceBuffer`), swapping only the key source to `MK_i` via `per_message_aead`. Tests:
+round-trip across 16 keys, wrong-key + header-tamper rejection. *Step 2b* (`citadel_crypt`):
+`EntropyBank::{protect_packet_in_place_pipelined, validate_packet_in_place_split_pipelined}` + the
+`#[serde(skip)]` interior-mutable per-direction `DirectionChains`, lazily seeded from
+`blake3(get_shared_secret())` with `PQNode`-chosen direction labels; chain-index trailer; `recv_key`
+out-of-order up to `PIPELINED_MAX_SKIP=1024`. Tests (real ML-KEM pair + twin banks): in-order
+round-trip, out-of-order-within-window, replay rejection, per-message key uniqueness (same plaintext →
+distinct ciphertext), wrong-direction rejection. Fixed-key path byte-unchanged; serialize round-trip +
+nonce tests still green. The crypto datapath of pipelined PFS is now complete + verified in isolation.
+
+**Remaining (Step 3, focused follow-up + mandatory security review before default-on):** route the
+pipelined protect/validate at the proto packet-crafter/processor sites only when the session mode is
+`PerfectPipelined` (carry the bool from `SecrecyMode` to the bank/ratchet, §5c-6); add the cadence knob
+(`N≈8`/`T≈250ms`, §7-1) to `SessionSecuritySettings` + the periodic-rekey trigger + the pipelined
+(non-head-of-line-blocked) send arm in `messaging.rs`/`ratchet_manager.rs`; enforce the rekey-on-restore
+invariant (§5c-7); bump `PROTOCOL_VERSION`; e2e c2s+p2p strict-ordering + reconnection tests in both
+modes; DGX bench (target ≥8–10× of 762/s); then the §6 security review.
 
 ## 5. Integration points (no code yet — for scoping)
 
