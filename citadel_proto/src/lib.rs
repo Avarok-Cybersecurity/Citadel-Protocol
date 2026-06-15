@@ -649,6 +649,11 @@ pub mod kernel;
 /// The primary module of this crate
 mod proto;
 
+/// Public fuzz entry points (opt-in `fuzzing` feature). Thin wrappers over internal parse/validate
+/// functions for the out-of-tree AFL harness; `proto` itself is private.
+#[cfg(feature = "fuzzing")]
+pub mod fuzz_targets;
+
 /// StateContainer lock-contention counters (opt-in `lock-profiling` feature). Re-exported at the
 /// crate root so benches/diagnostics can read them; `proto` itself is private.
 #[cfg(feature = "lock-profiling")]

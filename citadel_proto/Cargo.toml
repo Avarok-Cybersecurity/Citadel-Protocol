@@ -16,6 +16,10 @@ default = ["filesystem", "std"]
 filesystem = ["citadel_user/filesystem"]
 opfs = ["citadel_user/opfs"]
 multi-threaded = []
+# Exposes `citadel_proto::fuzz_targets` (thin pub wrappers over internal parse/validate fns) so the
+# out-of-tree AFL harness in `fuzz/` can reach them without widening the real API. Off by default;
+# never enable in production builds.
+fuzzing = []
 # Opt-in StateContainer lock-contention profiling. When on, the `inner_state!`/`inner_mut_state!`
 # macros time each acquire-wait into global counters (read via `proto::misc::lock_profiling`). Off by
 # default → zero hot-path overhead. For benches/diagnostics only; never enable in production.

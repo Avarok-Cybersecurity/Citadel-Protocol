@@ -19,6 +19,9 @@ members = [
 
 exclude = [
     "./target/*",
+    # AFL fuzz harness — its own crate with AFL-instrumented build flags + the `afl` runtime; kept out
+    # of the main workspace so it never affects normal builds/CI. Built via `cargo make fuzz`.
+    "fuzz",
 ]
 
 # Aggressive release optimization. `lto = "fat"` + `codegen-units = 1` let the optimizer inline
