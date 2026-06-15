@@ -121,7 +121,7 @@ impl SingleUDPHolePuncher {
                 let local_addr = self
                     .socket
                     .as_ref()
-                    .ok_or_else(|| FirewallError::HolePunch("UDP Socket not loaded".to_string()))?
+                    .ok_or_else(|| FirewallError::firewall_hole_punch("UDP Socket not loaded"))?
                     .local_addr()?;
                 let reserved_port = handler
                     .open_any_firewall_port(
@@ -145,7 +145,7 @@ impl SingleUDPHolePuncher {
                 Ok(HolePunchedUdpSocket {
                     addr: hole_punched_addr,
                     socket: self.socket.take().ok_or_else(|| {
-                        FirewallError::HolePunch("UDP socket not loaded".to_string())
+                        FirewallError::firewall_hole_punch("UDP socket not loaded")
                     })?,
                     local_id: unique_id,
                 })
@@ -161,7 +161,7 @@ impl SingleUDPHolePuncher {
                         .1
                         .execute(
                             this.socket.as_ref().ok_or_else(|| {
-                                FirewallError::HolePunch("UDP socket not loaded".to_string())
+                                FirewallError::firewall_hole_punch("UDP socket not loaded")
                             })?,
                             &this.possible_endpoints,
                         )
@@ -191,18 +191,18 @@ impl SingleUDPHolePuncher {
                 ) -> Result<HolePunchedUdpSocket, FirewallError> {
                     match id_opt {
                         Some((_local_id, peer_id)) => {
-                            post_kill_rebuild.send(Some(this.recovery_mode_generate_socket_by_remote_id(peer_id).ok_or_else(|| FirewallError::HolePunch("Kill switch called, but no matching values were found internally".to_string()))?)).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                            post_kill_rebuild.send(Some(this.recovery_mode_generate_socket_by_remote_id(peer_id).ok_or_else(|| FirewallError::firewall_hole_punch("Kill switch called, but no matching values were found internally"))?)).map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))?;
                         }
 
                         None => {
                             log::trace!(target: "citadel", "Will end hole puncher {:?} since kill switch called", this.get_unique_id());
                             post_kill_rebuild
                                 .send(None)
-                                .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                                .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))?;
                         }
                     }
 
-                    Err(FirewallError::Skip)
+                    Err(FirewallError::firewall_skip())
                 }
 
                 match res {
@@ -224,7 +224,7 @@ impl SingleUDPHolePuncher {
                 let socket = self
                     .socket
                     .take()
-                    .ok_or_else(|| FirewallError::HolePunch("UDP socket not loaded".to_string()))?;
+                    .ok_or_else(|| FirewallError::firewall_hole_punch("UDP socket not loaded"))?;
                 //let bind_addr = socket.local_addr()?;
                 let unique_id = self.unique_id;
                 Ok(HolePunchedUdpSocket {

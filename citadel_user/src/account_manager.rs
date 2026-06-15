@@ -176,7 +176,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             #[cfg(all(feature = "sql", not(coverage)))]
             BackendType::SQLDatabase(..) => {
                 use crate::backend::sql_backend::SqlBackend;
-                let backend = SqlBackend::try_from(backend_type.clone()).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
+                let backend = SqlBackend::try_from(backend_type.clone()).map_err(|_| AccountError::generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
                 PersistenceHandler::create(backend).await?
             }
 
@@ -231,7 +231,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .get_cid_by_username(creds.username());
 
         if reserved_cid == 0 {
-            return Err(AccountError::Generic(
+            return Err(AccountError::generic(
                 "Cannot call register_impersonal_hyperlan_client_network_account with a CID of 0"
                     .to_string(),
             ));
@@ -256,7 +256,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let username = auth_store.username().to_string();
 
         if pers.username_exists(&username).await? {
-            return Err(AccountError::Generic(format!(
+            return Err(AccountError::generic(format!(
                 "Username {} already exists!",
                 &username
             )));
@@ -290,7 +290,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .get_cid_by_username(creds.username());
 
         if valid_cid == 0 {
-            return Err(AccountError::Generic(
+            return Err(AccountError::generic(
                 "Cannot call register_personal_hyperlan_server with a CID of 0".to_string(),
             ));
         }

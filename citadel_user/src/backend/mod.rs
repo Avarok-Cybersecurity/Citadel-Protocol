@@ -397,8 +397,8 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
         cid: u64,
         virtual_path: std::path::PathBuf,
     ) -> Result<(Box<dyn ObjectSource>, VirtualObjectMetadata), AccountError> {
-        Err(AccountError::Generic(
-            "The target does not support the RE-VFS protocol".into(),
+        Err(AccountError::generic(
+            "The target does not support the RE-VFS protocol",
         ))
     }
     /// Deletes the encrypted file from the virtual filesystem
@@ -408,8 +408,8 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
         cid: u64,
         virtual_path: std::path::PathBuf,
     ) -> Result<(), AccountError> {
-        Err(AccountError::Generic(
-            "The target does not support the RE-VFS protocol".into(),
+        Err(AccountError::generic(
+            "The target does not support the RE-VFS protocol",
         ))
     }
 }

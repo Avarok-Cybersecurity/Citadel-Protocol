@@ -89,7 +89,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             .clients
             .read()
             .get(&cid)
-            .ok_or(AccountError::ClientNonExists(cid))?
+            .ok_or(AccountError::account_client_non_exists(cid))?
             .is_personal();
         self.memory_backend.delete_cnac_by_cid(cid).await?;
         let path = self.generate_cnac_local_save_path(cid, is_personal);
@@ -145,11 +145,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             let cnac0 = read
                 .get(&cid0)
                 .cloned()
-                .ok_or(AccountError::ClientNonExists(cid0))?;
+                .ok_or(AccountError::account_client_non_exists(cid0))?;
             let cnac1 = read
                 .get(&cid1)
                 .cloned()
-                .ok_or(AccountError::ClientNonExists(cid1))?;
+                .ok_or(AccountError::account_client_non_exists(cid1))?;
             (cnac0, cnac1)
         };
 
@@ -178,11 +178,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             let cnac0 = read
                 .get(&cid0)
                 .cloned()
-                .ok_or(AccountError::ClientNonExists(cid0))?;
+                .ok_or(AccountError::account_client_non_exists(cid0))?;
             let cnac1 = read
                 .get(&cid1)
                 .cloned()
-                .ok_or(AccountError::ClientNonExists(cid1))?;
+                .ok_or(AccountError::account_client_non_exists(cid1))?;
             (cnac0, cnac1)
         };
 
@@ -401,7 +401,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             if let Err(err) = writer.write_chunk(&chunk).await {
                 let err_msg = format!("{err}");
                 let _ = status_tx.send(ObjectTransferStatus::Fail(err_msg.clone()));
-                return Err(AccountError::IoError(err_msg));
+                return Err(AccountError::io(err_msg));
             }
         }
 
@@ -469,7 +469,7 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
             .read()
             .get(&cid)
             .cloned()
-            .ok_or(AccountError::ClientNonExists(cid))?;
+            .ok_or(AccountError::account_client_non_exists(cid))?;
         self.save_cnac(&cnac).await
     }
 
@@ -502,15 +502,15 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
 fn validate_file_transfer_name(name: &str) -> Result<(), AccountError> {
     use std::path::Component;
     if name.is_empty() {
-        return Err(AccountError::IoError(
-            "File transfer target name is empty".into(),
+        return Err(AccountError::io(
+            "File transfer target name is empty",
         ));
     }
     let safe = Path::new(name)
         .components()
         .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
     if !safe {
-        return Err(AccountError::IoError(format!(
+        return Err(AccountError::io(format!(
             "File transfer target name {name:?} is not permitted (possible path traversal)"
         )));
     }
@@ -527,8 +527,8 @@ async fn get_file_path(
     match transfer_type {
         TransferType::FileTransfer => {
             let name = target_name.ok_or_else(|| {
-                AccountError::IoError(
-                    "File transfer type specified, yet, no target name given".into(),
+                AccountError::io(
+                    "File transfer type specified, yet, no target name given",
                 )
             })?;
             // `name` is sender-supplied (VirtualObjectMetadata.name). Reject anything that is not a

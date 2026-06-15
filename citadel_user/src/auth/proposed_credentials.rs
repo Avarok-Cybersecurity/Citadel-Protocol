@@ -139,10 +139,10 @@ impl ProposedCredentials {
             settings.clone(),
         )
         .await
-        .map_err(|err| AccountError::Generic(err.to_string()))?
+        .map_err(|err| AccountError::generic(err.to_string()))?
         {
             ArgonStatus::HashSuccess(ret) => Ok(ret),
-            other => Err(AccountError::Generic(format!(
+            other => Err(AccountError::generic(format!(
                 "Unable to hash input password: {other:?}",
             ))),
         }
@@ -260,7 +260,7 @@ impl ProposedCredentials {
 
                 match AsyncArgon::hash(password_hashed, settings.clone())
                     .await
-                    .map_err(|err| AccountError::Generic(err.to_string()))?
+                    .map_err(|err| AccountError::generic(err.to_string()))?
                 {
                     ArgonStatus::HashSuccess(hash_x2) => Ok(DeclaredAuthenticationMode::Argon {
                         username,
@@ -270,7 +270,7 @@ impl ProposedCredentials {
                         )),
                     }),
 
-                    _ => Err(AccountError::Generic("Unable to hash password".to_string())),
+                    _ => Err(AccountError::generic("Unable to hash password".to_string())),
                 }
             }
         }
@@ -291,25 +291,25 @@ impl ProposedCredentials {
             ArgonContainerType::Server(server_container) => {
                 match AsyncArgon::verify(password_hashed, server_container)
                     .await
-                    .map_err(|err| AccountError::Generic(err.to_string()))?
+                    .map_err(|err| AccountError::generic(err.to_string()))?
                 {
                     ArgonStatus::VerificationSuccess => Ok(()),
 
                     ArgonStatus::VerificationFailed(None) => {
                         log::warn!(target: "citadel", "Invalid password specified ...");
-                        Err(AccountError::InvalidPassword)
+                        Err(AccountError::account_invalid_password())
                     }
 
                     ArgonStatus::VerificationFailed(Some(err)) => {
                         log::error!(target: "citadel", "Password verification failed: {}", &err);
-                        Err(AccountError::Generic(err))
+                        Err(AccountError::generic(err))
                     }
 
-                    _ => Err(AccountError::InvalidPassword),
+                    _ => Err(AccountError::account_invalid_password()),
                 }
             }
 
-            _ => Err(AccountError::Generic(
+            _ => Err(AccountError::generic(
                 "Account does not have password loaded; account is personal".to_string(),
             )),
         }

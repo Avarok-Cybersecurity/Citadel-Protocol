@@ -140,14 +140,14 @@ impl CredentialRequirements {
         if username.len() < self.min_username_length as _
             || username.len() > self.max_username_length as _
         {
-            return Err(AccountError::Generic(format!(
+            return Err(AccountError::generic(format!(
                 "Username must be between {} and {} characters",
                 self.min_username_length, self.max_username_length
             )));
         }
 
         if username.contains(' ') {
-            return Err(AccountError::Generic(
+            return Err(AccountError::generic(
                 "Username cannot contain spaces. Use a period instead".to_string(),
             ));
         }
@@ -157,14 +157,14 @@ impl CredentialRequirements {
             if password.len() < self.min_password_length as _
                 || password.len() > self.max_password_length as _
             {
-                return Err(AccountError::Generic(format!(
+                return Err(AccountError::generic(format!(
                     "Password must be between {} and {} characters",
                     self.min_password_length, self.max_password_length
                 )));
             }
 
             if password.contains(' ') {
-                return Err(AccountError::Generic(
+                return Err(AccountError::generic(
                     "Password cannot contain spaces".to_string(),
                 ));
             }
@@ -173,7 +173,7 @@ impl CredentialRequirements {
         if full_name.len() < self.min_name_length as _
             || full_name.len() > self.max_name_length as _
         {
-            return Err(AccountError::Generic(format!(
+            return Err(AccountError::generic(format!(
                 "Full name must be between {} and {} characters",
                 self.min_name_length, self.max_name_length
             )));

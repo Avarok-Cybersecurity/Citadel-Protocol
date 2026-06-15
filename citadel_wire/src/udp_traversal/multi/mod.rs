@@ -57,7 +57,6 @@
 //! - [`netbeam::multiplex`] - Connection multiplexing
 //!
 
-use crate::error::FirewallError;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
@@ -456,7 +455,7 @@ async fn drive(
                     }
                 }
 
-                Err(FirewallError::Skip) => {
+                Err(err) if err.code == citadel_io::ErrorCode::FirewallSkip => {
                     log::trace!(target: "citadel", "Rebuilt socket; Will not add to failures")
                 }
 
