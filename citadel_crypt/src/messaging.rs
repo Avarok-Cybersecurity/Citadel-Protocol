@@ -140,7 +140,10 @@ where
                 }
 
                 // Process any remaining messages before exiting
-                if secrecy_mode == SecrecyMode::Perfect {
+                if matches!(
+                    secrecy_mode,
+                    SecrecyMode::Perfect | SecrecyMode::PerfectPipelined
+                ) {
                     let queue_size = enqueued_messages_rekey.lock().await.len();
                     if queue_size > 0 {
                         log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekey task ending with {queue_size} messages still queued");
@@ -171,7 +174,10 @@ where
             }
 
             // Before shutting down, ensure all queued messages are processed
-            if secrecy_mode == SecrecyMode::Perfect {
+            if matches!(
+                secrecy_mode,
+                SecrecyMode::Perfect | SecrecyMode::PerfectPipelined
+            ) {
                 let mut retries = 0;
                 while retries < 10 {
                     let queue_size = enqueued_messages_clone.lock().await.len();
@@ -265,7 +271,11 @@ where
                 }
             }
 
-            SecrecyMode::Perfect => {
+            // PerfectPipelined currently shares Perfect's per-message-rekey send path (strictly as
+            // secure). The pipelined fast path (local symmetric-chain key + periodic rekey) replaces
+            // this arm once the EntropyBank chain wiring lands and passes security review — see
+            // docs/pfs-symmetric-ratchet-design.md §5c.
+            SecrecyMode::Perfect | SecrecyMode::PerfectPipelined => {
                 // In Perfect mode, each message requires its own rekey for perfect forward secrecy.
                 // When a rekey is already in progress, queue the message to be sent later.
                 // The background task drains the queue after each rekey completes.
@@ -555,7 +565,15 @@ mod tests {
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy(
-        #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
+        // PerfectPipelined is included here (only) to prove the new variant flows through the full
+        // messenger end-to-end. It currently shares Perfect's send path, so the heavier lag-matrix
+        // tests below need not re-run it until the pipelined fast path lands.
+        #[values(
+            SecrecyMode::BestEffort,
+            SecrecyMode::Perfect,
+            SecrecyMode::PerfectPipelined
+        )]
+        secrecy_mode: SecrecyMode,
     ) {
         citadel_logging::setup_log();
         messenger_racy::<StackedRatchet, u64>(secrecy_mode, None).await;

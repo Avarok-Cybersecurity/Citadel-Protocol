@@ -423,8 +423,20 @@ pub enum SecrecyMode {
     /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
     #[default]
     BestEffort,
-    /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key
+    /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key derived from a
+    /// per-message ML-KEM rekey (heals post-compromise every message). Forward secrecy + the strongest
+    /// post-compromise guarantee, at the cost of an RTT-bound, head-of-line-blocked send path.
     Perfect,
+    /// Forward-secret like [`Self::Perfect`] (every message gets a unique, forward-secure key from a
+    /// local symmetric KDF chain — no per-message round-trip) but the ML-KEM rekey that provides
+    /// *post-compromise* healing runs on a periodic cadence instead of per-message. This relaxes only
+    /// the post-compromise window (configurable), not forward secrecy, and lets the send path pipeline
+    /// like [`Self::BestEffort`]. See `docs/pfs-symmetric-ratchet-design.md`.
+    ///
+    /// NOTE: the symmetric-chain fast path is not yet wired into the datapath; until it lands (gated on
+    /// the security review), this mode behaves identically to [`Self::Perfect`] — strictly as secure,
+    /// just not yet faster. No silent security change.
+    PerfectPipelined,
 }
 
 impl SecrecyMode {

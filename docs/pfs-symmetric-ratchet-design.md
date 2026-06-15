@@ -156,6 +156,55 @@ Wiring the chain into `EntropyBank` surfaced four constraints the implementation
 These are why a security review is mandatory before this path is enabled. The two crypto primitives
 (commits a1070901, f6ec7099) are independently safe and unused until this plumbing lands.
 
+## 5c. Resolved integration spec (Step 1 landed; Step 2/3 turnkey)
+
+**Step 1 — LANDED.** `SecrecyMode::PerfectPipelined` (repr 2) added to `citadel_types`; routed to the
+existing `Perfect` per-message-rekey send path at the one match site (`messaging.rs`) + the two
+queue-drain `matches!` guards. ⇒ the variant is selectable and strictly as secure as `Perfect` (no
+silent security change), with the symmetric-chain fast path landing in Step 2/3. Exercised end-to-end by
+`test_messenger_racy` (the `PerfectPipelined` case rides the full messenger). Workspace builds clean;
+only one exhaustive `match SecrecyMode` exists (the `== Perfect` sites are comparisons, not matches).
+
+The following were verified against source while scoping Step 2 and resolve every open question in §5a/§5b:
+
+1. **Chain seed root (both ends agree).** `PostQuantumContainer::get_shared_secret()` (`lib.rs:603`)
+   returns the per-version ML-KEM shared secret — *identical on Alice and Bob* for a version, *fresh* on
+   each KEM rekey. Compress to 32 bytes: `root = blake3::hash(ss)`; seed both chains
+   `SymmetricChain::new(&root, dir)`. (The variable-length `ss` is hashed, not truncated, so KEM-length
+   changes are irrelevant.)
+2. **Direction by `PQNode` (not send/recv role).** Alice: send=`b"a2b"`, recv=`b"b2a"`. Bob:
+   send=`b"b2a"`, recv=`b"a2b"`. So Alice's send chain ≡ Bob's recv chain. The node is the same one
+   `get_encryption_key`/`get_decryption_key` already branch on (`lib.rs:508-524`).
+3. **The pipelined seal/open MUST be a new `PostQuantumContainer` method, not entropy_bank-only.**
+   `protect_packet_in_place` (`lib.rs:680`) owns three things the chain path must preserve byte-for-byte:
+   the anti-replay **PID** (`anti_replay_attack.get_next_pid()`, appended *inside* the AEAD), the
+   **header-AAD**, and the `InPlaceBuffer` windowing. Only the *key source* changes — from
+   `get_encryption_key()` (fixed module) to `MK_i` via `per_message_aead::seal_in_place_with_key(alg,
+   &MK_i, nonce, header_ad, payload_buf)`. So add `protect_packet_in_place_with_key(header_len, buf,
+   nonce, &MK_i)` / `validate_packet_in_place_with_key(header, buf, nonce, &MK_i)` mirroring the
+   originals with the key swapped. `anti_replay_attack` stays private; no encapsulation break.
+4. **Chain state lives on `EntropyBank`, `#[serde(skip)]` + interior-mutable, lazily seeded.**
+   `chains: Mutex<Option<DirectionChains{a2b, b2a}>>` (mirror `TransientNonceCounter`'s interior
+   mutability; `encrypt`/`decrypt` are `&self`). Seed on first protect/validate from the passed-in
+   `PostQuantumContainer` (the only place `ss`/`PQNode` are available). `#[serde(skip)]` is mandatory
+   (constraint §5b-3): a restored bank has *no* chain and must not resume one.
+5. **Wire trailer = sequential chain index `i`** (replacing the random `transient_id`) on the pipelined
+   path only; nonce stays `BLAKE3(entropy, i)` (unique `MK_i` makes nonce reuse harmless regardless).
+   Receiver reads `i`, calls `recv_key(i, MAX_SKIP)`. `MAX_SKIP ≈ 1024` (§7-3).
+6. **Mode plumbing.** The bank/ratchet must know it is pipelined to take this path. Carry a serializable
+   `pipelined: bool` (derived from `SecrecyMode`) on the bank set at construction; the *chains* (not the
+   flag) are the serde-skip part. Fixed-key path (BestEffort, Perfect, Perfect n=1) is byte-unchanged.
+7. **Rekey-on-restore invariant (§5b-3, REVIEW ITEM).** A `PerfectPipelined` session must force a fresh
+   ratchet version (new KEM root → chain @ index 0) on any bank restore/reconnect — never resume a
+   mid-version send chain (re-emitting `MK_i` reuses a forward-secure key).
+
+**Remaining (Step 2/3, focused follow-up + mandatory security review before default-on):** add the two
+`PostQuantumContainer` with-key methods (item 3); add the `EntropyBank` chain field + seed + pipelined
+protect/validate (items 4–6); add the cadence knob (`N≈8`/`T≈250ms`, §7-1) to `SessionSecuritySettings`
+and the periodic-rekey trigger + pipelined send arm in `messaging.rs`/`ratchet_manager.rs`; bump
+`PROTOCOL_VERSION`; entropy-bank-level round-trip + FS property + out-of-order-cache tests; DGX bench
+(target ≥8–10× of 762/s); then the §6 security review.
+
 ## 5. Integration points (no code yet — for scoping)
 
 - `citadel_crypt/src/ratchets/entropy_bank.rs` — replace the fixed-key AEAD seal/open with a
