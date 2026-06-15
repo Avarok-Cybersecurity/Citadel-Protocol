@@ -94,7 +94,9 @@ pub fn process_file_packet<R: Ratchet, T: PlatformOps>(
                             let object_id = payload.object_id;
 
                             {
-                                let mut state_container = inner_mut_state!(session.state_container);
+                                // Read lock: notify_object_transfer_handle_failure_with is `&self`
+                                // (DashMap-backed file_transfer_handles) since the C8 conversion.
+                                let state_container = inner_state!(session.state_container);
                                 if let Err(err) = state_container
                                     .notify_object_transfer_handle_failure_with(
                                         target_cid,

@@ -130,10 +130,14 @@ pub struct StateContainerInner<R: Ratchet> {
     pub(super) deregister_state: DeRegisterState,
     pub(super) meta_expiry_state: MetaExpiryState,
     pub(super) network_stats: NetworkStats,
-    pub(super) inbound_files: HashMap<FileKey, InboundFileTransfer>,
+    // Concurrent maps (per-entry shard locks): the inbound object/file path touches these per wave
+    // packet (`on_group_payload_received`). `DashMap` lets that hot path run under a *read* lock on the
+    // StateContainer, so concurrent vconns' file transfers don't serialize on the coarse write lock (the
+    // inbound twin of the `outbound_transmitters` convoy fix — see bench/RESULTS.md "C8 gate").
+    pub(super) inbound_files: DashMap<FileKey, InboundFileTransfer>,
     pub(super) outbound_files: HashMap<FileKey, OutboundFileTransfer>,
-    pub(super) file_transfer_handles: HashMap<FileKey, UnboundedSender<ObjectTransferStatus>>,
-    pub(super) inbound_groups: HashMap<GroupKey, GroupReceiverContainer>,
+    pub(super) file_transfer_handles: DashMap<FileKey, UnboundedSender<ObjectTransferStatus>>,
+    pub(super) inbound_groups: DashMap<GroupKey, GroupReceiverContainer>,
     // Concurrent map (per-entry shard locks): the sender registers a transmitter on send and removes
     // it on the GROUP_HEADER_ACK — both per message. A `DashMap` lets those happen under a *read* lock
     // on the StateContainer, so concurrent vconns' sends don't serialize on the coarse write lock.
@@ -474,7 +478,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     ) -> StateContainer<R> {
         let inner = Self {
             outgoing_peer_connect_attempts: Default::default(),
-            file_transfer_handles: HashMap::new(),
+            file_transfer_handles: DashMap::new(),
             group_channels: Default::default(),
             udp_mode,
             transfer_stats,
@@ -500,10 +504,10 @@ impl<R: Ratchet> StateContainerInner<R> {
             kernel_tx,
             register_state: packet_flags::cmd::aux::do_register::STAGE0.into(),
             connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(),
-            inbound_groups: HashMap::new(),
+            inbound_groups: DashMap::new(),
             outbound_transmitters: DashMap::new(),
             peer_kem_states: HashMap::new(),
-            inbound_files: HashMap::new(),
+            inbound_files: DashMap::new(),
             outbound_files: HashMap::new(),
             session_passwords: HashMap::new(),
             triggered_rekeys: Arc::new(Mutex::new(HashMap::new())),
@@ -1153,7 +1157,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         let ticket = header.context_info.get();
         // below, the target_cid in the key is where the packet came from. If it is a client, or a hyperlan conn, the implicated cid stays the same
         let inbound_group_key = GroupKey::new(header.session_cid.get(), group_id, object_id);
-        if let std::collections::hash_map::Entry::Vacant(e) =
+        if let dashmap::mapref::entry::Entry::Vacant(e) =
             self.inbound_groups.entry(inbound_group_key)
         {
             let receiver = GroupReceiver::new(
@@ -1232,7 +1236,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         log::trace!(target: "citadel", "File header {session_cid}: {key:?} | revfs_pull: {is_revfs_pull}");
 
-        if let std::collections::hash_map::Entry::Vacant(e) = self.inbound_files.entry(key) {
+        if let dashmap::mapref::entry::Entry::Vacant(e) = self.inbound_files.entry(key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
 
             let security_level_rebound: SecurityLevel = header.security_level.into();
@@ -1376,9 +1380,9 @@ impl<R: Ratchet> StateContainerInner<R> {
                             )) {
                                 log::error!(target: "citadel", "Unable to send object transfer status to handle: {err:?}");
                             }
-                            // user did not accept. cleanup local
+                            // user did not accept. cleanup local (DashMap removes need only a read lock)
                             log::warn!(target: "citadel", "User did not accept file transfer");
-                            let mut state_container = inner_mut_state!(state_container);
+                            let state_container = inner_state!(state_container);
                             let _ = state_container.inbound_files.remove(&key);
                             let _ = state_container.file_transfer_handles.remove(&key);
                         }
@@ -1523,7 +1527,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     }
 
     pub fn notify_object_transfer_handle_failure<T: Into<String>>(
-        &mut self,
+        &self,
         header: &HdpHeader,
         error_message: T,
         object_id: ObjectId,
@@ -1533,7 +1537,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     }
 
     pub fn notify_object_transfer_handle_failure_with<T: Into<String>>(
-        &mut self,
+        &self,
         _target_cid: u64,
         object_id: ObjectId,
         error_message: T,
@@ -1555,7 +1559,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     }
 
     pub fn on_group_payload_received(
-        &mut self,
+        &self,
         header: &HdpHeader,
         payload: Bytes,
         hr: &R,
@@ -1564,81 +1568,113 @@ impl<R: Ratchet> StateContainerInner<R> {
         let group_id = header.group.get();
         let object_id = header.context_info.get().into();
         let group_key = GroupKey::new(target_cid, group_id, object_id);
-        let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| {
-            (
-                NetworkError::msg(format!(
-                    "inbound_groups does not contain key for {group_key:?}"
-                )),
-                Ticket(0),
-                0.into(),
-            )
-        })?;
-
-        let ticket = grc.ticket;
-        let file_key = FileKey::new(grc.object_id);
-        let file_container = self.inbound_files.get_mut(&file_key).ok_or_else(|| {
-            (
-                NetworkError::msg(format!(
-                    "inbound_files does not contain key for {file_key:?}"
-                )),
-                ticket,
-                object_id,
-            )
-        })?;
-        let file_transfer_handle =
-            self.file_transfer_handles
-                .get_mut(&file_key)
-                .ok_or_else(|| {
-                    (
-                        NetworkError::msg(format!(
-                            "file_transfer_handle does not contain key for {file_key:?}"
-                        )),
-                        ticket,
-                        object_id,
-                    )
-                })?;
-
-        let src = *payload.first().ok_or((
-            NetworkError::InvalidRequest("Bad payload packet [0]"),
-            ticket,
-            object_id,
-        ))?;
-        let dest = *payload.get(1).ok_or((
-            NetworkError::InvalidRequest("Bad payload packet [1]"),
-            ticket,
-            object_id,
-        ))?;
         let ts = self.time_tracker.get_global_time_ns();
 
-        let true_sequence = citadel_crypt::packet_vector::generate_packet_coordinates_inv(
-            header.wave_id.get(),
-            src as u16,
-            dest as u16,
-            hr.get_scramble_pqc_and_entropy_bank().1,
-        )
-        .ok_or((
-            NetworkError::InvalidRequest("Unable to obtain true_sequence"),
-            ticket,
-            object_id,
-        ))?;
+        // Phase 1: feed the wave into its group receiver under a SCOPED `inbound_groups` RefMut. The
+        // RefMut is dropped at the end of this block — BEFORE any `inbound_groups.remove` below — so the
+        // `DashMap` shard can't self-deadlock (remove needs the write lock the RefMut holds). Per-group
+        // reassembly stays serialized: a concurrent payload for the same `group_key` blocks on this
+        // `get_mut` until we release it.
+        let (status, ticket, file_key) = {
+            let mut grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| {
+                (
+                    NetworkError::msg(format!(
+                        "inbound_groups does not contain key for {group_key:?}"
+                    )),
+                    Ticket(0),
+                    0.into(),
+                )
+            })?;
+            let ticket = grc.ticket;
+            let file_key = FileKey::new(grc.object_id);
+
+            let src = *payload.first().ok_or((
+                NetworkError::InvalidRequest("Bad payload packet [0]"),
+                ticket,
+                object_id,
+            ))?;
+            let dest = *payload.get(1).ok_or((
+                NetworkError::InvalidRequest("Bad payload packet [1]"),
+                ticket,
+                object_id,
+            ))?;
+
+            let true_sequence = citadel_crypt::packet_vector::generate_packet_coordinates_inv(
+                header.wave_id.get(),
+                src as u16,
+                dest as u16,
+                hr.get_scramble_pqc_and_entropy_bank().1,
+            )
+            .ok_or((
+                NetworkError::InvalidRequest("Unable to obtain true_sequence"),
+                ticket,
+                object_id,
+            ))?;
+
+            let status = grc.receiver.on_packet_received(
+                group_id,
+                true_sequence,
+                header.wave_id.get(),
+                hr,
+                &payload[2..],
+            );
+            (status, ticket, file_key)
+        };
 
         let mut send_wave_ack = false;
         let mut complete = false;
 
-        match grc.receiver.on_packet_received(
-            group_id,
-            true_sequence,
-            header.wave_id.get(),
-            hr,
-            &payload[2..],
-        ) {
+        match status {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
-                let receiver = self.inbound_groups.remove(&group_key).unwrap().receiver;
+                // `grc` is released above → safe to remove + finalize the group.
+                let receiver = self
+                    .inbound_groups
+                    .remove(&group_key)
+                    .ok_or_else(|| {
+                        (
+                            NetworkError::msg(format!(
+                                "inbound_groups vanished for {group_key:?} on complete"
+                            )),
+                            ticket,
+                            object_id,
+                        )
+                    })?
+                    .1
+                    .receiver;
                 let mut chunk = receiver.finalize();
                 let bytes_in_group = chunk.len();
-                log::trace!(target: "citadel", "GROUP {} COMPLETE. Total groups: {} | Plaintext len: {} | Received plaintext len: {}", group_id, file_container.total_groups, file_container.metadata.plaintext_length, chunk.len());
 
-                if let Some(local_encryption_level) = file_container.local_encryption_level {
+                // Snapshot the fields we need from the inbound-file entry, then release the `Ref` so the
+                // `inbound_files.remove` below cannot self-deadlock. `stream_to_hd` is an
+                // `UnboundedSender` — cheap to clone.
+                let (
+                    stream_to_hd,
+                    total_groups,
+                    plaintext_length,
+                    local_encryption_level,
+                    last_group_finish_time,
+                ) = {
+                    let fc = self.inbound_files.get(&file_key).ok_or_else(|| {
+                        (
+                            NetworkError::msg(format!(
+                                "inbound_files does not contain key for {file_key:?}"
+                            )),
+                            ticket,
+                            object_id,
+                        )
+                    })?;
+                    (
+                        fc.stream_to_hd.clone(),
+                        fc.total_groups,
+                        fc.metadata.plaintext_length,
+                        fc.local_encryption_level,
+                        fc.last_group_finish_time,
+                    )
+                };
+
+                log::trace!(target: "citadel", "GROUP {} COMPLETE. Total groups: {} | Plaintext len: {} | Received plaintext len: {}", group_id, total_groups, plaintext_length, chunk.len());
+
+                if let Some(local_encryption_level) = local_encryption_level {
                     log::trace!(target: "citadel", "Detected REVFS. Locally decrypting object {object_id} with level {local_encryption_level:?} | Ratchet used: {} w/version {}", hr.get_cid(), hr.version());
                     // which static hr do we need? Since we are receiving this chunk, always our local account's
                     let static_aux_hr = self.cnac.as_ref().unwrap().get_static_auxiliary_ratchet();
@@ -1648,16 +1684,25 @@ impl<R: Ratchet> StateContainerInner<R> {
                         .map_err(|err| (NetworkError::msg(err.into_string()), ticket, object_id))?;
                 }
 
-                file_container
-                    .stream_to_hd
+                stream_to_hd
                     .unbounded_send(chunk)
                     .map_err(|err| (NetworkError::Generic(err.to_string()), ticket, object_id))?;
 
                 send_wave_ack = true;
 
-                if group_id as usize >= file_container.total_groups.saturating_sub(1) {
+                if group_id as usize >= total_groups.saturating_sub(1) {
                     complete = true;
-                    let file_container = self.inbound_files.remove(&file_key).unwrap();
+                    let file_container = self
+                        .inbound_files
+                        .remove(&file_key)
+                        .ok_or_else(|| {
+                            (
+                                NetworkError::msg("inbound_files vanished on complete"),
+                                ticket,
+                                object_id,
+                            )
+                        })?
+                        .1;
                     // status of reception complete now located where the streaming to HD completes
                     // we need only take the sender and send a signal to prove that we finished correctly here
                     // TODO: it seems to be sending the file before the backend streamer even gets a chance to finish
@@ -1674,26 +1719,31 @@ impl<R: Ratchet> StateContainerInner<R> {
                         })?;
                 } else {
                     let now = self.time_tracker.get_global_time_ns();
-                    let elapsed_nanos =
-                        now.saturating_sub(file_container.last_group_finish_time) as f64;
+                    let elapsed_nanos = now.saturating_sub(last_group_finish_time) as f64;
                     let bytes_per_ns = bytes_in_group as f64 / elapsed_nanos; // unit: bytes/ns
                                                                               // convert bytes per period into MB/s
                     let mb_per_sec = bytes_per_ns * 1_000_000_000f64; // unit: bytes/sec
                     let mb_per_sec = mb_per_sec / 1_000_000f64; // unit: MB/sec
                                                                 // Only use 2 decimals
                     let mb_per_sec = (mb_per_sec * 100.0).round() / 100.0;
-                    log::trace!(target: "citadel", "Sending reception tick for group {} of {} | {} MB/s", group_id, file_container.total_groups, mb_per_sec);
+                    log::trace!(target: "citadel", "Sending reception tick for group {} of {} | {} MB/s", group_id, total_groups, mb_per_sec);
 
-                    file_container.last_group_finish_time = now;
+                    // Write the timestamp back via a fresh scoped `get_mut` (no Ref held across a remove).
+                    if let Some(mut fc) = self.inbound_files.get_mut(&file_key) {
+                        fc.last_group_finish_time = now;
+                    }
                     let status = ObjectTransferStatus::ReceptionTick(
                         group_id as usize,
-                        file_container.total_groups,
+                        total_groups,
                         mb_per_sec as f32,
                     );
-                    // sending the wave ack will complete the group on the initiator side
-                    file_transfer_handle.unbounded_send(status).map_err(|err| {
-                        (NetworkError::Generic(err.to_string()), ticket, object_id)
-                    })?;
+                    // sending the wave ack will complete the group on the initiator side. Tolerate a
+                    // missing handle (progress channel torn down) — it must not fail reassembly.
+                    if let Some(handle) = self.file_transfer_handles.get(&file_key) {
+                        handle.unbounded_send(status).map_err(|err| {
+                            (NetworkError::Generic(err.to_string()), ticket, object_id)
+                        })?;
+                    }
                 }
             }
 
@@ -1786,7 +1836,13 @@ impl<R: Ratchet> StateContainerInner<R> {
 
                 let file_key = FileKey::new(object_id);
 
-                if let Some(tx) = self.file_transfer_handles.get(&file_key) {
+                // Clone the sender out of the `DashMap` `Ref` and drop the Ref immediately, so the
+                // `file_transfer_handles.remove` calls below can't self-deadlock on the same shard.
+                let tx = self
+                    .file_transfer_handles
+                    .get(&file_key)
+                    .map(|r| r.value().clone());
+                if let Some(tx) = tx {
                     let status = if relative_group_id as usize
                         != transmitter_container
                             .parent_object_total_groups
@@ -1816,7 +1872,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }
                 } else {
-                    log::error!(target: "citadel", "Unable to find ObjectTransferHandle for {:?} | Local is {session_cid} | FileKeys available: {:?}", file_key, self.file_transfer_handles.keys().copied().collect::<Vec<_>>());
+                    log::error!(target: "citadel", "Unable to find ObjectTransferHandle for {:?} | Local is {session_cid} | FileKeys available: {:?}", file_key, self.file_transfer_handles.iter().map(|r| *r.key()).collect::<Vec<_>>());
                 }
 
                 delete_group = true;

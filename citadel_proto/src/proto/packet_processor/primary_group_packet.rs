@@ -121,9 +121,10 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
     match header.cmd_aux {
         packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
             log::trace!(target: "citadel", "RECV GROUP PAYLOAD {header:?}");
-            // Mutating (file payload) branch: escalate read → write.
-            drop(state_container);
-            let mut state_container = inner_mut_state!(state_container_wrapper);
+            // File payload path: runs under the READ lock (C8). `on_group_payload_received` is `&self`
+            // and the inbound group/file maps are `DashMap`, so concurrent vconns' file transfers shard
+            // per entry instead of serializing on the StateContainer write lock (the inbound twin of the
+            // outbound_transmitters convoy fix). The error path's failure-notify is `&self` too.
             // These packets do not get encrypted with the message key. They get scrambled and encrypted
             match state_container.on_group_payload_received(&header, payload.freeze(), &ratchet) {
                 Ok(res) => {
@@ -259,41 +260,52 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
 
                                         session.queue_handle.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                                             let key = GroupKey::new(peer_cid, group_id, object_id);
-                                            if let Some(group) = state_container.inbound_groups.get(&key) {
-                                                if group.has_begun {
-                                                    if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
-                                                        if state_container.meta_expiry_state.expired() {
-                                                            log::warn!(target: "citadel", "Inbound group {group_id} has expired; removing for {peer_cid}.");
-                                                            if let Some(group) = state_container.inbound_groups.remove(&key) {
-                                                                if group.object_id != ObjectId::zero() {
-                                                                    // belongs to a file. Delete file; stop transmission
-                                                                    let key = FileKey::new(group.object_id);
-                                                                    if let Some(_file) = state_container.inbound_files.remove(&key) {
-                                                                        // dropping this will automatically drop the future streaming to HD
-                                                                        log::warn!(target: "citadel", "File transfer expired");
-                                                                        // TODO: Create file FIN
-                                                                    }
-
-                                                                    let _ = state_container.file_transfer_handles.remove(&key);
-                                                                }
-                                                            }
-
-                                                            QueueWorkerResult::Complete
-                                                        } else {
-                                                            log::trace!(target: "citadel", "Other inbound groups being processed; patiently awaiting group {group_id}");
-                                                            QueueWorkerResult::Incomplete
-                                                        }
-                                                    } else {
-                                                        // The inbound group is still receiving, and it hasn't expired. Keep polling
-                                                        QueueWorkerResult::Incomplete
+                                            // Decide under a scoped `Ref`, then DROP it before any
+                                            // inbound_groups.remove (DashMap self-deadlock otherwise).
+                                            let (present, should_remove) =
+                                                match state_container.inbound_groups.get(&key) {
+                                                    None => (false, false),
+                                                    Some(group) => {
+                                                        let remove = group.has_begun
+                                                            && group
+                                                                .receiver
+                                                                .has_expired(GROUP_EXPIRE_TIME_MS)
+                                                            && state_container
+                                                                .meta_expiry_state
+                                                                .expired();
+                                                        (true, remove)
                                                     }
-                                                } else {
-                                                    // group has not started; previous group is still transferring. Do no interrupt transfer
-                                                    QueueWorkerResult::Incomplete
-                                                }
-                                            } else {
+                                                };
+                                            if !present {
                                                 // has been removed, thus is complete
                                                 QueueWorkerResult::Complete
+                                            } else if should_remove {
+                                                log::warn!(target: "citadel", "Inbound group {group_id} has expired; removing for {peer_cid}.");
+                                                if let Some((_, group)) =
+                                                    state_container.inbound_groups.remove(&key)
+                                                {
+                                                    if group.object_id != ObjectId::zero() {
+                                                        // belongs to a file. Delete file; stop transmission
+                                                        let key = FileKey::new(group.object_id);
+                                                        if state_container
+                                                            .inbound_files
+                                                            .remove(&key)
+                                                            .is_some()
+                                                        {
+                                                            // dropping this drops the future streaming to HD
+                                                            log::warn!(target: "citadel", "File transfer expired");
+                                                            // TODO: Create file FIN
+                                                        }
+                                                        let _ = state_container
+                                                            .file_transfer_handles
+                                                            .remove(&key);
+                                                    }
+                                                }
+                                                QueueWorkerResult::Complete
+                                            } else {
+                                                // still receiving, or expired but other groups are
+                                                // processing — keep polling
+                                                QueueWorkerResult::Incomplete
                                             }
                                         });
                                     }

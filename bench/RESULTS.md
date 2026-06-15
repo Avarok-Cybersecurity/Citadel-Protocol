@@ -80,9 +80,23 @@ Avg write acquire-wait balloons **~350×** (22 ns → 7.8 µs) with concurrency,
 flatlines (55.8 → 124 → 120 MiB/s) despite 8× the senders — the textbook convoy signature, the inbound
 twin of the `outbound_transmitters` convoy already fixed. ⇒ **C8 is justified** for concurrent
 file-transfer workloads. (Messaging is unaffected — it uses the interior-mutable read-lock path, which is
-why the messaging benches couldn't see this.) Fix = mirror the proven `outbound_transmitters` DashMap
-pattern on `inbound_groups`/`inbound_files`; validate with this bench (write-wait should stay flat) + the
-file-transfer correctness suite.
+why the messaging benches couldn't see this.)
+
+**C8 LANDED — convoy fixed.** Converted `inbound_groups`/`inbound_files`/`file_transfer_handles` to
+`DashMap` and made the per-wave hot path (`on_group_payload_received`) `&self` so the GROUP_PAYLOAD
+branch runs under a **read** lock (restructured to drop each `RefMut` before its same-shard `remove` —
+DashMap would self-deadlock otherwise). Same bench, after:
+
+| senders | writes (was) | total write-wait (was) | aggregate MiB/s (was) |
+|---|---|---|---|
+| 1 | 1,029 (9,477) | 0.0 ms (0.2) | 58.3 (55.8) |
+| 4 | 4,157 (37,948) | 10.4 ms (75.3) | 166.8 (124.1) |
+| 8 | **8,169 (75,892)** | **52.5 ms (592.2)** | **211.0 (120.4)** |
+
+Per-wave write-lock acquisitions **−90%** (the writes that remain are the infrequent header/cleanup
+ops), total write-wait **−91%**, aggregate throughput **+75%** at 8 concurrent senders. Reassembly
+verified byte-for-byte (11 file-transfer tests: c2s/p2p/revfs/take/delete) + reconnection + messaging
+regression — all green; no deadlock, no corruption.
 
 ## Benchmarking environment caveat (READ FIRST)
 
