@@ -64,9 +64,21 @@ impl EntropyBank {
                 entropy: bytes.into(),
                 scramble_mappings: port_mappings.into(),
                 transient_counter,
+                pipelined: false,
                 pipelined_chains: citadel_io::Mutex::new(None),
             }
         })
+    }
+
+    /// Set the pipelined-PFS routing flag (called at ratchet construction from the negotiated
+    /// `SecrecyMode`). When true, [`Self::protect_packet`] / [`Self::validate_packet_in_place_split`]
+    /// use the forward-secure symmetric chain instead of the fixed per-version key.
+    pub(crate) fn set_pipelined(&mut self, pipelined: bool) {
+        // MlKemHybrid is already a per-message-asymmetric AEAD (KEM-OTP + signature per message) and is
+        // not supported by the per-message symmetric-key path — it provides its own per-message forward
+        // secrecy, so `Perfect` falls back to its native path (design §5a). Only the plain symmetric
+        // ciphers (AES/ChaCha/Ascon) use the chain.
+        self.pipelined = pipelined && !matches!(self.algorithm, EncryptionAlgorithm::MlKemHybrid);
     }
 
     /// For generating a random nonce, independent to any entropy_bank
@@ -137,6 +149,13 @@ impl EntropyBank {
         header_len_bytes: usize,
         full_packet: &mut T,
     ) -> Result<(), CryptError<String>> {
+        if self.pipelined {
+            return self.protect_packet_in_place_pipelined(
+                quantum_container,
+                header_len_bytes,
+                full_packet,
+            );
+        }
         self.wrap_with_unique_nonce_enx(full_packet, move |full_packet, nonce| {
             quantum_container
                 .protect_packet_in_place(header_len_bytes, full_packet, nonce)
@@ -151,6 +170,13 @@ impl EntropyBank {
         header: H,
         payload: &mut T,
     ) -> Result<(), CryptError<String>> {
+        if self.pipelined {
+            return self.validate_packet_in_place_split_pipelined(
+                quantum_container,
+                header,
+                payload,
+            );
+        }
         let header = header.as_ref();
         self.wrap_with_unique_nonce_dex(payload, move |payload, nonce| {
             quantum_container
@@ -457,7 +483,14 @@ pub struct EntropyBank {
     pub(crate) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
     pub(crate) scramble_mappings: Zeroizing<Vec<(u16, u16)>>,
     pub(crate) transient_counter: TransientNonceCounter,
-    /// Lazily-seeded per-direction forward-secure chains for [`SecrecyMode::PerfectPipelined`].
+    /// When true (a `SecrecyMode::Perfect` session), [`Self::protect_packet`] /
+    /// [`Self::validate_packet_in_place_split`] route through the forward-secure symmetric chain
+    /// (per-message key) instead of the fixed per-version key. Set at ratchet construction from the
+    /// negotiated mode (both endpoints agree). Persisted (`serde(default)` = false) so a restored bank
+    /// keeps routing correctly; the chain state itself is never persisted (see below).
+    #[serde(default)]
+    pub(crate) pipelined: bool,
+    /// Lazily-seeded per-direction forward-secure chains for `SecrecyMode::Perfect` (pipelined).
     /// `None` until the first pipelined protect/validate (when the `PostQuantumContainer` — hence the
     /// KEM shared secret + this node's role — is available). Never persisted (see [`DirectionChains`]).
     #[serde(skip)]

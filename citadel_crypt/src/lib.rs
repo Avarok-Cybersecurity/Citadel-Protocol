@@ -41,7 +41,7 @@
 pub mod prelude {
     pub use ::async_trait::async_trait;
 
-    pub use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+    pub use citadel_pqcrypto::constructor_opts::{set_pipelined_all, ConstructorOpts};
     pub use citadel_pqcrypto::{bytes_in_place::EzBuffer, PostQuantumContainer};
 
     pub use crate::misc::CryptError;

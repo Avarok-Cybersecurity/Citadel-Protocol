@@ -140,10 +140,7 @@ where
                 }
 
                 // Process any remaining messages before exiting
-                if matches!(
-                    secrecy_mode,
-                    SecrecyMode::Perfect | SecrecyMode::PerfectPipelined
-                ) {
+                if secrecy_mode == SecrecyMode::Perfect {
                     let queue_size = enqueued_messages_rekey.lock().await.len();
                     if queue_size > 0 {
                         log::warn!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekey task ending with {queue_size} messages still queued");
@@ -174,10 +171,7 @@ where
             }
 
             // Before shutting down, ensure all queued messages are processed
-            if matches!(
-                secrecy_mode,
-                SecrecyMode::Perfect | SecrecyMode::PerfectPipelined
-            ) {
+            if secrecy_mode == SecrecyMode::Perfect {
                 let mut retries = 0;
                 while retries < 10 {
                     let queue_size = enqueued_messages_clone.lock().await.len();
@@ -248,14 +242,23 @@ where
             message: message.into(),
         };
 
+        // Both modes use the same pipelined send path (no head-of-line blocking): send the message
+        // immediately, opportunistically attaching it to a rekey when a constructor is ready. The
+        // modes differ ONLY in the entropy bank's routing: in `Perfect`, the banks are pipelined
+        // (`SecrecyMode::Perfect` → `EntropyBank::pipelined`), so every message gets a unique
+        // forward-secure key MK_i from the local symmetric chain — perfect forward secrecy without a
+        // per-message KEM round-trip. `BestEffort` reuses the per-version key between rekeys. The
+        // opportunistic KEM rekey provides post-compromise healing in both. See
+        // `docs/pfs-symmetric-ratchet-design.md`.
         match self.secrecy_mode {
-            SecrecyMode::BestEffort => {
+            SecrecyMode::BestEffort | SecrecyMode::Perfect => {
                 if let Some(message_not_sent) = self
                     .manager
                     .trigger_rekey_with_payload(Some(message), false)
                     .await?
                 {
-                    // Just send through channel
+                    // No constructor ready (rekey in flight): send immediately on the current version.
+                    // Forward secrecy is preserved in `Perfect` by the per-message chain key.
                     self.manager
                         .sender
                         .lock()
@@ -266,30 +269,9 @@ where
                             CryptError::FatalError("Ratchet Manager's outbound stream died".into())
                         })
                 } else {
-                    // Success; this message will trigger a simultaneous rekey
+                    // The message attached to a simultaneous rekey (goes out on the new version).
                     Ok(())
                 }
-            }
-
-            // PerfectPipelined currently shares Perfect's per-message-rekey send path (strictly as
-            // secure). The pipelined fast path (local symmetric-chain key + periodic rekey) replaces
-            // this arm once the EntropyBank chain wiring lands and passes security review — see
-            // docs/pfs-symmetric-ratchet-design.md §5c.
-            SecrecyMode::Perfect | SecrecyMode::PerfectPipelined => {
-                // In Perfect mode, each message requires its own rekey for perfect forward secrecy.
-                // When a rekey is already in progress, queue the message to be sent later.
-                // The background task drains the queue after each rekey completes.
-                if let Some(message_not_sent) = self
-                    .manager
-                    .trigger_rekey_with_payload(Some(message), false)
-                    .await?
-                {
-                    // Constructor unavailable (rekey in progress), enqueue for later
-                    let mut lock = self.enqueued_messages.lock().await;
-                    lock.push_back(message_not_sent);
-                }
-                // Success: either message was sent with rekey, or it's enqueued
-                Ok(())
             }
         }
     }
@@ -565,15 +547,7 @@ mod tests {
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
     #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
     async fn test_messenger_racy(
-        // PerfectPipelined is included here (only) to prove the new variant flows through the full
-        // messenger end-to-end. It currently shares Perfect's send path, so the heavier lag-matrix
-        // tests below need not re-run it until the pipelined fast path lands.
-        #[values(
-            SecrecyMode::BestEffort,
-            SecrecyMode::Perfect,
-            SecrecyMode::PerfectPipelined
-        )]
-        secrecy_mode: SecrecyMode,
+        #[values(SecrecyMode::BestEffort, SecrecyMode::Perfect)] secrecy_mode: SecrecyMode,
     ) {
         citadel_logging::setup_log();
         messenger_racy::<StackedRatchet, u64>(secrecy_mode, None).await;

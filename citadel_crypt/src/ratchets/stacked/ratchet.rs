@@ -138,7 +138,10 @@ impl Ratchet for StackedRatchet {
                 let next_chain =
                     RecursiveChain::new(&meta_chain[..], prev_chain.alice, prev_chain.bob, false)
                         .unwrap();
+                // Propagate the pipelined-PFS flag across the rekey so the next version's banks keep
+                // routing through the chain (both endpoints derive it identically from their banks).
                 ConstructorOpts::new_ratcheted(Some(r.pqc.params), next_chain)
+                    .with_pipelined(r.entropy_bank.pipelined)
             })
             .collect()
     }
@@ -276,8 +279,12 @@ pub mod constructor {
                 .into_iter()
                 .zip(opts)
                 .filter_map(|(params_tx, opts)| {
-                    let entropy_bank =
+                    let mut entropy_bank =
                         EntropyBank::new(cid, new_version, params.encryption_algorithm).ok()?;
+                    // Bob owns bank creation; the pipelined flag (from the negotiated mode, carried on
+                    // opts) is set here and travels to Alice with the serialized bank. Only the message
+                    // banks pipeline — the scramble/wave bank below stays fixed-key.
+                    entropy_bank.set_pipelined(opts.pipelined);
                     Some(MessageRatchetConstructorInner {
                         entropy_bank: Some(entropy_bank),
                         pqc: PostQuantumContainer::new_bob(opts, params_tx, psks).ok()?,
@@ -639,5 +646,89 @@ impl TryFrom<StackedRatchetConstructor> for StackedRatchet {
             scramble,
             default_security_level,
         }))
+    }
+}
+
+#[cfg(test)]
+mod pipelined_routing_tests {
+    use super::constructor::StackedRatchetConstructor;
+    use super::StackedRatchet;
+    use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+    use crate::ratchets::Ratchet;
+    use bytes::BytesMut;
+    use citadel_pqcrypto::constructor_opts::{set_pipelined_all, ConstructorOpts};
+    use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
+
+    const HDR_LEN: usize = 16;
+    const PSKS: &[&[u8]] = &[b"psk-routing-test"];
+
+    // Full KEX producing a connected (alice, bob) StackedRatchet pair. `pipelined` is set on the
+    // constructor opts; Bob creates the message banks (flag applied) and serializes them to Alice, so
+    // both ends end up with the same flag — exactly the production path.
+    fn gen_pair(pipelined: bool) -> (StackedRatchet, StackedRatchet) {
+        let params = EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::default();
+        let opts = set_pipelined_all(
+            ConstructorOpts::new_vec_init(Some(params), SecurityLevel::Standard),
+            pipelined,
+        );
+        let mut alice = StackedRatchetConstructor::new_alice(opts.clone(), 1234, 0).unwrap();
+        let mut bob =
+            StackedRatchetConstructor::new_bob(5678, opts, alice.stage0_alice().unwrap(), PSKS)
+                .unwrap();
+        alice.stage1_alice(bob.stage0_bob().unwrap(), PSKS).unwrap();
+        (alice.finish().unwrap(), bob.finish().unwrap())
+    }
+
+    fn roundtrip(alice: &StackedRatchet, bob: &StackedRatchet, plaintext: &[u8]) {
+        let mut packet = BytesMut::from(&[0xABu8; HDR_LEN][..]);
+        packet.extend_from_slice(plaintext);
+        alice
+            .protect_message_packet(Some(SecurityLevel::Standard), HDR_LEN, &mut packet)
+            .unwrap();
+        assert_ne!(&packet[HDR_LEN..HDR_LEN + plaintext.len()], plaintext);
+        let payload = packet.split_off(HDR_LEN);
+        let header = packet;
+        let mut payload_buf = payload;
+        bob.validate_message_packet_in_place_split(
+            Some(SecurityLevel::Standard),
+            &header[..],
+            &mut payload_buf,
+        )
+        .unwrap();
+        assert_eq!(&payload_buf[..], plaintext);
+    }
+
+    #[test]
+    fn pipelined_flag_propagates_bob_to_alice() {
+        let (alice, bob) = gen_pair(true);
+        assert!(
+            alice.inner.message.inner[0].entropy_bank.pipelined,
+            "Alice's deserialized bank must carry Bob's pipelined flag"
+        );
+        assert!(bob.inner.message.inner[0].entropy_bank.pipelined);
+        // The scramble bank must NOT pipeline (wave path stays fixed-key).
+        assert!(!alice.inner.scramble.entropy_bank.pipelined);
+        assert!(!bob.inner.scramble.entropy_bank.pipelined);
+    }
+
+    #[test]
+    fn pipelined_protect_validate_roundtrips() {
+        let (alice, bob) = gen_pair(true);
+        for i in 0..20u32 {
+            roundtrip(
+                &alice,
+                &bob,
+                format!("pipelined ratchet msg {i}").as_bytes(),
+            );
+        }
+    }
+
+    #[test]
+    fn non_pipelined_still_roundtrips_fixed_key() {
+        let (alice, bob) = gen_pair(false);
+        assert!(!alice.inner.message.inner[0].entropy_bank.pipelined);
+        for i in 0..20u32 {
+            roundtrip(&alice, &bob, format!("fixed-key msg {i}").as_bytes());
+        }
     }
 }

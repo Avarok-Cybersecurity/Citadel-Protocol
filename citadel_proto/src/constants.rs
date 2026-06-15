@@ -36,7 +36,11 @@ pub const MAJOR_VERSION: u8 = 0;
 // Bumped 9 -> 10: the per-message nonce KDF changed from SHA3-256 to a BLAKE3 keyed-hash PRF
 // (citadel_crypt entropy_bank::get_nonce). This is wire-breaking — a peer on the old derivation
 // produces different nonces, so cross-version traffic must not interoperate.
-pub const MINOR_VERSION: u8 = 10;
+// Bumped 10 -> 11: `SecrecyMode::Perfect` is now pipelined — message packets carry a forward-secure
+// symmetric-chain key (MK_i) with a sequential chain-index trailer instead of the fixed-key path's
+// random transient-id, and the EntropyBank gained a serialized `pipelined` flag. Wire- and
+// bank-format-breaking; a peer on v10 cannot interoperate (different trailer + bank layout).
+pub const MINOR_VERSION: u8 = 11;
 pub const PATCH_VERSION: u8 = 0;
 
 lazy_static! {
