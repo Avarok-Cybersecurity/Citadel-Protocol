@@ -67,7 +67,7 @@ pub fn const_time_compare(this: &[u8], other: &[u8]) -> bool {
 pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), Error> {
     let uses_ml_kem = params.kem_algorithm == KemAlgorithm::MlKem;
     if params.encryption_algorithm == EncryptionAlgorithm::MlKemHybrid && !uses_ml_kem {
-        return Err(Error::Generic(
+        return Err(Error::generic(
             "Invalid crypto parameter combination. ML-KEM hybrid encryption must be paired with ML-KEM",
         ));
     }
@@ -75,7 +75,7 @@ pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), Error> {
     if params.encryption_algorithm == EncryptionAlgorithm::MlKemHybrid
         && params.sig_algorithm == SigAlgorithm::None
     {
-        return Err(Error::Generic(
+        return Err(Error::generic(
             "A post-quantum signature scheme must be selected when using ML-KEM hybrid encryption",
         ));
     }

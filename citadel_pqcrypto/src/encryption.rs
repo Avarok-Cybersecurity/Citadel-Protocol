@@ -194,7 +194,7 @@ pub mod kyber_module {
             // Append the signature and its length at the very end
             input
                 .extend_from_slice(signature.as_slice())
-                .map_err(|err| Error::Other(err.to_string()))?;
+                .map_err(|err| Error::generic(err.to_string()))?;
             encode_length_be_bytes(signature.as_slice().len(), input)?;
 
             log::trace!(target: "citadel", "KyberModule::encrypt_in_place: after signature, final len = {}", input.len());
@@ -217,7 +217,7 @@ pub mod kyber_module {
             let signature_len = decode_length(input)?;
 
             if signature_len > input.len() {
-                return Err(Error::Other(format!(
+                return Err(Error::generic(format!(
                     "Invalid signature length: {} > buffer length {}",
                     signature_len,
                     input.len()
@@ -285,7 +285,7 @@ pub mod kyber_module {
     ) -> Result<Vec<u8>, Error> {
         match kem_alg {
             KemAlgorithm::MlKem => kyber_pke::encrypt(local_pk, plaintext, nonce)
-                .map_err(|err| Error::Other(format!("{err:?}"))),
+                .map_err(|err| Error::generic(format!("{err:?}"))),
         }
     }
 
@@ -296,14 +296,14 @@ pub mod kyber_module {
     ) -> Result<Vec<u8>, Error> {
         match kem_alg {
             KemAlgorithm::MlKem => kyber_pke::decrypt(local_sk, ciphertext)
-                .map_err(|err| Error::Other(format!("{err:?}"))),
+                .map_err(|err| Error::generic(format!("{err:?}"))),
         }
     }
 
     fn encode_length_be_bytes(len: usize, buf: &mut dyn Buffer) -> Result<(), Error> {
         let bytes_be = (len as u64).to_be_bytes();
         buf.extend_from_slice(&bytes_be as &[u8])
-            .map_err(|err| Error::Other(err.to_string()))?;
+            .map_err(|err| Error::generic(err.to_string()))?;
         Ok(())
     }
 
@@ -313,7 +313,7 @@ pub mod kyber_module {
         let len_be_bytes = &input.as_ref()[starting_pos..];
 
         if len_be_bytes.len() != 8 {
-            return Err(Error::Generic("Bad sig_size_bytes length"));
+            return Err(Error::generic("Bad sig_size_bytes length"));
         }
 
         let mut len_buf = [0u8; 8];
@@ -322,7 +322,7 @@ pub mod kyber_module {
         let object_len = u64::from_be_bytes(len_buf) as usize;
 
         if object_len > total_len {
-            return Err(Error::Other(format!(
+            return Err(Error::generic(format!(
                 "Decoded length = {object_len}, yet, input buffer's len is only {total_len}",
             )));
         }
@@ -355,18 +355,18 @@ pub mod kyber_module {
         // encrypt the 32-byte scramble dict using post-quantum pke
 
         let scram_crypt_ser =
-            bincode::serialize(&scram_crypt_dict).map_err(|err| Error::Other(err.to_string()))?;
+            bincode::serialize(&scram_crypt_dict).map_err(|err| Error::generic(err.to_string()))?;
 
         let encrypted_scramble_dict = encrypt_pke(kem_alg, public_key, scram_crypt_ser, nonce)?;
         input
             .extend_from_slice(encrypted_scramble_dict.as_slice())
-            .map_err(|err| Error::Other(err.to_string()))?;
+            .map_err(|err| Error::generic(err.to_string()))?;
         encode_length_be_bytes(encrypted_scramble_dict.len(), input)?;
 
         let sha = sha3_256(input.as_ref());
         input
             .extend_from_slice(&sha)
-            .map_err(|err| Error::Other(err.to_string()))?;
+            .map_err(|err| Error::generic(err.to_string()))?;
         Ok(())
     }
 
@@ -381,7 +381,7 @@ pub mod kyber_module {
         let (ciphertext, sha_required) = input.as_ref().split_at(input.len().saturating_sub(32));
         let sha_ciphertext = sha3_256(ciphertext);
         if sha_ciphertext != sha_required {
-            return Err(Error::Other(format!(
+            return Err(Error::generic(format!(
                 "Invalid ciphertext checksum. {sha_ciphertext:?} != {sha_required:?}",
             )));
         }
@@ -394,7 +394,7 @@ pub mod kyber_module {
         let decrypted_scramble_dict = decrypt_pke(kem_alg, local_sk, encrypted_scramble_dict)?;
         let scram_crypt_dict: ScramCryptDictionary<32> =
             bincode::deserialize(&decrypted_scramble_dict)
-                .map_err(|err| Error::Other(err.to_string()))?;
+                .map_err(|err| Error::generic(err.to_string()))?;
         // remove the encrypted scramble data from the input buf
         let truncate_point = input.len().saturating_sub(encrypted_scramble_dict_len);
         input.truncate(truncate_point);

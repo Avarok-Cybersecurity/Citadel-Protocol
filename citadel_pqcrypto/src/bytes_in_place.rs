@@ -106,7 +106,7 @@ pub trait EzBuffer: AsRef<[u8]> + AsMut<[u8]> + BufMut {
 
     fn try_truncate(&mut self, len: usize) -> Result<(), Error> {
         if len > self.len() {
-            Err(Error::Other(format!(
+            Err(Error::generic(format!(
                 "Cannot truncate len={} when buffer len={}",
                 len,
                 self.len()

@@ -363,7 +363,7 @@ impl TryFrom<u8> for CryptoParameters {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         let value: [u8; 1] = [value];
         let this: CryptoParameters = CryptoParameters::unpack(&value)
-            .map_err(|err| crate::errors::Error::Other(err.to_string()))?;
+            .map_err(|err| crate::errors::Error::generic(err.to_string()))?;
         validate_crypto_params(&this)?;
         Ok(this)
     }
@@ -440,7 +440,7 @@ impl TryFrom<u8> for SecrecyMode {
         if let Some(ret) = Self::from_repr(value) {
             Ok(ret)
         } else {
-            Err(Self::Error::Other(format!(
+            Err(Self::Error::generic(format!(
                 "Cannot cast `{value}` into SecrecyMode"
             )))
         }
@@ -485,7 +485,7 @@ impl TryFrom<u8> for KemAlgorithm {
         if let Some(ret) = Self::from_repr(value) {
             Ok(ret)
         } else {
-            Err(Self::Error::Other(format!(
+            Err(Self::Error::generic(format!(
                 "Cannot cast `{value}` into KemAlgorithm"
             )))
         }
@@ -531,7 +531,7 @@ impl TryFrom<u8> for SigAlgorithm {
         if let Some(ret) = Self::from_repr(value) {
             Ok(ret)
         } else {
-            Err(Self::Error::Other(format!(
+            Err(Self::Error::generic(format!(
                 "Cannot cast `{value}` into Sigalgorithm"
             )))
         }

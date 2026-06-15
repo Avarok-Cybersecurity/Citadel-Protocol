@@ -1,32 +1,11 @@
-use std::fmt::{Debug, Display, Formatter};
-#[cfg(feature = "typescript")]
-use ts_rs::TS;
+//! Error types for this crate.
+//!
+//! As part of the workspace-wide error consolidation, the former `Error` enum has been replaced by
+//! the canonical [`citadel_io::NetworkError`]. `Error` is kept here as an alias so existing
+//! `citadel_types::errors::Error` paths keep resolving; construct values via the typed helpers on
+//! [`NetworkError`] (e.g. `Error::invalid_length()`, `Error::generic(msg)`).
 
-/// The default error type for this crate
-#[derive(Debug)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
-pub enum Error {
-    /// The shared secret is not loaded
-    SharedSecretNotLoaded,
-    /// Failed to encrypt the data
-    EncryptionFailure,
-    /// Failed to decrypt the data
-    DecryptionFailure,
-    /// For generic error types
-    Generic(&'static str),
-    /// For message types requiring heap
-    Other(String),
-    /// Bad length
-    InvalidLength,
-    /// Unsupported algorithm
-    UnsupportedAlgorithm,
-}
+pub use citadel_io::error::{ErrorCode, NetworkError};
 
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
-impl std::error::Error for Error {}
+/// Backwards-compatible alias for the canonical workspace error type.
+pub type Error = NetworkError;
