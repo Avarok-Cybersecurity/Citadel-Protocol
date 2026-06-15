@@ -72,6 +72,13 @@ impl From<std::io::Error> for NetworkError {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
+impl<T> From<crate::tokio::sync::mpsc::error::SendError<T>> for NetworkError {
+    fn from(err: crate::tokio::sync::mpsc::error::SendError<T>) -> Self {
+        Self::coded(ErrorCode::ChannelSend, err.to_string())
+    }
+}
+
 impl From<NetworkError> for std::io::Error {
     fn from(err: NetworkError) -> Self {
         std::io::Error::other(err.into_string())
