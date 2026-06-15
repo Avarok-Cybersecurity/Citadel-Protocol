@@ -68,7 +68,7 @@ pub async fn calculate_optimal_argon_params(
     millis_minimum: u16,
     hash_length: Option<u32>,
     secret: Option<Vec<u8>>,
-) -> Result<ArgonDefaultServerSettings, CryptError<String>> {
+) -> Result<ArgonDefaultServerSettings, CryptError> {
     if cfg!(debug_assertions) {
         log::warn!(target: "citadel", "You are running the argon autotuner in a debug build. \
         This will give inaccurate results. Use a release build to ensure the best possible performance. \
@@ -110,7 +110,7 @@ pub async fn calculate_optimal_argon_params(
 
         match AsyncArgon::hash(fake_password.clone(), settings_this_round)
             .await
-            .map_err(|err| CryptError::Encrypt(err.to_string()))?
+            .map_err(|err| CryptError::encrypt(err.to_string()))?
         {
             ArgonStatus::HashSuccess(_) => {
                 let elapsed = init_time.elapsed().as_millis();
@@ -153,7 +153,7 @@ pub async fn calculate_optimal_argon_params(
                 }
             }
             res => {
-                return Err(CryptError::Encrypt(format!(
+                return Err(CryptError::encrypt(format!(
                     "Unable to hash password: {res:?}",
                 )))
             }

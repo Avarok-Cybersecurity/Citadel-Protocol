@@ -317,7 +317,7 @@ where
             .clone()
             .acquire_owned()
             .await
-            .map_err(|_| CryptError::RekeyUpdateError("Semaphore closed".to_string()))?;
+            .map_err(|_| CryptError::rekey_update("Semaphore closed".to_string()))?;
 
         // CBD: Checkpoint RKT-0b - Semaphore acquired
         log::info!(target: "citadel", "[CBD-RKT-0b] Client {} acquired rekey trigger semaphore: elapsed={}ms",
@@ -368,7 +368,7 @@ where
 
         let state = self.state();
         if state == RekeyState::Halted {
-            return Err(CryptError::RekeyUpdateError(
+            return Err(CryptError::rekey_update(
                 "Rekey process is halted".to_string(),
             ));
         }
@@ -452,7 +452,7 @@ where
                     self.cid, MAX_STALE_VERSION_RETRIES);
                 // Notify messenger layer before returning error to prevent deadlock
                 let _ = self.rekey_done_notifier_tx.send(None);
-                return Err(CryptError::RekeyUpdateError(format!(
+                return Err(CryptError::rekey_update(format!(
                     "Exceeded max stale version retries ({})",
                     MAX_STALE_VERSION_RETRIES
                 )));
@@ -502,14 +502,14 @@ where
                 // Offload stage0_alice + serialize
                 let (constructor, payload) = citadel_io::spawn_blocking(move || {
                     let transfer = constructor.stage0_alice().ok_or_else(|| {
-                        CryptError::RekeyUpdateError("Failed to get initial transfer".to_string())
+                        CryptError::rekey_update("Failed to get initial transfer".to_string())
                     })?;
                     let payload = bincode::serialize(&transfer)
-                        .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                        .map_err(|err| CryptError::rekey_update(format!("{err:?}")))?;
                     Ok::<_, CryptError>((constructor, payload))
                 })
                 .await
-                .map_err(|_| CryptError::RekeyUpdateError("Join error on stage0_alice".into()))??;
+                .map_err(|_| CryptError::rekey_update("Join error on stage0_alice"))??;
 
                 // For wait_for_completion=true, register listener BEFORE sending to avoid missing notification
                 let rx = if wait_for_completion {
@@ -601,7 +601,7 @@ where
                         metadata,
                     })
                     .await
-                    .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
+                    .map_err(|_err| CryptError::rekey_update("Sink send error"))?;
 
                 // CBD: Checkpoint RKT-5
                 log::info!(target: "citadel", "[CBD-RKT-5] Client {} sent AliceToBob: elapsed={}ms",
@@ -637,7 +637,7 @@ where
                                 self.cid, version_at_entry, current_version, rkt_start.elapsed().as_millis());
                                 break;
                             }
-                            return Err(CryptError::RekeyUpdateError(
+                            return Err(CryptError::rekey_update(
                                 "Local listener dropped without version advance".to_string(),
                             ));
                         }
@@ -730,7 +730,7 @@ where
                         // with "rekey already pending" at the declared_version check.
                         self.session_crypto_state.sync_declared_version();
 
-                        if matches!(err, CryptError::FatalError(..)) {
+                        if err.code == citadel_io::ErrorCode::FatalCrypt {
                             // Only log if we're the ones initiating shutdown (shutdown_tx still exists)
                             if self.shutdown().is_some() {
                                 log::debug!(target: "citadel", "Client {} rekey process ending (fatal error: {err:?})", self.cid);
@@ -826,7 +826,7 @@ where
                     Err(_) => {
                         log::warn!(target: "citadel", "Client {} rekey message timeout (role={:?}, state={:?}), resetting for retry",
                             self.cid, self.role(), self.state());
-                        return Err(CryptError::RekeyUpdateError(
+                        return Err(CryptError::rekey_update(
                             "Rekey protocol message timeout — resetting for retry".to_string(),
                         ));
                     }
@@ -865,7 +865,7 @@ where
 
                         // Process the AliceToBob message as Bob
                         let transfer = bincode::deserialize(&payload)
-                            .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+                            .map_err(|err| CryptError::rekey_update(err.to_string()))?;
 
                         let _cid = self.session_crypto_state.cid();
                         // Single toolset read for this phase
@@ -881,7 +881,7 @@ where
                                 };
                             let ratchet =
                                 read.get_ratchet(target_version).cloned().ok_or_else(|| {
-                                    CryptError::RekeyUpdateError(
+                                    CryptError::rekey_update(
                                         "Failed to get stacked ratchet".to_string(),
                                     )
                                 })?;
@@ -910,7 +910,7 @@ where
 
                                 if stale_message_count >= MAX_STALE_MESSAGES {
                                     // Too many stale messages - break to resync
-                                    return Err(CryptError::RekeyUpdateError(
+                                    return Err(CryptError::rekey_update(
                                         format!("Too many stale AliceToBob messages ({stale_message_count}), resynchronization needed. Peer: {latest_ratchet_version}, Local: {local_latest_ratchet_version}")
                                     ));
                                 }
@@ -920,7 +920,7 @@ where
                             // Peer is ahead - this is a real desync error
                             log::warn!(target: "citadel", "[CBD-RKT-BARRIER] Client {} mismatch: peer=({}-{}), local=({}-{}), role={:?}, state={:?}",
                                 self.cid, earliest_ratchet_version, latest_ratchet_version, local_earliest_ratchet_version, local_latest_ratchet_version, self.role(), self.state());
-                            return Err(CryptError::RekeyUpdateError(
+                            return Err(CryptError::rekey_update(
                                 format!(
                                     "Rekey barrier mismatch (earliest/latest). Peer: ({earliest_ratchet_version}-{latest_ratchet_version}) != Local: ({local_earliest_ratchet_version}-{local_latest_ratchet_version})"
                                 ),
@@ -942,7 +942,7 @@ where
                                     self.cid, peer_metadata.next_version, stale_message_count, MAX_STALE_MESSAGES);
 
                                 if stale_message_count >= MAX_STALE_MESSAGES {
-                                    return Err(CryptError::RekeyUpdateError(
+                                    return Err(CryptError::rekey_update(
                                         format!("Too many stale AliceToBob messages ({stale_message_count})")
                                     ));
                                 }
@@ -967,14 +967,14 @@ where
 
                                 if stale_message_count >= MAX_STALE_MESSAGES {
                                     // Too many stale messages - break to resync
-                                    return Err(CryptError::RekeyUpdateError(
+                                    return Err(CryptError::rekey_update(
                                         format!("Too many stale AliceToBob messages ({stale_message_count}), resynchronization needed. Peer: {peer_metadata:?}, Local: {metadata:?}")
                                     ));
                                 }
                                 log::info!(target: "citadel", "[CBD-RKT-SKIP-META] Client {} skipping stale AliceToBob (metadata mismatch: peer={:?}, local={:?})", self.cid, peer_metadata, metadata);
                                 continue; // Skip this stale message and wait for fresh ones
                             }
-                            return Err(CryptError::RekeyUpdateError(
+                            return Err(CryptError::rekey_update(
                                 format!("Metadata mismatch (AliceToBob). Peer: {peer_metadata:?} != Local: {metadata:?}"),
                             ));
                         }
@@ -987,7 +987,7 @@ where
                                 self.cid, next_opts, transfer, &self.psks,
                             )
                             .ok_or_else(|| {
-                                CryptError::RekeyUpdateError(
+                                CryptError::rekey_update(
                                     "Failed to create bob constructor".to_string(),
                                 )
                             })?;
@@ -1006,7 +1006,7 @@ where
                         })
                         .await
                         .map_err(|_| {
-                            CryptError::RekeyUpdateError("Join error on update_sync_safe".into())
+                            CryptError::rekey_update("Join error on update_sync_safe")
                         })??;
                         log::info!(target: "citadel", "[CBD-RKT-PROC-6] Client {} update_sync_safe completed with status", self.cid);
                         status_result
@@ -1015,7 +1015,7 @@ where
                     match status {
                         KemTransferStatus::Some(transfer, _) => {
                             let serialized = bincode::serialize(&transfer)
-                                .map_err(|err| CryptError::RekeyUpdateError(format!("{err:?}")))?;
+                                .map_err(|err| CryptError::rekey_update(format!("{err:?}")))?;
 
                             // DON'T remove constructor here - it may be needed in double-Loser scenario
                             // where initiator promotes to Leader. Constructor will be properly removed
@@ -1039,7 +1039,7 @@ where
                                 ))
                                 .await
                                 .map_err(|_err| {
-                                    CryptError::RekeyUpdateError("Sink send error".into())
+                                    CryptError::rekey_update("Sink send error")
                                 })?;
 
                             log::info!(
@@ -1082,13 +1082,13 @@ where
 
                             if stale_message_count >= MAX_STALE_MESSAGES {
                                 // Too many stale messages - break to resync
-                                return Err(CryptError::RekeyUpdateError(
+                                return Err(CryptError::rekey_update(
                                     format!("Too many stale BobToAlice messages ({stale_message_count}), resynchronization needed. Peer: {peer_metadata:?}, Local: {local_metadata:?}")
                                 ));
                             }
                             continue; // Skip this stale message and wait for fresh ones
                         }
-                        return Err(CryptError::RekeyUpdateError(
+                        return Err(CryptError::rekey_update(
                             format!("Metadata mismatch (BobToAlice). Peer: {peer_metadata:?} != Local: {local_metadata:?}"),
                         ));
                     }
@@ -1120,7 +1120,7 @@ where
                                         log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} (non-initiator) yielding, stale_count={}/{}",
                                             self.cid, stale_message_count, MAX_STALE_MESSAGES);
                                         if stale_message_count >= MAX_STALE_MESSAGES {
-                                            return Err(CryptError::RekeyUpdateError(
+                                            return Err(CryptError::rekey_update(
                                                 format!("Too many double-Loser messages ({stale_message_count}), resynchronization needed")
                                             ));
                                         }
@@ -1128,7 +1128,7 @@ where
                                     }
                                 } else {
                                     log::warn!(target: "citadel", "Invalid role transition from {initial_role:?} to Leader");
-                                    return Err(CryptError::RekeyUpdateError(format!(
+                                    return Err(CryptError::rekey_update(format!(
                                         "Invalid role transition from {initial_role:?} to Leader"
                                     )));
                                 }
@@ -1154,7 +1154,7 @@ where
                             log::debug!(target: "citadel", "[CBD-RKT-DOUBLE-LOSER] Client {} (non-initiator) yielding (secondary check), stale_count={}/{}",
                                 self.cid, stale_message_count, MAX_STALE_MESSAGES);
                             if stale_message_count >= MAX_STALE_MESSAGES {
-                                return Err(CryptError::RekeyUpdateError(
+                                return Err(CryptError::rekey_update(
                                     format!("Too many unexpected BobToAlice while Loser ({stale_message_count}), resynchronization needed")
                                 ));
                             }
@@ -1176,7 +1176,7 @@ where
                             self.cid, peer_metadata.next_version, stale_message_count, MAX_STALE_MESSAGES);
 
                         if stale_message_count >= MAX_STALE_MESSAGES {
-                            return Err(CryptError::RekeyUpdateError(format!(
+                            return Err(CryptError::rekey_update(format!(
                                 "Too many stale BobToAlice messages ({stale_message_count})"
                             )));
                         }
@@ -1188,7 +1188,7 @@ where
                         { self.constructors.lock().remove(&peer_metadata.next_version) };
                     if let Some(mut alice_constructor) = constructor.take() {
                         let transfer = bincode::deserialize(&transfer_data).map_err(|e| {
-                            CryptError::RekeyUpdateError(format!(
+                            CryptError::rekey_update(format!(
                                 "Failed to deserialize transfer: {e}"
                             ))
                         })?;
@@ -1201,7 +1201,7 @@ where
                         })
                         .await
                         .map_err(|_| {
-                            CryptError::RekeyUpdateError("Join error on update_sync_safe".into())
+                            CryptError::rekey_update("Join error on update_sync_safe")
                         })??;
 
                         let truncation_required = status.requires_truncation();
@@ -1234,7 +1234,7 @@ where
                                     .send(RatchetMessage::Truncate(version_to_truncate))
                                     .await
                                     .map_err(|_err| {
-                                        CryptError::RekeyUpdateError("Sink send error".into())
+                                        CryptError::rekey_update("Sink send error")
                                     })?;
                                 // We need to wait to be marked as complete
                             } else {
@@ -1245,14 +1245,14 @@ where
                                     .send(RatchetMessage::LoserCanFinish)
                                     .await
                                     .map_err(|_err| {
-                                        CryptError::RekeyUpdateError("Sink send error".into())
+                                        CryptError::rekey_update("Sink send error")
                                     })?;
                             }
                         } else {
                             log::warn!(target:"citadel", "Client {} unexpected status as Leader: {status:?}", self.cid);
                         }
                     } else {
-                        return Err(CryptError::RekeyUpdateError(
+                        return Err(CryptError::rekey_update(
                             format!(
                                 "Unexpected BobToAlice message with no loaded local constructor for next_version {}",
                                 peer_metadata.next_version
@@ -1275,7 +1275,7 @@ where
                     // Allow Loser if contention, or Idle if no contention
                     log::debug!(target: "citadel", "Client {} received Truncate", self.cid);
                     if role != RekeyRole::Loser {
-                        return Err(CryptError::RekeyUpdateError(format!(
+                        return Err(CryptError::rekey_update(format!(
                             "Unexpected Truncate message since our role is not Loser, but {role:?}"
                         )));
                     }
@@ -1319,7 +1319,7 @@ where
                             version: latest_version,
                         })
                         .await
-                        .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
+                        .map_err(|_err| CryptError::rekey_update("Sink send error"))?;
                     break;
                 }
 
@@ -1327,7 +1327,7 @@ where
                     // Allow Loser if contention, or Idle if no contention
                     let role = self.role();
                     if role != RekeyRole::Loser {
-                        return Err(CryptError::RekeyUpdateError(
+                        return Err(CryptError::rekey_update(
                             format!("Unexpected LoserCanFinish message since our role is not Loser, but {role:?}")
                         ));
                     }
@@ -1381,7 +1381,7 @@ where
                             version: latest_version,
                         })
                         .await
-                        .map_err(|_err| CryptError::RekeyUpdateError("Sink send error".into()))?;
+                        .map_err(|_err| CryptError::rekey_update("Sink send error"))?;
                     break;
                 }
 
@@ -1402,7 +1402,7 @@ where
                             }
                             RoleTransition::Invalid => {
                                 log::warn!(target: "citadel", "Invalid role transition from {initial_role:?} to Leader");
-                                return Err(CryptError::RekeyUpdateError(format!(
+                                return Err(CryptError::rekey_update(format!(
                                     "Invalid role transition from {initial_role:?} to Leader"
                                 )));
                             }
@@ -1413,7 +1413,7 @@ where
                     // Verify we're in a valid role
                     let role = self.role();
                     if role != RekeyRole::Leader {
-                        return Err(CryptError::RekeyUpdateError(format!(
+                        return Err(CryptError::rekey_update(format!(
                             "Unexpected LeaderCanFinish message since our role is not Leader, but {role:?}"
                         )));
                     }
@@ -1442,7 +1442,7 @@ where
                     if latest_declared_version != version {
                         log::warn!(target: "citadel", "Client {} version mismatch in LeaderCanFinish. Local: {}, Peer: {}", 
                             self.cid, latest_declared_version, version);
-                        return Err(CryptError::RekeyUpdateError(format!(
+                        return Err(CryptError::rekey_update(format!(
                             "Version mismatch in LeaderCanFinish. Local: {latest_declared_version}, Peer: {version}"
                         )));
                     }
@@ -1459,7 +1459,7 @@ where
                 }
 
                 None => {
-                    return Err(CryptError::FatalError(
+                    return Err(CryptError::fatal_crypt(
                         "Unexpected end of stream".to_string(),
                     ));
                 }

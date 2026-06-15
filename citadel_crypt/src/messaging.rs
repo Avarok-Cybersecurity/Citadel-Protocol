@@ -232,7 +232,7 @@ where
 {
     pub async fn send(&mut self, message: impl Into<P>) -> Result<(), CryptError> {
         if !self.is_active.load(ORDERING) {
-            return Err(CryptError::Encrypt(
+            return Err(CryptError::encrypt(
                 "Cannot send encrypted messages (stream died)".to_string(),
             ));
         }
@@ -257,7 +257,7 @@ where
                         .send(RatchetMessage::JustMessage(message_not_sent))
                         .await
                         .map_err(|_| {
-                            CryptError::FatalError("Ratchet Manager's outbound stream died".into())
+                            CryptError::fatal_crypt("Ratchet Manager's outbound stream died")
                         })
                 } else {
                     // Success; this message will trigger a simultaneous rekey

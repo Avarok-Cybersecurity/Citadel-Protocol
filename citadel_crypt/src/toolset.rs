@@ -179,18 +179,18 @@ impl<R: Ratchet> Toolset<R> {
     #[allow(unused_results)]
     pub fn deregister_oldest_ratchet(&mut self, version: u32) -> Result<(), CryptError> {
         if self.map.len() < MAX_RATCHETS_IN_MEMORY {
-            return Err(CryptError::RekeyUpdateError(
+            return Err(CryptError::rekey_update(
                 "Cannot call for deregistration unless the map len is maxed out".to_string(),
             ));
         }
 
         let oldest = self.get_oldest_ratchet_version();
         if oldest != version {
-            Err(CryptError::RekeyUpdateError(format!(
+            Err(CryptError::rekey_update(format!(
                 "Unable to deregister. Provided version: {version}, expected version: {oldest}",
             )))
         } else {
-            self.map.pop_back().ok_or(CryptError::OutOfBoundsError)?;
+            self.map.pop_back().ok_or(CryptError::out_of_bounds())?;
             self.oldest_ratchet_version = self.oldest_ratchet_version.wrapping_add(1);
             log::trace!(target: "citadel", "[Toolset] Deregistered version {} for cid={}. New oldest: {} | LEN: {}", version, self.cid, self.oldest_ratchet_version, self.len());
             Ok(())

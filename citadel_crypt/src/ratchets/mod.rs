@@ -92,7 +92,7 @@ pub trait Ratchet:
         security_level: Option<SecurityLevel>,
         header_len_bytes: usize,
         packet: &mut T,
-    ) -> Result<(), CryptError<String>> {
+    ) -> Result<(), CryptError> {
         let idx = self.verify_level(security_level)?;
 
         for n in 0..=idx {
@@ -109,7 +109,7 @@ pub trait Ratchet:
         security_level: Option<SecurityLevel>,
         header: H,
         packet: &mut T,
-    ) -> Result<(), CryptError<String>> {
+    ) -> Result<(), CryptError> {
         let idx = self.verify_level(security_level)?;
         for n in (0..=idx).rev() {
             let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(Some(n))?;
@@ -170,12 +170,12 @@ pub trait Ratchet:
     fn verify_level(
         &self,
         security_level_init: Option<SecurityLevel>,
-    ) -> Result<usize, CryptError<String>> {
+    ) -> Result<usize, CryptError> {
         let message_ratchet_count = self.message_ratchet_count();
         let security_level = security_level_init.unwrap_or(SecurityLevel::Standard);
 
         if message_ratchet_count == 0 {
-            return Err(CryptError::RatchetError(
+            return Err(CryptError::ratchet(
                 "No message ratchets available".to_string(),
             ));
         }
@@ -184,7 +184,7 @@ pub trait Ratchet:
         let validated_level = security_level.value();
 
         if security_level.value() > max_level {
-            Err(CryptError::RatchetError(format!("Requested security level: {security_level_init:?}. Resolved: {security_level:?}. Only have max {max_level} security levels")))
+            Err(CryptError::ratchet(format!("Requested security level: {security_level_init:?}. Resolved: {security_level:?}. Only have max {max_level} security levels")))
         } else {
             Ok(validated_level as usize)
         }
@@ -196,7 +196,7 @@ pub trait Ratchet:
         security_level: Option<SecurityLevel>,
         header: H,
         packet: &mut BytesMut,
-    ) -> Result<(), CryptError<String>> {
+    ) -> Result<(), CryptError> {
         let idx = self.verify_level(security_level)?;
         for n in (0..=idx).rev() {
             let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(Some(n))?;
@@ -207,13 +207,13 @@ pub trait Ratchet:
     }
 
     /// decrypts using a custom nonce configuration
-    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError> {
         let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(None)?;
         entropy_bank.decrypt(pqc, contents)
     }
 
     /// Encrypts the data into a Vec<u8>
-    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError> {
         let (pqc, entropy_bank) = self.get_message_pqc_and_entropy_bank_at_layer(None)?;
         entropy_bank.encrypt(pqc, contents)
     }

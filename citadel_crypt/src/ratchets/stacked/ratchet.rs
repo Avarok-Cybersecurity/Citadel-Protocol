@@ -107,7 +107,7 @@ impl Ratchet for StackedRatchet {
             .inner
             .get(idx)
             .map(|r| (&r.pqc, &r.entropy_bank))
-            .ok_or(CryptError::OutOfBoundsError)
+            .ok_or(CryptError::out_of_bounds())
     }
 
     fn get_scramble_pqc_and_entropy_bank(&self) -> (&PostQuantumContainer, &EntropyBank) {
@@ -410,7 +410,7 @@ pub mod constructor {
                 container
                     .pqc
                     .alice_on_receive_ciphertext(bob_param_tx, psks)
-                    .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+                    .map_err(|err| CryptError::rekey_update(err.to_string()))?;
             }
 
             for (idx, container) in self.message.inner.iter_mut().enumerate() {
@@ -420,7 +420,7 @@ pub mod constructor {
                         .encrypted_msg_entropy_banks
                         .get(idx)
                         .ok_or_else(|| {
-                            CryptError::RekeyUpdateError(
+                            CryptError::rekey_update(
                                 "Unable to get encrypted_msg_entropy_banks".to_string(),
                             )
                         })?[..],
@@ -428,7 +428,7 @@ pub mod constructor {
                 ) {
                     Ok(entropy_bank) => entropy_bank,
                     Err(err) => {
-                        return Err(CryptError::RekeyUpdateError(err.to_string()));
+                        return Err(CryptError::rekey_update(err.to_string()));
                     }
                 };
                 let mut decrypted_entropy_bank =
@@ -441,7 +441,7 @@ pub mod constructor {
             self.scramble
                 .pqc
                 .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
-                .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+                .map_err(|err| CryptError::rekey_update(err.to_string()))?;
             // do the same as above
             let decrypted_scramble_entropy_bank = self
                 .scramble
@@ -450,7 +450,7 @@ pub mod constructor {
                     &transfer.encrypted_scramble_entropy_bank[..],
                     nonce_scramble,
                 )
-                .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+                .map_err(|err| CryptError::rekey_update(err.to_string()))?;
 
             let mut decrypted_entropy_bank =
                 EntropyBank::deserialize_from(&decrypted_scramble_entropy_bank[..])?;
@@ -463,7 +463,7 @@ pub mod constructor {
                 .entropy_bank
                 .as_ref()
                 .ok_or_else(|| {
-                    CryptError::RekeyUpdateError(
+                    CryptError::rekey_update(
                         "Unable to get encrypted_msg_entropy_banks".to_string(),
                     )
                 })?
@@ -472,13 +472,13 @@ pub mod constructor {
                     .entropy_bank
                     .as_ref()
                     .ok_or_else(|| {
-                        CryptError::RekeyUpdateError(
+                        CryptError::rekey_update(
                             "Unable to get encrypted_msg_entropy_banks".to_string(),
                         )
                     })?
                     .version
             {
-                return Err(CryptError::RekeyUpdateError(
+                return Err(CryptError::rekey_update(
                     "Message entropy_bank version != scramble entropy_bank version".to_string(),
                 ));
             }
@@ -488,7 +488,7 @@ pub mod constructor {
                 .entropy_bank
                 .as_ref()
                 .ok_or_else(|| {
-                    CryptError::RekeyUpdateError(
+                    CryptError::rekey_update(
                         "Unable to get encrypted_msg_entropy_banks".to_string(),
                     )
                 })?
@@ -497,13 +497,13 @@ pub mod constructor {
                     .entropy_bank
                     .as_ref()
                     .ok_or_else(|| {
-                        CryptError::RekeyUpdateError(
+                        CryptError::rekey_update(
                             "Unable to get encrypted_msg_entropy_banks".to_string(),
                         )
                     })?
                     .cid
             {
-                return Err(CryptError::RekeyUpdateError(
+                return Err(CryptError::rekey_update(
                     "Message entropy_bank cid != scramble entropy_bank cid".to_string(),
                 ));
             }

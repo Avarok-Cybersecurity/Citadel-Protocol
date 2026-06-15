@@ -94,11 +94,11 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     sig_alg: SigAlgorithm,
     transfer_type: &TransferType,
     empty_transfer: bool,
-) -> Result<GroupReceiverConfig, CryptError<String>> {
+) -> Result<GroupReceiverConfig, CryptError> {
     let plain_text = plain_text.as_ref();
 
     if plain_text.is_empty() {
-        return Err(CryptError::Encrypt("Empty input".to_string()));
+        return Err(CryptError::encrypt("Empty input".to_string()));
     }
 
     let max_packet_payload_size = get_max_packet_size(enx, sig_alg, security_level);
@@ -178,7 +178,7 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
         &'a PostQuantumContainer,
         &'a EntropyBank,
     ),
-    CryptError<String>,
+    CryptError,
 > {
     let (msg_pqc, msg_entropy_bank) = ratchet.get_message_pqc_and_entropy_bank_at_layer(None)?;
     let scramble_entropy_bank = ratchet.get_scramble_pqc_and_entropy_bank();
@@ -236,7 +236,7 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>
     group_id: u64,
     transfer_type: TransferType,
     header_inscriber: F,
-) -> Result<GroupSenderDevice<N>, CryptError<String>>
+) -> Result<GroupSenderDevice<N>, CryptError>
 where
     F: Fn(&PacketVector, &EntropyBank, ObjectId, u64, &mut BytesMut) + Send + Sync,
 {
@@ -387,7 +387,7 @@ pub fn oneshot_unencrypted_group_unified<const N: usize>(
     group_id: u64,
     object_id: ObjectId,
     empty_transfer: bool,
-) -> Result<GroupSenderDevice<N>, CryptError<String>> {
+) -> Result<GroupSenderDevice<N>, CryptError> {
     let len = plain_text.message_len() as u64;
     let group_receiver_config = GroupReceiverConfig {
         object_id,
@@ -570,7 +570,7 @@ impl GroupReceiverConfig {
     /// huge `wave_count`/`packets_needed`/`max_payload_size`/`max_packets_per_wave` while
     /// keeping `plaintext_length` small. All arithmetic is checked: any overflow is a
     /// rejection rather than a silent wrap.
-    pub fn validate(&self) -> Result<(), CryptError<String>> {
+    pub fn validate(&self) -> Result<(), CryptError> {
         // Hard ceiling on the total bytes `GroupReceiver::new` may allocate for one group.
         // A legitimate group allocates ~= plaintext_length (slab) + ciphertext (~plaintext +
         // AEAD overhead) + small bitmaps. 4x MAX_BYTES_PER_GROUP leaves generous headroom for
@@ -581,7 +581,7 @@ impl GroupReceiverConfig {
         const PER_WAVE_OVERHEAD_BYTES: u64 = 128;
 
         let reject = |msg: &str| {
-            Err(CryptError::Decrypt(format!(
+            Err(CryptError::decrypt(format!(
                 "Invalid GroupReceiverConfig: {msg}"
             )))
         };
@@ -606,7 +606,7 @@ impl GroupReceiverConfig {
         let derived_wave_count = self
             .number_of_full_waves
             .checked_add(self.number_of_partial_waves)
-            .ok_or_else(|| CryptError::Decrypt("wave count overflow".to_string()))?;
+            .ok_or_else(|| CryptError::decrypt("wave count overflow".to_string()))?;
         if derived_wave_count != self.wave_count {
             return reject("wave_count inconsistent with full/partial wave counts");
         }
@@ -615,7 +615,7 @@ impl GroupReceiverConfig {
             .number_of_full_waves
             .checked_mul(self.max_packets_per_wave)
             .and_then(|v| v.checked_add(self.packets_in_last_wave))
-            .ok_or_else(|| CryptError::Decrypt("packets_needed overflow".to_string()))?;
+            .ok_or_else(|| CryptError::decrypt("packets_needed overflow".to_string()))?;
         if derived_packets_needed != self.packets_needed {
             return reject("packets_needed inconsistent with wave layout");
         }
@@ -631,15 +631,15 @@ impl GroupReceiverConfig {
         let full_wave_cipher = (self.number_of_full_waves as u64)
             .checked_mul(self.max_payload_size)
             .and_then(|v| v.checked_mul(self.max_packets_per_wave as u64))
-            .ok_or_else(|| CryptError::Decrypt("ciphertext size overflow".to_string()))?;
+            .ok_or_else(|| CryptError::decrypt("ciphertext size overflow".to_string()))?;
         // Last wave: (packets_in_last_wave - 1) full payloads + last_payload_size.
         let last_wave_cipher = (self.packets_in_last_wave.saturating_sub(1) as u64)
             .checked_mul(self.max_payload_size)
             .and_then(|v| v.checked_add(self.last_payload_size))
-            .ok_or_else(|| CryptError::Decrypt("last wave size overflow".to_string()))?;
+            .ok_or_else(|| CryptError::decrypt("last wave size overflow".to_string()))?;
         let wave_overhead = (self.wave_count as u64)
             .checked_mul(PER_WAVE_OVERHEAD_BYTES)
-            .ok_or_else(|| CryptError::Decrypt("wave overhead overflow".to_string()))?;
+            .ok_or_else(|| CryptError::decrypt("wave overhead overflow".to_string()))?;
         let total = self
             .plaintext_length
             .checked_add(full_wave_cipher)
@@ -647,7 +647,7 @@ impl GroupReceiverConfig {
             .and_then(|v| v.checked_add((self.packets_needed as u64) / 8 + 1))
             .and_then(|v| v.checked_add((self.wave_count as u64) / 8 + 1))
             .and_then(|v| v.checked_add(wave_overhead))
-            .ok_or_else(|| CryptError::Decrypt("total allocation overflow".to_string()))?;
+            .ok_or_else(|| CryptError::decrypt("total allocation overflow".to_string()))?;
         if total > MAX_RECEIVER_ALLOCATION {
             return reject("implied receiver allocation exceeds ceiling");
         }

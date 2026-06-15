@@ -52,7 +52,7 @@ impl EntropyBank {
         cid: u64,
         version: u32,
         algorithm: EncryptionAlgorithm,
-    ) -> Result<Self, CryptError<String>> {
+    ) -> Result<Self, CryptError> {
         Self::generate_random_array().map(|bytes| {
             let port_mappings = create_port_mapping();
             let transient_counter = Default::default();
@@ -106,11 +106,11 @@ impl EntropyBank {
         &self,
         quantum_container: &PostQuantumContainer,
         input: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
+    ) -> Result<Vec<u8>, CryptError> {
         self.wrap_with_unique_nonce_enx_vec(input, move |input, nonce| {
             quantum_container
                 .encrypt(input, nonce)
-                .map_err(|err| CryptError::Encrypt(err.to_string()))
+                .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }
 
@@ -119,11 +119,11 @@ impl EntropyBank {
         &self,
         quantum_container: &PostQuantumContainer,
         input: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
+    ) -> Result<Vec<u8>, CryptError> {
         self.wrap_with_unique_nonce_dex_vec(input, move |input, nonce| {
             quantum_container
                 .decrypt(input, nonce)
-                .map_err(|err| CryptError::Encrypt(err.to_string()))
+                .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }
 
@@ -134,11 +134,11 @@ impl EntropyBank {
         quantum_container: &PostQuantumContainer,
         header_len_bytes: usize,
         full_packet: &mut T,
-    ) -> Result<(), CryptError<String>> {
+    ) -> Result<(), CryptError> {
         self.wrap_with_unique_nonce_enx(full_packet, move |full_packet, nonce| {
             quantum_container
                 .protect_packet_in_place(header_len_bytes, full_packet, nonce)
-                .map_err(|err| CryptError::Encrypt(err.to_string()))
+                .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }
 
@@ -148,12 +148,12 @@ impl EntropyBank {
         quantum_container: &PostQuantumContainer,
         header: H,
         payload: &mut T,
-    ) -> Result<(), CryptError<String>> {
+    ) -> Result<(), CryptError> {
         let header = header.as_ref();
         self.wrap_with_unique_nonce_dex(payload, move |payload, nonce| {
             quantum_container
                 .validate_packet_in_place(header, payload, nonce)
-                .map_err(|err| CryptError::Encrypt(err.to_string()))
+                .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }
 
@@ -164,11 +164,11 @@ impl EntropyBank {
         &self,
         quantum_container: &PostQuantumContainer,
         buf: &mut T,
-    ) -> Result<(), CryptError<String>> {
+    ) -> Result<(), CryptError> {
         self.wrap_with_unique_nonce_enx(buf, move |buf, nonce| {
             quantum_container
                 .encrypt_in_place(buf, nonce)
-                .map_err(|err| CryptError::Encrypt(err.to_string()))
+                .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }
 
@@ -179,11 +179,11 @@ impl EntropyBank {
         &self,
         quantum_container: &PostQuantumContainer,
         buf: &mut T,
-    ) -> Result<(), CryptError<String>> {
+    ) -> Result<(), CryptError> {
         self.wrap_with_unique_nonce_dex(buf, move |buf, nonce| {
             quantum_container
                 .decrypt_in_place(buf, nonce)
-                .map_err(|err| CryptError::Encrypt(err.to_string()))
+                .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }
 
@@ -196,7 +196,7 @@ impl EntropyBank {
         let nonce = &self.get_nonce(transient_id);
         function(buf, nonce)?;
         buf.extend_from_slice(&transient_id.to_be_bytes())
-            .map_err(|err| CryptError::Encrypt(err.to_string()))
+            .map_err(|err| CryptError::encrypt(err.to_string()))
     }
 
     fn wrap_with_unique_nonce_dex<T: EzBuffer>(
@@ -207,7 +207,7 @@ impl EntropyBank {
         let starting_pos = buf.len().saturating_sub(8);
         let transient_id_bytes = &buf.as_ref()[starting_pos..];
         if transient_id_bytes.len() != 8 {
-            return Err(CryptError::Decrypt(format!(
+            return Err(CryptError::decrypt(format!(
                 "Bad input size of {} (transient id)",
                 buf.as_ref().len()
             )));
@@ -242,7 +242,7 @@ impl EntropyBank {
         let starting_pos = buf.len().saturating_sub(8);
         let transient_id_bytes = &buf[starting_pos..];
         if transient_id_bytes.len() != 8 {
-            return Err(CryptError::Decrypt(format!(
+            return Err(CryptError::decrypt(format!(
                 "Bad input size of {} (transient id)",
                 buf.len()
             )));
@@ -259,13 +259,13 @@ impl EntropyBank {
         &self,
         quantum_container: &PostQuantumContainer,
         payload: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
+    ) -> Result<Vec<u8>, CryptError> {
         self.wrap_with_unique_nonce_enx_vec(payload, move |payload, nonce| {
             // For local_encrypt, always pass the full 32-byte nonce
             // The PostQuantumContainer implementation will handle any necessary slicing
             quantum_container
                 .local_encrypt(payload, nonce)
-                .map_err(|err| CryptError::Encrypt(err.to_string()))
+                .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }
 
@@ -273,13 +273,13 @@ impl EntropyBank {
         &self,
         quantum_container: &PostQuantumContainer,
         payload: T,
-    ) -> Result<Vec<u8>, CryptError<String>> {
+    ) -> Result<Vec<u8>, CryptError> {
         self.wrap_with_unique_nonce_dex_vec(payload, move |payload, nonce| {
             // For local_decrypt, always pass the full 32-byte nonce
             // The PostQuantumContainer implementation will handle any necessary slicing
             quantum_container
                 .local_decrypt(payload, nonce)
-                .map_err(|err| CryptError::Encrypt(err.to_string()))
+                .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }
 
@@ -299,13 +299,13 @@ impl EntropyBank {
     }
 
     /// Updates the version of the entropy_bank
-    pub fn update_version(&mut self, version: u32) -> Result<(), CryptError<String>> {
+    pub fn update_version(&mut self, version: u32) -> Result<(), CryptError> {
         self.version = version;
         Ok(())
     }
 
     /// Downloads the data necessary to create a entropy_bank
-    fn generate_random_array() -> Result<[u8; BYTES_PER_STORE], CryptError<String>> {
+    fn generate_random_array() -> Result<[u8; BYTES_PER_STORE], CryptError> {
         let mut bytes: [u8; BYTES_PER_STORE] = [0u8; BYTES_PER_STORE];
         let mut trng = thread_rng();
         trng.fill_bytes(&mut bytes);
@@ -314,14 +314,14 @@ impl EntropyBank {
     }
 
     /// Serializes self to a vector
-    pub fn serialize_to_vec(&self) -> Result<Vec<u8>, CryptError<String>> {
-        bincode::serialize(self).map_err(|err| CryptError::RekeyUpdateError(err.to_string()))
+    pub fn serialize_to_vec(&self) -> Result<Vec<u8>, CryptError> {
+        bincode::serialize(self).map_err(|err| CryptError::rekey_update(err.to_string()))
     }
 
     /// Deserializes self from a set of bytes
-    pub fn deserialize_from<T: AsRef<[u8]>>(entropy_bank: T) -> Result<Self, CryptError<String>> {
+    pub fn deserialize_from<T: AsRef<[u8]>>(entropy_bank: T) -> Result<Self, CryptError> {
         bincode::deserialize(entropy_bank.as_ref())
-            .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))
+            .map_err(|err| CryptError::rekey_update(err.to_string()))
     }
 }
 
