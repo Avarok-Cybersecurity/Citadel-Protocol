@@ -37,7 +37,8 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
+use crate::ratchets::message_chain::SymmetricChain;
+use citadel_pqcrypto::{EncryptionAlgorithmExt, PQNode, PostQuantumContainer};
 use rand::prelude::ThreadRng;
 
 pub const DRILL_RANGE: usize = 14;
@@ -63,6 +64,7 @@ impl EntropyBank {
                 entropy: bytes.into(),
                 scramble_mappings: port_mappings.into(),
                 transient_counter,
+                pipelined_chains: citadel_io::Mutex::new(None),
             }
         })
     }
@@ -155,6 +157,101 @@ impl EntropyBank {
                 .validate_packet_in_place(header, payload, nonce)
                 .map_err(|err| CryptError::Encrypt(err.to_string()))
         })
+    }
+
+    /// Lazily seed the per-direction forward-secure chains for the pipelined-PFS path. The seed root is
+    /// `BLAKE3(KEM shared secret)` — identical on both endpoints for this version, fresh on every KEM
+    /// rekey — domain-separated by a direction label chosen from this node's [`PQNode`] role so that
+    /// one node's *send* chain equals the peer's *recv* chain. Idempotent (seeds once per bank).
+    fn ensure_pipelined_chains_seeded(
+        &self,
+        quantum_container: &PostQuantumContainer,
+    ) -> Result<(), CryptError<String>> {
+        let mut guard = self.pipelined_chains.lock();
+        if guard.is_some() {
+            return Ok(());
+        }
+        let shared_secret = quantum_container
+            .get_shared_secret()
+            .map_err(|err| CryptError::Encrypt(err.to_string()))?;
+        // Compress the variable-length KEM secret to a 32-byte root; zeroize the transient copy.
+        let root = Zeroizing::new(*blake3::hash(&shared_secret[..]).as_bytes());
+        // Direction labels (not send/recv roles) so Alice's send chain == Bob's recv chain.
+        let (send_label, recv_label): (&[u8], &[u8]) = match quantum_container.node() {
+            PQNode::Alice => (b"a2b", b"b2a"),
+            PQNode::Bob => (b"b2a", b"a2b"),
+        };
+        *guard = Some(DirectionChains {
+            send: SymmetricChain::new(&root, send_label),
+            recv: SymmetricChain::new(&root, recv_label),
+        });
+        Ok(())
+    }
+
+    /// Pipelined-PFS counterpart to [`Self::protect_packet`]: each message gets a distinct
+    /// forward-secure key `MK_i` from this node's local send chain (no per-message KEM round-trip), and
+    /// the sequential chain index `i` is appended as the 8-byte trailer (replacing the random
+    /// transient-id; the nonce stays `BLAKE3(entropy, i)`, safe since `MK_i` is unique per message).
+    /// See `docs/pfs-symmetric-ratchet-design.md`.
+    pub fn protect_packet_in_place_pipelined<T: EzBuffer>(
+        &self,
+        quantum_container: &PostQuantumContainer,
+        header_len_bytes: usize,
+        full_packet: &mut T,
+    ) -> Result<(), CryptError<String>> {
+        self.ensure_pipelined_chains_seeded(quantum_container)?;
+        // The chain lock is held across the seal: the send chain MUST advance atomically per message
+        // (sequential index), so concurrent sends on one bank are serialized — required for correctness.
+        let mut guard = self.pipelined_chains.lock();
+        let chains = guard
+            .as_mut()
+            .ok_or_else(|| CryptError::Encrypt("pipelined chains unseeded".to_string()))?;
+        let (index, message_key) = chains.send.next_send_key();
+        let nonce = self.get_nonce(index);
+        quantum_container
+            .protect_packet_in_place_with_key(
+                header_len_bytes,
+                full_packet,
+                &nonce,
+                &message_key[..],
+            )
+            .map_err(|err| CryptError::Encrypt(err.to_string()))?;
+        full_packet
+            .extend_from_slice(&index.to_be_bytes())
+            .map_err(|err| CryptError::Encrypt(err.to_string()))
+    }
+
+    /// Pipelined-PFS counterpart to [`Self::validate_packet_in_place_split`]: reads the 8-byte chain
+    /// index trailer, derives `MK_i` from this node's recv chain (tolerating out-of-order delivery up
+    /// to [`PIPELINED_MAX_SKIP`] via the chain's skipped-key cache), and opens under `MK_i`.
+    pub fn validate_packet_in_place_split_pipelined<H: AsRef<[u8]>, T: EzBuffer>(
+        &self,
+        quantum_container: &PostQuantumContainer,
+        header: H,
+        payload: &mut T,
+    ) -> Result<(), CryptError<String>> {
+        self.ensure_pipelined_chains_seeded(quantum_container)?;
+        // Read + strip the trailing 8-byte chain index.
+        let starting_pos = payload.len().checked_sub(8).ok_or_else(|| {
+            CryptError::Decrypt("packet too small for pipelined chain index".to_string())
+        })?;
+        let index = BigEndian::read_u64(&payload.as_ref()[starting_pos..]);
+        payload.truncate(starting_pos);
+
+        let message_key = {
+            let mut guard = self.pipelined_chains.lock();
+            let chains = guard
+                .as_mut()
+                .ok_or_else(|| CryptError::Decrypt("pipelined chains unseeded".to_string()))?;
+            chains
+                .recv
+                .recv_key(index, PIPELINED_MAX_SKIP)
+                .map_err(|err| CryptError::Decrypt(err.to_string()))?
+        };
+        let nonce = self.get_nonce(index);
+        quantum_container
+            .validate_packet_in_place_with_key(header, payload, &nonce, &message_key[..])
+            .map_err(|err| CryptError::Decrypt(err.to_string()))
     }
 
     /// In-place equivalent of [`Self::encrypt`] (no header AAD, no anti-replay PID): encrypts `buf`
@@ -331,6 +428,26 @@ use citadel_types::crypto::EncryptionAlgorithm;
 use citadel_types::crypto::LARGEST_NONCE_LEN;
 use zeroize::Zeroizing;
 
+/// Forward gap bound for the pipelined-PFS receive chain (Signal-style `MAX_SKIP`). Tied to the
+/// protocol's existing in-flight UDP/group window (`docs/pfs-symmetric-ratchet-design.md` §7-3): a
+/// receiver will derive at most this many skipped message keys to open an out-of-order packet, so a
+/// forged far-future chain index cannot force unbounded key derivation (DoS bound).
+pub(crate) const PIPELINED_MAX_SKIP: u64 = 1024;
+
+/// The two per-direction forward-secure chains for the pipelined-PFS path, from *this* node's point of
+/// view (send = packets this node protects, recv = packets it validates). Seeded once, lazily, from
+/// the version's KEM shared secret; see [`EntropyBank::ensure_pipelined_chains_seeded`].
+///
+/// SECURITY: this state is intentionally **never serialized** (`#[serde(skip)]` on the owning field).
+/// The send chain index is inherently sequential (unlike the random-based nonce counter), so restoring
+/// a persisted chain could re-emit a forward-secure `MK_i` — catastrophic. A restored bank therefore
+/// has no chain and must rekey to a fresh version (chain @ index 0) before pipelined use
+/// (`docs/pfs-symmetric-ratchet-design.md` §5b-3 / §5c-7).
+struct DirectionChains {
+    send: SymmetricChain,
+    recv: SymmetricChain,
+}
+
 /// A entropy bank is a fundamental dataset that continually morphs into new future sets
 #[derive(Serialize, Deserialize)]
 pub struct EntropyBank {
@@ -340,6 +457,11 @@ pub struct EntropyBank {
     pub(crate) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
     pub(crate) scramble_mappings: Zeroizing<Vec<(u16, u16)>>,
     pub(crate) transient_counter: TransientNonceCounter,
+    /// Lazily-seeded per-direction forward-secure chains for [`SecrecyMode::PerfectPipelined`].
+    /// `None` until the first pipelined protect/validate (when the `PostQuantumContainer` — hence the
+    /// KEM shared secret + this node's role — is available). Never persisted (see [`DirectionChains`]).
+    #[serde(skip)]
+    pipelined_chains: citadel_io::Mutex<Option<DirectionChains>>,
 }
 
 /// Per-instance counter used to derive unique AEAD nonces for an [`EntropyBank`].
@@ -485,5 +607,130 @@ mod nonce_counter_tests {
             b.get_nonce(7),
             "independent entropy must produce independent nonces"
         );
+    }
+}
+
+#[cfg(test)]
+mod pipelined_pfs_tests {
+    use super::*;
+    use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+    use citadel_pqcrypto::PostQuantumContainer;
+
+    // A real ML-KEM exchange so both containers share the same shared secret (the chain seed root) and
+    // a working anti-replay pair (alice=tx, bob=rx), mirroring the protocol's sender/receiver split.
+    fn pqc_pair() -> (PostQuantumContainer, PostQuantumContainer) {
+        let opts = ConstructorOpts::default();
+        let mut alice = PostQuantumContainer::new_alice(opts.clone()).unwrap();
+        let a2b = alice.generate_alice_to_bob_transfer().unwrap();
+        let bob = PostQuantumContainer::new_bob(opts, a2b, &[b"psk"]).unwrap();
+        let b2a = bob.generate_bob_to_alice_transfer().unwrap();
+        alice.alice_on_receive_ciphertext(b2a, &[b"psk"]).unwrap();
+        (alice, bob)
+    }
+
+    // Two banks that share the same secret `entropy` (so get_nonce agrees on both ends). Serializing
+    // and reloading preserves entropy, re-randomizes only the transient counter, and leaves the
+    // (serde-skip) pipelined chains unseeded — exactly the real two-endpoint setup.
+    fn twin_banks() -> (EntropyBank, EntropyBank) {
+        let alice_bank = EntropyBank::new(1, 0, EncryptionAlgorithm::AES_GCM_256).unwrap();
+        let bytes = alice_bank.serialize_to_vec().unwrap();
+        let bob_bank = EntropyBank::deserialize_from(&bytes).unwrap();
+        (alice_bank, bob_bank)
+    }
+
+    const HEADER: &[u8] = b"pipelined-pfs-header-0123456789";
+
+    fn protect(bank: &EntropyBank, qc: &PostQuantumContainer, plaintext: &[u8]) -> Vec<u8> {
+        let mut packet: Vec<u8> = HEADER.to_vec();
+        packet.extend_from_slice(plaintext);
+        bank.protect_packet_in_place_pipelined(qc, HEADER.len(), &mut packet)
+            .unwrap();
+        // Caller gets the payload (everything after the header) for validation.
+        packet.split_off(HEADER.len())
+    }
+
+    #[test]
+    fn pipelined_roundtrip_in_order() {
+        let (alice_pqc, bob_pqc) = pqc_pair();
+        let (alice_bank, bob_bank) = twin_banks();
+        for i in 0..32u32 {
+            let plaintext = format!("pipelined bank msg {i}").into_bytes();
+            let mut payload = protect(&alice_bank, &alice_pqc, &plaintext);
+            assert!(
+                payload.len() > plaintext.len(),
+                "payload must carry tag + PID + index trailer"
+            );
+            bob_bank
+                .validate_packet_in_place_split_pipelined(&bob_pqc, HEADER, &mut payload)
+                .unwrap();
+            assert_eq!(payload, plaintext, "round-trip mismatch at {i}");
+        }
+    }
+
+    #[test]
+    fn pipelined_out_of_order_within_window() {
+        let (alice_pqc, bob_pqc) = pqc_pair();
+        let (alice_bank, bob_bank) = twin_banks();
+        let plains: Vec<Vec<u8>> = (0..8u32).map(|i| format!("m{i}").into_bytes()).collect();
+        let packets: Vec<Vec<u8>> = plains
+            .iter()
+            .map(|p| protect(&alice_bank, &alice_pqc, p))
+            .collect();
+        // Deliver shuffled but within the skip window: the recv chain caches skipped keys.
+        for &idx in &[3usize, 1, 0, 2, 7, 5, 4, 6] {
+            let mut payload = packets[idx].clone();
+            bob_bank
+                .validate_packet_in_place_split_pipelined(&bob_pqc, HEADER, &mut payload)
+                .unwrap();
+            assert_eq!(payload, plains[idx], "out-of-order mismatch at {idx}");
+        }
+    }
+
+    #[test]
+    fn pipelined_replay_is_rejected() {
+        let (alice_pqc, bob_pqc) = pqc_pair();
+        let (alice_bank, bob_bank) = twin_banks();
+        let payload = protect(&alice_bank, &alice_pqc, b"once");
+
+        let mut first = payload.clone();
+        bob_bank
+            .validate_packet_in_place_split_pipelined(&bob_pqc, HEADER, &mut first)
+            .unwrap();
+        // Re-delivering the same chain index must fail (index already consumed / replay).
+        let mut replay = payload.clone();
+        assert!(bob_bank
+            .validate_packet_in_place_split_pipelined(&bob_pqc, HEADER, &mut replay)
+            .is_err());
+    }
+
+    #[test]
+    fn pipelined_distinct_keys_per_message() {
+        // Forward secrecy at the wire: the SAME plaintext+header under consecutive messages must
+        // produce DIFFERENT ciphertext, proving each message used a distinct MK_i (and nonce).
+        let (alice_pqc, _bob_pqc) = pqc_pair();
+        let (alice_bank, _bob_bank) = twin_banks();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..64 {
+            let payload = protect(&alice_bank, &alice_pqc, b"identical-plaintext");
+            // Drop the 8-byte index trailer; compare the AEAD ciphertext (binds key + nonce).
+            let ciphertext = payload[..payload.len() - 8].to_vec();
+            assert!(
+                seen.insert(ciphertext),
+                "ciphertext repeated -> per-message key/nonce reuse"
+            );
+        }
+    }
+
+    #[test]
+    fn pipelined_wrong_direction_fails() {
+        // A chain seeded for the wrong direction (e.g. validating with the sender's own bank/role)
+        // must not open the packet — direction labels separate the two chains.
+        let (alice_pqc, _bob_pqc) = pqc_pair();
+        let (alice_bank, _bob_bank) = twin_banks();
+        let mut payload = protect(&alice_bank, &alice_pqc, b"directional");
+        // alice_bank.recv chain is b2a; the packet was sealed on alice.send (a2b) -> key mismatch.
+        assert!(alice_bank
+            .validate_packet_in_place_split_pipelined(&alice_pqc, HEADER, &mut payload)
+            .is_err());
     }
 }
