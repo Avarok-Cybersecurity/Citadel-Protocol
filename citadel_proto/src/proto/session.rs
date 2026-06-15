@@ -1112,17 +1112,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 )
                 .await;
 
-                let res =
-                    evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid);
-                if res.is_err() {
-                    // TODO: remove this waiting logic for better code. Wait for any outgoing packets to get flushed
-                    // (A deterministic flush-barrier replacement was tried but broke c2s reconnection —
-                    // a flush() erroring on a closing socket changed the session exit reason; needs
-                    // careful teardown-semantics work. See bench/RESULTS.md "A1".)
-                    citadel_io::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
-
-                res
+                // (Formerly slept 100ms here on a terminating result to mask a teardown↔reconnect
+                // race: a peer's reconnect SYN could reach the server before the old session left its
+                // `sessions` map, and the manager rejected it as "already connected". That is now fixed
+                // properly at the source — the disconnect responder transitions to `Disconnecting`
+                // before replying FINAL (see disconnect_packet.rs), so the reconnect deterministically
+                // takes the event-driven wait-for-clean-drop path. No sleep needed.)
+                evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid)
             })
             .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer_cid))
             .await;

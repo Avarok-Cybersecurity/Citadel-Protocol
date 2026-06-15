@@ -76,6 +76,12 @@ pub async fn process_disconnect<R: Ratchet, T: PlatformOps>(
     match header.cmd_aux {
         packet_flags::cmd::aux::do_disconnect::STAGE0 => {
             log::trace!(target: "citadel", "STAGE 0 DISCONNECT PACKET RECEIVED");
+            // Mark THIS session (the disconnect responder) as `Disconnecting` BEFORE replying FINAL.
+            // The peer reconnects the instant it receives FINAL, and its reconnect SYN must observe this
+            // session already in `Disconnecting` so the session manager takes the event-driven
+            // wait-for-clean-drop path instead of rejecting the SYN as "already connected". This closes
+            // the teardown↔reconnect TOCTOU on the session state that the old post-teardown sleep masked.
+            session.state.set(SessionState::Disconnecting);
             let packet = packet_crafter::do_disconnect::craft_final(
                 &ratchet,
                 ticket,

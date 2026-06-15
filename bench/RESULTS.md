@@ -34,11 +34,19 @@ hardware AES). Three findings reframe everything:
   (ACK/WAVE_ACK, OUTBOUND_FLUSH_BURST=32). A finite cap makes the reader go `Pending` when full, giving
   the writer a turn; ordering is enforced downstream by `OrderedChannel` so a cap is safe. (Correction:
   the "drop per-packet Arc clone" sub-item was a non-issue — `this_main` is already a `&` reference.)
-- **A1 (attempted, REVERTED):** replacing the blind 100ms terminating-error sleep (session.rs:1111) with
-  a deterministic flush-barrier (a `Flush(oneshot)` `OutboundPacket` the writer drains+acks) **broke
-  `test_c2s_reconnection`**. Root cause: a `flush()` that errors on a closing socket made the writer's
-  `select!` branch exit with that error, changing the session exit reason. Reverted; needs careful
-  teardown-semantics work (best-effort flush that never changes the exit reason) — not a "safe" win yet.
+- **A1 (LANDED — race fixed at the source):** removed the blind 100ms terminating-error sleep
+  (session.rs). Earlier attempts (flush-barrier, best-effort flush) all broke `test_c2s_reconnection`
+  even though they provably couldn't change the exit reason — proving the sleep was a *timing cushion*,
+  not a flush issue. CBD (remove sleep, run with logging) pinned the real cause: a **teardown↔reconnect
+  TOCTOU on the session state**. The disconnect responder (server, `do_disconnect::STAGE0`) replied
+  FINAL + ended but **never set its own state to `Disconnecting`** (only the initiator's FINAL branch
+  did). The peer reconnects the instant it gets FINAL; its SYN reached the server while the old session
+  was still `Connected` in the `sessions` map → the manager rejected it as "already connected". The
+  100ms only delayed the reconnect until the old session dropped. Fix: set `SessionState::Disconnecting`
+  at the START of the STAGE0 branch (before replying FINAL), so the reconnect deterministically observes
+  `Disconnecting` and takes the **existing event-driven wait-for-clean-drop path** (`session_manager`
+  drop_listener) instead of a timing race. Validated: c2s/p2p reconnection (all variants) + c2s/p2p
+  stress-reconnect + disconnect + messaging — green; reconnection repeated 5× with zero flakiness.
 - **B6 (SKIPPED — unsafe):** a lock-free in-order fast path for `OrderedChannel` is incorrect under
   concurrent delivery. `on_packet_received` can run concurrently for one channel (inbound
   `try_for_each_concurrent`), and a CAS-claim-then-`sink.send` fast path lets two in-order sends race →
