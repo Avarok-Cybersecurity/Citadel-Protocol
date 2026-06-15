@@ -63,6 +63,27 @@ hardware AES). Three findings reframe everything:
   vconn) for zero benefit. Not implemented — fails the "must win on the metric that isolates it" gate
   a priori.
 
+### C8 gate — GREEN (inbound file-transfer write-convoy confirmed)
+
+New bench `citadel_sdk/benches/inbound_file_contention.rs` (run with `lock-profiling`): `N` senders each
+transfer a file to one hub concurrently, so the hub's StateContainer `inbound_groups`/`inbound_files`
+write path (the only thing file transfer touches; messaging never does) is the contended one. Laptop,
+4 MiB files:
+
+| senders | writes | avg write-wait | total write-wait |
+|---|---|---|---|
+| 1 | 9,477 | **22 ns** | 0.2 ms |
+| 4 | 37,948 | **1,984 ns** | 75 ms |
+| 8 | 75,892 | **7,803 ns** | 592 ms |
+
+Avg write acquire-wait balloons **~350×** (22 ns → 7.8 µs) with concurrency, and aggregate throughput
+flatlines (55.8 → 124 → 120 MiB/s) despite 8× the senders — the textbook convoy signature, the inbound
+twin of the `outbound_transmitters` convoy already fixed. ⇒ **C8 is justified** for concurrent
+file-transfer workloads. (Messaging is unaffected — it uses the interior-mutable read-lock path, which is
+why the messaging benches couldn't see this.) Fix = mirror the proven `outbound_transmitters` DashMap
+pattern on `inbound_groups`/`inbound_files`; validate with this bench (write-wait should stay flat) + the
+file-transfer correctness suite.
+
 ## Benchmarking environment caveat (READ FIRST)
 
 Local dev box is **Apple Silicon (aarch64) laptop** — thermally constrained. Back-to-back heavy

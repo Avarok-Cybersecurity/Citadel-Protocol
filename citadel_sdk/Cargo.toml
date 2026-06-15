@@ -101,6 +101,13 @@ harness = false
 name = "multi_vconn_throughput"
 harness = false
 
+# Inbound file-transfer contention (the C8 gate): N senders -> 1 hub concurrent file transfers, so the
+# hub's StateContainer inbound_groups/inbound_files write path is the contended one (messaging benches
+# never touch it). Run with the lock-profiling feature to read the write acquire-wait vs sender count.
+[[bench]]
+name = "inbound_file_contention"
+harness = false
+
 [package.metadata.cargo-all-features]
 # Features "foo" and "bar" are incompatible, so skip permutations including them
 skip_feature_sets = [["std", "wasm"]]
