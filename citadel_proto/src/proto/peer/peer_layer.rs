@@ -172,7 +172,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                     .into_values()
                     .map(PeerSignal::deserialize_from_owned_vector)
                     .try_collect::<PeerSignal, Vec<PeerSignal>, _>()
-                    .map_err(|err| NetworkError::Generic(err.into_string()))?,
+                    .map_err(|err| NetworkError::generic(err.into_string()))?,
             )))
         } else {
             Ok(None)
@@ -391,7 +391,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     ) -> Result<(), NetworkError> {
         let serialized = signal
             .serialize_to_vector()
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         let sub_key = Uuid::new_v4().to_string();
 
         let _ = pers
@@ -585,7 +585,7 @@ impl futures::Future for CitadelNodePeerLayerExecutor {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match futures::ready!(self.poll_next(cx)) {
             Some(_) => Poll::Pending,
-            None => Poll::Ready(Err(NetworkError::InternalError(
+            None => Poll::Ready(Err(NetworkError::internal(
                 "Queue handler signalled shutdown",
             ))),
         }

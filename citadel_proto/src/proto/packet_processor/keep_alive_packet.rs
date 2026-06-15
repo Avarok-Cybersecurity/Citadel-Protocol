@@ -108,7 +108,7 @@ pub async fn process_keep_alive<R: Ratchet, T: PlatformOps>(
                             );
                             to_primary_stream
                                 .unbounded_send(next_ka)
-                                .map_err(|err| NetworkError::Generic(err.to_string()))
+                                .map_err(|err| NetworkError::generic(err.to_string()))
                         })?;
 
                         Ok(PrimaryProcessorResult::Void)

@@ -20,13 +20,13 @@ impl<R: Ratchet> StateContainerInner<R> {
                     status: ReKeyReturnType::AlreadyInProgress,
                     session_cid,
                 }))
-                .map_err(|err| NetworkError::Generic(err.to_string()))
+                .map_err(|err| NetworkError::generic(err.to_string()))
         }
 
         let ticket = ticket.unwrap_or_default();
 
         if !self.state.is_connected() {
-            return Err(NetworkError::InvalidRequest(
+            return Err(NetworkError::invalid_request(
                 "Cannot initiate rekey since the session is not connected",
             ));
         }
@@ -42,7 +42,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             } => (session_cid, peer_cid),
 
             _ => {
-                return Err(NetworkError::InvalidRequest(
+                return Err(NetworkError::invalid_request(
                     "External group functionality not yet implemented",
                 ))
             }
@@ -92,7 +92,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         let ratchet = self
             .get_virtual_connection_crypto(C2S_IDENTITY_CID)
-            .ok_or(NetworkError::InternalError("C2s not loaded"))?
+            .ok_or(NetworkError::internal("C2s not loaded"))?
             .get_ratchet(None)
             .unwrap();
         let security_level = self
@@ -124,7 +124,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             }
 
             n => {
-                return Err(NetworkError::Generic(format!(
+                return Err(NetworkError::generic(format!(
                     "{:?} is not a valid group broadcast request",
                     &n
                 )));
@@ -133,7 +133,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         to_primary_stream
             .unbounded_send(packet)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     pub(crate) fn setup_group_channel_endpoints<T: PlatformOps>(
@@ -147,10 +147,10 @@ impl<R: Ratchet> StateContainerInner<R> {
             .cnac
             .as_ref()
             .map(|r| r.get_cid())
-            .ok_or(NetworkError::InternalError("CNAC not loaded"))?;
+            .ok_or(NetworkError::internal("CNAC not loaded"))?;
 
         if self.group_channels.contains_key(&key) {
-            return Err(NetworkError::InternalError(
+            return Err(NetworkError::internal(
                 "Group channel already exists locally",
             ));
         }

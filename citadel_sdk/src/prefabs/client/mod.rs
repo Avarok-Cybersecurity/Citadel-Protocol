@@ -103,7 +103,7 @@ async fn on_channel_received_fn<'a, Arg: Send + 'a, T: PrefabFunctions<'a, Arg, 
 ) -> Result<(), NetworkError> {
     let shared = rx_bundle
         .await
-        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+        .map_err(|err| NetworkError::generic(err.to_string()))?;
     T::on_c2s_channel_received(connect_success, arg, on_channel_received, shared).await
 }
 
@@ -220,9 +220,9 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
         let server_addr = if let Some(addr) = self.address {
             let addr = addr
                 .to_socket_addrs()
-                .map_err(|err| NetworkError::Generic(err.to_string()))?
+                .map_err(|err| NetworkError::generic(err.to_string()))?
                 .next()
-                .ok_or(NetworkError::Generic("No address found".to_string()))?;
+                .ok_or(NetworkError::generic("No address found".to_string()))?;
             Some(addr)
         } else {
             None
@@ -231,7 +231,7 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
         if let Some(uuid) = self.transient_uuid {
             Ok(ServerConnectionSettings::<R>::Transient {
                 server_addr: server_addr
-                    .ok_or(NetworkError::Generic("No address found".to_string()))?,
+                    .ok_or(NetworkError::generic("No address found".to_string()))?,
                 uuid,
                 udp_mode: self.udp_mode.unwrap_or_default(),
                 session_security_settings: self.session_security_settings.unwrap_or_default(),
@@ -242,10 +242,10 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
             Ok(ServerConnectionSettings::<R>::CredentialedConnect {
                 username: self
                     .username
-                    .ok_or(NetworkError::Generic("No username found".to_string()))?,
+                    .ok_or(NetworkError::generic("No username found".to_string()))?,
                 password: self
                     .password
-                    .ok_or(NetworkError::Generic("No password found".to_string()))?,
+                    .ok_or(NetworkError::generic("No password found".to_string()))?,
                 udp_mode: self.udp_mode.unwrap_or_default(),
                 session_security_settings: self.session_security_settings.unwrap_or_default(),
                 pre_shared_key: self.psk,
@@ -254,16 +254,16 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
         } else {
             Ok(ServerConnectionSettings::<R>::CredentialedRegister {
                 address: server_addr
-                    .ok_or(NetworkError::Generic("No address found".to_string()))?,
+                    .ok_or(NetworkError::generic("No address found".to_string()))?,
                 username: self
                     .username
-                    .ok_or(NetworkError::Generic("No username found".to_string()))?,
+                    .ok_or(NetworkError::generic("No username found".to_string()))?,
                 alias: self
                     .name
-                    .ok_or(NetworkError::Generic("No alias found".to_string()))?,
+                    .ok_or(NetworkError::generic("No alias found".to_string()))?,
                 password: self
                     .password
-                    .ok_or(NetworkError::Generic("No password found".to_string()))?,
+                    .ok_or(NetworkError::generic("No password found".to_string()))?,
                 pre_shared_key: self.psk,
                 udp_mode: self.udp_mode.unwrap_or_default(),
                 session_security_settings: self.session_security_settings.unwrap_or_default(),

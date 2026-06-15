@@ -68,8 +68,8 @@ pub async fn peer_register<R: Ratchet>(
                 .account_manager()
                 .get_username_by_cid(this_cid)
                 .await
-                .map_err(|err| NetworkError::Generic(err.into_string()))?
-                .ok_or(NetworkError::InvalidRequest(
+                .map_err(|err| NetworkError::generic(err.into_string()))?
+                .ok_or(NetworkError::invalid_request(
                     "Unable to find local username implied by signal",
                 ))?;
             PeerResponse::Accept(Some(username))
@@ -96,7 +96,7 @@ pub async fn peer_register<R: Ratchet>(
             .await
             .map(|_| ticket)
     } else {
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "Input signal is not a valid PostRegister",
         ))
     }
@@ -143,7 +143,7 @@ pub async fn peer_connect<R: Ratchet>(
             .await
             .map(|_| ticket)
     } else {
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "Input signal is not a valid PostConnect",
         ))
     }
@@ -176,14 +176,14 @@ pub async fn group_invite<R: Ratchet>(
             .await
             .map(|_| ticket)
     } else {
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "Input signal is not a group invitation",
         ))
     }
 }
 
 fn get_ticket(ticket: Option<Ticket>) -> Result<Ticket, NetworkError> {
-    ticket.ok_or(NetworkError::InvalidPacket(
+    ticket.ok_or(NetworkError::invalid_packet(
         "This event was improperly formed",
     ))
 }

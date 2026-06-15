@@ -114,7 +114,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             pre_built_listener,
         )
         .await
-        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+        .map_err(|err| NetworkError::generic(err.to_string()))?;
 
         Ok(Self {
             kernel_executor_settings,

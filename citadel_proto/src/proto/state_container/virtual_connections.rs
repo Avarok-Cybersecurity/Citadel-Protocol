@@ -122,7 +122,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             }
         }
 
-        Err(NetworkError::InternalError("Unable to upgrade"))
+        Err(NetworkError::internal("Unable to upgrade"))
     }
 
     #[allow(unused_results)]

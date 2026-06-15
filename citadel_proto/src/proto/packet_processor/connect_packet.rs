@@ -400,7 +400,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 post_login_object
                                     .setup_client_rtdb(&cnac)
                                     .await
-                                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                    .map_err(|err| NetworkError::generic(err.to_string()))?;
 
                                 if let ConnectMode::Fetch { .. } = connect_mode {
                                     log::trace!(target: "citadel", "[FETCH] complete ...");
@@ -442,11 +442,11 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                         .get_endpoint_container_mut(C2S_IDENTITY_CID)?
                         .channel_signal
                         .take()
-                        .ok_or(NetworkError::InternalError("Channel signal missing"))?;
+                        .ok_or(NetworkError::internal("Channel signal missing"))?;
                     session.send_to_kernel(signal)?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
-                    Err(NetworkError::InvalidPacket(
+                    Err(NetworkError::invalid_packet(
                         "Received a SUCCESS_ACK as a client",
                     ))
                 }

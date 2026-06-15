@@ -48,10 +48,10 @@ impl<R: Ratchet> EndpointCryptoAccessor<R> {
         let mut state_container = inner_mut_state!(state_container);
         state_container
             .get_virtual_connection_crypto(peer_cid)
-            .ok_or(NetworkError::InternalError("Peer session crypto missing"))?
+            .ok_or(NetworkError::internal("Peer session crypto missing"))?
             .get_ratchet(vers)
             .map(|hr| access(&hr, &mut state_container))
-            .ok_or(NetworkError::InternalError("Ratchet does not exist"))
+            .ok_or(NetworkError::internal("Ratchet does not exist"))
     }
 
     pub fn get_target_cid(&self) -> u64 {

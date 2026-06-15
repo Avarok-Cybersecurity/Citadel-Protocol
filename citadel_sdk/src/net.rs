@@ -66,7 +66,7 @@ impl<R: Ratchet> BrowserConnection<R> {
             Ok(conn) => conn,
             Err(_) => {
                 kernel_task.abort();
-                return Err(NetworkError::InternalError(
+                return Err(NetworkError::internal(
                     "Kernel stopped before connection established",
                 ));
             }

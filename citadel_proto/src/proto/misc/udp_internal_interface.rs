@@ -162,7 +162,7 @@ mod native {
         fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
             self.sink
                 .send_datagram(item)
-                .map_err(|err| NetworkError::Generic(format!("{err:?}")))
+                .map_err(|err| NetworkError::generic(format!("{err:?}")))
         }
 
         fn poll_flush(
@@ -267,14 +267,14 @@ mod native {
         ) -> Poll<Result<(), Self::Error>> {
             Pin::new(&mut self.sink)
                 .poll_ready(cx)
-                .map_err(|err| NetworkError::Generic(err.to_string()))
+                .map_err(|err| NetworkError::generic(err.to_string()))
         }
 
         fn start_send(mut self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
             let addr = self.peer_addr;
             Pin::new(&mut self.sink)
                 .start_send((item, addr))
-                .map_err(|err| NetworkError::Generic(err.to_string()))
+                .map_err(|err| NetworkError::generic(err.to_string()))
         }
 
         fn poll_flush(
@@ -283,7 +283,7 @@ mod native {
         ) -> Poll<Result<(), Self::Error>> {
             Pin::new(&mut self.sink)
                 .poll_flush(cx)
-                .map_err(|err| NetworkError::Generic(err.to_string()))
+                .map_err(|err| NetworkError::generic(err.to_string()))
         }
 
         fn poll_close(
@@ -292,7 +292,7 @@ mod native {
         ) -> Poll<Result<(), Self::Error>> {
             Pin::new(&mut self.sink)
                 .poll_flush(cx)
-                .map_err(|err| NetworkError::Generic(err.to_string()))
+                .map_err(|err| NetworkError::generic(err.to_string()))
         }
     }
 
@@ -511,7 +511,7 @@ mod wasm {
         fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
             self.dc
                 .send_with_u8_array(&item)
-                .map_err(|e| NetworkError::Generic(format!("{e:?}")))
+                .map_err(|e| NetworkError::generic(format!("{e:?}")))
         }
 
         fn poll_flush(

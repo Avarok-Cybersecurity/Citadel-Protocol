@@ -18,7 +18,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         endpoint_container
             .to_ordered_local_channel
             .on_packet_received(group_id, data)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel

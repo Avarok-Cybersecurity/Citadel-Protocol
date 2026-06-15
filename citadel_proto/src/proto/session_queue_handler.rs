@@ -331,7 +331,7 @@ impl<R: Ratchet> futures::Future for SessionQueueWorker<R> {
                     //log::error!(target: "citadel", "Unable to shutdown session: {:?}", err);
                 }
 
-                Poll::Ready(Err(NetworkError::InternalError(
+                Poll::Ready(Err(NetworkError::internal(
                     "Queue handler signalled shutdown",
                 )))
             }

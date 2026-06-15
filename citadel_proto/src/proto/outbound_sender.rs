@@ -180,7 +180,7 @@ impl OutboundUdpSender {
     pub fn unbounded_send<T: Into<BytesMut>>(&self, packet: T) -> Result<(), NetworkError> {
         self.sender
             .unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet.into()))
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     pub fn send_keep_alive(&self) -> bool {
@@ -207,25 +207,25 @@ impl Sink<BytesMut> for OutboundUdpSender {
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(&mut self.sender)
             .poll_ready(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     fn start_send(mut self: Pin<&mut Self>, item: BytesMut) -> Result<(), Self::Error> {
         Pin::new(&mut self.sender)
             .start_send((packet_flags::cmd::aux::udp::STREAM, item))
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(&mut self.sender)
             .poll_flush(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(&mut self.sender)
             .poll_close(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 }
 
@@ -275,7 +275,7 @@ impl<T> Sink<T> for UnboundedSender<T> {
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.0.is_closed() {
-            Poll::Ready(Err(NetworkError::InternalError("Channel tx closed")))
+            Poll::Ready(Err(NetworkError::internal("Channel tx closed")))
         } else {
             Poll::Ready(Ok(()))
         }
@@ -284,7 +284,7 @@ impl<T> Sink<T> for UnboundedSender<T> {
     fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
         self.0
             .send(item)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

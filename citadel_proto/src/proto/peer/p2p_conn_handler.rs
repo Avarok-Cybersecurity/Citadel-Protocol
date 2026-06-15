@@ -133,8 +133,8 @@ impl<R: Ratchet> P2PInboundHandle<R> {
 async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
     receiver
         .await
-        .map_err(|err| NetworkError::Generic(err.to_string()))?;
-    Err(NetworkError::InternalError("p2p stopper triggered"))
+        .map_err(|err| NetworkError::generic(err.to_string()))?;
+    Err(NetworkError::internal("p2p stopper triggered"))
 }
 
 pub(crate) fn generic_error<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
@@ -174,7 +174,7 @@ mod native_p2p {
         match p2p_listener.next().await {
             Some(Ok((p2p_stream, _))) => {
                 let session = CitadelSession::upgrade_weak(weak)
-                    .ok_or(NetworkError::InternalError("P2P Session dropped"))?;
+                    .ok_or(NetworkError::internal("P2P Session dropped"))?;
 
                 handle_p2p_stream(
                     p2p_stream,
@@ -193,12 +193,12 @@ mod native_p2p {
 
             Some(Err(err)) => {
                 log::error!(target: "citadel", "[P2P-stream] ERR: {err:?}");
-                Err(NetworkError::Generic(err.to_string()))
+                Err(NetworkError::generic(err.to_string()))
             }
 
             None => {
                 log::error!(target: "citadel", "P2P listener returned None. Stream dead");
-                Err(NetworkError::InternalError("P2P Listener returned None"))
+                Err(NetworkError::internal("P2P Listener returned None"))
             }
         }
     }
@@ -400,10 +400,10 @@ mod native_p2p {
             // Skip cleanup here: both streams share the same p2p_connection_id
             // (from the same KEX), so is_current_connection would incorrectly
             // match, destroying the live connection's vconn and ratchet.
-            let was_replaced = matches!(
-                &res,
-                Err(NetworkError::InternalError("p2p stopper triggered"))
-            );
+            let was_replaced = res
+                .as_ref()
+                .err()
+                .is_some_and(|e| *e == NetworkError::internal("p2p stopper triggered"));
 
             if was_replaced {
                 log::trace!(target: "citadel", "[P2P-stream] Stream replaced by tie-breaker for peer {peer_cid}, skipping cleanup");

@@ -544,7 +544,7 @@ where
 
                 tx.send(inner_task.await)
                     .await
-                    .map_err(|err| NetworkError::Generic(err.to_string()))
+                    .map_err(|err| NetworkError::generic(err.to_string()))
             };
 
             requests.push(Box::pin(task))

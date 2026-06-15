@@ -244,7 +244,7 @@ where
 
                         retries += 1;
                         if retries > 4 {
-                            return Err(NetworkError::Generic(format!(
+                            return Err(NetworkError::generic(format!(
                                 "Owner {owner:?} has not created group {group_id:?}"
                             )));
                         }
@@ -279,11 +279,11 @@ where
                 loop {
                     let post_register = citadel_io::tokio::select! {
                         reg_request = reg_rx.recv() => {
-                            reg_request.ok_or_else(|| NetworkError::InternalError("reg_rx ended unexpectedly"))?
+                            reg_request.ok_or_else(|| NetworkError::internal("reg_rx ended unexpectedly"))?
                         },
 
                         reg_request2 = subscription.next() => {
-                            let signal = reg_request2.ok_or_else(|| NetworkError::InternalError("subscription ended unexpectedly"))?;
+                            let signal = reg_request2.ok_or_else(|| NetworkError::internal("subscription ended unexpectedly"))?;
                             if let NodeResult::PeerEvent(PeerEvent { event: sig @ PeerSignal::PostRegister { .. }, .. }) = &signal {
                                 sig.clone()
                             } else {
@@ -350,7 +350,7 @@ where
                     shared
                         .register_tx
                         .send(ps.clone())
-                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                        .map_err(|err| NetworkError::generic(err.to_string()))?;
                 }
                 NodeResult::GroupChannelCreated(GroupChannelCreated {
                     ticket: _,
@@ -373,7 +373,7 @@ where
                     ticket: _,
                     event: GroupBroadcast::CreateResponse { key: None },
                 }) => {
-                    return Err(NetworkError::InternalError(
+                    return Err(NetworkError::internal(
                         "Unable to create a message group",
                     ))
                 }
@@ -421,7 +421,7 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for BroadcastKernel<'_, F, Fut, R> {
                     .shared
                     .register_tx
                     .send(ps.clone())
-                    .map_err(|err| NetworkError::Generic(err.to_string()));
+                    .map_err(|err| NetworkError::generic(err.to_string()));
             }
         }
 
@@ -628,7 +628,7 @@ mod tests {
                         }
                     }
 
-                    Err(NetworkError::InternalError(
+                    Err(NetworkError::internal(
                         "signals_recv ended unexpectedly",
                     ))
                 },

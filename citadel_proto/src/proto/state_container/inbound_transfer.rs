@@ -315,12 +315,12 @@ impl<R: Ratchet> StateContainerInner<R> {
             let file_key = FileKey::new(grc.object_id);
 
             let src = *payload.first().ok_or((
-                NetworkError::InvalidRequest("Bad payload packet [0]"),
+                NetworkError::invalid_request("Bad payload packet [0]"),
                 ticket,
                 object_id,
             ))?;
             let dest = *payload.get(1).ok_or((
-                NetworkError::InvalidRequest("Bad payload packet [1]"),
+                NetworkError::invalid_request("Bad payload packet [1]"),
                 ticket,
                 object_id,
             ))?;
@@ -332,7 +332,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 hr.get_scramble_pqc_and_entropy_bank().1,
             )
             .ok_or((
-                NetworkError::InvalidRequest("Unable to obtain true_sequence"),
+                NetworkError::invalid_request("Unable to obtain true_sequence"),
                 ticket,
                 object_id,
             ))?;
@@ -412,7 +412,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
                 stream_to_hd
                     .unbounded_send(chunk)
-                    .map_err(|err| (NetworkError::Generic(err.to_string()), ticket, object_id))?;
+                    .map_err(|err| (NetworkError::generic(err.to_string()), ticket, object_id))?;
 
                 send_wave_ack = true;
 
@@ -467,7 +467,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     // missing handle (progress channel torn down) — it must not fail reassembly.
                     if let Some(handle) = self.file_transfer_handles.get(&file_key) {
                         handle.unbounded_send(status).map_err(|err| {
-                            (NetworkError::Generic(err.to_string()), ticket, object_id)
+                            (NetworkError::generic(err.to_string()), ticket, object_id)
                         })?;
                     }
                 }

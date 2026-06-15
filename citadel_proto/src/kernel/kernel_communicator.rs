@@ -191,7 +191,7 @@ impl<R: Ratchet> KernelAsyncCallbackHandlerInner<R> {
         notifier: CallbackNotifier<R>,
     ) -> Result<(), NetworkError> {
         if self.map.insert(callback_key, notifier).is_some() {
-            Err(NetworkError::InternalError("Overwrote previous notifier"))
+            Err(NetworkError::internal("Overwrote previous notifier"))
         } else {
             Ok(())
         }

@@ -119,21 +119,21 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                         transfer,
                                         session_password.as_ref(),
                                     )
-                                    .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
+                                    .ok_or(NetworkError::invalid_request("Bad bob transfer"))?;
                                 let transfer_out = bob_constructor.stage0_bob().ok_or(
-                                    NetworkError::InvalidRequest(
+                                    NetworkError::invalid_request(
                                         "Unable to advance past stage0-bob",
                                     ),
                                 )?;
                                 let finished_ratchet = bob_constructor.finish().ok_or(
-                                    NetworkError::InvalidRequest(
+                                    NetworkError::invalid_request(
                                         "Unable to finish bob constructor",
                                     ),
                                 )?;
                                 Ok::<_, NetworkError>((transfer_out, finished_ratchet))
                             })
                             .await
-                            .map_err(|err| NetworkError::Generic(format!("Join error: {err}")))??;
+                            .map_err(|err| NetworkError::generic(format!("Join error: {err}")))??;
 
                         // Build response packet before touching state
                         let stage1_packet = packet_crafter::do_register::craft_stage1::<R>(
@@ -210,15 +210,15 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     let new_ratchet = citadel_io::spawn_blocking(move || {
                         alice_constructor
                             .stage1_alice(transfer, psk.as_ref())
-                            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                            .map_err(|err| NetworkError::generic(err.to_string()))?;
                         alice_constructor
                             .finish()
-                            .ok_or(NetworkError::InternalError(
+                            .ok_or(NetworkError::internal(
                                 "Unable to finish alice constructor",
                             ))
                     })
                     .await
-                    .map_err(|err| NetworkError::Generic(format!("Join error: {err}")))??;
+                    .map_err(|err| NetworkError::generic(format!("Join error: {err}")))??;
 
                     let timestamp = session.time_tracker.get_global_time_ns();
                     let proposed_credentials = return_if_none!(

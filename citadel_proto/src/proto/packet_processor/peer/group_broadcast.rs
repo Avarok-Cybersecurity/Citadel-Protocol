@@ -686,7 +686,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                         security_level,
                     )
                     .await
-                    .map_err(NetworkError::Generic)?;
+                    .map_err(NetworkError::generic)?;
 
                 if !peers_okay.is_empty() {
                     peer_layer.add_pending_peers_to_group(key, peers_okay).await;

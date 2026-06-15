@@ -183,7 +183,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     const REASON: &str = "CID not registered to this node";
                     let bad_cid = header.session_cid.get();
                     let error_message = format!("CID {bad_cid} is not registered to this node");
-                    let error = NetworkError::Generic(error_message);
+                    let error = NetworkError::generic(error_message);
                     send_error_and_end_session(&header, Some(error), REASON)
                 }
             }
@@ -673,7 +673,7 @@ fn proto_version_out_of_sync(adjacent_proto_version: u32) -> Result<bool, Networ
             )
         }
 
-        Err(_) => Err(NetworkError::InvalidRequest(
+        Err(_) => Err(NetworkError::invalid_request(
             "Unable to parse incoming protocol semver",
         )),
     }

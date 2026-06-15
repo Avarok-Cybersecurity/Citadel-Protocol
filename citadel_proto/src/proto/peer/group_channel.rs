@@ -214,7 +214,7 @@ impl GroupChannelSendHalf {
         if self.session_cid == self.key.cid {
             Ok(())
         } else {
-            Err(NetworkError::InvalidRequest(
+            Err(NetworkError::invalid_request(
                 "User does not have permissions to make this call",
             ))
         }

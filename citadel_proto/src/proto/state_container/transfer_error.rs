@@ -32,6 +32,6 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         file_transfer_handle
             .unbounded_send(ObjectTransferStatus::Fail(error_message.into()))
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 }

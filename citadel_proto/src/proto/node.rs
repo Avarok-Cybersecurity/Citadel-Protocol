@@ -265,7 +265,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
 
             citadel_io::time::timeout(Duration::from_millis(1000), sess_mgr.shutdown())
                 .await
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
 
             log::trace!(target: "citadel", "HdpServer shutting down (future ended)...");
 
@@ -364,7 +364,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
 
                 None => {
                     log::error!(target: "citadel", "Primary session listener returned None");
-                    return Err(NetworkError::InternalError("Primary session listener died"));
+                    return Err(NetworkError::internal("Primary session listener died"));
                 }
             }
         }
@@ -416,7 +416,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                 .is_err()
             {
                 log::error!(target: "citadel", "TO_KERNEL_TX Error: {err:?}");
-                Err(NetworkError::InternalError(
+                Err(NetworkError::internal(
                     "kernel disconnected from hypernode instance",
                 ))
             } else {
@@ -638,7 +638,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         send_error(
                             &to_kernel_tx,
                             ticket_id,
-                            NetworkError::Generic(err.to_string()),
+                            NetworkError::generic(err.to_string()),
                         )?;
                     }
                 }

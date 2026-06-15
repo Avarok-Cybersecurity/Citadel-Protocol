@@ -140,7 +140,7 @@ pub trait PlatformOps: ProtocolIO {
         expected_metadata: Option<&VirtualObjectMetadata>,
     ) -> Result<TransferMetadata, NetworkError> {
         let _ = (source_path, expected_metadata);
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "File transfer not supported on this platform",
         ))
     }

@@ -479,9 +479,9 @@ impl TlsListener {
         path: P,
         password: T,
     ) -> Result<TLSQUICInterop, NetworkError> {
-        let bytes = std::fs::read(path).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let bytes = std::fs::read(path).map_err(|err| NetworkError::generic(err.to_string()))?;
         citadel_wire::tls::create_server_config(&bytes, password.as_ref())
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 }
 

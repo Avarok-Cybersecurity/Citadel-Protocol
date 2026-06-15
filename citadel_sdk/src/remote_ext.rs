@@ -243,7 +243,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             remote_addr: addr
                 .to_socket_addrs()?
                 .next()
-                .ok_or(NetworkError::InternalError("Invalid socket addr"))?,
+                .ok_or(NetworkError::internal("Invalid socket addr"))?,
             proposed_credentials: creds,
             static_security_settings: default_security_settings,
             session_password: server_password.unwrap_or_default(),
@@ -256,10 +256,10 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                     return Ok(RegisterSuccess { cid });
                 }
                 NodeResult::RegisterFailure(err) => {
-                    return Err(NetworkError::Generic(err.error_message));
+                    return Err(NetworkError::generic(err.error_message));
                 }
                 NodeResult::Disconnect(err) => {
-                    return Err(NetworkError::Generic(err.message));
+                    return Err(NetworkError::generic(err.message));
                 }
                 evt => {
                     log::warn!(target: "citadel", "Invalid NodeResult for Register request received: {evt:?}");
@@ -267,7 +267,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             }
         }
 
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "Internal kernel stream died (register)",
         ))
     }
@@ -321,7 +321,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         let status = subscription
             .next()
             .await
-            .ok_or(NetworkError::InternalError(
+            .ok_or(NetworkError::internal(
                 "Internal kernel stream died (connect)",
             ))?;
 
@@ -355,9 +355,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 ticket: _,
                 cid_opt: _,
                 error_message: err,
-            }) => Err(NetworkError::Generic(err)),
+            }) => Err(NetworkError::generic(err)),
             NodeResult::Disconnect(err) => {
-                return Err(NetworkError::Generic(err.message));
+                return Err(NetworkError::generic(err.message));
             }
             res => Err(NetworkError::msg(format!(
                 "[connect] An unexpected response occurred: {res:?}"
@@ -513,7 +513,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             }
         }
 
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "Internal kernel stream died (get_local_group_peers)",
         ))
     }
@@ -583,7 +583,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 }
 
                 citadel_logging::warn!("Failed to receive response from SDK (stream died)");
-                return Err(NetworkError::InternalError(
+                return Err(NetworkError::internal(
                     "Internal kernel stream died (get_active_sessions)",
                 ));
             }
@@ -607,7 +607,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         Ok(account_manager
             .find_local_user_information(local_user)
             .await?
-            .ok_or(NetworkError::InvalidRequest("User does not exist"))?)
+            .ok_or(NetworkError::invalid_request("User does not exist"))?)
     }
 }
 
@@ -658,7 +658,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                     return handle
                         .transfer_file()
                         .await
-                        .map_err(|err| NetworkError::Generic(err.into_string()));
+                        .map_err(|err| NetworkError::generic(err.into_string()));
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -672,7 +672,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError("File transfer stream died"))
+        Err(NetworkError::internal("File transfer stream died"))
     }
 
     /// Sends a file to the provided target using the default chunking size
@@ -697,7 +697,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         let mut virtual_path = virtual_directory.into();
         virtual_path = prepare_virtual_path(virtual_path);
         validate_virtual_path(&virtual_path)
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         let tx_type = TransferType::RemoteEncryptedVirtualFilesystem {
             virtual_path,
             security_level,
@@ -747,7 +747,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                     return handle
                         .receive_file()
                         .await
-                        .map_err(|err| NetworkError::Generic(err.into_string()));
+                        .map_err(|err| NetworkError::generic(err.into_string()));
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -757,14 +757,14 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
 
                 res => {
                     log::error!(target: "citadel", "Invalid NodeResult for REVFS FileTransfer request received: {res:?}");
-                    return Err(NetworkError::InternalError(
+                    return Err(NetworkError::internal(
                         "Received invalid response from protocol",
                     ));
                 }
             }
         }
 
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "REVFS File transfer stream died",
         ))
     }
@@ -788,7 +788,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             match event.into_result()? {
                 NodeResult::ReVFS(result) => {
                     return if let Some(error) = result.error_message {
-                        Err(NetworkError::Generic(error))
+                        Err(NetworkError::generic(error))
                     } else {
                         Ok(())
                     }
@@ -800,7 +800,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError("REVFS Delete stream died"))
+        Err(NetworkError::internal("REVFS Delete stream died"))
     }
 
     /// Connects to the peer with custom settings
@@ -880,7 +880,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 }
             }
 
-            Err(NetworkError::InternalError(
+            Err(NetworkError::internal(
                 "Internal kernel stream died (connect_to_peer_custom)",
             ))
         };
@@ -950,7 +950,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::Generic(format!(
+        Err(NetworkError::generic(format!(
             "Internal kernel stream died (register_to_peer): {:?}",
             stream.callback_key()
         )))
@@ -1011,7 +1011,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError("Deregister ended unexpectedly"))
+        Err(NetworkError::internal("Deregister ended unexpectedly"))
     }
 
     async fn disconnect(&self) -> Result<(), NetworkError> {
@@ -1048,7 +1048,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                     }
                 }
 
-                Err(NetworkError::InternalError(
+                Err(NetworkError::internal(
                     "Unable to receive valid disconnect event",
                 ))
             } else {
@@ -1076,7 +1076,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 }
             }
 
-            Err(NetworkError::InternalError(
+            Err(NetworkError::internal(
                 "Unable to receive valid disconnect event",
             ))
         }
@@ -1132,7 +1132,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "Create_group ended unexpectedly",
         ))
     }
@@ -1165,7 +1165,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "List_members ended unexpectedly",
         ))
     }
@@ -1181,7 +1181,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             return Ok(result.sessions);
         }
 
-        Err(NetworkError::InternalError(
+        Err(NetworkError::internal(
             "List_sessions ended unexpectedly",
         ))
     }
@@ -1201,13 +1201,13 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                     ReKeyReturnType::Success { version } => Ok(Some(version)),
                     ReKeyReturnType::AlreadyInProgress => Ok(None),
                     ReKeyReturnType::Failure { err } => {
-                        Err(NetworkError::Generic(format!("Rekey failed: {err}")))
+                        Err(NetworkError::generic(format!("Rekey failed: {err}")))
                     }
                 };
             }
         }
 
-        Err(NetworkError::InternalError("Rekey ended unexpectedly"))
+        Err(NetworkError::internal("Rekey ended unexpectedly"))
     }
 
     /// Checks if the locked target is registered
@@ -1222,7 +1222,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             citadel_logging::info!(target: "citadel", "Checking to see if {target} is registered in {peers:?}");
             Ok(peers.iter().any(|p| p.cid == peer_cid))
         } else {
-            Err(NetworkError::Generic(
+            Err(NetworkError::generic(
                 "External group peers are not supported yet".to_string(),
             ))
         }
@@ -1232,7 +1232,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
     async fn try_as_peer_connection(&self) -> Result<PeerConnectionType, NetworkError> {
         let verified_return = |user: &VirtualTargetType| {
             user.try_as_peer_connection()
-                .ok_or(NetworkError::InvalidRequest("Target is not a peer"))
+                .ok_or(NetworkError::invalid_request("Target is not a peer"))
         };
 
         if self.user().get_target_cid() == 0 {
@@ -1254,7 +1254,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 .account_manager()
                 .find_target_information(session_cid, peer_username)
                 .await
-                .map_err(|err| NetworkError::Generic(err.into_string()))?
+                .map_err(|err| NetworkError::generic(err.into_string()))?
                 .map(|r| r.1.cid)
                 .unwrap_or(expected_peer_cid);
 
@@ -1272,12 +1272,12 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             if sess.crypto_params.kem_algorithm == KemAlgorithm::MlKem {
                 Ok(())
             } else {
-                Err(NetworkError::InvalidRequest(
+                Err(NetworkError::invalid_request(
                     "RE-VFS can only be used with Kyber KEM",
                 ))
             }
         } else {
-            Err(NetworkError::InvalidRequest(
+            Err(NetworkError::invalid_request(
                 "RE-VFS cannot be used with this remote type",
             ))
         }
@@ -1319,7 +1319,7 @@ pub mod results {
         ) -> Result<FileTransferHandleRx, NetworkError> {
             self.incoming_object_transfer_handles
                 .take()
-                .ok_or(NetworkError::InternalError(
+                .ok_or(NetworkError::internal(
                     "This function has already been called",
                 ))
         }

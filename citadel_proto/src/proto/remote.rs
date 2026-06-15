@@ -166,13 +166,7 @@ impl<R: Ratchet> NodeRemote<R> {
         self.outbound_send_request_tx
             .send((request, ticket))
             .await
-            .map_err(|err| {
-                let reason = err.to_string();
-                NetworkError::NodeRemoteSendError {
-                    reason,
-                    request: Box::new(err.0 .0),
-                }
-            })
+            .map_err(|err| NetworkError::node_remote_send(err.to_string()))
     }
 
     /// Sends a request to the server and returns a ticket for tracking the response.
