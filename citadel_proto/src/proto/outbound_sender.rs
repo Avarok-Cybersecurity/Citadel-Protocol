@@ -79,7 +79,16 @@ pub fn channel<T>(len: usize) -> (Sender<T>, Receiver<T>) {
 #[derive(Debug)]
 pub enum OutboundPacket {
     Contiguous(BytesMut),
-    Split { header: BytesMut, payload: Bytes },
+    Split {
+        header: BytesMut,
+        payload: Bytes,
+    },
+    /// A flush-barrier (carries no wire bytes): the writer flushes everything queued before it, then
+    /// signals `ack`. Used on the graceful-disconnect path to deterministically wait for the FINAL
+    /// packet to reach the socket BEFORE the session ends (and the writer is dropped), replacing a
+    /// fixed sleep. Best-effort on the writer side — a flush failure is swallowed (still acks), so it
+    /// can never resolve the writer task with an error / change the session exit reason.
+    Flush(citadel_io::tokio::sync::oneshot::Sender<()>),
 }
 
 impl OutboundPacket {
@@ -89,6 +98,7 @@ impl OutboundPacket {
         match self {
             OutboundPacket::Contiguous(buf) => buf.len(),
             OutboundPacket::Split { header, payload } => header.len() + payload.len(),
+            OutboundPacket::Flush(_) => 0,
         }
     }
 }
@@ -112,6 +122,16 @@ impl OutboundPrimaryStreamSender {
     ) -> Result<(), SendError<OutboundPacket>> {
         self.0
             .unbounded_send(OutboundPacket::Split { header, payload })
+    }
+
+    /// Queue a flush-barrier: the writer flushes everything queued before this marker, then signals
+    /// `ack`. See [`OutboundPacket::Flush`].
+    #[inline]
+    pub fn send_flush(
+        &self,
+        ack: citadel_io::tokio::sync::oneshot::Sender<()>,
+    ) -> Result<(), SendError<OutboundPacket>> {
+        self.0.unbounded_send(OutboundPacket::Flush(ack))
     }
 }
 

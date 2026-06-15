@@ -47,6 +47,16 @@ hardware AES). Three findings reframe everything:
   `Disconnecting` and takes the **existing event-driven wait-for-clean-drop path** (`session_manager`
   drop_listener) instead of a timing race. Validated: c2s/p2p reconnection (all variants) + c2s/p2p
   stress-reconnect + disconnect + messaging — green; reconnection repeated 5× with zero flakiness.
+- **A1b (LANDED — second teardown sleep killed):** the `do_disconnect::STAGE0` handler also slept 100ms
+  ("give the outbound task time to send FINAL") before `EndSession`. CBD (remove + run) confirmed the
+  exposed race: FINAL is only *queued* on the outbound channel, so `EndSession` dropped the writer
+  before it flushed FINAL → the peer's `disconnect().await` hung forever (`test_c2s_reconnection` +
+  `stress_reconnect` **timed out at 60s/120s**). Fix: a deterministic **flush-barrier** —
+  `OutboundPacket::Flush(oneshot)` queued after FINAL; the writer flushes everything before it then
+  acks; the handler awaits the ack (best-effort, 100ms safety cap so a dead socket can't hang teardown).
+  Returns in microseconds once FINAL is on the wire instead of a fixed 100ms. Stress-reconnect went from
+  a 120s timeout to **0.68s**. Validated: all reconnection/disconnect variants + messaging + file
+  transfer (16) green; 5× repeat zero flakiness.
 - **B6 (SKIPPED — unsafe):** a lock-free in-order fast path for `OrderedChannel` is incorrect under
   concurrent delivery. `on_packet_received` can run concurrently for one channel (inbound
   `try_for_each_concurrent`), and a CAS-claim-then-`sink.send` fast path lets two in-order sends race →
