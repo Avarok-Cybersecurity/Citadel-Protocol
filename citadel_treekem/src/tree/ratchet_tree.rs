@@ -67,6 +67,51 @@ impl RatchetTree {
             }
         }
     }
+
+    /// Insert a leaf, returning its index. Reuses the lowest blank leaf slot if any, else grows the tree
+    /// by one leaf (preserving all existing node indices). The new leaf is added to the `unmerged_leaves`
+    /// of every non-blank node on its direct path, since those nodes' keys do not yet cover it.
+    pub fn add_leaf(&mut self, leaf: LeafNode) -> LeafIndex {
+        let n = self.num_leaves();
+        let index = (0..n)
+            .find(|&i| self.get(leaf_to_node(i)).is_blank())
+            .unwrap_or(n);
+        self.add_leaf_at(index, leaf);
+        index
+    }
+
+    /// Insert a leaf at a specific (committer-assigned) index, growing the tree if needed. Processors use
+    /// this so every member's tree agrees on leaf placement.
+    pub fn add_leaf_at(&mut self, index: LeafIndex, mut leaf: LeafNode) {
+        let needed = node_width(index + 1) as usize;
+        if self.nodes.len() < needed {
+            self.nodes.resize(needed, Node::Blank);
+        }
+        leaf.leaf_index = index;
+        self.set(leaf_to_node(index), Node::Leaf(leaf));
+
+        let n2 = self.num_leaves();
+        for node_x in direct_path(index, n2) {
+            if let Node::Parent {
+                unmerged_leaves, ..
+            } = &mut self.nodes[node_x as usize]
+            {
+                if !unmerged_leaves.contains(&index) {
+                    unmerged_leaves.push(index);
+                }
+            }
+        }
+    }
+
+    /// Remove a leaf: blank the leaf and its entire direct path, so the removed member's keys are dead
+    /// and the committer is forced to re-key the path next commit.
+    pub fn remove_leaf(&mut self, index: LeafIndex) {
+        let n = self.num_leaves();
+        self.set(leaf_to_node(index), Node::Blank);
+        for node_x in direct_path(index, n) {
+            self.set(node_x, Node::Blank);
+        }
+    }
 }
 
 #[cfg(test)]

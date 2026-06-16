@@ -1,15 +1,20 @@
-//! Per-member CGKA state machine: `commit_update` (re-key my path → new epoch) and `process_commit`
-//! (apply someone else's re-key → same new epoch). Add/Remove/Welcome land in the next milestone; this
-//! milestone establishes the core invariant: **after a commit, every member derives the same epoch
-//! secret**, with forward secrecy and post-compromise security across epochs.
+//! Per-member CGKA state machine: `create` a group, `add_member`/`remove_member`/`commit_update` to
+//! produce a `Commit` (+ `Welcome` for an add), and `process_commit`/`join_from_welcome` to follow.
+//!
+//! The core invariant across all of these: after a commit, **every member derives the same epoch
+//! secret**, with forward secrecy + post-compromise security, and the relay never sees a key.
 
-use crate::crypto::Secret;
-use crate::path::{apply_update_path, generate_update_path, UpdatePath};
+use crate::commit::{Commit, Proposal};
+use crate::crypto::{self, Secret};
+use crate::keys::KeyPackage;
+use crate::path::{apply_update_path, generate_update_path, HpkeCiphertext};
 use crate::schedule::EpochSecrets;
-use crate::tree::math::{leaf_to_node, LeafIndex, NodeIndex};
+use crate::tree::math::{direct_path, leaf_to_node, LeafIndex, NodeIndex};
+use crate::tree::node::LeafNode;
 use crate::tree::ratchet_tree::RatchetTree;
+use crate::welcome::{GroupInfo, Welcome};
 use citadel_types::errors::Error;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// One member's view of the group.
 #[derive(Clone)]
@@ -29,9 +34,8 @@ pub struct GroupState {
 }
 
 impl GroupState {
-    /// Construct a member's state directly from a shared public tree, its own leaf secret, and a shared
-    /// genesis root secret. (The Add/Welcome bootstrap that produces this in the real protocol is the
-    /// next milestone; this constructor lets the CGKA core be exercised end-to-end now.)
+    /// Construct a member's state from a shared public tree, its own leaf secret, and a shared genesis
+    /// root secret. Used by [`Self::create`] and tests.
     pub fn bootstrap(
         tree: RatchetTree,
         own_leaf: LeafIndex,
@@ -52,34 +56,178 @@ impl GroupState {
         }
     }
 
+    /// Found a new group as the sole member (epoch 0). The founder occupies leaf 0.
+    pub fn create(mut founder: LeafNode, founder_leaf_secret: Secret) -> Self {
+        founder.leaf_index = 0;
+        let tree = RatchetTree::from_leaves(vec![founder]);
+        let genesis_root = crypto::derive_path_secret(&founder_leaf_secret);
+        Self::bootstrap(tree, 0, founder_leaf_secret, &genesis_root)
+    }
+
     /// The per-epoch application encryption secret (feeds the message ratchet — wired in M3).
     pub fn encryption_secret(&self) -> &Secret {
         &self.secrets.encryption_secret
     }
 
-    /// Re-key this member's direct path with a fresh leaf secret, advancing to a new epoch. Returns the
-    /// `UpdatePath` to broadcast so other members can `process_commit` into the same epoch.
-    pub fn commit_update(&mut self, fresh_leaf_secret: Secret) -> Result<UpdatePath, Error> {
-        let (update, root_secret, own_secrets) =
+    /// Re-key this member's direct path with a fresh leaf secret (no membership change), advancing the
+    /// epoch. Returns the `Commit` to broadcast.
+    pub fn commit_update(&mut self, fresh_leaf_secret: Secret) -> Result<Commit, Error> {
+        let (path, root_secret, own_secrets) =
             generate_update_path(&mut self.tree, self.own_leaf, fresh_leaf_secret)?;
         self.own_secrets = own_secrets;
-        self.advance_epoch(&root_secret, &update);
-        Ok(update)
+        let commit = Commit {
+            proposals: Vec::new(),
+            path,
+        };
+        self.advance_epoch(&root_secret, &commit);
+        Ok(commit)
     }
 
-    /// Apply another member's `UpdatePath`, advancing into the same new epoch.
-    pub fn process_commit(&mut self, update: &UpdatePath) -> Result<(), Error> {
-        let (root_secret, learned) = apply_update_path(&mut self.tree, update, &self.own_secrets)?;
+    /// Add a new member from their [`KeyPackage`] and commit. Returns the `Commit` (broadcast to existing
+    /// members) and the `Welcome` (sent only to the joiner).
+    pub fn add_member(
+        &mut self,
+        key_package: &KeyPackage,
+        fresh_leaf_secret: Secret,
+    ) -> Result<(Commit, Welcome), Error> {
+        let joiner_index = self.tree.add_leaf(key_package.leaf.clone());
+        // Capture the previous epoch's init secret BEFORE advancing — the joiner needs it for the schedule.
+        let prev_init = self.secrets.init_secret;
+
+        let (path, root_secret, own_secrets) =
+            generate_update_path(&mut self.tree, self.own_leaf, fresh_leaf_secret)?;
+        self.own_secrets.clone_from(&own_secrets);
+
+        // The joiner ratchets up from the lowest node where its path meets the committer's re-keyed path.
+        let n = self.tree.num_leaves();
+        let committer_path = direct_path(self.own_leaf, n);
+        let joiner_path: HashSet<NodeIndex> = direct_path(joiner_index, n).into_iter().collect();
+        let lca = committer_path
+            .into_iter()
+            .find(|node| joiner_path.contains(node))
+            .ok_or_else(|| Error::generic("treekem: no common ancestor for the joiner"))?;
+        let lca_secret = *own_secrets
+            .get(&lca)
+            .ok_or_else(|| Error::generic("treekem: committer is missing the LCA path secret"))?;
+
+        let commit = Commit {
+            proposals: vec![Proposal::Add {
+                key_package: key_package.clone(),
+                leaf_index: joiner_index,
+            }],
+            path,
+        };
+        self.advance_epoch(&root_secret, &commit);
+
+        // Seal `lca_secret || prev_init` to the joiner's leaf KEM key.
+        let mut payload = Vec::with_capacity(64);
+        payload.extend_from_slice(&lca_secret);
+        payload.extend_from_slice(&prev_init);
+        let (kem_ct, aead_ct) = crypto::hpke_seal(&key_package.leaf.kem_public, &payload)?;
+
+        let welcome = Welcome {
+            group_info: GroupInfo {
+                tree: self.tree.clone(),
+                epoch: self.epoch,
+                transcript_hash: self.transcript_hash,
+            },
+            joiner_leaf_index: joiner_index,
+            lca_node: lca,
+            sealed: HpkeCiphertext { kem_ct, aead_ct },
+        };
+        Ok((commit, welcome))
+    }
+
+    /// Remove a member and commit: blank their leaf+path, then re-key the committer's path so the removed
+    /// member's keys are dead in the new epoch.
+    pub fn remove_member(
+        &mut self,
+        leaf_index: LeafIndex,
+        fresh_leaf_secret: Secret,
+    ) -> Result<Commit, Error> {
+        self.tree.remove_leaf(leaf_index);
+        let (path, root_secret, own_secrets) =
+            generate_update_path(&mut self.tree, self.own_leaf, fresh_leaf_secret)?;
+        self.own_secrets = own_secrets;
+        let commit = Commit {
+            proposals: vec![Proposal::Remove { leaf_index }],
+            path,
+        };
+        self.advance_epoch(&root_secret, &commit);
+        Ok(commit)
+    }
+
+    /// Apply another member's `Commit`: apply its membership proposals, then its path re-key, advancing
+    /// into the same new epoch.
+    pub fn process_commit(&mut self, commit: &Commit) -> Result<(), Error> {
+        for proposal in &commit.proposals {
+            match proposal {
+                Proposal::Add {
+                    key_package,
+                    leaf_index,
+                } => self.tree.add_leaf_at(*leaf_index, key_package.leaf.clone()),
+                Proposal::Remove { leaf_index } => self.tree.remove_leaf(*leaf_index),
+            }
+        }
+        let (root_secret, learned) =
+            apply_update_path(&mut self.tree, &commit.path, &self.own_secrets)?;
         for (node, secret) in learned {
             self.own_secrets.insert(node, secret);
         }
-        self.advance_epoch(&root_secret, update);
+        self.advance_epoch(&root_secret, commit);
         Ok(())
     }
 
+    /// Join a group from a `Welcome`. `own_leaf_secret` is the secret behind the KeyPackage the committer
+    /// added — it opens the sealed payload and seeds this member's leaf state.
+    pub fn join_from_welcome(welcome: &Welcome, own_leaf_secret: Secret) -> Result<Self, Error> {
+        let leaf_index = welcome.joiner_leaf_index;
+        let (_pk, sk) = crypto::node_keypair_from_path_secret(&own_leaf_secret)?;
+        let payload = crypto::hpke_open(&welcome.sealed.kem_ct, &welcome.sealed.aead_ct, &sk)?;
+        if payload.len() != 64 {
+            return Err(Error::generic("treekem: welcome payload has wrong length"));
+        }
+        let mut lca_secret: Secret = [0u8; 32];
+        lca_secret.copy_from_slice(&payload[..32]);
+        let mut prev_init: Secret = [0u8; 32];
+        prev_init.copy_from_slice(&payload[32..64]);
+
+        let tree = welcome.group_info.tree.clone();
+        let n = tree.num_leaves();
+        let dp = direct_path(leaf_index, n);
+        let lca_pos = dp
+            .iter()
+            .position(|&node| node == welcome.lca_node)
+            .ok_or_else(|| Error::generic("treekem: LCA not on the joiner's direct path"))?;
+
+        let mut own_secrets: HashMap<NodeIndex, Secret> = HashMap::new();
+        own_secrets.insert(leaf_to_node(leaf_index), own_leaf_secret);
+        let mut cur = lca_secret;
+        own_secrets.insert(welcome.lca_node, cur);
+        for &node in &dp[lca_pos + 1..] {
+            cur = crypto::derive_path_secret(&cur);
+            own_secrets.insert(node, cur);
+        }
+        let root_secret = cur;
+
+        let secrets = EpochSecrets::derive(
+            &root_secret,
+            &prev_init,
+            &welcome.group_info.transcript_hash,
+        );
+        Ok(Self {
+            tree,
+            own_leaf: leaf_index,
+            own_secrets,
+            epoch: welcome.group_info.epoch,
+            secrets,
+            transcript_hash: welcome.group_info.transcript_hash,
+        })
+    }
+
     /// Roll the transcript + key schedule forward into the next epoch from a new root secret.
-    fn advance_epoch(&mut self, root_secret: &Secret, update: &UpdatePath) {
-        self.transcript_hash = next_transcript(&self.transcript_hash, update);
+    fn advance_epoch(&mut self, root_secret: &Secret, commit: &Commit) {
+        self.transcript_hash = next_transcript(&self.transcript_hash, commit);
         let prev_init = self.secrets.init_secret;
         self.secrets = EpochSecrets::derive(root_secret, &prev_init, &self.transcript_hash);
         self.epoch += 1;
@@ -88,8 +236,8 @@ impl GroupState {
 
 /// Chain the transcript hash over an applied commit so every member's epoch secret is bound to the exact
 /// same commit history (a divergent commit yields a divergent epoch secret).
-fn next_transcript(prev: &[u8; 32], update: &UpdatePath) -> [u8; 32] {
-    let serialized = bincode::serialize(update).unwrap_or_default();
+fn next_transcript(prev: &[u8; 32], commit: &Commit) -> [u8; 32] {
+    let serialized = bincode::serialize(commit).unwrap_or_default();
     let mut hasher = blake3::Hasher::new_derive_key("citadel-treekem-transcript-v1");
     hasher.update(prev);
     hasher.update(&serialized);
@@ -100,27 +248,27 @@ fn next_transcript(prev: &[u8; 32], update: &UpdatePath) -> [u8; 32] {
 mod tests {
     use super::*;
     use crate::crypto::node_keypair_from_path_secret;
-    use crate::tree::node::LeafNode;
 
-    /// Build `n` members sharing one public tree, each holding its own leaf secret, all starting from the
-    /// same genesis epoch. Returns the per-member `GroupState`s.
+    fn member_leaf(cid: u64, secret: &Secret) -> LeafNode {
+        let (kem_public, _sk) = node_keypair_from_path_secret(secret).unwrap();
+        LeafNode {
+            cid,
+            kem_public,
+            sig_public: vec![],
+            leaf_index: 0,
+            signature: vec![],
+        }
+    }
+
+    /// Build `n` members sharing one public tree, each holding its own leaf secret, all at the same
+    /// genesis epoch (exercises the `commit_update`/`process_commit` core without Add/Welcome).
     fn make_group(n: u32) -> Vec<GroupState> {
         let genesis_root = [42u8; 32];
-        // Per-member leaf secrets (distinct), and their derived public leaf keys.
         let leaf_secrets: Vec<Secret> = (0..n).map(|i| [i as u8 + 1; 32]).collect();
         let leaves: Vec<LeafNode> = leaf_secrets
             .iter()
             .enumerate()
-            .map(|(i, ps)| {
-                let (pk, _sk) = node_keypair_from_path_secret(ps).unwrap();
-                LeafNode {
-                    cid: i as u64 + 100,
-                    kem_public: pk,
-                    sig_public: vec![],
-                    leaf_index: i as u32,
-                    signature: vec![],
-                }
-            })
+            .map(|(i, ps)| member_leaf(i as u64 + 100, ps))
             .collect();
         let tree = RatchetTree::from_leaves(leaves);
         (0..n)
@@ -134,20 +282,17 @@ mod tests {
     fn all_members_derive_same_epoch_secret_after_commit() {
         for n in [2u32, 3, 4, 5, 7, 8] {
             let mut members = make_group(n);
-            // Member 0 commits a fresh path update.
-            let update = members[0].commit_update([0xAB; 32]).unwrap();
-            // Everyone else processes it.
+            let commit = members[0].commit_update([0xAB; 32]).unwrap();
             for m in members.iter_mut().skip(1) {
-                m.process_commit(&update).unwrap();
+                m.process_commit(&commit).unwrap();
             }
-            // All members must now agree on the epoch + the encryption secret.
             let secret0 = *members[0].encryption_secret();
             for (i, m) in members.iter().enumerate() {
                 assert_eq!(m.epoch, 1, "n={n} member {i}: epoch");
                 assert_eq!(
                     m.encryption_secret(),
                     &secret0,
-                    "n={n} member {i}: epoch secret must match the committer",
+                    "n={n} member {i}: epoch secret"
                 );
             }
         }
@@ -156,45 +301,75 @@ mod tests {
     #[test]
     fn forward_secrecy_and_pcs_across_two_commits() {
         let mut members = make_group(4);
-        let u1 = members[0].commit_update([1u8; 32]).unwrap();
+        let c1 = members[0].commit_update([1u8; 32]).unwrap();
         for m in members.iter_mut().skip(1) {
-            m.process_commit(&u1).unwrap();
+            m.process_commit(&c1).unwrap();
         }
         let epoch1 = *members[0].encryption_secret();
 
-        // A different member commits again with a fresh secret.
-        let u2 = members[2].commit_update([2u8; 32]).unwrap();
-        members[0].process_commit(&u2).unwrap();
-        members[1].process_commit(&u2).unwrap();
-        members[3].process_commit(&u2).unwrap();
+        let c2 = members[2].commit_update([2u8; 32]).unwrap();
+        members[0].process_commit(&c2).unwrap();
+        members[1].process_commit(&c2).unwrap();
+        members[3].process_commit(&c2).unwrap();
         let epoch2 = *members[0].encryption_secret();
 
-        assert_ne!(
-            epoch1, epoch2,
-            "consecutive epochs must have distinct secrets (FS)"
-        );
+        assert_ne!(epoch1, epoch2, "consecutive epochs distinct (FS)");
         for m in &members {
             assert_eq!(m.epoch, 2);
-            assert_eq!(m.encryption_secret(), &epoch2, "all agree on epoch 2");
+            assert_eq!(m.encryption_secret(), &epoch2);
         }
     }
 
     #[test]
-    fn removed_subtree_key_cannot_decrypt() {
-        // Sanity: a member who is NOT in the resolution targeted by a ciphertext can't open it. Member 0
-        // commits; member 1 processing must succeed, but feeding member 1's update to a fresh outsider
-        // state with a different leaf secret must fail to find a decryptable node.
-        let mut members = make_group(4);
-        let update = members[0].commit_update([7u8; 32]).unwrap();
-        // An outsider with an unrelated leaf secret at a bogus leaf can't process.
-        let tree = members[0].tree.clone();
-        // Replace leaf 1 with an unknown key so the "outsider" holds no matching secret.
-        let mut outsider = GroupState::bootstrap(tree, 1, [0x99; 32], &[42u8; 32]);
-        // outsider's stored secret for its leaf doesn't match the tree's leaf-1 public key -> no node
-        // in the targeted resolution is openable with it.
+    fn full_lifecycle_create_add_add_remove() {
+        // A founds the group.
+        let a_secret = [11u8; 32];
+        let mut a = GroupState::create(member_leaf(1, &a_secret), a_secret);
+
+        // B joins via Add + Welcome.
+        let b_secret = [22u8; 32];
+        let kp_b = KeyPackage::generate(2, &b_secret).unwrap();
+        let (commit_b, welcome_b) = a.add_member(&kp_b, [0xA1; 32]).unwrap();
+        let mut b = GroupState::join_from_welcome(&welcome_b, b_secret).unwrap();
+        let _ = commit_b; // (no other existing members to process it yet)
+        assert_eq!(a.epoch, 1);
+        assert_eq!(b.epoch, 1);
+        assert_eq!(
+            a.encryption_secret(),
+            b.encryption_secret(),
+            "founder and first joiner agree",
+        );
+
+        // C joins. Existing member B processes the commit; C bootstraps from the Welcome.
+        let c_secret = [33u8; 32];
+        let kp_c = KeyPackage::generate(3, &c_secret).unwrap();
+        let (commit_c, welcome_c) = a.add_member(&kp_c, [0xA2; 32]).unwrap();
+        b.process_commit(&commit_c).unwrap();
+        let mut c = GroupState::join_from_welcome(&welcome_c, c_secret).unwrap();
+        assert_eq!(a.epoch, 2);
+        assert_eq!(b.epoch, 2);
+        assert_eq!(c.epoch, 2);
+        let secret2 = *a.encryption_secret();
+        assert_eq!(b.encryption_secret(), &secret2, "B agrees at epoch 2");
+        assert_eq!(c.encryption_secret(), &secret2, "C agrees at epoch 2");
+
+        // A removes B. C follows; A and C agree, and the removed B can no longer follow into the epoch.
+        let b_leaf = b.own_leaf;
+        let mut b_after = b.clone();
+        let commit_r = a.remove_member(b_leaf, [0xA3; 32]).unwrap();
+        c.process_commit(&commit_r).unwrap();
+        assert_eq!(a.epoch, 3);
+        assert_eq!(c.epoch, 3);
+        assert_eq!(
+            a.encryption_secret(),
+            c.encryption_secret(),
+            "A and C agree at epoch 3 after removing B",
+        );
+        // B's leaf+path were blanked in the commit; B cannot recover the new path secret.
         assert!(
-            outsider.process_commit(&update).is_err(),
-            "a member whose secret doesn't match its tree leaf cannot recover the path secret",
+            b_after.process_commit(&commit_r).is_err()
+                || b_after.encryption_secret() != a.encryption_secret(),
+            "a removed member must not reach the post-removal epoch secret",
         );
     }
 }

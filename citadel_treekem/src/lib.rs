@@ -15,12 +15,18 @@
 
 #![forbid(unsafe_code)]
 
+pub mod commit;
 pub mod crypto;
 pub mod group;
+pub mod keys;
 pub mod path;
 pub mod schedule;
 pub mod tree;
+pub mod welcome;
 
+pub use commit::{Commit, Proposal};
 pub use group::GroupState;
+pub use keys::KeyPackage;
 pub use path::UpdatePath;
 pub use tree::{math, node, ratchet_tree};
+pub use welcome::Welcome;
