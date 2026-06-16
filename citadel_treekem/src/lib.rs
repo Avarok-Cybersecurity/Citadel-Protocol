@@ -15,6 +15,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod application;
 pub mod commit;
 pub mod crypto;
 pub mod group;
@@ -24,6 +25,7 @@ pub mod schedule;
 pub mod tree;
 pub mod welcome;
 
+pub use application::AppCiphertext;
 pub use commit::{Commit, Proposal};
 pub use group::GroupState;
 pub use keys::KeyPackage;

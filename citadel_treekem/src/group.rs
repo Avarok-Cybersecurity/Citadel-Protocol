@@ -4,6 +4,7 @@
 //! The core invariant across all of these: after a commit, **every member derives the same epoch
 //! secret**, with forward secrecy + post-compromise security, and the relay never sees a key.
 
+use crate::application::AppCiphertext;
 use crate::commit::{Commit, Proposal};
 use crate::crypto::{self, Secret};
 use crate::keys::KeyPackage;
@@ -31,6 +32,8 @@ pub struct GroupState {
     secrets: EpochSecrets,
     /// Confirmed transcript hash (chains commits; binds the epoch secret to the exact history).
     transcript_hash: [u8; 32],
+    /// This member's outgoing message counter within the current epoch (reset each epoch).
+    send_generation: u32,
 }
 
 impl GroupState {
@@ -53,6 +56,7 @@ impl GroupState {
             epoch: 0,
             secrets,
             transcript_hash,
+            send_generation: 0,
         }
     }
 
@@ -222,7 +226,33 @@ impl GroupState {
             epoch: welcome.group_info.epoch,
             secrets,
             transcript_hash: welcome.group_info.transcript_hash,
+            send_generation: 0,
         })
+    }
+
+    /// Encrypt an application message under the current epoch (E2E; the relay sees only ciphertext).
+    pub fn encrypt_message(&mut self, plaintext: &[u8]) -> Result<AppCiphertext, Error> {
+        let generation = self.send_generation;
+        self.send_generation = self.send_generation.wrapping_add(1);
+        crate::application::seal(
+            &self.secrets.encryption_secret,
+            self.epoch,
+            self.own_leaf,
+            generation,
+            plaintext,
+        )
+    }
+
+    /// Decrypt an application message from the current epoch. Returns an error if the message is from a
+    /// different epoch (the caller selects the right epoch's `GroupState`).
+    pub fn decrypt_message(&self, message: &AppCiphertext) -> Result<Vec<u8>, Error> {
+        if message.epoch != self.epoch {
+            return Err(Error::generic(format!(
+                "treekem: application message epoch {} != current epoch {}",
+                message.epoch, self.epoch
+            )));
+        }
+        crate::application::open(&self.secrets.encryption_secret, message)
     }
 
     /// Roll the transcript + key schedule forward into the next epoch from a new root secret.
@@ -231,6 +261,7 @@ impl GroupState {
         let prev_init = self.secrets.init_secret;
         self.secrets = EpochSecrets::derive(root_secret, &prev_init, &self.transcript_hash);
         self.epoch += 1;
+        self.send_generation = 0;
     }
 }
 
@@ -370,6 +401,49 @@ mod tests {
             b_after.process_commit(&commit_r).is_err()
                 || b_after.encryption_secret() != a.encryption_secret(),
             "a removed member must not reach the post-removal epoch secret",
+        );
+    }
+
+    #[test]
+    fn application_messages_are_e2e_within_an_epoch() {
+        // Get a 4-member group to a shared epoch 1.
+        let mut members = make_group(4);
+        let commit = members[0].commit_update([0x5A; 32]).unwrap();
+        for m in members.iter_mut().skip(1) {
+            m.process_commit(&commit).unwrap();
+        }
+
+        // Member 1 sends; everyone (incl. the sender) decrypts to the same plaintext.
+        let plaintext = b"fire mission: grid 1234 5678, danger close";
+        let ct = members[1].encrypt_message(plaintext).unwrap();
+        for (i, m) in members.iter().enumerate() {
+            let got = m.decrypt_message(&ct).unwrap();
+            assert_eq!(got, plaintext, "member {i} must decrypt the group message");
+        }
+
+        // Two messages from the same sender use distinct generations (distinct keys).
+        let ct_b = members[1].encrypt_message(b"second message").unwrap();
+        assert_ne!(ct.generation, ct_b.generation);
+        assert_eq!(
+            members[2].decrypt_message(&ct_b).unwrap(),
+            b"second message"
+        );
+
+        // The relay (no epoch secret) cannot decrypt: a state with a different epoch secret fails.
+        let outsider = make_group(4);
+        assert!(
+            outsider[0].decrypt_message(&ct).is_err(),
+            "a party without this epoch's secret cannot decrypt (server is blind)",
+        );
+
+        // A message from a past epoch does not decrypt at a later epoch (forward secrecy across epochs).
+        let commit2 = members[0].commit_update([0x6B; 32]).unwrap();
+        for m in members.iter_mut().skip(1) {
+            m.process_commit(&commit2).unwrap();
+        }
+        assert!(
+            members[2].decrypt_message(&ct).is_err(),
+            "epoch-1 ciphertext must not decrypt under epoch 2",
         );
     }
 }
