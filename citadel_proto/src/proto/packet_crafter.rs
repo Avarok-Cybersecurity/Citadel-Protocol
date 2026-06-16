@@ -46,6 +46,7 @@
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
+use citadel_io::{error, ErrorCode};
 use crate::proto::remote::Ticket;
 use crate::proto::session::UserMessage;
 use crate::proto::state_container::VirtualTargetType;
@@ -155,7 +156,7 @@ impl<R: Ratchet> ObjectTransmitter<R> {
         let header = self.generate_group_header(virtual_target);
         self.to_primary_stream
             .unbounded_send(header)
-            .map_err(|err| NetworkError::msg(format!("Unable to transmit group header: {err:?}")))
+            .map_err(|err| error!(ErrorCode::GroupHeaderTransmitFailed, format!("{err:?}")))
     }
 
     /// Generates the group header for this set using the pre-allocated slab. Since the group header is always sent through the primary port,

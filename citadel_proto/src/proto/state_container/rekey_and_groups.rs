@@ -1,6 +1,7 @@
 //! Rekey initiation and group-broadcast handling for [`StateContainerInner`].
 
 use super::includes::*;
+use citadel_io::{error, ErrorCode};
 
 impl<R: Ratchet> StateContainerInner<R> {
     #[allow(unused_results)]
@@ -26,9 +27,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         let ticket = ticket.unwrap_or_default();
 
         if !self.state.is_connected() {
-            return Err(NetworkError::invalid_request(
-                "Cannot initiate rekey since the session is not connected",
-            ));
+            return Err(error!(ErrorCode::StateRekeyNotConnected));
         }
 
         let (session_cid, target_cid) = match virtual_target {
@@ -42,9 +41,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             } => (session_cid, peer_cid),
 
             _ => {
-                return Err(NetworkError::invalid_request(
-                    "External group functionality not yet implemented",
-                ))
+                return Err(error!(ErrorCode::StateExternalGroupNotImplemented))
             }
         };
 
@@ -92,7 +89,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         let ratchet = self
             .get_virtual_connection_crypto(C2S_IDENTITY_CID)
-            .ok_or(NetworkError::internal("C2s not loaded"))?
+            .ok_or(error!(ErrorCode::StateC2sNotLoaded))?
             .get_ratchet(None)
             .unwrap();
         let security_level = self
@@ -124,10 +121,10 @@ impl<R: Ratchet> StateContainerInner<R> {
             }
 
             n => {
-                return Err(NetworkError::generic(format!(
-                    "{:?} is not a valid group broadcast request",
-                    &n
-                )));
+                return Err(error!(
+                    ErrorCode::StateInvalidGroupBroadcastRequest,
+                    format!("{:?}", &n)
+                ));
             }
         };
 
@@ -147,12 +144,10 @@ impl<R: Ratchet> StateContainerInner<R> {
             .cnac
             .as_ref()
             .map(|r| r.get_cid())
-            .ok_or(NetworkError::internal("CNAC not loaded"))?;
+            .ok_or(error!(ErrorCode::StateCnacNotLoaded))?;
 
         if self.group_channels.contains_key(&key) {
-            return Err(NetworkError::internal(
-                "Group channel already exists locally",
-            ));
+            return Err(error!(ErrorCode::StateGroupChannelExists));
         }
 
         let _ = self.group_channels.insert(key, tx);

@@ -29,6 +29,7 @@
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
 use crate::proto::misc::direct_frame_writer::DirectFrameWriter;
+use citadel_io::{error, ErrorCode};
 use bytes::Bytes;
 use citadel_io::tokio::io::{split, AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use citadel_io::tokio_stream::StreamExt;
@@ -126,7 +127,7 @@ pub async fn read_one_packet_as_framed<S: AsyncRead + Unpin, D: DeserializeOwned
     let packet = framed
         .next()
         .await
-        .ok_or_else(|| NetworkError::msg("Unable to get first packet"))??;
+        .ok_or_else(|| error!(ErrorCode::FirstPacketUnavailable))??;
     let deser = citadel_user::serialization::SyncIO::deserialize_from_vector(&packet)
         .map_err(|err| NetworkError::generic(err.into_string()))?;
     Ok((framed.into_inner(), deser))

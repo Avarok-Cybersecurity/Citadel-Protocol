@@ -52,6 +52,7 @@ use crate::constants::{
     LOGIN_EXPIRATION_TIME, REKEY_UPDATE_FREQUENCY_STANDARD,
 };
 use crate::error::NetworkError;
+use citadel_io::{error, ErrorCode, Dbg};
 use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 //use futures_codec::Framed;
@@ -365,7 +366,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         match auth {
                             AuthenticationRequest::Credentialed { .. } => {
                                 let cnac = client_init_settings.cnac.clone().ok_or(
-                                    NetworkError::invalid_request("Client does not exist"),
+                                    error!(ErrorCode::SessionClientNotLoaded),
                                 )?;
                                 let cid = cnac.get_cid();
                                 (Some(cnac), SessionState::NeedsConnect, Some(cid))
@@ -597,7 +598,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 let strong_count = this_close.strong_count();
                 if strong_count > 1 {
                     log::error!(target: "citadel", "Queue worker ended unexpectedly while session still active (strong_count: {})", strong_count);
-                    return Err((NetworkError::internal("Queue worker ended unexpectedly"), session_cid.get()));
+                    return Err((error!(ErrorCode::SessionQueueWorkerEnded), session_cid.get()));
                 } else {
                     log::info!(target: "citadel", "Queue worker ended, session cleanup in progress (strong_count: {})", strong_count);
                     return Ok(session_cid.get());
@@ -654,7 +655,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         if let Some(zero) = zero_packet {
             to_outbound
                 .unbounded_send(zero)
-                .map_err(|_| NetworkError::internal("Writer stream corrupted"))?;
+                .map_err(|_| error!(ErrorCode::SessionWriterStreamCorrupted))?;
         }
 
         match state {
@@ -667,13 +668,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     .connect_state
                     .proposed_credentials
                     .as_ref()
-                    .ok_or(NetworkError::internal("Proposed credentials not loaded"))?
+                    .ok_or(error!(ErrorCode::SessionProposedCredentialsNotLoaded))?
                     .username();
                 let proposed_cid = persistence_handler.get_cid_by_username(proposed_username);
                 let passwordless = state_container
                     .register_state
                     .transient_mode
-                    .ok_or(NetworkError::internal("Passwordless state not loaded"))?;
+                    .ok_or(error!(ErrorCode::SessionPasswordlessStateNotLoaded))?;
                 // we supply 0,0 for cid and new entropy_bank vers by default, even though it will be reset by bob
                 let alice_constructor =
                     <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
@@ -684,15 +685,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         proposed_cid,
                         0,
                     )
-                    .ok_or(NetworkError::internal("Unable to construct Alice ratchet"))?;
+                    .ok_or(error!(ErrorCode::SessionAliceRatchetConstructionFailed))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 log::trace!(target: "citadel", "Running stage0 alice");
                 let transfer = alice_constructor
                     .stage0_alice()
-                    .ok_or(NetworkError::internal(
-                        "Unable to construct AliceToBob transfer",
-                    ))?;
+                    .ok_or(error!(ErrorCode::SessionAliceToBobTransferFailed))?;
 
                 let stage0_register_packet = packet_crafter::do_register::craft_stage0::<R>(
                     session_security_settings.crypto_params.into(),
@@ -704,7 +703,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 );
                 to_outbound
                     .unbounded_send(stage0_register_packet)
-                    .map_err(|_| NetworkError::internal("Writer stream corrupted"))?;
+                    .map_err(|_| error!(ErrorCode::SessionWriterStreamCorrupted))?;
 
                 state_container.register_state.constructor = Some(alice_constructor);
                 log::trace!(target: "citadel", "Successfully sent stage0 register packet outbound");
@@ -741,7 +740,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         log::trace!(target: "citadel", "Beginning pre-connect subroutine");
         session.state.set(SessionState::NeedsConnect);
         let connect_mode = (*inner!(session.connect_mode))
-            .ok_or(NetworkError::internal("Connect mode not loaded"))?;
+            .ok_or(error!(ErrorCode::SessionConnectModeNotLoaded))?;
         let mut state_container = inner_mut_state!(session.state_container);
         state_container.store_session_password(C2S_IDENTITY_CID, session.session_password.clone());
 
@@ -753,7 +752,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         // reset the toolset's ARA
         let static_aux_hr = &cnac.refresh_static_ratchet();
         // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
-        let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|_| NetworkError::invalid_request("The specified security setting for the session exceeds the registration security setting"))?;
+        let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|_| error!(ErrorCode::SessionSecurityExceedsRegistration))?;
         let opts = static_aux_hr
             .get_next_constructor_opts()
             .into_iter()
@@ -761,12 +760,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .collect();
         let alice_constructor =
             <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(opts, cnac.get_cid(), 0)
-                .ok_or(NetworkError::internal("Unable to construct Alice ratchet"))?;
+                .ok_or(error!(ErrorCode::SessionAliceRatchetConstructionFailed))?;
         let transfer = alice_constructor
             .stage0_alice()
-            .ok_or(NetworkError::internal(
-                "Failed to construct AliceToBobTransfer",
-            ))?;
+            .ok_or(error!(ErrorCode::SessionAliceToBobTransferFailed))?;
         // encrypts the entire connect process with the highest possible security level
         let max_usable_level = static_aux_hr.get_default_security_level();
         let nat_type = session.local_nat_type.clone();
@@ -1139,7 +1136,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     message: err.to_string(),
                 }))
                 .map_err(|err| NetworkError::generic(err.to_string()))?;
-            Err(NetworkError::internal("Primary stream closed"))
+            Err(error!(ErrorCode::SessionPrimaryStreamClosed))
         } else {
             Ok(())
         }
@@ -1329,9 +1326,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     .map_err(|err| NetworkError::generic(err.to_string()))
             }
 
-            ty => Err(NetworkError::msg(format!(
-                "REVFS is not yet enabled for virtual connections of type {ty:?}"
-            ))),
+            ty => Err(error!(ErrorCode::RevfsUnsupportedConnectionType, Dbg(ty))),
         }
     }
 
@@ -1391,15 +1386,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     .map_err(|err| NetworkError::generic(err.to_string()))
             }
 
-            ty => Err(NetworkError::msg(format!(
-                "REVFS is not yet enabled for virtual connections of type {ty:?}"
-            ))),
+            ty => Err(error!(ErrorCode::RevfsUnsupportedConnectionType, Dbg(ty))),
         }
     }
 
     fn ensure_connected(&self, ticket: &Ticket) -> Result<(), NetworkError> {
         if !self.state.is_connected() {
-            Err(NetworkError::generic(format!("Attempted to send a request (ticket: {ticket}) outbound, but the session is not connected")))
+            Err(error!(ErrorCode::SessionRequestNotConnected, *ticket))
         } else {
             Ok(())
         }
@@ -1424,7 +1417,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         post_close_hook: impl for<'a> FnOnce(PathBuf) + Send + 'static,
     ) -> Result<(), NetworkError> {
         let source_path = source.path().ok_or_else(|| {
-            NetworkError::internal("The source object does not have a path location")
+            error!(ErrorCode::FileTransferSourceMissingPath)
         })?;
 
         let file_metadata =
@@ -1465,7 +1458,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest entropy_bank, and 0 for target_cid
                     if !*self.file_transfer_compatible {
-                        return Err(NetworkError::msg("File transfer is not enabled for this session. Both nodes must use a filesystem backend"));
+                        return Err(error!(ErrorCode::FileTransferSessionDisabled));
                     }
 
                     let crypt_container = state_container
@@ -1567,7 +1560,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     let endpoint_container = state_container.get_endpoint_container(target_cid)?;
 
                     if !endpoint_container.file_transfer_compatible {
-                        return Err(NetworkError::msg("File transfer is not enabled for this p2p session. Both nodes must use a filesystem backend"));
+                        return Err(error!(ErrorCode::FileTransferP2pDisabled));
                     }
 
                     let object_id = virtual_object_metadata
@@ -1593,9 +1586,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     let preferred_primary_stream = state_container
                         .get_preferred_stream(target_cid)
                         .ok_or_else(|| {
-                            NetworkError::msg(
-                            "Connection unavailable (shutdown in progress or connection closed)",
-                        )
+                            error!(ErrorCode::SessionConnectionUnavailable)
                         })?
                         .clone();
 
@@ -1666,9 +1657,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                 _ => {
                     log::error!(target: "citadel", "HyperWAN functionality not yet implemented");
-                    return Err(NetworkError::internal(
-                        "HyperWAN functionality not yet implemented",
-                    ));
+                    return Err(error!(ErrorCode::SessionHyperWanNotImplemented));
                 }
             };
 
@@ -1682,7 +1671,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             // send the FILE_HEADER
             to_primary_stream
                 .unbounded_send(file_header)
-                .map_err(|_| NetworkError::internal("Primary stream disconnected"))?;
+                .map_err(|_| error!(ErrorCode::SessionPrimaryStreamDisconnected))?;
             // create the outbound file container
             let kernel_tx = state_container.kernel_tx.clone();
             let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
@@ -1978,9 +1967,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     stream
                 } else {
                     return Err((
-                        NetworkError::msg(
-                            "Connection unavailable (shutdown in progress or connection closed)",
-                        ),
+                        error!(ErrorCode::SessionConnectionUnavailable),
                         attributed_ticket,
                         original_payload,
                     ));
@@ -1991,9 +1978,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     ep
                 } else {
                     return Err((
-                        NetworkError::generic(
-                            "Unable to get virtual connection crypto".to_string(),
-                        ),
+                        error!(ErrorCode::SessionVconnCryptoMissing),
                         attributed_ticket,
                         original_payload,
                     ));
@@ -2008,7 +1993,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             session.shutdown();
                         }
                         return Err((
-                            NetworkError::generic("Ratchet missing for endpoint".to_string()),
+                            error!(ErrorCode::SessionRatchetMissingForEndpoint),
                             attributed_ticket,
                             original_payload,
                         ));
@@ -2120,7 +2105,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
         if state != SessionState::Connected {
             log::warn!(target: "citadel", "Session is not connected (s={state:?}); failing fast for peer command {peer_command:?}");
-            return Err(NetworkError::invalid_request("Session is not connected"));
+            return Err(error!(ErrorCode::SessionNotConnected));
         }
 
         let timestamp = this.time_tracker.get_global_time_ns();
@@ -2164,7 +2149,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                 },
                                 ticket,
                                 session_cid: self.session_cid.get().ok_or_else(|| {
-                                    NetworkError::internal("Implicated CID not set")
+                                    error!(ErrorCode::SessionImplicatedCidNotSet)
                                 })?,
                             }))
                             .map_err(|err| NetworkError::generic(err.to_string()));
@@ -2262,7 +2247,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 .unbounded_send(packet)
                 .map_err(|err| NetworkError::socket(err.to_string()))
         } else {
-            Err(NetworkError::internal("Invalid configuration"))
+            Err(error!(ErrorCode::SessionInvalidConfiguration))
         }
     }
 
@@ -2444,13 +2429,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
                         message: err.to_string(),
                     }))
                     .map_err(|err| NetworkError::generic(err.to_string()))?;
-                    Err(NetworkError::internal(
-                        "Unable to send through primary stream",
-                    ))
+                    Err(error!(ErrorCode::SessionPrimaryStreamSendFailed))
                 }
             }
         } else {
-            Err(NetworkError::internal("Primary stream sender absent"))
+            Err(error!(ErrorCode::SessionPrimaryStreamSenderAbsent))
         }
     }
 

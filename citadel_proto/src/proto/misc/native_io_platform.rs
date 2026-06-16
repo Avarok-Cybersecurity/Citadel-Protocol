@@ -28,6 +28,7 @@ use super::udp_internal_interface::{
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
 use crate::proto::node_result::NodeResult;
+use citadel_io::{error, ErrorCode};
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::p2p_conn_handler;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
@@ -181,9 +182,7 @@ impl PlatformOps for NativeIO {
                 .map_err(|err| NetworkError::generic(err.to_string()))?;
             if file_length < expected_min_length as u64 {
                 log::warn!(target: "citadel", "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem: Current file length: {file_length}, expected min length: {expected_min_length}");
-                return Err(NetworkError::internal(
-                    "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem",
-                ));
+                return Err(error!(ErrorCode::RevfsFileNotSynchronized));
             }
         }
 

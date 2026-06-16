@@ -34,6 +34,8 @@ use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
 use citadel_io::tokio_stream::StreamExt;
 
 use crate::error::NetworkError;
+use citadel_io::{error, ErrorCode};
+
 use crate::functional::IfTrueConditional;
 use crate::proto::misc;
 use crate::proto::misc::dual_rwlock::DualRwLock;
@@ -134,7 +136,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
     receiver
         .await
         .map_err(|err| NetworkError::generic(err.to_string()))?;
-    Err(NetworkError::internal("p2p stopper triggered"))
+    Err(error!(ErrorCode::P2pStopperTriggered))
 }
 
 pub(crate) fn generic_error<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
@@ -174,7 +176,7 @@ mod native_p2p {
         match p2p_listener.next().await {
             Some(Ok((p2p_stream, _))) => {
                 let session = CitadelSession::upgrade_weak(weak)
-                    .ok_or(NetworkError::internal("P2P Session dropped"))?;
+                    .ok_or(error!(ErrorCode::P2pSessionDropped))?;
 
                 handle_p2p_stream(
                     p2p_stream,
@@ -198,7 +200,7 @@ mod native_p2p {
 
             None => {
                 log::error!(target: "citadel", "P2P listener returned None. Stream dead");
-                Err(NetworkError::internal("P2P Listener returned None"))
+                Err(error!(ErrorCode::P2pListenerReturnedNone))
             }
         }
     }
@@ -403,7 +405,7 @@ mod native_p2p {
             let was_replaced = res
                 .as_ref()
                 .err()
-                .is_some_and(|e| *e == NetworkError::internal("p2p stopper triggered"));
+                .is_some_and(|e| e.code == ErrorCode::P2pStopperTriggered);
 
             if was_replaced {
                 log::trace!(target: "citadel", "[P2P-stream] Stream replaced by tie-breaker for peer {peer_cid}, skipping cleanup");

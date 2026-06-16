@@ -30,6 +30,7 @@
 //! - [`NetworkError`]: Error handling
 //!
 use crate::error::NetworkError;
+use citadel_io::{error, ErrorCode};
 use crate::proto::packet_processor::includes::Duration;
 use crate::proto::session::SessionState;
 use citadel_io::time::{delay_queue, DelayQueue};
@@ -331,9 +332,7 @@ impl<R: Ratchet> futures::Future for SessionQueueWorker<R> {
                     //log::error!(target: "citadel", "Unable to shutdown session: {:?}", err);
                 }
 
-                Poll::Ready(Err(NetworkError::internal(
-                    "Queue handler signalled shutdown",
-                )))
+                Poll::Ready(Err(error!(ErrorCode::QueueHandlerShutdown)))
             }
         }
     }

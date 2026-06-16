@@ -2,6 +2,7 @@
 //! file-header intake plus per-wave payload reassembly.
 
 use super::includes::*;
+use citadel_io::{error, ErrorCode, Dbg};
 
 impl<R: Ratchet> StateContainerInner<R> {
     /// Like the other functions in this file, ensure that verification is called before running this
@@ -29,10 +30,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             );
             let security_level = SecurityLevel::for_value(header.security_level as usize)
                 .ok_or_else(|| {
-                    NetworkError::msg(format!(
-                        "Invalid security level {} in group header",
-                        header.security_level
-                    ))
+                    error!(ErrorCode::InboundInvalidSecurityLevel, header.security_level)
                 })?;
             let mut receiver_container = GroupReceiverContainer::new(
                 object_id,
@@ -48,9 +46,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 if let Some(inbound_file_transfer) = self.inbound_files.get(&file_key) {
                     inbound_file_transfer.last_group_window_len
                 } else {
-                    return Err(NetworkError::msg(format!(
-                        "The GROUP HEADER implied a file transfer, but key {file_key:?} maps to nothing"
-                    )));
+                    return Err(error!(ErrorCode::InboundGroupHeaderFileKeyMissing, Dbg(file_key)));
                 }
             } else {
                 0
@@ -74,9 +70,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             e.insert(receiver_container);
             Ok(wave_window)
         } else {
-            Err(NetworkError::msg(format!(
-                "Duplicate group HEADER detected ({group_id})"
-            )))
+            Err(error!(ErrorCode::InboundDuplicateGroupHeader, group_id))
         }
     }
 
@@ -304,9 +298,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         let (status, ticket, file_key) = {
             let mut grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| {
                 (
-                    NetworkError::msg(format!(
-                        "inbound_groups does not contain key for {group_key:?}"
-                    )),
+                    error!(ErrorCode::InboundGroupKeyMissing, Dbg(group_key)),
                     Ticket(0),
                     0.into(),
                 )
@@ -315,12 +307,12 @@ impl<R: Ratchet> StateContainerInner<R> {
             let file_key = FileKey::new(grc.object_id);
 
             let src = *payload.first().ok_or((
-                NetworkError::invalid_request("Bad payload packet [0]"),
+                error!(ErrorCode::InboundBadPayloadPacket0),
                 ticket,
                 object_id,
             ))?;
             let dest = *payload.get(1).ok_or((
-                NetworkError::invalid_request("Bad payload packet [1]"),
+                error!(ErrorCode::InboundBadPayloadPacket1),
                 ticket,
                 object_id,
             ))?;
@@ -332,7 +324,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 hr.get_scramble_pqc_and_entropy_bank().1,
             )
             .ok_or((
-                NetworkError::invalid_request("Unable to obtain true_sequence"),
+                error!(ErrorCode::InboundTrueSequenceUnavailable),
                 ticket,
                 object_id,
             ))?;
@@ -358,9 +350,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     .remove(&group_key)
                     .ok_or_else(|| {
                         (
-                            NetworkError::msg(format!(
-                                "inbound_groups vanished for {group_key:?} on complete"
-                            )),
+                            error!(ErrorCode::InboundGroupVanishedOnComplete, Dbg(group_key)),
                             ticket,
                             object_id,
                         )
@@ -382,9 +372,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 ) = {
                     let fc = self.inbound_files.get(&file_key).ok_or_else(|| {
                         (
-                            NetworkError::msg(format!(
-                                "inbound_files does not contain key for {file_key:?}"
-                            )),
+                            error!(ErrorCode::InboundFileKeyMissing, Dbg(file_key)),
                             ticket,
                             object_id,
                         )
@@ -423,7 +411,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         .remove(&file_key)
                         .ok_or_else(|| {
                             (
-                                NetworkError::msg("inbound_files vanished on complete"),
+                                error!(ErrorCode::InboundFileVanishedOnComplete),
                                 ticket,
                                 object_id,
                             )
@@ -438,7 +426,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         .send(header.clone())
                         .map_err(|_| {
                             (
-                                NetworkError::msg("reception_complete_tx err"),
+                                error!(ErrorCode::InboundReceptionCompleteSendFailed),
                                 ticket,
                                 object_id,
                             )

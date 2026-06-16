@@ -546,4 +546,344 @@ pub enum ErrorCode {
     /// A Google services file was missing its service email.
     #[form = "Service email not present"]
     GoogleServiceEmailMissing = 159,
+
+    // --- citadel_proto: session ---
+    /// A session-level lookup for a client account returned nothing.
+    #[form = "Client does not exist"]
+    SessionClientNotLoaded = 160,
+    /// A session's zero-state (pre-connect handshake) could not be completed.
+    #[form = "Unable to proceed past session zero-state. Stopping session: {}"]
+    SessionZeroStateFailed = 161,
+    /// The session's queue worker terminated unexpectedly.
+    #[form = "Queue worker ended unexpectedly"]
+    SessionQueueWorkerEnded = 162,
+    /// A session's outbound writer stream was corrupted.
+    #[form = "Writer stream corrupted"]
+    SessionWriterStreamCorrupted = 163,
+    /// The proposed connection credentials were not loaded.
+    #[form = "Proposed credentials not loaded"]
+    SessionProposedCredentialsNotLoaded = 164,
+    /// The passwordless connection state was not loaded.
+    #[form = "Passwordless state not loaded"]
+    SessionPasswordlessStateNotLoaded = 165,
+    /// The Alice-side ratchet could not be constructed during session setup.
+    #[form = "Unable to construct Alice ratchet"]
+    SessionAliceRatchetConstructionFailed = 166,
+    /// The Alice-to-Bob transfer could not be constructed during session setup.
+    #[form = "Unable to construct AliceToBob transfer"]
+    SessionAliceToBobTransferFailed = 167,
+    /// The session connect-mode was not loaded.
+    #[form = "Connect mode not loaded"]
+    SessionConnectModeNotLoaded = 168,
+    /// The requested session security setting exceeds the registration setting.
+    #[form = "The specified security setting for the session exceeds the registration security setting"]
+    SessionSecurityExceedsRegistration = 169,
+    /// The session's primary stream closed unexpectedly.
+    #[form = "Primary stream closed"]
+    SessionPrimaryStreamClosed = 170,
+    /// The session's primary stream disconnected.
+    #[form = "Primary stream disconnected"]
+    SessionPrimaryStreamDisconnected = 171,
+    /// A send through the session's primary stream failed (no further context).
+    #[form = "Unable to send through primary stream"]
+    SessionPrimaryStreamSendFailed = 172,
+    /// The session's primary stream sender was absent.
+    #[form = "Primary stream sender absent"]
+    SessionPrimaryStreamSenderAbsent = 173,
+    /// The session is not connected.
+    #[form = "Session is not connected"]
+    SessionNotConnected = 174,
+    /// An outbound request was attempted while the session is not connected (ticket).
+    #[form = "Attempted to send a request (ticket: {}) outbound, but the session is not connected"]
+    SessionRequestNotConnected = 175,
+    /// The session's implicated CID was not set.
+    #[form = "Implicated CID not set"]
+    SessionImplicatedCidNotSet = 176,
+    /// A required configuration was invalid during session setup.
+    #[form = "Invalid configuration"]
+    SessionInvalidConfiguration = 177,
+    /// The endpoint virtual-connection crypto could not be obtained.
+    #[form = "Unable to get virtual connection crypto"]
+    SessionVconnCryptoMissing = 178,
+    /// The endpoint ratchet was missing for the outbound target.
+    #[form = "Ratchet missing for endpoint"]
+    SessionRatchetMissingForEndpoint = 179,
+    /// A connection was unavailable (shutdown in progress or connection closed).
+    #[form = "Connection unavailable (shutdown in progress or connection closed)"]
+    SessionConnectionUnavailable = 180,
+    /// HyperWAN functionality was requested but is not yet implemented.
+    #[form = "HyperWAN functionality not yet implemented"]
+    SessionHyperWanNotImplemented = 181,
+
+    // --- citadel_proto: file transfer ---
+    /// File transfer is disabled for the session (both nodes must use a filesystem backend).
+    #[form = "File transfer is not enabled for this session. Both nodes must use a filesystem backend"]
+    FileTransferSessionDisabled = 182,
+    /// File transfer is disabled for the p2p session (both nodes must use a filesystem backend).
+    #[form = "File transfer is not enabled for this p2p session. Both nodes must use a filesystem backend"]
+    FileTransferP2pDisabled = 183,
+    /// A file-transfer source object did not carry a path location.
+    #[form = "The source object does not have a path location"]
+    FileTransferSourceMissingPath = 184,
+    /// HyperWAN functionality is not yet enabled for the file-header ACK path.
+    #[form = "HyperWAN functionality not yet enabled for file-header ACK"]
+    FileTransferHyperWanAckUnsupported = 185,
+    /// An outbound file transfer was already started (missing start signal) (key).
+    #[form = "Outbound file transfer {} already started (missing start signal)"]
+    FileTransferAlreadyStarted = 186,
+    /// Signalling the cryptscrambler to start failed (key).
+    #[form = "Failed to signal cryptscrambler start for {}"]
+    FileTransferScramblerStartFailed = 187,
+    /// Sending the TransferBeginning status failed (key, reason).
+    #[form = "Failed to send TransferBeginning status for {}: {}"]
+    FileTransferBeginningStatusFailed = 188,
+    /// Alerting the kernel of an ObjectTransferHandle failed (key, reason).
+    #[form = "Failed to alert kernel of ObjectTransferHandle for {}: {}"]
+    FileTransferHandleAlertFailed = 189,
+    /// The OutboundFileTransfer entry did not exist (key).
+    #[form = "Attempted to obtain OutboundFileTransfer for {}, but it didn't exist"]
+    FileTransferOutboundMissing = 190,
+    /// A stop signal was missing for an outbound file (key).
+    #[form = "Missing stop signal for outbound file {}"]
+    FileTransferStopSignalMissing = 191,
+    /// Stopping the cryptscrambler failed (key).
+    #[form = "Failed to stop cryptscrambler for {}"]
+    FileTransferScramblerStopFailed = 192,
+    /// A start signal was missing for an outbound file (key).
+    #[form = "Missing start signal for outbound file {}"]
+    FileTransferStartSignalMissing = 193,
+    /// Halting the cryptscrambler failed (key).
+    #[form = "Failed to halt cryptscrambler for {}"]
+    FileTransferScramblerHaltFailed = 194,
+    /// The file-transfer handle map did not contain the requested key (file key).
+    #[form = "file_transfer_handle does not contain key for {}"]
+    FileTransferHandleKeyMissing = 195,
+    /// File transfer is not supported on this platform.
+    #[form = "File transfer not supported on this platform"]
+    FileTransferPlatformUnsupported = 196,
+    /// A REVFS file could not be pulled because it has not yet synchronized with the filesystem.
+    #[form = "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem"]
+    RevfsFileNotSynchronized = 197,
+    /// REVFS is not yet enabled for the given virtual-connection type (type).
+    #[form = "REVFS is not yet enabled for virtual connections of type {}"]
+    RevfsUnsupportedConnectionType = 198,
+
+    // --- citadel_proto: inbound group/file reassembly ---
+    /// An inbound group header carried an invalid security level (level).
+    #[form = "Invalid security level {} in group header"]
+    InboundInvalidSecurityLevel = 199,
+    /// A group header implied a file transfer, but the file key mapped to nothing (file key).
+    #[form = "The GROUP HEADER implied a file transfer, but key {} maps to nothing"]
+    InboundGroupHeaderFileKeyMissing = 200,
+    /// A duplicate group HEADER was detected (group id).
+    #[form = "Duplicate group HEADER detected ({})"]
+    InboundDuplicateGroupHeader = 201,
+    /// The inbound-groups map did not contain the expected key (group key).
+    #[form = "inbound_groups does not contain key for {}"]
+    InboundGroupKeyMissing = 202,
+    /// A payload packet was missing its first byte.
+    #[form = "Bad payload packet [0]"]
+    InboundBadPayloadPacket0 = 203,
+    /// A payload packet was missing its second byte.
+    #[form = "Bad payload packet [1]"]
+    InboundBadPayloadPacket1 = 204,
+    /// The true sequence number could not be derived from a payload packet.
+    #[form = "Unable to obtain true_sequence"]
+    InboundTrueSequenceUnavailable = 205,
+    /// The inbound-groups map vanished on group completion (group key).
+    #[form = "inbound_groups vanished for {} on complete"]
+    InboundGroupVanishedOnComplete = 206,
+    /// The inbound-files map did not contain the expected key (file key).
+    #[form = "inbound_files does not contain key for {}"]
+    InboundFileKeyMissing = 207,
+    /// The inbound-files map vanished on completion.
+    #[form = "inbound_files vanished on complete"]
+    InboundFileVanishedOnComplete = 208,
+    /// The reception-complete signal could not be sent.
+    #[form = "reception_complete_tx err"]
+    InboundReceptionCompleteSendFailed = 209,
+
+    // --- citadel_proto: session manager ---
+    /// A hypernode session for the given CID does not exist (session cid).
+    #[form = "Hypernode session for {} does not exist"]
+    SessionManagerSessionNotFound = 210,
+    /// A subroutine could not be initiated because the CID is not an active session (session cid).
+    #[form = "Unable to initiate subroutine for {} (not an active session)"]
+    SessionManagerNotActiveSession = 211,
+    /// A peer command could not be dispatched because the session was not found (session cid).
+    #[form = "Session for {} not found in session manager. Failed to dispatch peer command"]
+    SessionManagerDispatchSessionNotFound = 212,
+    /// The session manager's UnboundedReceiver was not loaded.
+    #[form = "UnboundedReceiver not loaded in session manager"]
+    SessionManagerReceiverNotLoaded = 213,
+    /// The shutdown signal could not be received.
+    #[form = "Unable to receive shutdown signal"]
+    SessionManagerShutdownRecvFailed = 214,
+    /// A peer stream was absent during a session-manager operation.
+    #[form = "Peer stream absent"]
+    SessionManagerPeerStreamAbsent = 215,
+    /// A peer session could not be found (target cid).
+    #[form = "Unable to find peer session {}"]
+    SessionManagerPeerSessionNotFound = 216,
+
+    // --- citadel_proto: state container (rekey / groups / vconns) ---
+    /// A rekey was requested while the session is not connected.
+    #[form = "Cannot initiate rekey since the session is not connected"]
+    StateRekeyNotConnected = 217,
+    /// External-group functionality was requested but is not yet implemented.
+    #[form = "External group functionality not yet implemented"]
+    StateExternalGroupNotImplemented = 218,
+    /// An unsupported variant was used as a group broadcast request (variant).
+    #[form = "{} is not a valid group broadcast request"]
+    StateInvalidGroupBroadcastRequest = 219,
+    /// The C2S virtual-connection crypto was not loaded.
+    #[form = "C2s not loaded"]
+    StateC2sNotLoaded = 220,
+    /// The CNAC was not loaded during a state-container operation.
+    #[form = "CNAC not loaded"]
+    StateCnacNotLoaded = 221,
+    /// A group channel already existed locally.
+    #[form = "Group channel already exists locally"]
+    StateGroupChannelExists = 222,
+    /// A virtual connection could not be upgraded.
+    #[form = "Unable to upgrade virtual connection"]
+    StateVconnUpgradeFailed = 223,
+    /// A duplicate active virtual connection was dropped on a simultaneous-connect race (target cid).
+    #[form = "Active vconn for peer {} already exists (simultaneous connect race); duplicate Kex result dropped"]
+    StateVconnSimultaneousRace = 224,
+    /// A virtual connection to the peer could not be found (target cid).
+    #[form = "Unable to find virtual connection to peer {}"]
+    StateVconnNotFound = 225,
+    /// An endpoint container to the peer could not be accessed (target cid).
+    #[form = "Unable to access endpoint container to peer {}"]
+    StateEndpointContainerNotFound = 226,
+    /// The implicated CID was not loaded.
+    #[form = "Implicated CID not loaded"]
+    StateImplicatedCidNotLoaded = 227,
+
+    // --- citadel_proto: endpoint crypto accessor ---
+    /// The peer session crypto was missing.
+    #[form = "Peer session crypto missing"]
+    EndpointPeerCryptoMissing = 228,
+    /// The requested endpoint ratchet does not exist.
+    #[form = "Ratchet does not exist"]
+    EndpointRatchetMissing = 229,
+
+    // --- citadel_proto: validation / packet ---
+    /// An initial packet failed AEAD validation.
+    #[form = "Unable to validate initial packet"]
+    ValidationInitialPacketFailed = 230,
+    /// The Bob-side container could not be created during validation.
+    #[form = "Unable to create bob container"]
+    ValidationBobContainerFailed = 231,
+    /// The Bob stage-0 step could not be executed during validation.
+    #[form = "Unable to execute stage0_bob"]
+    ValidationStage0BobFailed = 232,
+    /// The Bob constructor could not be finished during validation.
+    #[form = "Unable to finish bob constructor"]
+    ValidationBobConstructorFinishFailed = 233,
+    /// A first-packet key was invalid.
+    #[form = "Invalid first packet key"]
+    InvalidFirstPacketKey = 234,
+    /// The first packet of a stream could not be obtained.
+    #[form = "Unable to get first packet"]
+    FirstPacketUnavailable = 235,
+    /// A group header could not be transmitted (reason).
+    #[form = "Unable to transmit group header: {}"]
+    GroupHeaderTransmitFailed = 236,
+
+    // --- citadel_proto: packet processor (connect / register / preconnect / keep-alive) ---
+    /// A channel signal was missing on the connect success path.
+    #[form = "Channel signal missing"]
+    ConnectChannelSignalMissing = 237,
+    /// A client received a SUCCESS_ACK (server-only packet).
+    #[form = "Received a SUCCESS_ACK as a client"]
+    ConnectSuccessAckAsClient = 238,
+    /// A keep-alive packet could not be sent (reason).
+    #[form = "Unable to send keep-alive: {}"]
+    KeepAliveSendFailed = 239,
+    /// A pre-connect SYN referenced a CID that is not registered to this node (cid).
+    #[form = "CID {} is not registered to this node"]
+    PreconnectCidNotRegistered = 240,
+    /// The incoming protocol semver could not be parsed.
+    #[form = "Unable to parse incoming protocol semver"]
+    PreconnectSemverParseFailed = 241,
+    /// A bob transfer was malformed during registration.
+    #[form = "Bad bob transfer"]
+    RegisterBadBobTransfer = 242,
+    /// The Bob stage-0 step could not be advanced during registration.
+    #[form = "Unable to advance past stage0-bob"]
+    RegisterStage0BobFailed = 243,
+    /// The Bob constructor could not be finished during registration.
+    #[form = "Unable to finish bob constructor"]
+    RegisterBobConstructorFinishFailed = 244,
+    /// The Alice constructor could not be finished during registration.
+    #[form = "Unable to finish alice constructor"]
+    RegisterAliceConstructorFinishFailed = 245,
+    /// A spawned task failed to join (reason).
+    #[form = "Join error: {}"]
+    TaskJoinFailed = 246,
+
+    // --- citadel_proto: peer ---
+    /// The p2p stopper fired, indicating the stream was replaced or discarded.
+    #[form = "p2p stopper triggered"]
+    P2pStopperTriggered = 247,
+    /// The P2P session was dropped.
+    #[form = "P2P Session dropped"]
+    P2pSessionDropped = 248,
+    /// The P2P listener returned None (stream dead).
+    #[form = "P2P Listener returned None"]
+    P2pListenerReturnedNone = 249,
+    /// The caller lacks permission to make this group call.
+    #[form = "User does not have permissions to make this call"]
+    PeerPermissionDenied = 250,
+    /// The kernel TX channel is dead (reason).
+    #[form = "Kernel TX is dead: {}"]
+    PeerKernelTxDead = 251,
+    /// The queue handler signalled shutdown.
+    #[form = "Queue handler signalled shutdown"]
+    QueueHandlerShutdown = 252,
+
+    // --- citadel_proto: kernel ---
+    /// A notifier was overwritten in the kernel communicator.
+    #[form = "Overwrote previous notifier"]
+    KernelNotifierOverwritten = 253,
+    /// The kernel disconnected from the hypernode instance.
+    #[form = "kernel disconnected from hypernode instance"]
+    KernelDisconnected = 254,
+    /// The primary session listener died.
+    #[form = "Primary session listener died"]
+    KernelPrimaryListenerDied = 255,
+    /// An outbound request used a zero CID (request).
+    #[form = "Cannot use zero-cid for outbound requests. Invalid: {}"]
+    KernelZeroCidRequest = 256,
+
+    // --- citadel_proto: native UDP / IO ---
+    /// The HDP session no longer exists.
+    #[form = "HdpSession no longer exists"]
+    UdpHdpSessionGone = 257,
+    /// A UDP channel could not be sent through its sender.
+    #[form = "Unable to send UdpChannel through"]
+    UdpChannelSendFailed = 258,
+    /// The state container had no UDP sender while loading a UDP channel.
+    #[form = "Tried loading UDP channel, but, the state container had no UDP sender"]
+    UdpStateContainerNoSender = 259,
+    /// The state container had an invalid configuration while loading a UDP channel (TCP first).
+    #[form = "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first"]
+    UdpStateContainerInvalidConfig = 260,
+    /// The peer KEM state was absent while loading a UDP channel.
+    #[form = "Tried loading the peer kem state, but was absent"]
+    UdpPeerKemStateAbsent = 261,
+    /// A UDP operation referenced an invalid virtual target.
+    #[form = "Invalid virtual target"]
+    UdpInvalidVirtualTarget = 262,
+    /// The UDP sink could not receive outbound requests.
+    #[form = "UDP sink unable to receive outbound requests"]
+    UdpSinkRecvFailed = 263,
+    /// A session already exists for the given CID (disconnect before reconnecting) (cid).
+    #[form = "Session for CID {} already exists. Disconnect first before reconnecting."]
+    SessionManagerSessionAlreadyExists = 264,
+    /// A provisional outbound connection to the given peer is already in progress (peer addr).
+    #[form = "Localhost is already trying to connect to {}"]
+    SessionManagerProvisionalConnectionExists = 265,
 }

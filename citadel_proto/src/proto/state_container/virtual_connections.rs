@@ -2,6 +2,7 @@
 //! lookup, direct-P2P upgrade, and stream selection.
 
 use super::includes::*;
+use citadel_io::{error, ErrorCode};
 
 impl<R: Ratchet> StateContainerInner<R> {
     /// Attempts to find the direct p2p stream. If not found, will use the default
@@ -122,7 +123,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             }
         }
 
-        Err(NetworkError::internal("Unable to upgrade"))
+        Err(error!(ErrorCode::StateVconnUpgradeFailed))
     }
 
     #[allow(unused_results)]
@@ -307,9 +308,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 // Err so callers skip PeerChannelCreated and hole punch (they treat this as a
                 // benign "duplicate suppressed", not a session failure). The new vconn drops here;
                 // its Drop calls ratchet_manager.shutdown(), safe — it was never connected to a stream.
-                return Err(NetworkError::msg(format!(
-                    "Active vconn for peer {target_cid} already exists (simultaneous connect race); duplicate Kex result dropped"
-                )));
+                return Err(error!(ErrorCode::StateVconnSimultaneousRace, target_cid));
             }
         }
 
@@ -369,9 +368,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&target_cid) {
             Ok(vconn)
         } else {
-            Err(NetworkError::msg(format!(
-                "Unable to find virtual connection to peer {target_cid}"
-            )))
+            Err(error!(ErrorCode::StateVconnNotFound, target_cid))
         }
     }
 
@@ -382,9 +379,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
             Ok(vconn)
         } else {
-            Err(NetworkError::msg(format!(
-                "Unable to find virtual connection to peer {target_cid}"
-            )))
+            Err(error!(ErrorCode::StateVconnNotFound, target_cid))
         }
     }
 
@@ -396,9 +391,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         if let Some(endpoint_container) = v_conn.endpoint_container.as_mut() {
             Ok(endpoint_container)
         } else {
-            Err(NetworkError::msg(format!(
-                "Unable to access endpoint container to peer {target_cid}"
-            )))
+            Err(error!(ErrorCode::StateEndpointContainerNotFound, target_cid))
         }
     }
 
@@ -410,9 +403,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         if let Some(endpoint_container) = v_conn.endpoint_container.as_ref() {
             Ok(endpoint_container)
         } else {
-            Err(NetworkError::msg(format!(
-                "Unable to access endpoint container to peer {target_cid}"
-            )))
+            Err(error!(ErrorCode::StateEndpointContainerNotFound, target_cid))
         }
     }
 

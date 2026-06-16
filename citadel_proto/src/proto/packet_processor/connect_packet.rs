@@ -40,6 +40,7 @@ use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 use citadel_types::proto::ConnectMode;
 use citadel_user::external_services::ServicesObject;
 
@@ -442,13 +443,11 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                         .get_endpoint_container_mut(C2S_IDENTITY_CID)?
                         .channel_signal
                         .take()
-                        .ok_or(NetworkError::internal("Channel signal missing"))?;
+                        .ok_or(error!(ErrorCode::ConnectChannelSignalMissing))?;
                     session.send_to_kernel(signal)?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
-                    Err(NetworkError::invalid_packet(
-                        "Received a SUCCESS_ACK as a client",
-                    ))
+                    Err(error!(ErrorCode::ConnectSuccessAckAsClient))
                 }
             }
 

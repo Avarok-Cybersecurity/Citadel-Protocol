@@ -26,6 +26,7 @@ use netbeam::sync::RelativeNodeType;
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
 use crate::proto::misc::udp_internal_interface::UdpSplittableTypes;
+use citadel_io::{error, ErrorCode};
 use crate::proto::node_result::NodeResult;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
@@ -140,9 +141,7 @@ pub trait PlatformOps: ProtocolIO {
         expected_metadata: Option<&VirtualObjectMetadata>,
     ) -> Result<TransferMetadata, NetworkError> {
         let _ = (source_path, expected_metadata);
-        Err(NetworkError::internal(
-            "File transfer not supported on this platform",
-        ))
+        Err(error!(ErrorCode::FileTransferPlatformUnsupported))
     }
 
     /// Asynchronously delete a file after transfer.

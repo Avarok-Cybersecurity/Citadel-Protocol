@@ -30,6 +30,7 @@
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 use netbeam::sync::RelativeNodeType;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
@@ -182,8 +183,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                         .release_provisional_cid_reservation(header.session_cid.get());
                     const REASON: &str = "CID not registered to this node";
                     let bad_cid = header.session_cid.get();
-                    let error_message = format!("CID {bad_cid} is not registered to this node");
-                    let error = NetworkError::generic(error_message);
+                    let error = error!(ErrorCode::PreconnectCidNotRegistered, bad_cid);
                     send_error_and_end_session(&header, Some(error), REASON)
                 }
             }
@@ -673,9 +673,7 @@ fn proto_version_out_of_sync(adjacent_proto_version: u32) -> Result<bool, Networ
             )
         }
 
-        Err(_) => Err(NetworkError::invalid_request(
-            "Unable to parse incoming protocol semver",
-        )),
+        Err(_) => Err(error!(ErrorCode::PreconnectSemverParseFailed)),
     }
 }
 

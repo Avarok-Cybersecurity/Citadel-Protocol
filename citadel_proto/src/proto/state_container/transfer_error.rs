@@ -1,6 +1,7 @@
 //! Object-transfer failure notification helpers for [`StateContainerInner`].
 
 use super::includes::*;
+use citadel_io::{error, ErrorCode, Dbg};
 
 impl<R: Ratchet> StateContainerInner<R> {
     pub fn notify_object_transfer_handle_failure<T: Into<String>>(
@@ -25,9 +26,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             self.file_transfer_handles
                 .get_mut(&file_key)
                 .ok_or_else(|| {
-                    NetworkError::msg(format!(
-                        "file_transfer_handle does not contain key for {file_key:?}"
-                    ))
+                    error!(ErrorCode::FileTransferHandleKeyMissing, Dbg(file_key))
                 })?;
 
         file_transfer_handle

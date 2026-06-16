@@ -31,6 +31,7 @@ This module implements the core peer-to-peer networking layer for the Citadel Pr
 */
 
 use crate::error::NetworkError;
+use citadel_io::{error, ErrorCode};
 use crate::macros::SyncContextRequirements;
 use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -585,9 +586,7 @@ impl futures::Future for CitadelNodePeerLayerExecutor {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match futures::ready!(self.poll_next(cx)) {
             Some(_) => Poll::Pending,
-            None => Poll::Ready(Err(NetworkError::internal(
-                "Queue handler signalled shutdown",
-            ))),
+            None => Poll::Ready(Err(error!(ErrorCode::QueueHandlerShutdown))),
         }
     }
 }

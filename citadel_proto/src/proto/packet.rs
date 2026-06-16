@@ -34,6 +34,7 @@
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
 use crate::proto::misc::dual_cell::DualCell;
+use citadel_io::{error, ErrorCode};
 use byteorder::WriteBytesExt;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use citadel_io as rand;
@@ -347,13 +348,13 @@ impl HeaderObfuscator {
 
             if key == 0 {
                 log::error!(target: "citadel", "[Header Obfuscator] Invalid first packet key == 0");
-                return Err(NetworkError::msg("Invalid first packet key"));
+                return Err(error!(ErrorCode::InvalidFirstPacketKey));
             }
 
             if let Some(expected_key) = self.expected_key {
                 if key != expected_key.get() {
                     log::error!(target: "citadel", "[Header Obfuscator] Invalid first packet key {key} != {expected_key}");
-                    return Err(NetworkError::msg("Invalid first packet key"));
+                    return Err(error!(ErrorCode::InvalidFirstPacketKey));
                 }
             }
 

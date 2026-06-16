@@ -2,6 +2,7 @@
 //! group-header acks, file-header acks, and wave acks.
 
 use super::includes::*;
+use citadel_io::{error, ErrorCode, Dbg};
 
 impl<R: Ratchet> StateContainerInner<R> {
     pub fn on_file_header_ack_received(
@@ -28,9 +29,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             }
 
             _ => {
-                return Err(NetworkError::msg(
-                    "HyperWAN functionality not yet enabled for file-header ACK",
-                ));
+                return Err(error!(ErrorCode::FileTransferHyperWanAckUnsupported));
             }
         };
 
@@ -43,15 +42,11 @@ impl<R: Ratchet> StateContainerInner<R> {
                     .start
                     .take()
                     .ok_or_else(|| {
-                        NetworkError::msg(format!(
-                            "Outbound file transfer {key:?} already started (missing start signal)"
-                        ))
+                        error!(ErrorCode::FileTransferAlreadyStarted, Dbg(key))
                     })?
                     .send(true)
                     .map_err(|_| {
-                        NetworkError::msg(format!(
-                            "Failed to signal cryptscrambler start for {key:?}"
-                        ))
+                        error!(ErrorCode::FileTransferScramblerStartFailed, Dbg(key))
                     })?;
                 let (handle, tx) = ObjectTransferHandler::new(
                     session_cid,
@@ -62,9 +57,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 );
                 tx.send(ObjectTransferStatus::TransferBeginning)
                     .map_err(|err| {
-                        NetworkError::msg(format!(
-                            "Failed to send TransferBeginning status for {key:?}: {err}"
-                        ))
+                        error!(ErrorCode::FileTransferBeginningStatusFailed, Dbg(key), err.to_string())
                     })?;
                 let _ = self
                     .file_transfer_handles
@@ -77,14 +70,10 @@ impl<R: Ratchet> StateContainerInner<R> {
                         session_cid,
                     }))
                     .map_err(|err| {
-                        NetworkError::msg(format!(
-                            "Failed to alert kernel of ObjectTransferHandle for {key:?}: {err}"
-                        ))
+                        error!(ErrorCode::FileTransferHandleAlertFailed, Dbg(key), err.to_string())
                     })?;
             } else {
-                return Err(NetworkError::msg(format!(
-                    "Attempted to obtain OutboundFileTransfer for {key:?}, but it didn't exist"
-                )));
+                return Err(error!(ErrorCode::FileTransferOutboundMissing, Dbg(key)));
             }
         } else {
             // remove the inbound file transfer, send the signals to end async loops, and tell the kernel
@@ -93,21 +82,21 @@ impl<R: Ratchet> StateContainerInner<R> {
                 file_transfer
                     .stop_tx
                     .ok_or_else(|| {
-                        NetworkError::msg(format!("Missing stop signal for outbound file {key:?}"))
+                        error!(ErrorCode::FileTransferStopSignalMissing, Dbg(key))
                     })?
                     .send(())
                     .map_err(|_| {
-                        NetworkError::msg(format!("Failed to stop cryptscrambler for {key:?}"))
+                        error!(ErrorCode::FileTransferScramblerStopFailed, Dbg(key))
                     })?;
                 // stop the async task pulling from the async cryptscrambler
                 file_transfer
                     .start
                     .ok_or_else(|| {
-                        NetworkError::msg(format!("Missing start signal for outbound file {key:?}"))
+                        error!(ErrorCode::FileTransferStartSignalMissing, Dbg(key))
                     })?
                     .send(false)
                     .map_err(|_| {
-                        NetworkError::msg(format!("Failed to halt cryptscrambler for {key:?}"))
+                        error!(ErrorCode::FileTransferScramblerHaltFailed, Dbg(key))
                     })?;
                 let _ = self
                     .kernel_tx
@@ -118,9 +107,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         cid_opt: Some(session_cid),
                     }));
             } else {
-                return Err(NetworkError::msg(format!(
-                    "Attempted to remove OutboundFileTransfer for {key:?}, but it didn't exist"
-                )));
+                return Err(error!(ErrorCode::FileTransferOutboundMissing, Dbg(key)));
             }
         }
 

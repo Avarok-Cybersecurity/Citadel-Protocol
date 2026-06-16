@@ -218,6 +218,7 @@ pub(crate) mod pre_connect {
     use crate::error::NetworkError;
     use crate::proto::packet::HdpPacket;
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
+    use citadel_io::{error, ErrorCode};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
     use citadel_crypt::ratchets::Ratchet;
     use citadel_types::crypto::PreSharedKey;
@@ -259,7 +260,7 @@ pub(crate) mod pre_connect {
         // After this point, we validate that the other end had the right static symmetric key. This proves device identity, thought not necessarily account identity
         let (header, payload) =
             super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload)
-                .ok_or(NetworkError::internal("Unable to validate initial packet"))?;
+                .ok_or(error!(ErrorCode::ValidationInitialPacketFailed))?;
 
         let transfer = SynPacket::<R>::deserialize_from_vector(&payload)
             .map_err(|err| NetworkError::generic(err.into_string()))?;
@@ -284,13 +285,13 @@ pub(crate) mod pre_connect {
             transfer.transfer,
             session_password.as_ref(),
         )
-        .ok_or(NetworkError::internal("Unable to create bob container"))?;
+        .ok_or(error!(ErrorCode::ValidationBobContainerFailed))?;
         let transfer = bob_constructor
             .stage0_bob()
-            .ok_or(NetworkError::internal("Unable to execute stage0_bob"))?;
+            .ok_or(error!(ErrorCode::ValidationStage0BobFailed))?;
         let new_ratchet = bob_constructor
             .finish()
-            .ok_or(NetworkError::internal("Unable to finish bob constructor"))?;
+            .ok_or(error!(ErrorCode::ValidationBobConstructorFinishFailed))?;
         let _ = new_ratchet
             .verify_level(transfer.security_level().into())
             .map_err(|err| NetworkError::generic(err.into_string()))?;

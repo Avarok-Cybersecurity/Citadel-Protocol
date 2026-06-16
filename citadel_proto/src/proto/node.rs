@@ -34,6 +34,7 @@ use std::sync::Arc;
 
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 use citadel_io::Mutex;
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
@@ -364,7 +365,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
 
                 None => {
                     log::error!(target: "citadel", "Primary session listener returned None");
-                    return Err(NetworkError::internal("Primary session listener died"));
+                    return Err(error!(ErrorCode::KernelPrimaryListenerDied));
                 }
             }
         }
@@ -416,9 +417,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                 .is_err()
             {
                 log::error!(target: "citadel", "TO_KERNEL_TX Error: {err:?}");
-                Err(NetworkError::internal(
-                    "kernel disconnected from hypernode instance",
-                ))
+                Err(error!(ErrorCode::KernelDisconnected))
             } else {
                 Ok(())
             }
@@ -427,7 +426,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.recv().await {
             if let Some(cid) = outbound_request.session_cid() {
                 if cid == 0 {
-                    send_error(&to_kernel_tx, ticket_id, NetworkError::msg(format!("Cannot use zero-cid for outbound requests. Invalid: {outbound_request:?}")))?;
+                    send_error(&to_kernel_tx, ticket_id, error!(ErrorCode::KernelZeroCidRequest, format!("{outbound_request:?}")))?;
                     continue;
                 }
             }

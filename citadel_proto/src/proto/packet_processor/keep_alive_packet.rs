@@ -37,6 +37,7 @@ use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 
 /// This will handle a keep alive packet. It will automatically send a keep packet after it sleeps for a period of time
 #[allow(unused_results, unused_must_use)]
@@ -108,7 +109,7 @@ pub async fn process_keep_alive<R: Ratchet, T: PlatformOps>(
                             );
                             to_primary_stream
                                 .unbounded_send(next_ka)
-                                .map_err(|err| NetworkError::generic(err.to_string()))
+                                .map_err(|err| error!(ErrorCode::KeepAliveSendFailed, err.to_string()))
                         })?;
 
                         Ok(PrimaryProcessorResult::Void)

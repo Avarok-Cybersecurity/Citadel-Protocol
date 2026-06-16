@@ -49,6 +49,7 @@ let (send_half, recv_half) = group_channel.split();
 
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
+use citadel_io::{error, ErrorCode};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::remote::Ticket;
 use crate::proto::session::{Group, SessionRequest};
@@ -214,9 +215,7 @@ impl GroupChannelSendHalf {
         if self.session_cid == self.key.cid {
             Ok(())
         } else {
-            Err(NetworkError::invalid_request(
-                "User does not have permissions to make this call",
-            ))
+            Err(error!(ErrorCode::PeerPermissionDenied))
         }
     }
 }
