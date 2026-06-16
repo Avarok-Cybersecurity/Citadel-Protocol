@@ -46,10 +46,15 @@ pub struct GroupCgkaState {
 }
 
 /// A fresh, cryptographically-random 32-byte secret (for leaf re-keys giving post-compromise security).
+/// Uses the platform CSPRNG: `thread_rng` on std, the `getrandom`-backed `WasmRng` on wasm.
 fn fresh_secret() -> Secret {
     use citadel_io::RngCore;
     let mut s = [0u8; 32];
-    citadel_io::thread_rng().fill_bytes(&mut s);
+    #[cfg(not(target_family = "wasm"))]
+    let mut rng = citadel_io::thread_rng();
+    #[cfg(target_family = "wasm")]
+    let mut rng = citadel_io::ThreadRng;
+    rng.fill_bytes(&mut s);
     s
 }
 
@@ -109,6 +114,7 @@ impl GroupCgkaState {
     /// joiner), the `Commit` (for the existing members), and — in `CommandHierarchy` mode when the
     /// joiner has a pending rank — its sealed hierarchy assignment. Returns
     /// `(welcome_bytes, commit_bytes, new_epoch, sealed_assignment)`.
+    #[allow(clippy::type_complexity)]
     pub fn add_member(
         &mut self,
         key_package_bytes: &[u8],

@@ -21,9 +21,9 @@ impl<R: Ratchet> StateContainerInner<R> {
             .map(|c| c.get_cid())
             .ok_or_else(|| error!(ErrorCode::StateCnacNotLoaded))?;
         let key = MessageGroupKey::new(owner_cid, options.id);
-        if !self.group_cgka.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Vacant(entry) = self.group_cgka.entry(key) {
             let cgka = GroupCgkaState::new_owner(owner_cid, options.hierarchy.clone())?;
-            let _ = self.group_cgka.insert(key, cgka);
+            let _ = entry.insert(cgka);
         }
         Ok(())
     }
