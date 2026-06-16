@@ -1,0 +1,6 @@
+{
+  "msgs_per_vconn_per_dir": 500,
+  "points": [
+    {"mesh_peers": 8, "vconns_per_session": 7, "directed_vconns": 56, "agg_msgs_per_sec": 11937.7, "per_vconn": 213.2, "scaling_eff": 1.000}
+  ]
+}

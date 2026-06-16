@@ -232,6 +232,10 @@ pub enum GroupMemberAlterMode {
 pub struct MessageGroupOptions {
     pub group_type: GroupType,
     pub id: u128,
+    /// Whether the group uses the flat zero-trust CGKA or the Decentralized Hierarchy Encryption overlay.
+    #[cfg_attr(feature = "typescript", ts(skip))]
+    #[serde(default)]
+    pub hierarchy: GroupHierarchyMode,
 }
 
 impl Default for MessageGroupOptions {
@@ -239,7 +243,71 @@ impl Default for MessageGroupOptions {
         Self {
             group_type: GroupType::Private,
             id: Uuid::new_v4().as_u128(),
+            hierarchy: GroupHierarchyMode::default(),
         }
+    }
+}
+
+/// How a group's encryption is structured. `Flat` is the ordinary zero-trust CGKA where every member
+/// shares one epoch key; `CommandHierarchy` adds the Decentralized Hierarchy Encryption overlay where a
+/// superior can read its subordinates' messages (see [`ReadPolicy`]).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+pub enum GroupHierarchyMode {
+    /// Flat zero-trust group: one shared epoch key, no command hierarchy.
+    #[default]
+    Flat,
+    /// Command-hierarchy overlay: members occupy a [`CommandPath`]; superiors read their subtree.
+    CommandHierarchy {
+        /// Who can read each message.
+        read_policy: ReadPolicy,
+    },
+}
+
+/// Who can read a hierarchy-group message.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadPolicy {
+    /// Only the sender's command path + its ancestors (superiors).
+    SuperiorOnly,
+    /// Everyone in the flat group reads normally; superiors additionally retain a subtree audit capability.
+    BroadcastAudit,
+}
+
+/// A position in a command hierarchy: ordered segments from the root (e.g. `/HQ/Bn1/Co-A/Plt-2`). An
+/// empty path is the root authority. `is_ancestor_of` is the "superior reads subordinate" predicate.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct CommandPath(pub Vec<String>);
+
+impl CommandPath {
+    /// The root authority path (empty).
+    pub fn root() -> Self {
+        CommandPath(Vec::new())
+    }
+
+    /// Parse `/HQ/Bn1/Co-A` into segments (slashes split; empty segments ignored).
+    pub fn parse(path: &str) -> Self {
+        CommandPath(
+            path.split('/')
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect(),
+        )
+    }
+
+    /// A child path with one more segment.
+    pub fn child(&self, segment: &str) -> Self {
+        let mut segs = self.0.clone();
+        segs.push(segment.to_string());
+        CommandPath(segs)
+    }
+
+    /// Depth (number of segments).
+    pub fn depth(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether `self` is an ancestor of (or equal to) `other` — i.e. `self` is a prefix of `other`.
+    pub fn is_ancestor_of(&self, other: &CommandPath) -> bool {
+        other.0.len() >= self.0.len() && other.0[..self.0.len()] == self.0[..]
     }
 }
 

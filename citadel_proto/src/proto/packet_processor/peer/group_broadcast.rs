@@ -36,12 +36,14 @@ use crate::functional::*;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{GroupChannelCreated, GroupEvent};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
+use crate::proto::peer::group_cgka::GroupCgkaState;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
+use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::{
-    GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
+    GroupHierarchyMode, GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
 };
 use citadel_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
@@ -102,6 +104,37 @@ pub enum GroupBroadcast {
         key: MessageGroupKey,
         /// Success status
         success: bool,
+    },
+    /// A joiner publishes its post-quantum TreeKEM `KeyPackage` to the group owner so the owner can
+    /// Add it to the ratchet tree. `payload` is an opaque serialized `citadel_treekem::KeyPackage` —
+    /// the relay forwards it verbatim and never inspects it (zero-trust).
+    KeyPackage {
+        /// Group key
+        key: MessageGroupKey,
+        /// The joining member's CID (so the owner knows where to route the Welcome)
+        joiner_cid: u64,
+        /// Opaque serialized `citadel_treekem::KeyPackage`
+        payload: Vec<u8>,
+    },
+    /// The group owner delivers a TreeKEM `Welcome` to a single joiner (routed to `joiner_cid`).
+    /// `payload` is an opaque serialized `citadel_treekem::Welcome`; the relay never inspects it.
+    Welcome {
+        /// Group key
+        key: MessageGroupKey,
+        /// The joining member's CID (the server routes this packet to this CID)
+        joiner_cid: u64,
+        /// Opaque serialized `citadel_treekem::Welcome`
+        payload: Vec<u8>,
+    },
+    /// The group owner broadcasts a TreeKEM `Commit` to the existing members (everyone but the joiner).
+    /// `payload` is an opaque serialized `citadel_treekem::Commit`; the relay never inspects it.
+    Commit {
+        /// Group key
+        key: MessageGroupKey,
+        /// The epoch this commit advances the group into (monotonic; used for ordering/gating)
+        epoch: u64,
+        /// Opaque serialized `citadel_treekem::Commit`
+        payload: Vec<u8>,
     },
     /// Add members to a group
     Add {
@@ -465,7 +498,17 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 );
                 Ok(PrimaryProcessorResult::ReplyToSender(packet))
             } else {
-                // send to kernel/channel
+                // Client: decrypt the E2E CGKA ciphertext to plaintext before handing it to the app.
+                let plaintext = {
+                    let state = inner_state!(session.state_container);
+                    match state.group_cgka.get(&key) {
+                        Some(cgka) => cgka.decrypt_message(message.as_ref())?,
+                        None => {
+                            log::warn!(target: "citadel", "Dropping group message for {key:?}: no CGKA state");
+                            return Ok(PrimaryProcessorResult::Void);
+                        }
+                    }
+                };
                 forward_signal(
                     session,
                     ticket,
@@ -473,7 +516,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                     GroupBroadcast::Message {
                         sender: username,
                         key,
-                        message,
+                        message: SecBuffer::from(plaintext),
                     },
                 )
             }
@@ -577,7 +620,17 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
 
         GroupBroadcast::AcceptMembershipResponse { key, success } => {
             if success && (key.cid != session_cid) {
-                create_group_channel(ticket, key, session)
+                // Zero-trust join: instead of immediately opening a channel, the joiner publishes its
+                // TreeKEM KeyPackage to the owner and defers the channel until its Welcome arrives.
+                cgka_joiner_publish_key_package(
+                    session,
+                    sess_ratchet,
+                    key,
+                    session_cid,
+                    ticket,
+                    timestamp,
+                    security_level,
+                )
             } else {
                 forward_signal(
                     session,
@@ -786,7 +839,11 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
         ),
 
         GroupBroadcast::CreateResponse { key: key_opt } => match key_opt {
-            Some(key) => create_group_channel(ticket, key, session),
+            Some(key) => {
+                // The owner founds the CGKA group (sole member, epoch 0) before opening its channel.
+                cgka_init_owner(session, key)?;
+                create_group_channel(ticket, key, session)
+            }
 
             None => forward_signal(
                 session,
@@ -802,6 +859,119 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
             Some(key),
             GroupBroadcast::GroupNonExists { key },
         ),
+
+        GroupBroadcast::KeyPackage {
+            key,
+            joiner_cid,
+            payload,
+        } => {
+            if session.is_server {
+                // Relay verbatim to the owner; the relay never inspects `payload` (zero-trust).
+                let _ = session
+                    .session_manager
+                    .route_packet_to(key.cid, move |peer_hr| {
+                        packet_crafter::peer_cmd::craft_group_message_packet(
+                            peer_hr,
+                            &GroupBroadcast::KeyPackage {
+                                key,
+                                joiner_cid,
+                                payload,
+                            },
+                            ticket,
+                            C2S_IDENTITY_CID,
+                            timestamp,
+                            security_level,
+                        )
+                    });
+                Ok(PrimaryProcessorResult::Void)
+            } else {
+                // Owner: add the joiner to the ratchet tree and emit its Welcome + the members' Commit.
+                cgka_owner_add_member(
+                    session,
+                    sess_ratchet,
+                    key,
+                    joiner_cid,
+                    &payload,
+                    ticket,
+                    timestamp,
+                    security_level,
+                )
+            }
+        }
+
+        GroupBroadcast::Welcome {
+            key,
+            joiner_cid,
+            payload,
+        } => {
+            if session.is_server {
+                // Relay verbatim to the single joiner; the relay never inspects `payload`.
+                let _ = session
+                    .session_manager
+                    .route_packet_to(joiner_cid, move |peer_hr| {
+                        packet_crafter::peer_cmd::craft_group_message_packet(
+                            peer_hr,
+                            &GroupBroadcast::Welcome {
+                                key,
+                                joiner_cid,
+                                payload,
+                            },
+                            ticket,
+                            C2S_IDENTITY_CID,
+                            timestamp,
+                            security_level,
+                        )
+                    });
+                Ok(PrimaryProcessorResult::Void)
+            } else {
+                // Joiner: bootstrap the group state from the Welcome, then open the group channel.
+                {
+                    let mut state = inner_mut_state!(session.state_container);
+                    let cgka = state
+                        .group_cgka
+                        .get_mut(&key)
+                        .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+                    cgka.join(&payload)?;
+                }
+                create_group_channel(ticket, key, session)
+            }
+        }
+
+        GroupBroadcast::Commit {
+            key,
+            epoch,
+            payload,
+        } => {
+            if session.is_server {
+                // Relay verbatim to the existing members (the fanout excludes the owner/sender). The
+                // brand-new joiner may also receive it; its Welcome already covers this epoch, so its
+                // coordinator gates the commit out.
+                let _ = session
+                    .session_manager
+                    .broadcast_signal_to_group(
+                        session_cid,
+                        timestamp,
+                        ticket,
+                        key,
+                        GroupBroadcast::Commit {
+                            key,
+                            epoch,
+                            payload,
+                        },
+                        security_level,
+                    )
+                    .await
+                    .unwrap_or(false);
+                Ok(PrimaryProcessorResult::Void)
+            } else {
+                // Member: apply the commit (epoch-gated) to advance the ratchet tree.
+                let mut state = inner_mut_state!(session.state_container);
+                if let Some(cgka) = state.group_cgka.get_mut(&key) {
+                    cgka.process_commit(&payload, epoch)?;
+                }
+                Ok(PrimaryProcessorResult::Void)
+            }
+        }
     }
 }
 
@@ -822,6 +992,121 @@ fn create_group_channel<R: Ratchet, T: PlatformOps>(
         channel,
         session_cid,
     }))?;
+    Ok(PrimaryProcessorResult::Void)
+}
+
+/// The owner founds the zero-trust CGKA group as the sole member (epoch 0) before opening its channel.
+fn cgka_init_owner<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    key: MessageGroupKey,
+) -> Result<(), NetworkError> {
+    let session_cid = session
+        .session_cid
+        .get()
+        .ok_or_else(|| error!(ErrorCode::StateImplicatedCidNotLoaded))?;
+    let mut state = inner_mut_state!(session.state_container);
+    if !state.group_cgka.contains_key(&key) {
+        // Hierarchy threading (DHE overlay) is layered on top separately; the messaging core is Flat.
+        let cgka = GroupCgkaState::new_owner(session_cid, GroupHierarchyMode::Flat)?;
+        let _ = state.group_cgka.insert(key, cgka);
+    }
+    Ok(())
+}
+
+/// A joiner generates its TreeKEM `KeyPackage`, stores its pending CGKA state, and publishes the
+/// KeyPackage to the owner (routed by the relay). The group channel is deferred until the Welcome.
+#[allow(clippy::too_many_arguments)]
+fn cgka_joiner_publish_key_package<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    sess_ratchet: &R,
+    key: MessageGroupKey,
+    joiner_cid: u64,
+    ticket: Ticket,
+    timestamp: i64,
+    security_level: SecurityLevel,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let kp_bytes = {
+        let mut state = inner_mut_state!(session.state_container);
+        if state.group_cgka.contains_key(&key) {
+            // Already joining/among this group; nothing to publish.
+            return Ok(PrimaryProcessorResult::Void);
+        }
+        let (cgka, kp_bytes) = GroupCgkaState::new_joiner(joiner_cid, GroupHierarchyMode::Flat)?;
+        let _ = state.group_cgka.insert(key, cgka);
+        kp_bytes
+    };
+
+    let signal = GroupBroadcast::KeyPackage {
+        key,
+        joiner_cid,
+        payload: kp_bytes,
+    };
+    let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+        sess_ratchet,
+        &signal,
+        ticket,
+        C2S_IDENTITY_CID,
+        timestamp,
+        security_level,
+    );
+    session.send_to_primary_stream(Some(ticket), packet)?;
+    Ok(PrimaryProcessorResult::Void)
+}
+
+/// The owner incorporates a joiner's published `KeyPackage` into the ratchet tree, then sends the
+/// resulting `Welcome` to the joiner and the `Commit` to the existing members (both via the relay).
+#[allow(clippy::too_many_arguments)]
+fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    sess_ratchet: &R,
+    key: MessageGroupKey,
+    joiner_cid: u64,
+    key_package_bytes: &[u8],
+    ticket: Ticket,
+    timestamp: i64,
+    security_level: SecurityLevel,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let (welcome_bytes, commit_bytes, epoch) = {
+        let mut state = inner_mut_state!(session.state_container);
+        let cgka = state
+            .group_cgka
+            .get_mut(&key)
+            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+        cgka.add_member(key_package_bytes)?
+    };
+
+    // Welcome -> the joiner (the relay routes to `joiner_cid`).
+    let welcome = GroupBroadcast::Welcome {
+        key,
+        joiner_cid,
+        payload: welcome_bytes,
+    };
+    let welcome_packet = packet_crafter::peer_cmd::craft_group_message_packet(
+        sess_ratchet,
+        &welcome,
+        ticket,
+        C2S_IDENTITY_CID,
+        timestamp,
+        security_level,
+    );
+    session.send_to_primary_stream(Some(ticket), welcome_packet)?;
+
+    // Commit -> the existing members (the relay fans out, excluding the owner).
+    let commit = GroupBroadcast::Commit {
+        key,
+        epoch,
+        payload: commit_bytes,
+    };
+    let commit_packet = packet_crafter::peer_cmd::craft_group_message_packet(
+        sess_ratchet,
+        &commit,
+        ticket,
+        C2S_IDENTITY_CID,
+        timestamp,
+        security_level,
+    );
+    session.send_to_primary_stream(Some(ticket), commit_packet)?;
+
     Ok(PrimaryProcessorResult::Void)
 }
 

@@ -31,6 +31,14 @@ impl RatchetTree {
         }
     }
 
+    /// The leaf index occupied by `cid`, if a live (non-blank) leaf carries it.
+    pub fn leaf_index_of_cid(&self, cid: u64) -> Option<LeafIndex> {
+        (0..self.num_leaves()).find(|&i| match self.get(leaf_to_node(i)) {
+            Node::Leaf(leaf) => leaf.cid == cid,
+            _ => false,
+        })
+    }
+
     /// Borrow node `x`.
     pub fn get(&self, x: NodeIndex) -> &Node {
         &self.nodes[x as usize]

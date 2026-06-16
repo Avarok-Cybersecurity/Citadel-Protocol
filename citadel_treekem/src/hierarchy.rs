@@ -15,49 +15,10 @@
 use crate::crypto::{self, Secret};
 use crate::path::HpkeCiphertext;
 use citadel_types::errors::Error;
+// `CommandPath`/`ReadPolicy` live in `citadel_types` (the lower crate) so the proto/SDK API can name
+// them; re-exported here so `citadel_treekem::hierarchy::{CommandPath, ReadPolicy}` still resolves.
+pub use citadel_types::proto::{CommandPath, ReadPolicy};
 use serde::{Deserialize, Serialize};
-
-/// A position in the command hierarchy: ordered segments from the root. An empty path is the root
-/// authority (the group creator), which can derive every node's secret.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
-pub struct CommandPath(pub Vec<String>);
-
-impl CommandPath {
-    /// The root authority path.
-    pub fn root() -> Self {
-        CommandPath(Vec::new())
-    }
-
-    /// Parse `/HQ/Bn1/Co-A` into segments (leading/trailing slashes ignored; empty segments rejected).
-    pub fn parse(path: &str) -> Result<Self, Error> {
-        let mut segs = Vec::new();
-        for seg in path.split('/') {
-            if seg.is_empty() {
-                continue;
-            }
-            segs.push(seg.to_string());
-        }
-        Ok(CommandPath(segs))
-    }
-
-    /// A child path with one more segment.
-    pub fn child(&self, segment: &str) -> Self {
-        let mut segs = self.0.clone();
-        segs.push(segment.to_string());
-        CommandPath(segs)
-    }
-
-    /// Depth (number of segments).
-    pub fn depth(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Whether `self` is an ancestor of (or equal to) `other` — i.e. `self` is a prefix of `other`.
-    /// This is exactly the "superior reads subordinate" predicate.
-    pub fn is_ancestor_of(&self, other: &CommandPath) -> bool {
-        other.0.len() >= self.0.len() && other.0[..self.0.len()] == self.0[..]
-    }
-}
 
 /// The hierarchy crypto interface (swappable: KDF/KEM tree now, an audited HIBE later).
 pub trait HierarchyScheme {
@@ -109,16 +70,6 @@ impl HierarchyScheme for KdfKemTree {
         seed.copy_from_slice(&out);
         citadel_pqcrypto::kem_keypair_from_seed(&seed)
     }
-}
-
-/// Who can read a hierarchy-group message.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ReadPolicy {
-    /// Only the sender's command path + its ancestors (superiors). Subordinates and siblings cannot.
-    SuperiorOnly,
-    /// Everyone in the flat group reads normally, AND superiors additionally retain a subtree-scoped
-    /// audit capability. Dual-wrapped (flat group key + hierarchy path key).
-    BroadcastAudit,
 }
 
 /// A hierarchy-aware encrypted message. The relay forwards it verbatim and can read none of it.
@@ -243,13 +194,13 @@ mod tests {
     }
 
     fn seal(sender: &str, policy: ReadPolicy, flat: Option<&Secret>, msg: &[u8]) -> DheEnvelope {
-        let path = CommandPath::parse(sender).unwrap();
+        let path = CommandPath::parse(sender);
         let secret = secret_for(&path);
         DheEnvelope::seal(&KdfKemTree, &path, &secret, flat, policy, &[0x42; 32], msg).unwrap()
     }
 
     fn open_as(env: &DheEnvelope, reader: &str) -> Result<Vec<u8>, Error> {
-        let path = CommandPath::parse(reader).unwrap();
+        let path = CommandPath::parse(reader);
         env.open_as_superior(&KdfKemTree, &path, &secret_for(&path))
     }
 
@@ -295,16 +246,16 @@ mod tests {
 
     #[test]
     fn kdf_chain_is_one_way() {
-        let child = CommandPath::parse("/HQ/Bn1/Co-A").unwrap();
-        let parent = CommandPath::parse("/HQ/Bn1").unwrap();
+        let child = CommandPath::parse("/HQ/Bn1/Co-A");
+        let parent = CommandPath::parse("/HQ/Bn1");
         let child_secret = secret_for(&child);
         // You cannot derive an ancestor secret from a descendant secret.
         assert!(KdfKemTree
             .derive_descendant_secret(&child_secret, &child, &parent)
             .is_err());
         // A child secret is independent of a sibling's.
-        let sib_a = secret_for(&CommandPath::parse("/HQ/Bn1/Co-A").unwrap());
-        let sib_b = secret_for(&CommandPath::parse("/HQ/Bn1/Co-B").unwrap());
+        let sib_a = secret_for(&CommandPath::parse("/HQ/Bn1/Co-A"));
+        let sib_b = secret_for(&CommandPath::parse("/HQ/Bn1/Co-B"));
         assert_ne!(sib_a, sib_b);
     }
 

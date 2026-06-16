@@ -1,0 +1,13 @@
+    Updating git repository `https://github.com/second-state/socket2.git`
+    Updating git repository `https://github.com/second-state/wasi_tokio.git`
+    Checking citadel_io v0.14.0 (/work/citadel_io)
+   Compiling citadel_types v0.14.0 (/work/citadel_types)
+    Checking citadel_logging v0.14.0 (/work/citadel_logging)
+    Checking netbeam v0.14.0 (/work/netbeam)
+    Checking async_ip v0.14.0 (/work/async_ip)
+    Checking citadel_pqcrypto v0.14.0 (/work/citadel_pqcrypto)
+    Checking citadel_wire v0.14.0 (/work/citadel_wire)
+    Checking citadel_crypt v0.14.0 (/work/citadel_crypt)
+    Checking citadel_user v0.14.0 (/work/citadel_user)
+    Checking citadel_proto v0.14.0 (/work/citadel_proto)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.71s

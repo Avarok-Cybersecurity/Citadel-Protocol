@@ -206,6 +206,9 @@ pub struct StateContainerInner<R: Ratchet> {
     pub(super) session_security_settings: Option<SessionSecuritySettings>,
     pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle<R>>,
     pub(super) group_channels: HashMap<MessageGroupKey, UnboundedSender<GroupBroadcastPayload>>,
+    /// Per-group zero-trust TreeKEM CGKA state (the ratchet tree + epoch keys). The relay holds none
+    /// of this; only group members hold an entry. Keyed identically to [`Self::group_channels`].
+    pub(super) group_cgka: HashMap<MessageGroupKey, crate::proto::peer::group_cgka::GroupCgkaState>,
     pub(super) transfer_stats: TransferStats,
     pub(super) udp_mode: UdpMode,
     triggered_rekeys: Arc<Mutex<HashMap<ReKeyIndex, Ticket>>>,
@@ -512,6 +515,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             outgoing_peer_connect_attempts: Default::default(),
             file_transfer_handles: DashMap::new(),
             group_channels: Default::default(),
+            group_cgka: Default::default(),
             udp_mode,
             transfer_stats,
             queue_handle: Default::default(),

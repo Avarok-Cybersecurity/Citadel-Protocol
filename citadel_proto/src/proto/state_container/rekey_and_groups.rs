@@ -76,7 +76,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     }
 
     pub(crate) fn process_outbound_broadcast_command(
-        &self,
+        &mut self,
         ticket: Ticket,
         command: &GroupBroadcast,
     ) -> Result<(), NetworkError> {
@@ -94,9 +94,35 @@ impl<R: Ratchet> StateContainerInner<R> {
             .session_security_settings
             .map(|r| r.security_level)
             .unwrap();
-        let to_primary_stream = self.get_primary_stream().unwrap();
+        // Cloned (owned) so the `&self` borrow is released before the CGKA `&mut self` encryption below.
+        let to_primary_stream = self.get_primary_stream().unwrap().clone();
 
         let timestamp = self.time_tracker.get_global_time_ns();
+
+        // Zero-trust: an application `Message` is end-to-end encrypted with the group's CGKA epoch key
+        // here, before it ever leaves this client. The relay (and every hop) sees only ciphertext.
+        let encrypted;
+        let command = if let GroupBroadcast::Message {
+            sender,
+            key,
+            message,
+        } = command
+        {
+            let cgka = self
+                .group_cgka
+                .get_mut(key)
+                .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+            let ciphertext = cgka.encrypt_message(message.as_ref())?;
+            encrypted = GroupBroadcast::Message {
+                sender: *sender,
+                key: *key,
+                message: citadel_types::crypto::SecBuffer::from(ciphertext),
+            };
+            &encrypted
+        } else {
+            command
+        };
+
         let packet = match command {
             GroupBroadcast::Create { .. }
             | GroupBroadcast::End { .. }
@@ -128,7 +154,39 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         to_primary_stream
             .unbounded_send(packet)
-            .map_err(|err| NetworkError::generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))?;
+
+        // Owner-side membership removal: a Kick also re-keys the group (post-compromise security), so
+        // a kicked member cannot read future traffic. Emit a remove `Commit` per kicked member, sent
+        // after the Kick itself so the relay drops them from the roster before fanning the Commit out.
+        if let GroupBroadcast::Kick { key, kick_list } = command {
+            for &cid in kick_list {
+                let removed = match self.group_cgka.get_mut(key) {
+                    Some(cgka) => cgka.remove_member_by_cid(cid)?,
+                    None => None,
+                };
+                if let Some((commit_bytes, epoch)) = removed {
+                    let signal = GroupBroadcast::Commit {
+                        key: *key,
+                        epoch,
+                        payload: commit_bytes,
+                    };
+                    let commit_packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                        &ratchet,
+                        &signal,
+                        ticket,
+                        C2S_IDENTITY_CID,
+                        timestamp,
+                        security_level,
+                    );
+                    to_primary_stream
+                        .unbounded_send(commit_packet)
+                        .map_err(|err| NetworkError::generic(err.to_string()))?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn setup_group_channel_endpoints<T: PlatformOps>(
