@@ -2044,12 +2044,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     maybe_request = rx_session_requests.recv() => {
                         match maybe_request {
                             Some(request) => {
-                                // A write guard: the outbound group-`Message` path advances the CGKA
-                                // send generation (`&mut self`). This is the per-session sender task,
-                                // so taking the write lock here adds no cross-task contention.
-                                let mut state_container = inner_mut_state!(this.state_container);
                                 match request {
                                     SessionRequest::SendMessage(other) => {
+                                        // Read guard on the hot messaging path (unchanged behaviour).
+                                        let state_container = inner_state!(this.state_container);
                                         if let Err((err, ticket_opt, payload_opt)) = send_ratchet_message(
                                             this,
                                             &state_container,
@@ -2071,6 +2069,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                     }
 
                                     SessionRequest::Group(Group { ticket, broadcast }) => {
+                                        // Write guard only here: the outbound group-`Message` path
+                                        // advances the CGKA send generation (`&mut self`).
+                                        let mut state_container = inner_mut_state!(this.state_container);
                                         if let Err(err) = state_container.process_outbound_broadcast_command(ticket, &broadcast) {
                                             to_kernel_tx
                                                 .unbounded_send(NodeResult::InternalServerError(InternalServerError {
