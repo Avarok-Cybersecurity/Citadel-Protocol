@@ -458,8 +458,8 @@ mod native {
                         *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
                     }),
 
-                Err(_elapsed) => Err(FirewallError::firewall_hole_punch(
-                    "NAT identification elapsed",
+                Err(_elapsed) => Err(citadel_io::error!(
+                    citadel_io::ErrorCode::FirewallNatIdentTimeout
                 )),
             }
         }

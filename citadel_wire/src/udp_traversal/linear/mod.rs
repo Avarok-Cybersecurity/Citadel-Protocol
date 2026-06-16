@@ -121,7 +121,9 @@ impl SingleUDPHolePuncher {
                 let local_addr = self
                     .socket
                     .as_ref()
-                    .ok_or_else(|| FirewallError::firewall_hole_punch("UDP Socket not loaded"))?
+                    .ok_or_else(|| {
+                        citadel_io::error!(citadel_io::ErrorCode::FirewallUdpSocketNotLoaded)
+                    })?
                     .local_addr()?;
                 let reserved_port = handler
                     .open_any_firewall_port(
@@ -145,7 +147,7 @@ impl SingleUDPHolePuncher {
                 Ok(HolePunchedUdpSocket {
                     addr: hole_punched_addr,
                     socket: self.socket.take().ok_or_else(|| {
-                        FirewallError::firewall_hole_punch("UDP socket not loaded")
+                        citadel_io::error!(citadel_io::ErrorCode::FirewallUdpSocketNotLoaded)
                     })?,
                     local_id: unique_id,
                 })
@@ -161,7 +163,7 @@ impl SingleUDPHolePuncher {
                         .1
                         .execute(
                             this.socket.as_ref().ok_or_else(|| {
-                                FirewallError::firewall_hole_punch("UDP socket not loaded")
+                                citadel_io::error!(citadel_io::ErrorCode::FirewallUdpSocketNotLoaded)
                             })?,
                             &this.possible_endpoints,
                         )
@@ -191,7 +193,7 @@ impl SingleUDPHolePuncher {
                 ) -> Result<HolePunchedUdpSocket, FirewallError> {
                     match id_opt {
                         Some((_local_id, peer_id)) => {
-                            post_kill_rebuild.send(Some(this.recovery_mode_generate_socket_by_remote_id(peer_id).ok_or_else(|| FirewallError::firewall_hole_punch("Kill switch called, but no matching values were found internally"))?)).map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))?;
+                            post_kill_rebuild.send(Some(this.recovery_mode_generate_socket_by_remote_id(peer_id).ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::FirewallKillSwitchNoMatch))?)).map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))?;
                         }
 
                         None => {
@@ -224,7 +226,7 @@ impl SingleUDPHolePuncher {
                 let socket = self
                     .socket
                     .take()
-                    .ok_or_else(|| FirewallError::firewall_hole_punch("UDP socket not loaded"))?;
+                    .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::FirewallUdpSocketNotLoaded))?;
                 //let bind_addr = socket.local_addr()?;
                 let unique_id = self.unique_id;
                 Ok(HolePunchedUdpSocket {

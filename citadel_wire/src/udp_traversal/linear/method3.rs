@@ -182,8 +182,8 @@ impl Method3 {
             );
 
             timeout.await.unwrap_or_else(|_| {
-                Err(FirewallError::firewall_hole_punch(
-                    "Timeout while waiting for UDP penetration",
+                Err(citadel_io::error!(
+                    citadel_io::ErrorCode::FirewallPenetrationTimeout
                 ))
             })
         };
@@ -436,8 +436,8 @@ impl Method3 {
                     );
 
                     if err.kind() == ErrorKind::ConnectionReset {
-                        return Err(FirewallError::firewall_hole_punch(
-                            "Connection reset while waiting for UDP penetration",
+                        return Err(citadel_io::error!(
+                            citadel_io::ErrorCode::FirewallConnectionReset
                         ));
                     }
                 }

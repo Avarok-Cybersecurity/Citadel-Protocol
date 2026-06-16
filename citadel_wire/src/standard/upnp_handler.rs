@@ -82,8 +82,8 @@ impl UPnPHandler {
             .ok_or_else(FirewallError::firewall_local_ip_fail)?;
 
         if local_ip_address.is_ipv6() {
-            return Err(FirewallError::firewall_upnp(
-                "Detected LAN IPv6. Not yet implemented",
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::FirewallUpnpLanIpv6Unsupported
             ));
         }
 

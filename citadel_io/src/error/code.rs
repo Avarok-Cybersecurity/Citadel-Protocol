@@ -290,4 +290,31 @@ pub enum ErrorCode {
     /// Argon password hashing failed during autotuning.
     #[form = "Unable to hash password: {}"]
     ArgonHashFailed = 85,
+
+    // --- async_ip: IP resolution ---
+    /// The internal (LAN) IP address could not be obtained.
+    #[form = "Could not obtain internal IP"]
+    IpInternalUnobtainable = 86,
+
+    // --- citadel_wire: NAT traversal / hole-punch ---
+    /// NAT type identification did not complete within its timeout.
+    #[form = "NAT identification elapsed"]
+    FirewallNatIdentTimeout = 87,
+    /// The UDP hole-punch did not complete within its timeout.
+    #[form = "Timeout while waiting for UDP penetration"]
+    FirewallPenetrationTimeout = 88,
+    /// The connection was reset while waiting for UDP hole-punch penetration.
+    #[form = "Connection reset while waiting for UDP penetration"]
+    FirewallConnectionReset = 89,
+    /// A hole-punch step ran without its UDP socket having been loaded.
+    #[form = "UDP socket not loaded"]
+    FirewallUdpSocketNotLoaded = 90,
+    /// The kill switch fired but no matching internal hole-punch values were found.
+    #[form = "Kill switch called, but no matching values were found internally"]
+    FirewallKillSwitchNoMatch = 91,
+
+    // --- citadel_wire: UPnP ---
+    /// UPnP port mapping was requested over a LAN IPv6 address, which is unsupported.
+    #[form = "Detected LAN IPv6. Not yet implemented"]
+    FirewallUpnpLanIpv6Unsupported = 92,
 }

@@ -125,7 +125,7 @@ pub async fn get_all_multi_concurrent_from(
 
     let (res0, res2) = citadel_io::tokio::join!(internal_ip_future, external_ipv6_future);
     let internal_ip =
-        res0.ok_or_else(|| IpRetrieveError::ip_retrieve("Could not obtain internal IP"))?;
+        res0.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::IpInternalUnobtainable))?;
     let external_ipv6 = res2.ok().map(|r| r.0);
 
     Ok(IpAddressInfo {
@@ -149,7 +149,7 @@ pub async fn get_all_from(
     let external_ipv6_future = get_ip_from(Some(client), v6_addr);
     let (res0, res2) = citadel_io::tokio::join!(internal_ip_future, external_ipv6_future);
     let internal_ip =
-        res0.ok_or_else(|| IpRetrieveError::ip_retrieve("Could not obtain internal IP"))?;
+        res0.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::IpInternalUnobtainable))?;
     let external_ipv6 = res2.ok();
 
     Ok(IpAddressInfo {
