@@ -20,7 +20,7 @@
 //!
 //! fn handle_crypto_error() {
 //!     // Create and convert error
-//!     let error = CryptError::Encrypt("Failed to encrypt data");
+//!     let error = CryptError::encrypt("Failed to encrypt data");
 //!     let error_string = error.into_string();
 //!     
 //!     // Generate random port mappings
@@ -47,73 +47,14 @@
 use crate::ratchets::entropy_bank::DRILL_RANGE;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
-use std::fmt::{Display, Formatter};
 
-/// Default Error type for this crate
-#[derive(Clone)]
-pub enum CryptError<T = String> {
-    /// Encrypt Error
-    Encrypt(T),
-    /// Decrypt Error
-    Decrypt(T),
-    /// Drill update error
-    RekeyUpdateError(T),
-    /// When a ratchet has an issue
-    RatchetError(T),
-    /// Out of bounds
-    OutOfBoundsError,
-    /// This occurs if the byte-valued security level desired does not correspond to an actual [SecurityLevel]
-    BadSecuritySetting,
-    /// Implies a component is no longer working
-    FatalError(String),
-}
-
-impl<T> CryptError<T> {
-    /// Use for converting to different types
-    pub fn into_string(self) -> String
-    where
-        T: Into<String>,
-    {
-        match self {
-            CryptError::Encrypt(s) => s.into(),
-            CryptError::Decrypt(s) => s.into(),
-            CryptError::RekeyUpdateError(s) => s.into(),
-            CryptError::RatchetError(s) => s.into(),
-            CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception".to_string(),
-            CryptError::BadSecuritySetting => "[CryptError] Bad security setting".to_string(),
-            CryptError::FatalError(s) => s,
-        }
-    }
-
-    pub fn as_str(&self) -> &str
-    where
-        T: AsRef<str>,
-    {
-        match self {
-            CryptError::Encrypt(s) => s.as_ref(),
-            CryptError::Decrypt(s) => s.as_ref(),
-            CryptError::RekeyUpdateError(s) => s.as_ref(),
-            CryptError::RatchetError(s) => s.as_ref(),
-            CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception",
-            CryptError::BadSecuritySetting => "[CryptError] Bad security setting",
-            CryptError::FatalError(s) => s.as_ref(),
-        }
-    }
-}
-
-impl<T: AsRef<str>> std::fmt::Debug for CryptError<T> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl<T: AsRef<str>> Display for CryptError<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
-impl std::error::Error for CryptError {}
+/// Backwards-compatible alias for this crate's error type.
+///
+/// As part of the workspace-wide error consolidation, `CryptError` is now the canonical
+/// [`citadel_io::NetworkError`]. Construct values via the typed helpers (`CryptError::encrypt(msg)`,
+/// `CryptError::out_of_bounds()`, …). The former generic parameter has been dropped (the underlying
+/// error always carries an owned, boxed message).
+pub type CryptError = citadel_io::NetworkError;
 
 /// Creates a port pair mapping at random
 pub fn create_port_mapping() -> Vec<(u16, u16)> {

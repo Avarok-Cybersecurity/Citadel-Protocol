@@ -32,12 +32,12 @@ impl OpfsFileIO {
         let cleaned = path.trim_matches('/');
         let segments: Vec<&str> = cleaned.split('/').filter(|s| !s.is_empty()).collect();
         if segments.is_empty() {
-            return Err(AccountError::IoError("Empty path".into()));
+            return Err(AccountError::io("Empty path".into()));
         }
 
         let mut dir = persistent::app_specific_dir()
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            .map_err(|err| AccountError::io(format!("{err:?}")))?;
 
         // Navigate to parent directory, creating intermediate dirs
         for segment in &segments[..segments.len() - 1] {
@@ -47,7 +47,7 @@ impl OpfsFileIO {
                     &GetDirectoryHandleOptions { create: true },
                 )
                 .await
-                .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+                .map_err(|err| AccountError::io(format!("{err:?}")))?;
         }
 
         let name = segments.last().unwrap().to_string();
@@ -64,7 +64,7 @@ impl OpfsFileIO {
 
         let mut dir = persistent::app_specific_dir()
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            .map_err(|err| AccountError::io(format!("{err:?}")))?;
 
         for segment in &segments {
             dir = dir
@@ -73,7 +73,7 @@ impl OpfsFileIO {
                     &GetDirectoryHandleOptions { create: true },
                 )
                 .await
-                .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+                .map_err(|err| AccountError::io(format!("{err:?}")))?;
         }
 
         Ok(dir)
@@ -92,22 +92,22 @@ impl FileIO for OpfsFileIO {
         let mut file_handle = dir
             .get_file_handle_with_options(&name, &GetFileHandleOptions { create: true })
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            .map_err(|err| AccountError::io(format!("{err:?}")))?;
 
         let mut writable = file_handle
             .create_writable_with_options(&CreateWritableOptions::default())
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            .map_err(|err| AccountError::io(format!("{err:?}")))?;
 
         writable
             .write(&WriteParams::from(data.to_vec()))
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            .map_err(|err| AccountError::io(format!("{err:?}")))?;
 
         writable
             .close()
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            .map_err(|err| AccountError::io(format!("{err:?}")))?;
 
         Ok(())
     }
@@ -117,26 +117,26 @@ impl FileIO for OpfsFileIO {
         let file_handle = dir
             .get_file_handle_with_options(&name, &GetFileHandleOptions { create: false })
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            .map_err(|err| AccountError::io(format!("{err:?}")))?;
 
         file_handle
             .read()
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))
+            .map_err(|err| AccountError::io(format!("{err:?}")))
     }
 
     async fn remove_file(&self, path: &str) -> Result<(), AccountError> {
         let (dir, name) = self.navigate_to_parent(path).await?;
         dir.remove_entry(&name)
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))
+            .map_err(|err| AccountError::io(format!("{err:?}")))
     }
 
     async fn remove_dir_all(&self, path: &str) -> Result<(), AccountError> {
         let (dir, name) = self.navigate_to_parent(path).await?;
         dir.remove_entry_with_options(&name, &FileSystemRemoveOptions { recursive: true })
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))
+            .map_err(|err| AccountError::io(format!("{err:?}")))
     }
 
     async fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, AccountError> {
@@ -147,8 +147,7 @@ impl FileIO for OpfsFileIO {
         let mut result = Vec::new();
 
         while let Some(entry) = entries_stream.next().await {
-            let (name, dir_entry) =
-                entry.map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            let (name, dir_entry) = entry.map_err(|err| AccountError::io(format!("{err:?}")))?;
             let full_path = format!("{}/{}", path.trim_end_matches('/'), name);
             let is_file = matches!(dir_entry, DirectoryEntry::File(_));
             let extension = if is_file {
@@ -174,12 +173,12 @@ impl FileIO for OpfsFileIO {
         let mut file_handle = dir
             .get_file_handle_with_options(&name, &GetFileHandleOptions { create: true })
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            .map_err(|err| AccountError::io(format!("{err:?}")))?;
 
         let writable = file_handle
             .create_writable_with_options(&CreateWritableOptions::default())
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))?;
+            .map_err(|err| AccountError::io(format!("{err:?}")))?;
 
         Ok(Box::new(OpfsStreamWriter { writable }))
     }
@@ -201,13 +200,13 @@ impl AsyncStreamWriter for OpfsStreamWriter {
         self.writable
             .write(&WriteParams::from(data.to_vec()))
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))
+            .map_err(|err| AccountError::io(format!("{err:?}")))
     }
 
     async fn finish(self: Box<Self>) -> Result<(), AccountError> {
         self.writable
             .close()
             .await
-            .map_err(|err| AccountError::IoError(format!("{err:?}")))
+            .map_err(|err| AccountError::io(format!("{err:?}")))
     }
 }

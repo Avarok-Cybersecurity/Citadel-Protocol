@@ -486,3 +486,46 @@ echo "[bolt] 3/3 optimize with gathered BOLT profiles ..."
 cargo pgo bolt optimize --with-pgo -- $FEAT
 echo "[bolt] done. BOLT+PGO bench under target/*/release/deps."
 '''
+
+[tasks.fuzz]
+description = "AFL-fuzz the parse/validate boundary (the out-of-tree fuzz/ crate). Env: FUZZ_SECONDS (per target, default 60), FUZZ_TARGETS (space-separated)."
+script_runner = "@shell"
+script = '''
+set -euo pipefail
+SECS="${FUZZ_SECONDS:-60}"
+TARGETS="${FUZZ_TARGETS:-hdp_header_parse header_obfuscator group_header_validate file_packet_deser}"
+# AFL on CI runners: don't fail on the (unsettable) CPU governor / missing-core-pattern checks.
+export AFL_SKIP_CPUFREQ=1
+export AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1
+export AFL_NO_AFFINITY=1
+
+echo "[fuzz] ensuring cargo-afl is installed ..."
+# The CLI subcommand is the `cargo-afl` crate (the `afl` crate is the library/harness only).
+command -v cargo-afl >/dev/null 2>&1 || cargo install cargo-afl --locked
+
+cd fuzz
+echo "[fuzz] building AFL-instrumented harnesses ..."
+cargo afl build --release
+
+status=0
+mkdir -p out
+for t in $TARGETS; do
+  echo "[fuzz] === $t : ${SECS}s ==="
+  cargo afl fuzz -i "corpus/$t" -o "out/$t" -V "$SECS" -- "target/release/$t" || true
+  # Guard against a SETUP failure masquerading as success: AFL writes fuzzer_stats only if it actually
+  # ran. A missing file means it never fuzzed (e.g. macOS shmget / Linux core_pattern) — run
+  # `cargo afl system-config` (sudo) first. Treat that as a failure, not a clean run.
+  if [ ! -f "out/$t/default/fuzzer_stats" ]; then
+    echo "[fuzz] ERROR: $t did not run (no fuzzer_stats). AFL setup issue — run 'cargo afl system-config' (sudo)."
+    status=1; continue
+  fi
+  # AFL++ writes crashes to out/<t>/default/crashes/ (always contains a README.txt).
+  if find "out/$t/default/crashes" -type f ! -name 'README.txt' 2>/dev/null | grep -q .; then
+    echo "[fuzz] !!! CRASHES found for $t:"; ls -la "out/$t/default/crashes"; status=1
+  else
+    echo "[fuzz] $t: no crashes."
+  fi
+done
+[ "$status" -eq 0 ] && echo "[fuzz] all targets clean." || echo "[fuzz] FAILED: crashes found (see out/*/default/crashes)."
+exit $status
+'''

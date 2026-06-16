@@ -176,7 +176,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             #[cfg(all(feature = "sql", not(coverage)))]
             BackendType::SQLDatabase(..) => {
                 use crate::backend::sql_backend::SqlBackend;
-                let backend = SqlBackend::try_from(backend_type.clone()).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
+                let backend = SqlBackend::try_from(backend_type.clone())
+                    .map_err(|_| citadel_io::error!(citadel_io::ErrorCode::BackendUrlInvalid))?;
                 PersistenceHandler::create(backend).await?
             }
 
@@ -189,8 +190,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         };
 
         if !persistence_handler.is_connected().await? {
-            return Err(AccountError::msg(
-                "Unable to connect to remote database via account manager",
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::BackendNotConnected
             ));
         }
 
@@ -231,10 +232,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .get_cid_by_username(creds.username());
 
         if reserved_cid == 0 {
-            return Err(AccountError::Generic(
-                "Cannot call register_impersonal_hyperlan_client_network_account with a CID of 0"
-                    .to_string(),
-            ));
+            return Err(citadel_io::error!(citadel_io::ErrorCode::RegisterCidZero));
         }
 
         let auth_store = creds
@@ -256,10 +254,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let username = auth_store.username().to_string();
 
         if pers.username_exists(&username).await? {
-            return Err(AccountError::Generic(format!(
-                "Username {} already exists!",
-                &username
-            )));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::UsernameExists,
+                username.clone()
+            ));
         }
 
         // cnac gets saved below
@@ -290,9 +288,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .get_cid_by_username(creds.username());
 
         if valid_cid == 0 {
-            return Err(AccountError::Generic(
-                "Cannot call register_personal_hyperlan_server with a CID of 0".to_string(),
-            ));
+            return Err(citadel_io::error!(citadel_io::ErrorCode::RegisterCidZero));
         }
 
         let client_auth_store = creds.into_auth_store();

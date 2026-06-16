@@ -12,6 +12,7 @@ use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 
 pub(super) fn spawn<R: Ratchet>(
@@ -27,7 +28,7 @@ pub(super) fn spawn<R: Ratchet>(
     let task = async move {
         let (listener, udp_sender_future, stopper_rx) = {
             let this = CitadelSession::upgrade_weak(&this_weak)
-                .ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
+                .ok_or(error!(ErrorCode::UdpHdpSessionGone))?;
 
             let sess = this;
             let hole_punched_socket = addr.receive_address;
@@ -51,11 +52,11 @@ pub(super) fn spawn<R: Ratchet>(
                 log::trace!(target: "citadel", "Awaiting tcp conn to finish before creating UDP subsystem ... is_server={is_server}");
                 tcp_conn_awaiter
                     .await
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    .map_err(|err| NetworkError::generic(err.to_string()))?;
             }
 
             let sess = CitadelSession::upgrade_weak(&this_weak)
-                .ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
+                .ok_or(error!(ErrorCode::UdpHdpSessionGone))?;
 
             let accessor = match v_target {
                 VirtualConnectionType::LocalGroupServer { session_cid: _ } => {
@@ -77,21 +78,17 @@ pub(super) fn spawn<R: Ratchet>(
                             .take()
                         {
                             log::trace!(target: "citadel", "C2S UDP subroutine sending channel to local user ... (is_server={is_server})");
-                            sender.send(channel).map_err(|_| {
-                                NetworkError::InternalError("Unable to send UdpChannel through")
-                            })?;
+                            sender
+                                .send(channel)
+                                .map_err(|_| error!(ErrorCode::UdpChannelSendFailed))?;
                             EndpointCryptoAccessor::C2S(sess.state_container.clone())
                         } else {
                             log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had no UDP sender");
-                            return Err(NetworkError::InternalError(
-                                "Tried loading UDP channel, but, the state container had no UDP sender",
-                            ));
+                            return Err(error!(ErrorCode::UdpStateContainerNoSender));
                         }
                     } else {
                         log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
-                        return Err(NetworkError::InternalError(
-                            "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...",
-                        ));
+                        return Err(error!(ErrorCode::UdpStateContainerInvalidConfig));
                     }
                 }
                 VirtualConnectionType::LocalGroupPeer {
@@ -106,34 +103,28 @@ pub(super) fn spawn<R: Ratchet>(
                             state_container.peer_kem_states.get_mut(&target_cid)
                         {
                             if let Some(sender) = kem_state.udp_channel_sender.tx.take() {
-                                sender.send(channel).map_err(|_| {
-                                    NetworkError::InternalError("Unable to send UdpChannel through")
-                                })?;
+                                sender
+                                    .send(channel)
+                                    .map_err(|_| error!(ErrorCode::UdpChannelSendFailed))?;
                                 EndpointCryptoAccessor::P2P(
                                     target_cid,
                                     sess.state_container.clone(),
                                 )
                             } else {
                                 log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had no UDP sender");
-                                return Err(NetworkError::InternalError(
-                                    "Tried loading UDP channel, but, the state container had no UDP sender",
-                                ));
+                                return Err(error!(ErrorCode::UdpStateContainerNoSender));
                             }
                         } else {
                             log::error!(target: "citadel", "Tried loading the peer kem state, but was absent");
-                            return Err(NetworkError::InternalError(
-                                "Tried loading the peer kem state, but was absent",
-                            ));
+                            return Err(error!(ErrorCode::UdpPeerKemStateAbsent));
                         }
                     } else {
                         log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
-                        return Err(NetworkError::InternalError(
-                            "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...",
-                        ));
+                        return Err(error!(ErrorCode::UdpStateContainerInvalidConfig));
                     }
                 }
                 _ => {
-                    return Err(NetworkError::InternalError("Invalid virtual target"));
+                    return Err(error!(ErrorCode::UdpInvalidVirtualTarget));
                 }
             };
 
@@ -224,9 +215,9 @@ async fn udp_outbound_sender<R: Ratchet, S: futures::SinkExt<bytes::Bytes> + Unp
             )
         })?;
         log::trace!(target: "citadel", "About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
-        sink.send(packet.freeze()).await.map_err(|_| {
-            NetworkError::InternalError("UDP sink unable to receive outbound requests")
-        })?;
+        sink.send(packet.freeze())
+            .await
+            .map_err(|_| error!(ErrorCode::UdpSinkRecvFailed))?;
     }
 
     log::trace!(target: "citadel", "Outbound wave sender ending");

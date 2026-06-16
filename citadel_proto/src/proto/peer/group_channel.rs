@@ -53,6 +53,7 @@ use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::remote::Ticket;
 use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
+use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::MessageGroupKey;
 use futures::Stream;
@@ -214,9 +215,7 @@ impl GroupChannelSendHalf {
         if self.session_cid == self.key.cid {
             Ok(())
         } else {
-            Err(NetworkError::InvalidRequest(
-                "User does not have permissions to make this call",
-            ))
+            Err(error!(ErrorCode::PeerPermissionDenied))
         }
     }
 }

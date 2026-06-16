@@ -1,0 +1,20 @@
+[package]
+name = "citadel_io_macros"
+version = "0.14.0"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+edition = "2021"
+description = "Procedural macros for citadel_io (the ErrorRegistry derive)"
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+workspace = ".."
+readme = "../README.md"
+categories = ["cryptography", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["derive", "parsing", "printing", "proc-macro", "clone-impls"] }
+quote = "1"
+proc-macro2 = "1"

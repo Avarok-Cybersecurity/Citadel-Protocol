@@ -54,6 +54,7 @@ use crate::constants::{
 use crate::error::NetworkError;
 use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
+use citadel_io::{error, Dbg, ErrorCode};
 //use futures_codec::Framed;
 use crate::proto::misc;
 use crate::proto::misc::dual_cell::DualCell;
@@ -367,7 +368,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                 let cnac = client_init_settings
                                     .cnac
                                     .clone()
-                                    .ok_or(NetworkError::InvalidRequest("Client does not exist"))?;
+                                    .ok_or(error!(ErrorCode::SessionClientNotLoaded))?;
                                 let cid = cnac.get_cid();
                                 (Some(cnac), SessionState::NeedsConnect, Some(cid))
                             }
@@ -584,11 +585,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         if let Err(err) = handle_zero_state.await {
             let err =
                 format!("Unable to proceed past session zero-state. Stopping session: {err:?}");
-            return Err((NetworkError::Generic(err), session_cid.get()));
+            return Err((NetworkError::generic(err), session_cid.get()));
         }
 
         let res = citadel_io::tokio::select! {
-            res = session_future => res.map_err(|err| (NetworkError::Generic(err.to_string()), None))?,
+            res = session_future => res.map_err(|err| (NetworkError::generic(err.to_string()), None))?,
             _ = queue_worker_handle => {
                 // Queue worker ending can be expected (cleanup) or unexpected (error).
                 // The queue worker uses a Weak reference to the session - when it can't upgrade
@@ -598,7 +599,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 let strong_count = this_close.strong_count();
                 if strong_count > 1 {
                     log::error!(target: "citadel", "Queue worker ended unexpectedly while session still active (strong_count: {})", strong_count);
-                    return Err((NetworkError::InternalError("Queue worker ended unexpectedly"), session_cid.get()));
+                    return Err((error!(ErrorCode::SessionQueueWorkerEnded), session_cid.get()));
                 } else {
                     log::info!(target: "citadel", "Queue worker ended, session cleanup in progress (strong_count: {})", strong_count);
                     return Ok(session_cid.get());
@@ -634,7 +635,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         receiver
             .recv()
             .await
-            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+            .map_err(|err| NetworkError::generic(err.to_string()))?;
         Ok(())
     }
 
@@ -655,7 +656,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         if let Some(zero) = zero_packet {
             to_outbound
                 .unbounded_send(zero)
-                .map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
+                .map_err(|_| error!(ErrorCode::SessionWriterStreamCorrupted))?;
         }
 
         match state {
@@ -668,15 +669,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     .connect_state
                     .proposed_credentials
                     .as_ref()
-                    .ok_or(NetworkError::InternalError(
-                        "Proposed credentials not loaded",
-                    ))?
+                    .ok_or(error!(ErrorCode::SessionProposedCredentialsNotLoaded))?
                     .username();
                 let proposed_cid = persistence_handler.get_cid_by_username(proposed_username);
                 let passwordless = state_container
                     .register_state
                     .transient_mode
-                    .ok_or(NetworkError::InternalError("Passwordless state not loaded"))?;
+                    .ok_or(error!(ErrorCode::SessionPasswordlessStateNotLoaded))?;
                 // we supply 0,0 for cid and new entropy_bank vers by default, even though it will be reset by bob
                 let alice_constructor =
                     <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
@@ -687,18 +686,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         proposed_cid,
                         0,
                     )
-                    .ok_or(NetworkError::InternalError(
-                        "Unable to construct Alice ratchet",
-                    ))?;
+                    .ok_or(error!(ErrorCode::SessionAliceRatchetConstructionFailed))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 log::trace!(target: "citadel", "Running stage0 alice");
-                let transfer =
-                    alice_constructor
-                        .stage0_alice()
-                        .ok_or(NetworkError::InternalError(
-                            "Unable to construct AliceToBob transfer",
-                        ))?;
+                let transfer = alice_constructor
+                    .stage0_alice()
+                    .ok_or(error!(ErrorCode::SessionAliceToBobTransferFailed))?;
 
                 let stage0_register_packet = packet_crafter::do_register::craft_stage0::<R>(
                     session_security_settings.crypto_params.into(),
@@ -710,7 +704,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 );
                 to_outbound
                     .unbounded_send(stage0_register_packet)
-                    .map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
+                    .map_err(|_| error!(ErrorCode::SessionWriterStreamCorrupted))?;
 
                 state_container.register_state.constructor = Some(alice_constructor);
                 log::trace!(target: "citadel", "Successfully sent stage0 register packet outbound");
@@ -747,7 +741,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         log::trace!(target: "citadel", "Beginning pre-connect subroutine");
         session.state.set(SessionState::NeedsConnect);
         let connect_mode = (*inner!(session.connect_mode))
-            .ok_or(NetworkError::InternalError("Connect mode not loaded"))?;
+            .ok_or(error!(ErrorCode::SessionConnectModeNotLoaded))?;
         let mut state_container = inner_mut_state!(session.state_container);
         state_container.store_session_password(C2S_IDENTITY_CID, session.session_password.clone());
 
@@ -759,7 +753,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         // reset the toolset's ARA
         let static_aux_hr = &cnac.refresh_static_ratchet();
         // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
-        let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|_| NetworkError::InvalidRequest("The specified security setting for the session exceeds the registration security setting"))?;
+        let _ = static_aux_hr
+            .verify_level(Some(session_security_settings.security_level))
+            .map_err(|_| error!(ErrorCode::SessionSecurityExceedsRegistration))?;
         let opts = static_aux_hr
             .get_next_constructor_opts()
             .into_iter()
@@ -767,14 +763,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .collect();
         let alice_constructor =
             <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(opts, cnac.get_cid(), 0)
-                .ok_or(NetworkError::InternalError(
-                "Unable to construct Alice ratchet",
-            ))?;
+                .ok_or(error!(ErrorCode::SessionAliceRatchetConstructionFailed))?;
         let transfer = alice_constructor
             .stage0_alice()
-            .ok_or(NetworkError::InternalError(
-                "Failed to construct AliceToBobTransfer",
-            ))?;
+            .ok_or(error!(ErrorCode::SessionAliceToBobTransferFailed))?;
         // encrypts the entire connect process with the highest possible security level
         let max_usable_level = static_aux_hr.get_default_security_level();
         let nat_type = session.local_nat_type.clone();
@@ -826,7 +818,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         mut writer: misc::PrimaryStreamWriter<S>,
         mut header_obfuscator: HeaderObfuscator,
     ) -> Result<(), NetworkError> {
-        let to_net_err = |err: std::io::Error| NetworkError::Generic(err.to_string());
+        let to_net_err = |err: std::io::Error| NetworkError::generic(err.to_string());
 
         if let Some(first_packet) = header_obfuscator.first_packet.take() {
             log::trace!(target: "citadel", "[Header Obfuscator] Sending first key packet {:?} of len {}", &first_packet.as_bytes()[..HDP_HEADER_BYTE_LEN.min(first_packet.len())], first_packet.len());
@@ -1070,7 +1062,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     );
                 }
 
-                SessionShutdownReason::Error(NetworkError::Generic(err_string))
+                SessionShutdownReason::Error(NetworkError::generic(err_string))
             }
         }
 
@@ -1080,8 +1072,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             }
         };
 
+        // Bound inbound concurrency. The inbound reader and the outbound writer share one task via the
+        // `select!` in `load_session`; with `None` (unbounded) a saturated inbound stream keeps pulling
+        // packets and never yields the task, starving the writer (ACK/WAVE_ACK flush, OUTBOUND_FLUSH_BURST
+        // = 32). A finite cap makes `try_for_each_concurrent` go Pending once it's full, giving the
+        // writer branch a turn. Ordering is enforced downstream by `OrderedChannel`, so a cap is safe.
+        // 64 (2x the flush burst) keeps inbound parallelism while bounding writer starvation. (Tunable —
+        // sweep on the bidirectional macro bench.)
+        const INBOUND_CONCURRENCY_LIMIT: usize = 64;
         let res = reader
-            .try_for_each_concurrent(None, |mut packet| async move {
+            .try_for_each_concurrent(Some(INBOUND_CONCURRENCY_LIMIT), |mut packet| async move {
                 log::trace!(
                     "RECV Raw packet (header only | is_server: {is_server}): {:?} | Len: {}",
                     &packet.as_bytes()[..HDP_HEADER_BYTE_LEN.min(packet.len())],
@@ -1104,14 +1104,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 )
                 .await;
 
-                let res =
-                    evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid);
-                if res.is_err() {
-                    // TODO: remove this waiting logic for better code. Wait for any outgoing packets to get flushed
-                    citadel_io::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
-
-                res
+                // (Formerly slept 100ms here on a terminating result to mask a teardown↔reconnect
+                // race: a peer's reconnect SYN could reach the server before the old session left its
+                // `sessions` map, and the manager rejected it as "already connected". That is now fixed
+                // properly at the source — the disconnect responder transitions to `Disconnecting`
+                // before replying FINAL (see disconnect_packet.rs), so the reconnect deterministically
+                // takes the event-driven wait-for-clean-drop path. No sleep needed.)
+                evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid)
             })
             .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer_cid))
             .await;
@@ -1139,8 +1138,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     cid_opt,
                     message: err.to_string(),
                 }))
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
-            Err(NetworkError::InternalError("Primary stream closed"))
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
+            Err(error!(ErrorCode::SessionPrimaryStreamClosed))
         } else {
             Ok(())
         }
@@ -1327,12 +1326,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     .unwrap_or_else(|| self.to_primary_stream.as_ref().unwrap());
                 primary_stream
                     .unbounded_send(packet)
-                    .map_err(|err| NetworkError::Generic(err.to_string()))
+                    .map_err(|err| NetworkError::generic(err.to_string()))
             }
 
-            ty => Err(NetworkError::msg(format!(
-                "REVFS is not yet enabled for virtual connections of type {ty:?}"
-            ))),
+            ty => Err(error!(ErrorCode::RevfsUnsupportedConnectionType, Dbg(ty))),
         }
     }
 
@@ -1389,18 +1386,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     .unwrap_or_else(|| self.to_primary_stream.as_ref().unwrap());
                 primary_stream
                     .unbounded_send(packet)
-                    .map_err(|err| NetworkError::Generic(err.to_string()))
+                    .map_err(|err| NetworkError::generic(err.to_string()))
             }
 
-            ty => Err(NetworkError::msg(format!(
-                "REVFS is not yet enabled for virtual connections of type {ty:?}"
-            ))),
+            ty => Err(error!(ErrorCode::RevfsUnsupportedConnectionType, Dbg(ty))),
         }
     }
 
     fn ensure_connected(&self, ticket: &Ticket) -> Result<(), NetworkError> {
         if !self.state.is_connected() {
-            Err(NetworkError::Generic(format!("Attempted to send a request (ticket: {ticket}) outbound, but the session is not connected")))
+            Err(error!(ErrorCode::SessionRequestNotConnected, *ticket))
         } else {
             Ok(())
         }
@@ -1424,9 +1419,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         virtual_object_metadata: Option<VirtualObjectMetadata>,
         post_close_hook: impl for<'a> FnOnce(PathBuf) + Send + 'static,
     ) -> Result<(), NetworkError> {
-        let source_path = source.path().ok_or_else(|| {
-            NetworkError::InternalError("The source object does not have a path location")
-        })?;
+        let source_path = source
+            .path()
+            .ok_or_else(|| error!(ErrorCode::FileTransferSourceMissingPath))?;
 
         let file_metadata =
             T::open_and_validate_for_transfer(&source_path, virtual_object_metadata.as_ref())?;
@@ -1466,7 +1461,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest entropy_bank, and 0 for target_cid
                     if !*self.file_transfer_compatible {
-                        return Err(NetworkError::msg("File transfer is not enabled for this session. Both nodes must use a filesystem backend"));
+                        return Err(error!(ErrorCode::FileTransferSessionDisabled));
                     }
 
                     let crypt_container = state_container
@@ -1502,7 +1497,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         transfer_type.clone(),
                         packet_crafter::group::craft_wave_payload_packet_into,
                     )
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    .map_err(|err| NetworkError::generic(err.to_string()))?;
 
                     let date_created = file_metadata.created.unwrap_or_else(SystemTime::now);
 
@@ -1568,7 +1563,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     let endpoint_container = state_container.get_endpoint_container(target_cid)?;
 
                     if !endpoint_container.file_transfer_compatible {
-                        return Err(NetworkError::msg("File transfer is not enabled for this p2p session. Both nodes must use a filesystem backend"));
+                        return Err(error!(ErrorCode::FileTransferP2pDisabled));
                     }
 
                     let object_id = virtual_object_metadata
@@ -1593,11 +1588,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                     let preferred_primary_stream = state_container
                         .get_preferred_stream(target_cid)
-                        .ok_or_else(|| {
-                            NetworkError::msg(
-                            "Connection unavailable (shutdown in progress or connection closed)",
-                        )
-                        })?
+                        .ok_or_else(|| error!(ErrorCode::SessionConnectionUnavailable))?
                         .clone();
 
                     let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
@@ -1615,7 +1606,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         transfer_type.clone(),
                         packet_crafter::group::craft_wave_payload_packet_into,
                     )
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    .map_err(|err| NetworkError::generic(err.to_string()))?;
 
                     let date_created = file_metadata.created.unwrap_or_else(SystemTime::now);
 
@@ -1667,9 +1658,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                 _ => {
                     log::error!(target: "citadel", "HyperWAN functionality not yet implemented");
-                    return Err(NetworkError::InternalError(
-                        "HyperWAN functionality not yet implemented",
-                    ));
+                    return Err(error!(ErrorCode::SessionHyperWanNotImplemented));
                 }
             };
 
@@ -1683,7 +1672,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             // send the FILE_HEADER
             to_primary_stream
                 .unbounded_send(file_header)
-                .map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
+                .map_err(|_| error!(ErrorCode::SessionPrimaryStreamDisconnected))?;
             // create the outbound file container
             let kernel_tx = state_container.kernel_tx.clone();
             let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
@@ -1749,7 +1738,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                     return;
                                 }
 
-                                let mut state_container = inner_mut_state!(sess.state_container);
+                                // Read lock: registering the transmitter is a DashMap insert (`&self`)
+                                // and the endpoint/ratchet lookup is read-only, so concurrent sends
+                                // don't serialize on the coarse write lock.
+                                let state_container = inner_state!(sess.state_container);
                                 let latest_proper_ratchet = match state_container
                                     .get_endpoint_container(virtual_target.get_target_cid())
                                 {
@@ -1814,49 +1806,57 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                             let kernel_tx2 = kernel_tx.clone();
                             this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
-                            if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
+                            // Read the expiry decision while only holding the DashMap `Ref`, then let
+                            // it drop before mutating other collections — the `Ref` holds a shard
+                            // read-borrow to end-of-scope (unlike the old `&V`, freed at last use).
+                            let expired = {
+                                let Some(transmitter) = state_container.outbound_transmitters.get(&key) else {
+                                    // it finished
+                                    return QueueWorkerResult::Complete;
+                                };
                                 // as long as a wave ACK has been received, proceed with the timeout check
-                                // The reason why is because this group may be loaded, but the previous one isn't done
-                                if transmitter.has_begun {
-                                    let transmitter = transmitter.burst_transmitter.group_transmitter.as_ref().expect("transmitter should exist");
-                                    if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
-                                        if state_container.meta_expiry_state.expired() {
-                                            log::error!(target: "citadel", "Outbound group {group_id} has expired; dropping entire transfer");
-                                            //std::mem::drop(transmitter);
-                                            if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
-                                                if let Some(stop) = outbound_container.stop_tx.take() {
-                                                    if stop.send(()).is_err() {
-                                                        log::error!(target: "citadel", "Unable to send stop signal");
-                                                    }
-                                                }
-                                            } else {
-                                                log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", &file_key);
-                                            }
-
-                                            if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
-                                                ticket_opt: Some(ticket),
-                                                cid_opt: session_cid,
-                                                message: format!("Timeout on ticket {ticket}"),
-                                            })).is_err() {
-                                                log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
-                                                QueueWorkerResult::EndSession
-                                            } else {
-                                                QueueWorkerResult::Complete
-                                            }
-                                        } else {
-                                            log::trace!(target: "citadel", "Other outbound groups being processed; patiently awaiting group {group_id}");
-                                            QueueWorkerResult::Incomplete
-                                        }
-                                    } else {
-                                        // it hasn't expired yet, and is still transmitting
-                                        QueueWorkerResult::Incomplete
-                                    }
-                                } else {
+                                // (this group may be loaded, but the previous one isn't done)
+                                if !transmitter.has_begun {
                                     // WAVE_ACK hasn't been received yet; try again later
-                                    QueueWorkerResult::Incomplete
+                                    return QueueWorkerResult::Incomplete;
+                                }
+                                transmitter
+                                    .burst_transmitter
+                                    .group_transmitter
+                                    .as_ref()
+                                    .expect("transmitter should exist")
+                                    .has_expired(GROUP_EXPIRE_TIME_MS)
+                            };
+
+                            if !expired {
+                                // it hasn't expired yet, and is still transmitting
+                                return QueueWorkerResult::Incomplete;
+                            }
+
+                            if !state_container.meta_expiry_state.expired() {
+                                log::trace!(target: "citadel", "Other outbound groups being processed; patiently awaiting group {group_id}");
+                                return QueueWorkerResult::Incomplete;
+                            }
+
+                            log::error!(target: "citadel", "Outbound group {group_id} has expired; dropping entire transfer");
+                            if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
+                                if let Some(stop) = outbound_container.stop_tx.take() {
+                                    if stop.send(()).is_err() {
+                                        log::error!(target: "citadel", "Unable to send stop signal");
+                                    }
                                 }
                             } else {
-                                // it finished
+                                log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", &file_key);
+                            }
+
+                            if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                                ticket_opt: Some(ticket),
+                                cid_opt: session_cid,
+                                message: format!("Timeout on ticket {ticket}"),
+                            })).is_err() {
+                                log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
+                                QueueWorkerResult::EndSession
+                            } else {
                                 QueueWorkerResult::Complete
                             }
                         });
@@ -1968,9 +1968,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     stream
                 } else {
                     return Err((
-                        NetworkError::msg(
-                            "Connection unavailable (shutdown in progress or connection closed)",
-                        ),
+                        error!(ErrorCode::SessionConnectionUnavailable),
                         attributed_ticket,
                         original_payload,
                     ));
@@ -1981,9 +1979,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     ep
                 } else {
                     return Err((
-                        NetworkError::Generic(
-                            "Unable to get virtual connection crypto".to_string(),
-                        ),
+                        error!(ErrorCode::SessionVconnCryptoMissing),
                         attributed_ticket,
                         original_payload,
                     ));
@@ -1998,7 +1994,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             session.shutdown();
                         }
                         return Err((
-                            NetworkError::Generic("Ratchet missing for endpoint".to_string()),
+                            error!(ErrorCode::SessionRatchetMissingForEndpoint),
                             attributed_ticket,
                             original_payload,
                         ));
@@ -2067,7 +2063,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                                     cid_opt: this.session_cid.get(),
                                                     message: err.into_string(),
                                                 }))
-                                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                                .map_err(|err| NetworkError::generic(err.to_string()))?;
                                         }
                                     }
 
@@ -2079,7 +2075,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                                     cid_opt: this.session_cid.get(),
                                                     message: err.into_string(),
                                                 }))
-                                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                                .map_err(|err| NetworkError::generic(err.to_string()))?;
                                         }
                                     }
                                 }
@@ -2110,7 +2106,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
         if state != SessionState::Connected {
             log::warn!(target: "citadel", "Session is not connected (s={state:?}); failing fast for peer command {peer_command:?}");
-            return Err(NetworkError::InvalidRequest("Session is not connected"));
+            return Err(error!(ErrorCode::SessionNotConnected));
         }
 
         let timestamp = this.time_tracker.get_global_time_ns();
@@ -2153,11 +2149,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                     disconnect_token,
                                 },
                                 ticket,
-                                session_cid: self.session_cid.get().ok_or_else(|| {
-                                    NetworkError::InternalError("Implicated CID not set")
-                                })?,
+                                session_cid: self
+                                    .session_cid
+                                    .get()
+                                    .ok_or_else(|| error!(ErrorCode::SessionImplicatedCidNotSet))?,
                             }))
-                            .map_err(|err| NetworkError::Generic(err.to_string()));
+                            .map_err(|err| NetworkError::generic(err.to_string()));
                     }
 
                     PeerSignal::Disconnect {
@@ -2250,9 +2247,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
             to_primary_stream
                 .unbounded_send(packet)
-                .map_err(|err| NetworkError::SocketError(err.to_string()))
+                .map_err(|err| NetworkError::socket(err.to_string()))
         } else {
-            Err(NetworkError::InternalError("Invalid configuration"))
+            Err(error!(ErrorCode::SessionInvalidConfiguration))
         }
     }
 
@@ -2294,7 +2291,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         Ok(PrimaryProcessorResult::EndSession(err)) => {
                             // stop the UDP stream
                             log::warn!(target: "citadel", "UDP session ending: {err:?}");
-                            Err(NetworkError::Generic(err.to_string()))
+                            Err(NetworkError::generic(err.to_string()))
                         }
 
                         Err(err) => {
@@ -2433,14 +2430,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
                         cid_opt: self.session_cid.get(),
                         message: err.to_string(),
                     }))
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
-                    Err(NetworkError::InternalError(
-                        "Unable to send through primary stream",
-                    ))
+                    .map_err(|err| NetworkError::generic(err.to_string()))?;
+                    Err(error!(ErrorCode::SessionPrimaryStreamSendFailed))
                 }
             }
         } else {
-            Err(NetworkError::InternalError("Primary stream sender absent"))
+            Err(error!(ErrorCode::SessionPrimaryStreamSenderAbsent))
         }
     }
 
@@ -2450,14 +2445,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
         ticket: Option<Ticket>,
         fx: impl FnOnce() -> Result<U, E>,
     ) -> Result<U, NetworkError> {
-        match (fx)().map_err(|err| NetworkError::Generic(err.to_string())) {
+        match (fx)().map_err(|err| NetworkError::generic(err.to_string())) {
             Err(err) => {
                 self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: ticket,
                     message: err.to_string(),
                     cid_opt: self.session_cid.get(),
                 }))
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
                 Err(err)
             }
 

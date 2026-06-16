@@ -97,17 +97,21 @@ macro_rules! impl_file_src {
         impl ObjectSource for $value {
             fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError> {
                 std::fs::File::open(self)
-                    .map_err(|err| CryptError::Encrypt(err.to_string()))
+                    .map_err(|err| CryptError::encrypt(err.to_string()))
                     .map(|r| Box::new(r) as Box<dyn FixedSizedSource>)
             }
 
             fn get_source_name(&self) -> Result<String, CryptError> {
                 let name = std::path::Path::new(self);
                 name.file_name()
-                    .ok_or_else(|| CryptError::Encrypt("Unable to get filename".to_string()))?
+                    .ok_or_else(|| {
+                        citadel_io::error!(citadel_io::ErrorCode::SourceFilenameUnavailable)
+                    })?
                     .to_str()
                     .map(|r| r.to_string())
-                    .ok_or_else(|| CryptError::Encrypt("Unable to get filename/2".to_string()))
+                    .ok_or_else(|| {
+                        citadel_io::error!(citadel_io::ErrorCode::SourceFilenameUnavailable)
+                    })
             }
 
             fn path(&self) -> Option<PathBuf> {
@@ -157,7 +161,7 @@ impl ObjectSource for BytesSource {
         let inner = self
             .inner
             .take()
-            .ok_or_else(|| CryptError::Encrypt("Source has already been exhausted".into()))?;
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::SourceExhausted))?;
         let len = inner.len();
         let cursor = std::io::Cursor::new(inner);
         Ok(Box::new(VecReader { len, cursor }))
@@ -214,14 +218,15 @@ pub fn scramble_encrypt_source<
     let source = source.try_get_stream()?;
     let object_len = source
         .length()
-        .map_err(|err| CryptError::Encrypt(err.to_string()))? as usize;
+        .map_err(|err| CryptError::encrypt(err.to_string()))? as usize;
     log::trace!(target: "citadel", "Object length: {object_len} | Path: {path:?}");
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
-        return Err(CryptError::Encrypt(format!(
-            "Maximum group size cannot be larger than {MAX_BYTES_PER_GROUP} bytes",
-        )));
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::GroupSizeTooLarge,
+            MAX_BYTES_PER_GROUP
+        ));
     }
 
     let total_groups = Integer::div_ceil(&object_len, &max_bytes_per_group);
@@ -276,7 +281,7 @@ pub fn scramble_encrypt_source<
 
 async fn stopper(stop: Receiver<()>) -> Result<(), CryptError> {
     stop.await
-        .map_err(|err| CryptError::Encrypt(err.to_string()))
+        .map_err(|err| CryptError::encrypt(err.to_string()))
 }
 
 async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet>(
@@ -287,7 +292,7 @@ async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratche
         group_sender
             .send(Ok(val))
             .await
-            .map_err(|err| CryptError::Encrypt(err.to_string()))?;
+            .map_err(|err| CryptError::encrypt(err.to_string()))?;
     }
 
     Ok(())
@@ -312,7 +317,7 @@ struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ra
     poll_amt: usize,
     buffer: Arc<Mutex<Vec<u8>>>,
     header_inscriber: Arc<F>,
-    cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
+    cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError>>>,
 }
 
 impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScrambler<F, R, N, Ra> {
@@ -320,10 +325,10 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScram
         groups_rendered: &mut usize,
         read_cursor: &mut usize,
         poll_amt: usize,
-        cur_task: &mut Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
+        cur_task: &mut Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError>>>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<GroupSenderDevice<N>>> {
-        let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, JoinError> =
+        let res: Result<Result<GroupSenderDevice<N>, CryptError>, JoinError> =
             futures::ready!(Pin::new(cur_task.as_mut().unwrap()).poll(cx));
         if let Ok(Ok(sender)) = res {
             *groups_rendered += 1;

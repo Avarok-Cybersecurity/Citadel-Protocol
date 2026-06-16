@@ -168,7 +168,7 @@ impl super::platform_ops::PlatformOps for WasmIO {
                                 security_level,
                             )
                         })
-                        .map_err(|e| crate::error::NetworkError::Generic(e.into_string()))?;
+                        .map_err(|e| crate::error::NetworkError::generic(e.into_string()))?;
                     session.send_to_primary_stream(Some(ticket), packet)?;
                     Ok(())
                 };

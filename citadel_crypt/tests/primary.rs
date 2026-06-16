@@ -1076,7 +1076,9 @@ mod tests {
         });
     }
 
-    #[should_panic(expected = "EncryptionFailure")]
+    // The pqcrypto AEAD failure surfaces here wrapped by the ratchet layer as
+    // NetworkError { code: RekeyUpdate, detail: "Encryption failure" }; match the canonical text.
+    #[should_panic(expected = "Encryption failure")]
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,

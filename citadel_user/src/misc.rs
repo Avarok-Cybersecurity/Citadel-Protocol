@@ -38,62 +38,14 @@
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 
-/// Default Error type for this crate
-#[derive(Debug)]
-pub enum AccountError {
-    /// Input/Output error. Used for possibly failed Serialization/Deserialization of underlying datatypes
-    IoError(String),
-    /// The client already exists
-    ClientExists(u64),
-    /// The client does not exist
-    ClientNonExists(u64),
-    /// The server exists
-    ServerExists(u64),
-    /// The server does not exist
-    ServerNonExists(u64),
-    /// Invalid username
-    InvalidUsername,
-    /// Invalid password
-    InvalidPassword,
-    /// The server is not engaged
-    Disengaged(u64),
-    /// Generic error
-    Generic(String),
-}
-
-impl AccountError {
-    pub(crate) fn msg<T: Into<String>>(msg: T) -> Self {
-        Self::Generic(msg.into())
-    }
-    /// Consumes self and returns the underlying error message
-    pub fn into_string(self) -> String {
-        match self {
-            AccountError::IoError(e) => e,
-            AccountError::Generic(e) => e,
-            AccountError::InvalidUsername => "Invalid username".to_string(),
-            AccountError::InvalidPassword => "Invalid password".to_string(),
-            AccountError::ClientExists(cid) => format!("Client {cid} already exists"),
-            AccountError::ClientNonExists(cid) => format!("Client {cid} does not exist"),
-            AccountError::ServerExists(cid) => format!("Server {cid} already exists"),
-            AccountError::ServerNonExists(cid) => format!("Server {cid} does not exist"),
-            AccountError::Disengaged(cid) => format!("Server {cid} is not engaged"),
-        }
-    }
-}
-
-impl std::fmt::Display for AccountError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
-}
-
-impl From<std::io::Error> for AccountError {
-    fn from(e: std::io::Error) -> Self {
-        AccountError::IoError(format!("{e}"))
-    }
-}
-
-impl std::error::Error for AccountError {}
+/// Default Error type for this crate.
+///
+/// Account errors are part of the workspace-wide canonical
+/// [`citadel_io::NetworkError`]; this alias preserves the historical
+/// `AccountError` name. Construct via the typed helpers
+/// ([`AccountError::account_client_exists`], [`AccountError::io`],
+/// [`AccountError::generic`], [`AccountError::msg`], …).
+pub type AccountError = citadel_io::NetworkError;
 
 /// For passing metadata from a cnac
 #[derive(Debug)]
@@ -132,25 +84,28 @@ pub fn validate_virtual_path<R: AsRef<Path>>(virtual_path: R) -> Result<(), Acco
     const REQUIRED_BEGINNING: &str = "\\";
 
     if !virtual_path.starts_with(REQUIRED_BEGINNING) {
-        return Err(AccountError::IoError(format!(
-            "Path {virtual_path:?} is not a valid remote encrypted virtual directory"
-        )));
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::VirtualPathNotRemoteDir,
+            citadel_io::Dbg(virtual_path.to_path_buf())
+        ));
     }
 
     let buf = format!("{}", virtual_path.display());
 
     // we cannot use path.is_dir() since that checks for file existence, which we don't want
     if buf.ends_with(REQUIRED_BEGINNING) {
-        return Err(AccountError::IoError(format!(
-            "Path {virtual_path:?} is a directory, not a file"
-        )));
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::VirtualPathIsDirectory,
+            citadel_io::Dbg(virtual_path.to_path_buf())
+        ));
     }
 
     if buf.contains("..") {
         // we don't want the user trying to access files outside of the base directory
-        return Err(AccountError::IoError(format!(
-            "Path {virtual_path:?} cannot contain '..' for security reasons"
-        )));
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::VirtualPathTraversal,
+            citadel_io::Dbg(virtual_path.to_path_buf())
+        ));
     }
 
     Ok(())

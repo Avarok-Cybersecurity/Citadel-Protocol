@@ -33,6 +33,7 @@ use bytes::Bytes;
 use citadel_io::tokio::io::{split, AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use citadel_io::tokio_stream::StreamExt;
 use citadel_io::tokio_util::codec::{FramedRead, LengthDelimitedCodec};
+use citadel_io::{error, ErrorCode};
 use futures::SinkExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -66,6 +67,10 @@ pub mod net;
 pub(crate) mod platform_ops;
 pub(crate) mod threading;
 pub mod udp_internal_interface;
+// StateContainer lock-contention profiling. Compiled only under the opt-in `lock-profiling` feature;
+// the `inner_state!`/`inner_mut_state!` macros feed it. Diagnostics/benches only.
+#[cfg(feature = "lock-profiling")]
+pub mod lock_profiling;
 
 #[cfg(target_family = "wasm")]
 pub mod serverless;
@@ -122,9 +127,9 @@ pub async fn read_one_packet_as_framed<S: AsyncRead + Unpin, D: DeserializeOwned
     let packet = framed
         .next()
         .await
-        .ok_or_else(|| NetworkError::msg("Unable to get first packet"))??;
+        .ok_or_else(|| error!(ErrorCode::FirstPacketUnavailable))??;
     let deser = citadel_user::serialization::SyncIO::deserialize_from_vector(&packet)
-        .map_err(|err| NetworkError::Generic(err.into_string()))?;
+        .map_err(|err| NetworkError::generic(err.into_string()))?;
     Ok((framed.into_inner(), deser))
 }
 
@@ -137,10 +142,10 @@ pub async fn write_one_packet<S: AsyncWrite + Unpin, R: Into<Bytes>>(
     framed
         .send(packet.clone())
         .await
-        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+        .map_err(|err| NetworkError::generic(err.to_string()))?;
     framed
         .flush()
         .await
-        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+        .map_err(|err| NetworkError::generic(err.to_string()))?;
     Ok(framed.into_inner())
 }

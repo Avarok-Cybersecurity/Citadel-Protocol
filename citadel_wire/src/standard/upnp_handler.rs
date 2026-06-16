@@ -79,20 +79,20 @@ impl UPnPHandler {
 
         let local_ip_address = async_ip::get_internal_ip(false)
             .await
-            .ok_or(FirewallError::LocalIPAddrFail)?;
+            .ok_or_else(FirewallError::firewall_local_ip_fail)?;
 
         if local_ip_address.is_ipv6() {
-            return Err(FirewallError::UPNP(
-                "Detected LAN IPv6. Not yet implemented".to_string(),
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::FirewallUpnpLanIpv6Unsupported
             ));
         }
 
         let local_ip_address = Ipv4Addr::from_str(local_ip_address.to_string().as_str())
-            .map_err(|_| FirewallError::LocalIPAddrFail)?;
+            .map_err(|_| FirewallError::firewall_local_ip_fail())?;
 
         igd::aio::search_gateway(options)
             .await
-            .map_err(|err| FirewallError::UPNP(err.to_string()))
+            .map_err(|err| FirewallError::firewall_upnp(err.to_string()))
             .map(|gateway| Self {
                 local_ip_address,
                 gateway,
@@ -103,7 +103,7 @@ impl UPnPHandler {
         self.gateway
             .get_external_ip()
             .await
-            .map_err(|err| FirewallError::UPNP(err.to_string()))
+            .map_err(|err| FirewallError::firewall_upnp(err.to_string()))
     }
 
     pub fn get_default_gateway(&self) -> &SocketAddrV4 {
@@ -134,7 +134,7 @@ impl UPnPHandler {
                 firewall_rule_name.as_ref(),
             )
             .await
-            .map_err(|err| FirewallError::UPNP(err.to_string()))
+            .map_err(|err| FirewallError::firewall_upnp(err.to_string()))
     }
 
     /// `remote_peer`: If None, then ALL traffic inbound to the external port is forwarded to the local port on 0.0.0.0
@@ -155,7 +155,7 @@ impl UPnPHandler {
                 firewall_rule_name.as_ref(),
             )
             .await
-            .map_err(|err| FirewallError::UPNP(err.to_string()))
+            .map_err(|err| FirewallError::firewall_upnp(err.to_string()))
     }
 
     pub async fn close_firewall_port(
@@ -167,7 +167,7 @@ impl UPnPHandler {
         self.gateway
             .remove_port(port_mapping_protocol, external_port)
             .await
-            .map_err(|err| FirewallError::UPNP(err.to_string()))
+            .map_err(|err| FirewallError::firewall_upnp(err.to_string()))
     }
 }
 

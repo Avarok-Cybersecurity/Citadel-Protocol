@@ -39,6 +39,7 @@ use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 use citadel_types::proto::{
     GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
 };
@@ -686,7 +687,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                         security_level,
                     )
                     .await
-                    .map_err(NetworkError::Generic)?;
+                    .map_err(NetworkError::generic)?;
 
                 if !peers_okay.is_empty() {
                     peer_layer.add_pending_peers_to_group(key, peers_okay).await;
@@ -815,7 +816,7 @@ fn create_group_channel<R: Ratchet, T: PlatformOps>(
     let session_cid = session
         .session_cid
         .get()
-        .ok_or_else(|| NetworkError::msg("Implicated CID not loaded"))?;
+        .ok_or_else(|| error!(ErrorCode::StateImplicatedCidNotLoaded))?;
     session.send_to_kernel(NodeResult::GroupChannelCreated(GroupChannelCreated {
         ticket,
         channel,
@@ -868,7 +869,7 @@ fn forward_signal<R: Ratchet, T: PlatformOps>(
             ticket,
             event: broadcast,
         }))
-        .map_err(|err| NetworkError::msg(format!("Kernel TX is dead: {err:?}")))?;
+        .map_err(|err| error!(ErrorCode::PeerKernelTxDead, format!("{err:?}")))?;
     Ok(PrimaryProcessorResult::Void)
 }
 

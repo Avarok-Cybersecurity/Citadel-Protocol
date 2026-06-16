@@ -180,7 +180,7 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
         self.to_outbound_stream
             .send(request)
             .await
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     /// Fill-in-place send. Hands `fill` a mutable, zero-initialized buffer of exactly
@@ -202,7 +202,7 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
     {
         // Zero-initialized so a short fill never exposes uninitialized memory (CWE-457).
         let mut buf = BytesMut::zeroed(payload_len);
-        fill(&mut buf[..]).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        fill(&mut buf[..]).map_err(|err| NetworkError::generic(err.to_string()))?;
         self.send(SecBuffer::from(buf)).await
     }
 

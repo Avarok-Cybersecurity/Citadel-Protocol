@@ -128,7 +128,7 @@ impl Manager for RedisConnectionManager {
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm> {
     async fn connect(&mut self) -> Result<(), AccountError> {
         let client = redis_base::Client::open(self.url.as_str())
-            .map_err(|err| AccountError::msg(err.to_string()))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))?;
 
         let manager = RedisConnectionManager { client };
         let mut builder = Pool::builder();
@@ -138,8 +138,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             self.conn_options.max_idle.as_ref(),
         ) {
             if *max_open >= *max_idle {
-                return Err(AccountError::msg(
-                    "Max open must be greater than or equal to max_idle",
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RedisMaxOpenLessThanIdle
                 ));
             }
         }
@@ -206,7 +206,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .sadd(is_personals_key, cnac.get_cid())
             .query_async(&mut conn)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn get_cnac_by_cid(
@@ -221,7 +221,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await?
             .hexists(get_cid_to_cnac_key(), cid)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
@@ -258,7 +258,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         .key(get_peer_username_key(cid)) // 7
         .invoke_async(&mut conn)
         .await
-        .map_err(|err| AccountError::msg(err.to_string()))
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn purge(&self) -> Result<usize, AccountError> {
@@ -271,7 +271,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .query_async(&mut conn)
             .await
             .map(|ret: Vec<usize>| ret[0])
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn get_registered_impersonal_cids(
@@ -284,7 +284,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .smembers(get_impersonal_status_key())
             .await
             .map(|r: Vec<u64>| if r.is_empty() { None } else { Some(r) })
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
@@ -320,7 +320,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         .key(get_peer_username_key(cid1)) // 8
         .invoke_async(&mut conn)
         .await
-        .map_err(|err| AccountError::msg(err.to_string()))
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn register_p2p_as_client(
@@ -338,7 +338,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .ignore()
             .query_async(&mut conn)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
@@ -364,7 +364,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         .key(get_peer_username_key(cid1)) // 8
         .invoke_async(&mut conn)
         .await
-        .map_err(|err| AccountError::msg(err.to_string()))
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn deregister_p2p_as_client(
@@ -387,7 +387,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         .key(get_peer_username_key(session_cid)) // 4
         .invoke_async(&mut conn)
         .await
-        .map_err(|err| AccountError::msg(err.to_string()))
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
         .map(|peer_username: Option<String>| {
             Some(MutualPeer {
                 parent_icid: HYPERLAN_IDX,
@@ -406,7 +406,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .hkeys(get_peer_username_key(session_cid))
             .await
             .map(Some)
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn get_client_metadata(
@@ -440,7 +440,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         .key(get_cid_to_cnac_key())
         .invoke_async(&mut conn)
         .await
-        .map_err(|err| AccountError::msg(err.to_string()))?;
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))?;
 
         let mut ret = vec![];
         for bytes in result {
@@ -462,7 +462,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await?
             .hget(get_peer_username_key(session_cid), peer_cid)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
             .map(|peer_username: Option<String>| {
                 Some(MutualPeer {
                     parent_icid: HYPERLAN_IDX,
@@ -481,7 +481,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await?
             .hexists(get_peer_username_key(session_cid), peer_cid)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     #[allow(unused_results)]
@@ -514,7 +514,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         script
             .invoke_async(&mut conn)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     #[allow(unused_results)]
@@ -557,7 +557,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
                     })
                     .collect()
             })
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn get_hyperlan_peer_list_as_server(
@@ -569,7 +569,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await?
             .hgetall(get_peer_username_key(session_cid)) // get all (peer_cid, username)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))?;
 
         let mut ret = Vec::with_capacity(usernames_map.len());
         for (cid, username) in usernames_map {
@@ -601,7 +601,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         let _: () = conn
             .del(&[&peer_cid_key, &peer_username_key])
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))?;
 
         // now, add back everything fresh
         for MutualPeer { cid, username, .. } in peers {
@@ -614,7 +614,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         let _: () = pipe
             .query_async(&mut conn)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))?;
 
         Ok(())
     }
@@ -630,7 +630,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await?
             .hget(get_byte_map_key(session_cid, peer_cid, key), sub_key)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn remove_byte_map_value(
@@ -653,7 +653,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         .key(sub_key)
         .invoke_async(&mut conn)
         .await
-        .map_err(|err| AccountError::msg(err.to_string()))
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn store_byte_map_value(
@@ -678,7 +678,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         .arg(value)
         .invoke_async(&mut conn)
         .await
-        .map_err(|err| AccountError::msg(err.to_string()))
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn get_byte_map_values_by_key(
@@ -691,7 +691,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await?
             .hgetall(get_byte_map_key(session_cid, peer_cid, key))
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn remove_byte_map_values_by_key(
@@ -712,7 +712,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         .key(key)
         .invoke_async(&mut conn)
         .await
-        .map_err(|err| AccountError::msg(err.to_string()))
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn stream_object_to_backend(
@@ -750,7 +750,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R, Fcm> {
         client
             .get(key)
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
     }
 
     async fn fetch_cnac(
@@ -761,7 +761,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R, Fcm> {
             .get_conn()
             .await?
             .hget::<_, _, Option<Vec<u8>>>(get_cid_to_cnac_key(), cid)
-            .map_err(|err| AccountError::msg(err.to_string()))
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))
             .await?
         {
             self.cnac_bytes_to_cnac(value).map(Some)
@@ -781,10 +781,10 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R, Fcm> {
         Ok(self
             .conn
             .as_ref()
-            .ok_or_else(|| AccountError::msg("Redis client not loaded"))?
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RedisClientNotLoaded))?
             .get()
             .await
-            .map_err(|err| AccountError::msg(err.to_string()))?)
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::RedisOp, err.to_string()))?)
         .map(|conn| conn.into_inner())
     }
 }

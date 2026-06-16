@@ -105,7 +105,7 @@ impl Ratchet for MonoRatchet {
     ) -> Result<(&PostQuantumContainer, &EntropyBank), CryptError> {
         if let Some(idx) = idx {
             if idx != 0 {
-                return Err(CryptError::OutOfBoundsError);
+                return Err(citadel_io::error!(citadel_io::ErrorCode::OutOfBounds));
             }
         }
 
@@ -299,11 +299,11 @@ impl MonoRatchetConstructor {
     ) -> Result<(), CryptError> {
         self.pqc
             .alice_on_receive_ciphertext(transfer.params_tx, psks)
-            .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+            .map_err(|err| CryptError::rekey_update(err.to_string()))?;
         let bytes = self
             .pqc
             .decrypt(&transfer.encrypted_entropy_bank_bytes, &self.nonce)
-            .map_err(|err| CryptError::RekeyUpdateError(err.to_string()))?;
+            .map_err(|err| CryptError::rekey_update(err.to_string()))?;
         let entropy_bank = EntropyBank::deserialize_from(&bytes[..])?;
         self.entropy_bank = Some(entropy_bank);
         Ok(())

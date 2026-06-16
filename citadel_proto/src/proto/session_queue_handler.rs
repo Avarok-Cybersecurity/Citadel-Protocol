@@ -35,6 +35,7 @@ use crate::proto::session::SessionState;
 use citadel_io::time::{delay_queue, DelayQueue};
 use citadel_io::tokio::sync::broadcast::Sender;
 use citadel_io::tokio::time::error::Error;
+use citadel_io::{error, ErrorCode};
 use futures::Stream;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -331,9 +332,7 @@ impl<R: Ratchet> futures::Future for SessionQueueWorker<R> {
                     //log::error!(target: "citadel", "Unable to shutdown session: {:?}", err);
                 }
 
-                Poll::Ready(Err(NetworkError::InternalError(
-                    "Queue handler signalled shutdown",
-                )))
+                Poll::Ready(Err(error!(ErrorCode::QueueHandlerShutdown)))
             }
         }
     }

@@ -300,9 +300,16 @@ fn load_hole_punch_friendly_quic_transport_config<'a>(
     // once BDP exceeds that — the connection-level `receive_window` already defaults to VarInt::MAX,
     // so the per-stream window is the binding constraint. Raise it to 8 MiB and the send window to
     // 16 MiB to keep the pipe full. This only governs flow control on the established QUIC stream; it
-    // does NOT touch keep-alive, migration, MTU, or the hole-punch consensus path.
+    // does NOT touch keep-alive, migration, or the hole-punch consensus path.
     transport_cfg.stream_receive_window(VarInt::from_u32(8 * 1024 * 1024));
     transport_cfg.send_window(16 * 1024 * 1024);
+
+    // Start MTU at 1280 (the IPv6 minimum link MTU) instead of quinn's conservative 1200 default.
+    // 1280 is safe on essentially every path (any IPv6-capable link must carry it without
+    // fragmentation), so we gain ~80 bytes of goodput per packet from the first datagram without
+    // depending on PMTU discovery. PMTUD is left at its default; this only raises the floor, it does
+    // not probe upward, so it cannot break the most restrictive hole-punched path.
+    transport_cfg.initial_mtu(1280);
 
     match cfg {
         Either::Left(cfg) => {

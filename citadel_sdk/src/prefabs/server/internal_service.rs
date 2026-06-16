@@ -144,7 +144,10 @@ mod test {
     }
 
     fn from_hyper_error(e: Error) -> NetworkError {
-        NetworkError::msg(format!("Hyper error: {e}"))
+        citadel_io::error!(
+            citadel_io::ErrorCode::InternalServiceHyperError,
+            e.to_string()
+        )
     }
 
     async fn test_write_and_read_one_packet(
@@ -166,7 +169,9 @@ mod test {
         barrier.wait().await;
 
         if &response.packet != message {
-            return Err(NetworkError::msg("Response did not match request"));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::InternalServiceResponseMismatch
+            ));
         }
 
         let _ = success_count.fetch_add(1, Ordering::SeqCst);
@@ -313,7 +318,7 @@ mod test {
                             .header("Host", "example.com")
                             .method("GET")
                             .body(Body::from(""))
-                            .map_err(|err| NetworkError::msg(format!("hyper error: {err}")))?;
+                            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::InternalServiceHyperError, err.to_string()))?;
                         let response = request_sender.send_request(request).await.map_err(from_hyper_error)?;
                         assert_eq!(response.status(), StatusCode::OK);
 

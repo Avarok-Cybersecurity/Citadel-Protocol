@@ -13,6 +13,7 @@
 //! - Multiple STUN server fallback support
 //! - NAT traversal strategy determination
 
+#[cfg(not(target_family = "wasm"))]
 use crate::error::FirewallError;
 use async_ip::IpAddressInfo;
 use itertools::Itertools;
@@ -452,13 +453,13 @@ mod native {
         ) -> Result<Self, FirewallError> {
             match citadel_io::time::timeout(_timeout, get_nat_type(stun_servers)).await {
                 Ok(res) => res
-                    .map_err(|err| FirewallError::HolePunch(err.to_string()))
+                    .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))
                     .inspect(|nat_type| {
                         *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
                     }),
 
-                Err(_elapsed) => Err(FirewallError::HolePunch(
-                    "NAT identification elapsed".to_string(),
+                Err(_elapsed) => Err(citadel_io::error!(
+                    citadel_io::ErrorCode::FirewallNatIdentTimeout
                 )),
             }
         }

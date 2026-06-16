@@ -47,10 +47,10 @@ pub(crate) mod do_connect {
     ) -> Result<DoConnectStage0Packet, NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
         let payload = DoConnectStage0Packet::deserialize_from_vector(payload)
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         cnac.validate_credentials(payload.proposed_credentials.clone())
             .await
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         log::trace!(target: "citadel", "Success validating credentials!");
         Ok(payload)
     }
@@ -220,6 +220,7 @@ pub(crate) mod pre_connect {
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
     use citadel_crypt::ratchets::Ratchet;
+    use citadel_io::{error, ErrorCode};
     use citadel_types::crypto::PreSharedKey;
     use citadel_types::proto::SessionSecuritySettings;
     use citadel_types::proto::UdpMode;
@@ -258,12 +259,11 @@ pub(crate) mod pre_connect {
         let (header, payload, _, _) = packet.decompose();
         // After this point, we validate that the other end had the right static symmetric key. This proves device identity, thought not necessarily account identity
         let (header, payload) =
-            super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload).ok_or(
-                NetworkError::InternalError("Unable to validate initial packet"),
-            )?;
+            super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload)
+                .ok_or(error!(ErrorCode::ValidationInitialPacketFailed))?;
 
         let transfer = SynPacket::<R>::deserialize_from_vector(&payload)
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
 
         let session_security_settings = transfer.session_security_settings;
         let peer_only_connect_mode = transfer.peer_only_connect_protocol;
@@ -272,7 +272,7 @@ pub(crate) mod pre_connect {
         let kat = transfer.keep_alive_timeout;
         let _ = static_auxiliary_ratchet
             .verify_level(Some(transfer.session_security_settings.security_level))
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         let opts = static_auxiliary_ratchet
             .get_next_constructor_opts()
             .into_iter()
@@ -285,18 +285,16 @@ pub(crate) mod pre_connect {
             transfer.transfer,
             session_password.as_ref(),
         )
-        .ok_or(NetworkError::InternalError(
-            "Unable to create bob container",
-        ))?;
+        .ok_or(error!(ErrorCode::ValidationBobContainerFailed))?;
         let transfer = bob_constructor
             .stage0_bob()
-            .ok_or(NetworkError::InternalError("Unable to execute stage0_bob"))?;
-        let new_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError(
-            "Unable to finish bob constructor",
-        ))?;
+            .ok_or(error!(ErrorCode::ValidationStage0BobFailed))?;
+        let new_ratchet = bob_constructor
+            .finish()
+            .ok_or(error!(ErrorCode::ValidationBobConstructorFinishFailed))?;
         let _ = new_ratchet
             .verify_level(transfer.security_level().into())
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         // below, we need to ensure the hyper ratchet stays constant throughout transformations
         let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_ratchet.clone()));
 

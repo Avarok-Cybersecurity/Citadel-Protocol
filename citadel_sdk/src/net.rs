@@ -57,7 +57,10 @@ impl<R: Ratchet> BrowserConnection<R> {
         let node_future = NodeBuilder::<R, DefaultTransport>::default()
             .with_no_central_server(config)
             .with_backend(BackendType::InMemory)
-            .build(kernel)?;
+            .build(kernel)
+            .map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::NodeBuildFailed, err.to_string())
+            })?;
 
         let kernel_task =
             citadel_io::tokio::task::spawn_local(async move { node_future.await.map(|_| ()) });
@@ -66,8 +69,8 @@ impl<R: Ratchet> BrowserConnection<R> {
             Ok(conn) => conn,
             Err(_) => {
                 kernel_task.abort();
-                return Err(NetworkError::InternalError(
-                    "Kernel stopped before connection established",
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::ServerlessKernelStoppedEarly
                 ));
             }
         };

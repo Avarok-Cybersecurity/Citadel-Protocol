@@ -253,12 +253,12 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: _,
                 cid_opt: _,
                 error_message: err,
-            }) => Err(NetworkError::Generic(err)),
+            }) => Err(NetworkError::generic(err)),
             NodeResult::RegisterFailure(RegisterFailure {
                 ticket: _,
                 error_message: err,
-            }) => Err(NetworkError::Generic(err)),
-            NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::Generic(format!(
+            }) => Err(NetworkError::generic(err)),
+            NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::generic(format!(
                 "Outbound request rejected: {:?}",
                 String::from_utf8(reason.message_opt.unwrap_or_default())
                     .unwrap_or_else(|_| "Bad request".into())
@@ -267,7 +267,7 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket_opt: _,
                 cid_opt: _,
                 message: err,
-            }) => Err(NetworkError::Generic(err)),
+            }) => Err(NetworkError::generic(err)),
             NodeResult::PeerEvent(PeerEvent {
                 event:
                     PeerSignal::SignalError {
@@ -277,7 +277,7 @@ impl<R: Ratchet> NodeResult<R> {
                     },
                 ticket: _,
                 ..
-            }) => Err(NetworkError::Generic(err)),
+            }) => Err(NetworkError::generic(err)),
             res => Ok(res),
         }
     }

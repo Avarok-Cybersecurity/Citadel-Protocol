@@ -31,6 +31,7 @@ use crate::proto::node_result::NodeResult;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::Mutex;
+use citadel_io::{error, ErrorCode};
 use futures::{Future, Stream};
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -191,7 +192,7 @@ impl<R: Ratchet> KernelAsyncCallbackHandlerInner<R> {
         notifier: CallbackNotifier<R>,
     ) -> Result<(), NetworkError> {
         if self.map.insert(callback_key, notifier).is_some() {
-            Err(NetworkError::InternalError("Overwrote previous notifier"))
+            Err(error!(ErrorCode::KernelNotifierOverwritten))
         } else {
             Ok(())
         }

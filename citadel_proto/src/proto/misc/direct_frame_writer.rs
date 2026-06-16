@@ -70,6 +70,14 @@ impl<W: AsyncWrite + Unpin + ContextRequirements + 'static> DirectFrameWriter<W>
                 header_obfuscator.obfuscate_header(&mut header);
                 write_frame_buffers(self.writer(), &[&len_prefix, &header, &payload]).await
             }
+            OutboundPacket::Flush(ack) => {
+                // Flush-barrier: push everything written before this marker to the socket, then signal.
+                // BEST-EFFORT — a flush error on a closing socket is swallowed (returns Ok) so it can
+                // never become the writer task's result and override the session's exit reason.
+                let _ = self.flush().await;
+                let _ = ack.send(());
+                Ok(())
+            }
         }
     }
 

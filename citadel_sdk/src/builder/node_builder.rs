@@ -170,9 +170,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                 let underlying_proto = match underlying_proto {
                     Some(proto) => proto,
                     None => T::default_server_config().await.map_err(|err| {
-                        NetworkError::Generic(format!(
-                            "Failed to create default server config: {err}"
-                        ))
+                        citadel_io::error!(
+                            citadel_io::ErrorCode::NodeDefaultServerConfigFailed,
+                            err.to_string()
+                        )
                     })?,
                 };
 
@@ -192,7 +193,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                         sl_config.timeout_ms,
                     )
                     .await
-                    .map_err(|e: std::io::Error| NetworkError::Generic(e.to_string()))?;
+                    .map_err(|e: std::io::Error| NetworkError::generic(e.to_string()))?;
 
                     T::setup_serverless_transport(conn.stream, conn.is_server_role, client_config)
                 } else {
@@ -203,7 +204,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                 let pre_built_listener = None;
 
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
-                let rt = citadel_io::try_current_runtime().map_err(NetworkError::Generic)?;
+                let rt = citadel_io::try_current_runtime().map_err(NetworkError::generic)?;
                 log::trace!(target: "citadel", "[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(
                     backend_type,

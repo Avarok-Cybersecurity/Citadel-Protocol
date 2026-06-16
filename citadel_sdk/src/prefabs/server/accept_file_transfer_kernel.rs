@@ -64,7 +64,7 @@ impl<R: Ratchet> NetKernel<R> for AcceptFileTransferKernel<R> {
                 .handle
                 .exhaust_stream()
                 .await
-                .map_err(|err| NetworkError::Generic(err.into_string()))?;
+                .map_err(|err| NetworkError::generic(err.into_string()))?;
         }
 
         Ok(())

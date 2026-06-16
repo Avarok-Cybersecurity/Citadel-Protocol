@@ -628,9 +628,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                     && *peer_file_transfer_compat,
                                                 p2p_connection_id,
                                             ) {
-                                            Some(ch) => ch,
-                                            None => {
-                                                log::info!(target: "citadel", "Dual-connect race: duplicate Kex suppressed (Stage1, peer {peer_cid})");
+                                            Ok(ch) => ch,
+                                            Err(err) => {
+                                                log::info!(target: "citadel", "Dual-connect race: duplicate Kex suppressed (Stage1, peer {peer_cid}): {err}");
                                                 return Ok(PrimaryProcessorResult::Void);
                                             }
                                         };
@@ -841,9 +841,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                     && *peer_file_transfer_compat,
                                                 p2p_connection_id,
                                             ) {
-                                            Some(ch) => ch,
-                                            None => {
-                                                log::info!(target: "citadel", "Dual-connect race: duplicate Kex suppressed (Stage2, peer {peer_cid})");
+                                            Ok(ch) => ch,
+                                            Err(err) => {
+                                                log::info!(target: "citadel", "Dual-connect race: duplicate Kex suppressed (Stage2, peer {peer_cid}): {err}");
                                                 return Ok(PrimaryProcessorResult::Void);
                                             }
                                         };

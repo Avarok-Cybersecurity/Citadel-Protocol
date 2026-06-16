@@ -162,7 +162,7 @@ mod native {
         fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
             self.sink
                 .send_datagram(item)
-                .map_err(|err| NetworkError::Generic(format!("{err:?}")))
+                .map_err(|err| NetworkError::generic(format!("{err:?}")))
         }
 
         fn poll_flush(
@@ -213,15 +213,31 @@ mod native {
     impl RawUdpSocketConnector {
         pub fn new(socket: UdpSocket, peer_addr: SocketAddr) -> Self {
             let local_addr = socket.local_addr();
-            let framed = UdpFramed::new(
-                socket,
-                super::super::super::codec::BytesCodec::new(CODEC_BUFFER_CAPACITY),
-            );
-            let (sink, stream) = framed.split();
+
+            // Attempt the io_uring recv backend before moving the socket into UdpFramed (it needs to
+            // dup the still-borrowed fd). On success the standard recv stream is dropped so io_uring
+            // is the sole reader; the send half always stays on the standard path.
+            #[cfg(all(target_os = "linux", feature = "io-uring"))]
+            let io_uring_recv = citadel_io::IoUringUdpReceiver::try_spawn(&socket);
+
+            let framed = UdpFramed::new(socket, BytesCodec::new(CODEC_BUFFER_CAPACITY));
+            let (sink, split_stream) = framed.split();
+
+            #[cfg(all(target_os = "linux", feature = "io-uring"))]
+            let stream = match io_uring_recv {
+                Some(recv) => {
+                    log::trace!(target: "citadel", "Raw UDP recv using io_uring backend");
+                    drop(split_stream);
+                    RawUdpSocketStream::IoUring(recv)
+                }
+                None => RawUdpSocketStream::Standard(split_stream),
+            };
+            #[cfg(not(all(target_os = "linux", feature = "io-uring")))]
+            let stream = RawUdpSocketStream::Standard(split_stream);
 
             Self {
                 sink: RawUdpSocketSink { sink, peer_addr },
-                stream: RawUdpSocketStream { stream },
+                stream,
                 local_addr,
             }
         }
@@ -232,8 +248,14 @@ mod native {
         pub(super) peer_addr: SocketAddr,
     }
 
-    pub(crate) struct RawUdpSocketStream {
-        stream: SplitStream<UdpFramed<BytesCodec>>,
+    // Inbound recv half. Standard tokio path by default; on Linux with the `io-uring` feature and a
+    // successful ring init, the io_uring backend (in citadel_io) drives recv instead, while the send
+    // half keeps using the standard path. The standard SplitStream is dropped in that case so only
+    // one reader consumes the socket.
+    pub(crate) enum RawUdpSocketStream {
+        Standard(SplitStream<UdpFramed<BytesCodec>>),
+        #[cfg(all(target_os = "linux", feature = "io-uring"))]
+        IoUring(citadel_io::IoUringUdpReceiver),
     }
 
     impl Sink<Bytes> for RawUdpSocketSink {
@@ -245,14 +267,14 @@ mod native {
         ) -> Poll<Result<(), Self::Error>> {
             Pin::new(&mut self.sink)
                 .poll_ready(cx)
-                .map_err(|err| NetworkError::Generic(err.to_string()))
+                .map_err(|err| NetworkError::generic(err.to_string()))
         }
 
         fn start_send(mut self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
             let addr = self.peer_addr;
             Pin::new(&mut self.sink)
                 .start_send((item, addr))
-                .map_err(|err| NetworkError::Generic(err.to_string()))
+                .map_err(|err| NetworkError::generic(err.to_string()))
         }
 
         fn poll_flush(
@@ -261,7 +283,7 @@ mod native {
         ) -> Poll<Result<(), Self::Error>> {
             Pin::new(&mut self.sink)
                 .poll_flush(cx)
-                .map_err(|err| NetworkError::Generic(err.to_string()))
+                .map_err(|err| NetworkError::generic(err.to_string()))
         }
 
         fn poll_close(
@@ -270,7 +292,7 @@ mod native {
         ) -> Poll<Result<(), Self::Error>> {
             Pin::new(&mut self.sink)
                 .poll_flush(cx)
-                .map_err(|err| NetworkError::Generic(err.to_string()))
+                .map_err(|err| NetworkError::generic(err.to_string()))
         }
     }
 
@@ -278,9 +300,13 @@ mod native {
         type Item = Result<(BytesMut, SocketAddr), std::io::Error>;
 
         fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-            Pin::new(&mut self.stream)
-                .poll_next(cx)
-                .map_err(generic_error)
+            match &mut *self {
+                RawUdpSocketStream::Standard(stream) => {
+                    Pin::new(stream).poll_next(cx).map_err(generic_error)
+                }
+                #[cfg(all(target_os = "linux", feature = "io-uring"))]
+                RawUdpSocketStream::IoUring(recv) => recv.poll_recv(cx),
+            }
         }
     }
 }
@@ -485,7 +511,7 @@ mod wasm {
         fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
             self.dc
                 .send_with_u8_array(&item)
-                .map_err(|e| NetworkError::Generic(format!("{e:?}")))
+                .map_err(|e| NetworkError::generic(format!("{e:?}")))
         }
 
         fn poll_flush(

@@ -92,7 +92,6 @@
 use reqwest::header::CONTENT_TYPE;
 use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
@@ -174,18 +173,7 @@ pub struct Node<'a> {
 ///
 /// All errors are converted to a string representation for simplified error handling
 /// while maintaining the original error context.
-#[derive(Debug)]
-pub struct RtdbError {
-    pub inner: String,
-}
-
-impl<E: Error> From<E> for RtdbError {
-    fn from(err: E) -> Self {
-        Self {
-            inner: err.to_string(),
-        }
-    }
-}
+pub type RtdbError = citadel_io::NetworkError;
 
 /// Default connection timeout for HTTP requests
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -235,13 +223,18 @@ impl FirebaseRTDB {
             .header(CONTENT_TYPE, "application/json")
             .json(&payload)
             .send()
-            .await?
+            .await
+            .map_err(|e| RtdbError::rtdb(e.to_string()))?
             .json()
-            .await?;
+            .await
+            .map_err(|e| RtdbError::rtdb(e.to_string()))?;
         log::trace!(target: "citadel", "RESP AUTH: {resp:?}");
 
-        let expire_time =
-            Instant::now() + Duration::from_secs(u64::from_str(resp.expiresIn.as_str())?);
+        let expire_time = Instant::now()
+            + Duration::from_secs(
+                u64::from_str(resp.expiresIn.as_str())
+                    .map_err(|e| RtdbError::rtdb(e.to_string()))?,
+            );
 
         Ok(Self {
             base_url,
@@ -323,14 +316,19 @@ impl FirebaseRTDB {
             .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
             .json(&payload)
             .send()
-            .await?
+            .await
+            .map_err(|e| RtdbError::rtdb(e.to_string()))?
             .json()
-            .await?;
+            .await
+            .map_err(|e| RtdbError::rtdb(e.to_string()))?;
 
         log::trace!(target: "citadel", "RESP RENEW: {:?}", &resp);
         // update internal value using the new response
-        let expire_time =
-            Instant::now() + Duration::from_secs(u64::from_str(resp.expires_in.as_str())?);
+        let expire_time = Instant::now()
+            + Duration::from_secs(
+                u64::from_str(resp.expires_in.as_str())
+                    .map_err(|e| RtdbError::rtdb(e.to_string()))?,
+            );
         self.expire_time = expire_time;
 
         let auth = AuthResponsePayload {
@@ -354,11 +352,12 @@ impl FirebaseRTDB {
 
     /// Creates a new reqwest Client with appropriate timeout settings.
     fn build_client() -> Result<Client, RtdbError> {
-        Ok(Client::builder()
+        Client::builder()
             .use_rustls_tls()
             .connect_timeout(CONNECT_TIMEOUT)
             .tcp_nodelay(true)
-            .build()?)
+            .build()
+            .map_err(|e| RtdbError::rtdb(e.to_string()))
     }
 
     /// Returns a Node representing the root of the database.
@@ -414,7 +413,8 @@ impl Node<'_> {
             .client
             .get(format!("{}?auth={}", self.string_builder, self.token))
             .send()
-            .await?;
+            .await
+            .map_err(|e| RtdbError::rtdb(e.to_string()))?;
         Self::handle_response(resp).await
     }
 
@@ -428,7 +428,8 @@ impl Node<'_> {
             .put(format!("{}?auth={}", self.string_builder, self.token))
             .json(&input)
             .send()
-            .await?;
+            .await
+            .map_err(|e| RtdbError::rtdb(e.to_string()))?;
         Self::handle_response(resp).await
     }
 
@@ -442,7 +443,8 @@ impl Node<'_> {
             .post(format!("{}?auth={}", self.string_builder, self.token))
             .json(&input)
             .send()
-            .await?;
+            .await
+            .map_err(|e| RtdbError::rtdb(e.to_string()))?;
         Self::handle_response(resp).await
     }
 
@@ -456,7 +458,8 @@ impl Node<'_> {
             .patch(format!("{}?auth={}", self.string_builder, self.token))
             .json(&input)
             .send()
-            .await?;
+            .await
+            .map_err(|e| RtdbError::rtdb(e.to_string()))?;
         Self::handle_response(resp).await
     }
 
@@ -468,18 +471,23 @@ impl Node<'_> {
             .client
             .delete(format!("{}?auth={}", self.string_builder, self.token))
             .send()
-            .await?;
+            .await
+            .map_err(|e| RtdbError::rtdb(e.to_string()))?;
         Self::handle_response(resp).await
     }
 
     /// Processes the HTTP response and extracts the result or error.
     async fn handle_response(resp: Response) -> Result<String, RtdbError> {
         if resp.status().as_u16() == 200 {
-            Ok(resp.text().await?)
+            resp.text()
+                .await
+                .map_err(|e| RtdbError::rtdb(e.to_string()))
         } else {
-            Err(RtdbError {
-                inner: resp.text().await?,
-            })
+            Err(RtdbError::rtdb(
+                resp.text()
+                    .await
+                    .map_err(|e| RtdbError::rtdb(e.to_string()))?,
+            ))
         }
     }
 }

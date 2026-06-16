@@ -41,7 +41,6 @@
 
 use citadel_io::tokio::sync::mpsc::{Receiver, Sender};
 use futures::Stream;
-use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -53,33 +52,8 @@ pub struct CallbackChannel<T, R> {
     inner: CallbackChannelInner<T, R>,
 }
 
-/// Enum representing possible errors that can occur during callback channel operations.
-pub enum CallbackError<T> {
-    /// Error occurred while sending a message.
-    SendError(T),
-    /// Error occurred while receiving a message.
-    RecvError,
-    /// Internal error occurred during channel operations.
-    InternalError(&'static str),
-}
-
-impl<T> Debug for CallbackError<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::SendError(_) => {
-                write!(f, "Callback Error: Unable to Send")
-            }
-
-            Self::RecvError => {
-                write!(f, "Callback Error: Unable to receive")
-            }
-
-            Self::InternalError(err) => {
-                write!(f, "Callback Error: {err}")
-            }
-        }
-    }
-}
+/// Error type for callback channel operations.
+pub type CallbackError = citadel_io::NetworkError;
 
 /// Inner implementation details of the callback channel.
 #[derive(Clone)]
@@ -110,25 +84,25 @@ impl<T, R> CallbackChannel<T, R> {
     /// Sends a message through the channel with an optional callback.
     ///
     /// Returns a result containing the response from the receiver, or an error if the send operation fails.
-    pub async fn send(&self, payload: T) -> Result<R, CallbackError<T>> {
+    pub async fn send(&self, payload: T) -> Result<R, CallbackError> {
         let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         self.inner
             .to_channel
             .send((payload, Some(tx)))
             .await
-            .map_err(|err| CallbackError::SendError(err.0 .0))?;
-        rx.await.map_err(|_| CallbackError::RecvError)
+            .map_err(|_| CallbackError::channel_send("callback channel send failed"))?;
+        rx.await.map_err(|_| CallbackError::channel_recv())
     }
 
     /// Sends a message through the channel without a callback.
     ///
     /// Returns a result indicating whether the send operation was successful, or an error if it fails.
-    pub async fn send_no_callback(&self, payload: T) -> Result<(), CallbackError<T>> {
+    pub async fn send_no_callback(&self, payload: T) -> Result<(), CallbackError> {
         self.inner
             .to_channel
             .send((payload, None))
             .await
-            .map_err(|err| CallbackError::SendError(err.0 .0))
+            .map_err(|_| CallbackError::channel_send("callback channel send failed"))
     }
 }
 

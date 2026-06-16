@@ -30,68 +30,66 @@ use citadel_io::time::Instant;
 use citadel_io::tokio;
 use std::collections::HashMap;
 
-pub struct OrderedChannel<T> {
-    sink: tokio::sync::mpsc::UnboundedSender<T>,
+/// Interior-mutable reorder state. Held behind a `Mutex` so `on_packet_received` takes `&self`,
+/// which lets the per-vconn delivery path run under a shared *read* lock on the StateContainer
+/// instead of serializing every vconn's messages on one write lock (the multi-vconn convoy).
+struct OrderedChannelState<T> {
     map: HashMap<u64, T>,
     last_message_received: Option<u64>,
     #[allow(dead_code)]
     last_message_received_instant: Option<Instant>,
 }
 
+pub struct OrderedChannel<T> {
+    // `UnboundedSender::send` already takes `&self`; only the reorder bookkeeping needs guarding.
+    sink: tokio::sync::mpsc::UnboundedSender<T>,
+    state: citadel_io::Mutex<OrderedChannelState<T>>,
+}
+
 impl<T> OrderedChannel<T> {
     pub fn new(sink: tokio::sync::mpsc::UnboundedSender<T>) -> Self {
         Self {
             sink,
-            map: HashMap::new(),
-            last_message_received: None,
-            last_message_received_instant: None,
+            state: citadel_io::Mutex::new(OrderedChannelState {
+                map: HashMap::new(),
+                last_message_received: None,
+                last_message_received_instant: None,
+            }),
         }
     }
 
     #[allow(unused_results)]
     pub fn on_packet_received(
-        &mut self,
+        &self,
         id: u64,
         packet: T,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
-        let next_expected_message_id = self
+        let mut state = self.state.lock();
+        let next_expected_message_id = state
             .last_message_received
             .map(|r| r.wrapping_add(1))
             .unwrap_or(0);
         log::trace!(target: "citadel", "[ORDERED CHANNEL] Received packet with id {id} | Next expected message id: {next_expected_message_id}");
         if next_expected_message_id == id {
             // we send this packet, then scan sequentially for any other packets that may have been delivered until hitting discontinuity
-            self.send_then_scan(id, packet)?;
-            Ok(())
+            self.send_then_scan(&mut state, id, packet)
         } else {
             // we store. Since the next needed packet in order is not yet received, we store and return
-            self.store_received_packet(id, packet);
+            state.map.insert(id, packet);
+            state.last_message_received_instant = Some(Instant::now());
             Ok(())
         }
     }
 
-    #[allow(unused_results)]
-    fn store_received_packet(&mut self, id: u64, packet: T) {
-        self.map.insert(id, packet);
-        self.set_last_message_received_instant();
-    }
-
-    fn set_last_message_received_instant(&mut self) {
-        self.last_message_received_instant = Some(Instant::now())
-    }
-
-    fn set_last_message_received(&mut self, id: u64) {
-        self.last_message_received = Some(id)
-    }
-
     fn send_then_scan(
-        &mut self,
+        &self,
+        state: &mut OrderedChannelState<T>,
         new_id: u64,
         packet: T,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
-        self.send_unconditional(new_id, packet)?;
-        if !self.map.is_empty() {
-            self.scan_send(new_id)
+        self.send_unconditional(state, new_id, packet)?;
+        if !state.map.is_empty() {
+            self.scan_send(state, new_id)
         } else {
             Ok(())
         }
@@ -99,12 +97,13 @@ impl<T> OrderedChannel<T> {
 
     // Assumes `last_arrived_id` has already been sent through the sink. This function will scan the elements in the hashmap sequentially, sending each enqueued packet, stopping once discontinuity occurs
     fn scan_send(
-        &mut self,
+        &self,
+        state: &mut OrderedChannelState<T>,
         last_arrived_id: u64,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
         let mut cur_scan_id = last_arrived_id.wrapping_add(1);
-        while let Some(next) = self.map.remove(&cur_scan_id) {
-            self.send_unconditional(cur_scan_id, next)?;
+        while let Some(next) = state.map.remove(&cur_scan_id) {
+            self.send_unconditional(state, cur_scan_id, next)?;
             cur_scan_id = cur_scan_id.wrapping_add(1);
         }
 
@@ -112,13 +111,14 @@ impl<T> OrderedChannel<T> {
     }
 
     fn send_unconditional(
-        &mut self,
+        &self,
+        state: &mut OrderedChannelState<T>,
         new_id: u64,
         packet: T,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
         self.sink.send(packet)?;
-        self.set_last_message_received(new_id);
-        self.set_last_message_received_instant();
+        state.last_message_received = Some(new_id);
+        state.last_message_received_instant = Some(Instant::now());
         Ok(())
     }
 }
@@ -143,7 +143,7 @@ mod tests {
         citadel_logging::setup_log();
         const COUNT: u8 = 100;
         let (tx, mut rx) = unbounded_channel::<SecBuffer>();
-        let mut ordered_channel = OrderedChannel::new(tx.clone());
+        let ordered_channel = OrderedChannel::new(tx.clone());
         let values_ordered = (0..COUNT)
             .map(|r| (r as _, SecBuffer::from(&[r] as &[u8])))
             .collect::<Vec<(u64, SecBuffer)>>();
@@ -176,7 +176,7 @@ mod tests {
         citadel_logging::setup_log();
         const COUNT: usize = 1000;
         let (tx, mut rx) = unbounded_channel::<SecBuffer>();
-        let mut ordered_channel = OrderedChannel::new(tx.clone());
+        let ordered_channel = OrderedChannel::new(tx.clone());
         let mut values_ordered = (0..COUNT)
             .map(|r| {
                 (

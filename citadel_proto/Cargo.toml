@@ -16,9 +16,22 @@ default = ["filesystem", "std"]
 filesystem = ["citadel_user/filesystem"]
 opfs = ["citadel_user/opfs"]
 multi-threaded = []
+# Exposes `citadel_proto::fuzz_targets` (thin pub wrappers over internal parse/validate fns) so the
+# out-of-tree AFL harness in `fuzz/` can reach them without widening the real API. Off by default;
+# never enable in production builds.
+fuzzing = []
+# Opt-in StateContainer lock-contention profiling. When on, the `inner_state!`/`inner_mut_state!`
+# macros time each acquire-wait into global counters (read via `proto::misc::lock_profiling`). Off by
+# default → zero hot-path overhead. For benches/diagnostics only; never enable in production.
+lock-profiling = []
 sql = ["citadel_user/sql"]
 redis = ["citadel_user/redis"]
 webrtc = ["webrtc-util"]
+# Linux-only io_uring backend for the raw-UDP inbound recv path. Off by default; forwarded to
+# citadel_io, where the unsafe ring code lives (this crate is `forbid(unsafe_code)`). When enabled it
+# attempts io_uring at socket setup and falls back to the standard tokio path if init fails (old
+# kernels, restricted sandboxes). No effect on non-Linux/WASM targets — a harmless no-op there.
+io-uring = ["citadel_io/io-uring"]
 localhost-testing = [
     "citadel_wire/localhost-testing",
     "citadel_user/localhost-testing",
@@ -45,6 +58,7 @@ wasm-threads = ["citadel_crypt/wasm-threads"]
 [dependencies]
 citadel_types = { workspace = true }
 embedded-semver = { workspace = true }
+dashmap = { workspace = true }
 lazy_static = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }

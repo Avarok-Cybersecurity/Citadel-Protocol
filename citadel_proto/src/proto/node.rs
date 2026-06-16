@@ -35,6 +35,7 @@ use std::sync::Arc;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::Mutex;
+use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
@@ -265,7 +266,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
 
             citadel_io::time::timeout(Duration::from_millis(1000), sess_mgr.shutdown())
                 .await
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
 
             log::trace!(target: "citadel", "HdpServer shutting down (future ended)...");
 
@@ -364,7 +365,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
 
                 None => {
                     log::error!(target: "citadel", "Primary session listener returned None");
-                    return Err(NetworkError::InternalError("Primary session listener died"));
+                    return Err(error!(ErrorCode::KernelPrimaryListenerDied));
                 }
             }
         }
@@ -416,9 +417,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                 .is_err()
             {
                 log::error!(target: "citadel", "TO_KERNEL_TX Error: {err:?}");
-                Err(NetworkError::InternalError(
-                    "kernel disconnected from hypernode instance",
-                ))
+                Err(error!(ErrorCode::KernelDisconnected))
             } else {
                 Ok(())
             }
@@ -427,7 +426,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.recv().await {
             if let Some(cid) = outbound_request.session_cid() {
                 if cid == 0 {
-                    send_error(&to_kernel_tx, ticket_id, NetworkError::msg(format!("Cannot use zero-cid for outbound requests. Invalid: {outbound_request:?}")))?;
+                    send_error(
+                        &to_kernel_tx,
+                        ticket_id,
+                        error!(
+                            ErrorCode::KernelZeroCidRequest,
+                            format!("{outbound_request:?}")
+                        ),
+                    )?;
                     continue;
                 }
             }
@@ -638,7 +644,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         send_error(
                             &to_kernel_tx,
                             ticket_id,
-                            NetworkError::Generic(err.to_string()),
+                            NetworkError::generic(err.to_string()),
                         )?;
                     }
                 }

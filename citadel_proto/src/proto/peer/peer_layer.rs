@@ -41,6 +41,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::time::Duration;
 use citadel_io::time::{delay_queue, DelayQueue};
 use citadel_io::tokio::time::error::Error;
+use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::PreSharedKey;
 use citadel_types::prelude::PeerInfo;
 pub use citadel_types::proto::{ClientConnectionType, PeerConnectionType};
@@ -172,7 +173,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                     .into_values()
                     .map(PeerSignal::deserialize_from_owned_vector)
                     .try_collect::<PeerSignal, Vec<PeerSignal>, _>()
-                    .map_err(|err| NetworkError::Generic(err.into_string()))?,
+                    .map_err(|err| NetworkError::generic(err.into_string()))?,
             )))
         } else {
             Ok(None)
@@ -391,7 +392,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     ) -> Result<(), NetworkError> {
         let serialized = signal
             .serialize_to_vector()
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         let sub_key = Uuid::new_v4().to_string();
 
         let _ = pers
@@ -585,9 +586,7 @@ impl futures::Future for CitadelNodePeerLayerExecutor {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match futures::ready!(self.poll_next(cx)) {
             Some(_) => Poll::Pending,
-            None => Poll::Ready(Err(NetworkError::InternalError(
-                "Queue handler signalled shutdown",
-            ))),
+            None => Poll::Ready(Err(error!(ErrorCode::QueueHandlerShutdown))),
         }
     }
 }

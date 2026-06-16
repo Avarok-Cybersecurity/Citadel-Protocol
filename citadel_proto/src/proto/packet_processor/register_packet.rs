@@ -38,6 +38,7 @@ use citadel_crypt::endpoint_crypto_container::{
 };
 use citadel_crypt::prelude::{ConstructorOpts, Toolset};
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 use citadel_user::serialization::SyncIO;
 
 /// This will handle a registration packet
@@ -119,21 +120,17 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                         transfer,
                                         session_password.as_ref(),
                                     )
-                                    .ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
-                                let transfer_out = bob_constructor.stage0_bob().ok_or(
-                                    NetworkError::InvalidRequest(
-                                        "Unable to advance past stage0-bob",
-                                    ),
-                                )?;
-                                let finished_ratchet = bob_constructor.finish().ok_or(
-                                    NetworkError::InvalidRequest(
-                                        "Unable to finish bob constructor",
-                                    ),
-                                )?;
+                                    .ok_or(error!(ErrorCode::RegisterBadBobTransfer))?;
+                                let transfer_out = bob_constructor
+                                    .stage0_bob()
+                                    .ok_or(error!(ErrorCode::RegisterStage0BobFailed))?;
+                                let finished_ratchet = bob_constructor
+                                    .finish()
+                                    .ok_or(error!(ErrorCode::RegisterBobConstructorFinishFailed))?;
                                 Ok::<_, NetworkError>((transfer_out, finished_ratchet))
                             })
                             .await
-                            .map_err(|err| NetworkError::Generic(format!("Join error: {err}")))??;
+                            .map_err(|err| error!(ErrorCode::TaskJoinFailed, err.to_string()))??;
 
                         // Build response packet before touching state
                         let stage1_packet = packet_crafter::do_register::craft_stage1::<R>(
@@ -210,15 +207,13 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     let new_ratchet = citadel_io::spawn_blocking(move || {
                         alice_constructor
                             .stage1_alice(transfer, psk.as_ref())
-                            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                            .map_err(|err| NetworkError::generic(err.to_string()))?;
                         alice_constructor
                             .finish()
-                            .ok_or(NetworkError::InternalError(
-                                "Unable to finish alice constructor",
-                            ))
+                            .ok_or(error!(ErrorCode::RegisterAliceConstructorFinishFailed))
                     })
                     .await
-                    .map_err(|err| NetworkError::Generic(format!("Join error: {err}")))??;
+                    .map_err(|err| error!(ErrorCode::TaskJoinFailed, err.to_string()))??;
 
                     let timestamp = session.time_tracker.get_global_time_ns();
                     let proposed_credentials = return_if_none!(

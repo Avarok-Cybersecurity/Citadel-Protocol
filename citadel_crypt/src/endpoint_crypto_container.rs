@@ -169,7 +169,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         log::info!(target: "citadel", "[CBD-CNRV-2a] Client {} calling update_version({})", local_cid, next_vers);
         newest_version.update_version(next_vers).ok_or_else(|| {
             log::error!(target: "citadel", "[CBD-CNRV-2a-ERR] Client {} update_version({}) returned None!", local_cid, next_vers);
-            CryptError::RekeyUpdateError("Unable to progress past update_version".to_string())
+            citadel_io::error!(citadel_io::ErrorCode::RekeyVersionUpdateFailed)
         })?;
         log::info!(target: "citadel", "[CBD-CNRV-2b] Client {} update_version({}) complete", local_cid, next_vers);
 
@@ -180,9 +180,8 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
                 .finish_with_custom_cid(local_cid)
                 .ok_or_else(|| {
                     log::error!(target: "citadel", "[CBD-CNRV-ALICE-ERR1] Client {} finish_with_custom_cid returned None!", local_cid);
-                    CryptError::RekeyUpdateError(
-                        "Unable to progress past finish_with_custom_cid for bob-to-alice trigger"
-                            .to_string(),
+                    citadel_io::error!(
+                        citadel_io::ErrorCode::RekeyFinishBobToAliceFailed
                     )
                 })?;
             let ratchet_version = latest_ratchet.version();
@@ -195,8 +194,8 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
                 log::info!(target: "citadel", "[CBD-CNRV-ALICE-3] Client {} write lock acquired, toolset_v={}, ratchet_v={}", local_cid, current_toolset_version, ratchet_version);
                 toolset.update_from(latest_ratchet).ok_or_else(|| {
                     log::error!(target: "citadel", "[CBD-CNRV-ALICE-ERR2] Client {} update_from returned None! toolset_v={}, expected_v={}", local_cid, current_toolset_version, ratchet_version);
-                    CryptError::RekeyUpdateError(
-                        "Unable to progress past update_from for bob-to-alice trigger".to_string(),
+                    citadel_io::error!(
+                        citadel_io::ErrorCode::RekeyUpdateFromBobToAliceFailed
                     )
                 })?
             };
@@ -208,27 +207,23 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
         // Heavy: stage0_bob + finish — synchronous compute outside lock; callers should offload if needed
         log::info!(target: "citadel", "[CBD-CNRV-3] Client {} calling stage0_bob", local_cid);
-        let transfer = newest_version.stage0_bob().ok_or_else(|| {
-            CryptError::RekeyUpdateError("Unable to progress past stage0_bob".to_string())
-        })?;
+        let transfer = newest_version
+            .stage0_bob()
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RekeyStage0BobFailed))?;
         log::info!(target: "citadel", "[CBD-CNRV-4] Client {} stage0_bob complete, calling finish_with_custom_cid", local_cid);
 
         let next_ratchet = newest_version
             .finish_with_custom_cid(local_cid)
-            .ok_or_else(|| {
-                CryptError::RekeyUpdateError(
-                    "Unable to progress past finish_with_custom_cid".to_string(),
-                )
-            })?;
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RekeyFinishFailed))?;
         log::info!(target: "citadel", "[CBD-CNRV-5] Client {} finish_with_custom_cid complete, acquiring write lock", local_cid);
 
         // Short commit under write lock
         let status = {
             let mut toolset = self.toolset.write();
             log::info!(target: "citadel", "[CBD-CNRV-6] Client {} write lock acquired, calling update_from", local_cid);
-            toolset.update_from(next_ratchet).ok_or_else(|| {
-                CryptError::RekeyUpdateError("Unable to progress past update_from".to_string())
-            })?
+            toolset
+                .update_from(next_ratchet)
+                .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RekeyUpdateFromFailed))?
         };
         log::info!(target: "citadel", "[CBD-CNRV-7] Client {} successfully updated Ratchet from v{cur_vers} to v{next_vers}", local_cid);
 
@@ -236,7 +231,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     }
 
     /// Deregisters the oldest StackedRatchet version. Requires the version input to ensure program/network consistency for debug purposes
-    pub fn deregister_oldest_ratchet(&self, version: u32) -> Result<(), CryptError<String>> {
+    pub fn deregister_oldest_ratchet(&self, version: u32) -> Result<(), CryptError> {
         self.toolset.write().deregister_oldest_ratchet(version)
     }
 
@@ -284,8 +279,8 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         } else {
             // if it returns with None, and this wasn't triggered by a bob to alice tx return an error since we expected Some
             if !triggered_by_bob_to_alice_transfer {
-                return Err(CryptError::RekeyUpdateError(
-                    "This should only be reached if triggered by a bob-to-alice transfer event, yet, conflicting program state".to_string(),
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RekeyUnexpectedNoneTransfer
                 ));
             }
 

@@ -16,43 +16,43 @@ impl FileIO for StdFileIO {
     async fn create_dir_all(&self, path: &str) -> Result<(), AccountError> {
         tokio::fs::create_dir_all(path)
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))
+            .map_err(|err| AccountError::io(err.to_string()))
     }
 
     async fn write_file(&self, path: &str, data: &[u8]) -> Result<(), AccountError> {
         tokio::fs::write(path, data)
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))
+            .map_err(|err| AccountError::io(err.to_string()))
     }
 
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, AccountError> {
         tokio::fs::read(path)
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))
+            .map_err(|err| AccountError::io(err.to_string()))
     }
 
     async fn remove_file(&self, path: &str) -> Result<(), AccountError> {
         tokio::fs::remove_file(path)
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))
+            .map_err(|err| AccountError::io(err.to_string()))
     }
 
     async fn remove_dir_all(&self, path: &str) -> Result<(), AccountError> {
         tokio::fs::remove_dir_all(path)
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))
+            .map_err(|err| AccountError::io(err.to_string()))
     }
 
     async fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, AccountError> {
         let mut entries = Vec::new();
         let mut dir = tokio::fs::read_dir(path)
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))?;
+            .map_err(|err| AccountError::io(err.to_string()))?;
 
         while let Some(entry) = dir
             .next_entry()
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))?
+            .map_err(|err| AccountError::io(err.to_string()))?
         {
             let path_buf = entry.path();
             let is_file = path_buf.is_file();
@@ -77,7 +77,7 @@ impl FileIO for StdFileIO {
     ) -> Result<Box<dyn AsyncStreamWriter>, AccountError> {
         let file = tokio::fs::File::create(path)
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))?;
+            .map_err(|err| AccountError::io(err.to_string()))?;
         Ok(Box::new(StdStreamWriter {
             writer: tokio::io::BufWriter::new(file),
         }))
@@ -94,18 +94,18 @@ impl AsyncStreamWriter for StdStreamWriter {
         self.writer
             .write_all(data)
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))
+            .map_err(|err| AccountError::io(err.to_string()))
     }
 
     async fn finish(mut self: Box<Self>) -> Result<(), AccountError> {
         self.writer
             .flush()
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))?;
+            .map_err(|err| AccountError::io(err.to_string()))?;
         self.writer
             .into_inner()
             .sync_all()
             .await
-            .map_err(|err| AccountError::IoError(err.to_string()))
+            .map_err(|err| AccountError::io(err.to_string()))
     }
 }

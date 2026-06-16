@@ -43,7 +43,6 @@ use citadel_io::tokio::sync::mpsc::{Receiver, Sender};
 use citadel_io::Mutex;
 use futures::Stream;
 use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -65,47 +64,11 @@ impl<T, R> Clone for TrackedCallbackChannel<T, R> {
     }
 }
 
-/// An error that can occur when using the tracked callback channel.
-pub enum TrackedCallbackError<T> {
-    /// An error occurred while sending a request.
-    SendError(T),
-    /// An error occurred while receiving a response.
-    RecvError,
-    /// An internal error occurred.
-    InternalError(&'static str),
-}
-
-impl<T> TrackedCallbackError<T> {
-    /// Returns the payload of the error, if any.
-    pub fn payload(self) -> Option<T> {
-        match self {
-            Self::SendError(payload) => Some(payload),
-            _ => None,
-        }
-    }
-}
+/// Error type for tracked callback channel operations.
+pub type TrackedCallbackError = citadel_io::NetworkError;
 
 /// A constant representing no response.
 const NO_RESPONSE: u64 = 0;
-
-impl<T> Debug for TrackedCallbackError<T> {
-    /// Formats the error for debugging.
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::SendError(_) => {
-                write!(f, "Callback Error: Unable to Send")
-            }
-
-            Self::RecvError => {
-                write!(f, "Callback Error: Unable to receive")
-            }
-
-            Self::InternalError(err) => {
-                write!(f, "Callback Error: {err}")
-            }
-        }
-    }
-}
 
 /// The inner implementation of the tracked callback channel.
 struct TrackedCallbackChannelInner<T, R> {
@@ -162,7 +125,7 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
     }
 
     /// Sends a request with a tracked callback.
-    pub async fn send(&self, payload: T) -> Result<R, TrackedCallbackError<T>> {
+    pub async fn send(&self, payload: T) -> Result<R, TrackedCallbackError> {
         let (rx, id) = {
             let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
             let next_value = self.inner.id.fetch_add(1, Ordering::Relaxed);
@@ -178,13 +141,15 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
                 _pd: Default::default(),
             })
             .await
-            .map_err(|err| TrackedCallbackError::SendError(err.0.payload))?;
+            .map_err(|_| {
+                TrackedCallbackError::channel_send("tracked callback channel send failed")
+            })?;
 
-        rx.await.map_err(|_| TrackedCallbackError::RecvError)
+        rx.await.map_err(|_| TrackedCallbackError::channel_recv())
     }
 
     /// Sends a request without a tracked callback.
-    pub async fn send_no_callback(&self, payload: T) -> Result<(), TrackedCallbackError<T>> {
+    pub async fn send_no_callback(&self, payload: T) -> Result<(), TrackedCallbackError> {
         self.inner
             .to_channel
             .send(TrackedCallbackChannelPayload {
@@ -193,24 +158,23 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
                 _pd: Default::default(),
             })
             .await
-            .map_err(|err| TrackedCallbackError::SendError(err.0.payload))
+            .map_err(|_| TrackedCallbackError::channel_send("tracked callback channel send failed"))
     }
 
     /// Tries to reply to a tracked request.
     pub fn try_reply(
         &self,
         payload: TrackedCallbackChannelPayload<R, T>,
-    ) -> Result<(), TrackedCallbackError<R>> {
-        let sender =
-            {
-                self.inner.map.lock().remove(&payload.id).ok_or(
-                    TrackedCallbackError::InternalError("Mapping does not exist for id"),
-                )?
-            };
+    ) -> Result<(), TrackedCallbackError> {
+        let sender = {
+            self.inner.map.lock().remove(&payload.id).ok_or_else(|| {
+                TrackedCallbackError::channel_internal("Mapping does not exist for id")
+            })?
+        };
 
         sender
             .send(payload.payload)
-            .map_err(|err| TrackedCallbackError::SendError(err))
+            .map_err(|_| TrackedCallbackError::channel_send("tracked callback reply send failed"))
     }
 }
 
@@ -302,9 +266,12 @@ mod tests {
     #[test]
     fn test_error() {
         // to please codecov
-        let err0 = TrackedCallbackError::SendError(0u8);
-        let err1 = TrackedCallbackError::<u8>::RecvError;
-        let err2 = TrackedCallbackError::<u8>::InternalError("other");
+        let err0 = TrackedCallbackError::channel_send("send failed");
+        let err1 = TrackedCallbackError::channel_recv();
+        let err2 = TrackedCallbackError::channel_internal("other");
+        assert_eq!(err0.code, citadel_io::ErrorCode::ChannelSend);
+        assert_eq!(err1.code, citadel_io::ErrorCode::ChannelRecv);
+        assert_eq!(err2.code, citadel_io::ErrorCode::ChannelInternal);
         let _data = format!("{err0:?} {err1:?} {err2:?}");
     }
 }

@@ -76,19 +76,33 @@ pub async fn process_disconnect<R: Ratchet, T: PlatformOps>(
     match header.cmd_aux {
         packet_flags::cmd::aux::do_disconnect::STAGE0 => {
             log::trace!(target: "citadel", "STAGE 0 DISCONNECT PACKET RECEIVED");
+            // Mark THIS session (the disconnect responder) as `Disconnecting` BEFORE replying FINAL.
+            // The peer reconnects the instant it receives FINAL, and its reconnect SYN must observe this
+            // session already in `Disconnecting` so the session manager takes the event-driven
+            // wait-for-clean-drop path instead of rejecting the SYN as "already connected". This closes
+            // the teardown↔reconnect TOCTOU on the session state that the old post-teardown sleep masked.
+            session.state.set(SessionState::Disconnecting);
             let packet = packet_crafter::do_disconnect::craft_final(
                 &ratchet,
                 ticket,
                 timestamp,
                 security_level,
             );
-            return_if_none!(
+            let primary_stream = return_if_none!(
                 session.to_primary_stream.as_ref(),
                 "Primary stream not loaded"
-            )
-            .unbounded_send(packet)?;
-            // give some time for the outbound task to send the DC message to the adjacent node
-            citadel_io::time::sleep(Duration::from_millis(100)).await;
+            );
+            primary_stream.unbounded_send(packet)?;
+            // Deterministically wait for FINAL to reach the socket BEFORE returning EndSession (which
+            // drops the writer): queue a flush-barrier after FINAL and await its ack. The writer flushes
+            // FINAL + acks; we cap the wait so a dead socket can't hang teardown. This replaces a fixed
+            // 100ms sleep — the common case returns in microseconds (as soon as FINAL is on the wire),
+            // and FINAL is no longer silently dropped if the writer is cancelled too early (the race
+            // exposed by removing the sleep: the peer's disconnect().await would hang forever).
+            let (ack_tx, ack_rx) = citadel_io::tokio::sync::oneshot::channel();
+            if primary_stream.send_flush(ack_tx).is_ok() {
+                let _ = citadel_io::tokio::time::timeout(Duration::from_millis(100), ack_rx).await;
+            }
             Ok(PrimaryProcessorResult::EndSession(SUCCESS_DISCONNECT))
         }
 

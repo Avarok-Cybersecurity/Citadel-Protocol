@@ -22,7 +22,8 @@ impl NativeOrderedReliableConfig {
 
     /// Creates config bound to a specific address.
     pub fn from_addr<T: ToSocketAddrs>(bind_addr: T) -> Result<Self, NetworkError> {
-        let listener = citadel_wire::socket_helpers::get_tcp_listener(bind_addr)?;
+        let listener = citadel_wire::socket_helpers::get_tcp_listener(bind_addr)
+            .map_err(|e| NetworkError::generic(e.to_string()))?;
         Self::from_tokio_listener(listener)
     }
 
@@ -73,7 +74,7 @@ impl NativeSecureConfig {
     /// Creates a self-signed TLS config.
     pub fn self_signed() -> Result<Self, NetworkError> {
         let interop = citadel_wire::tls::create_server_self_signed_config()
-            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+            .map_err(|err| NetworkError::generic(err.to_string()))?;
         Ok(Self {
             interop,
             domain: None,
@@ -88,7 +89,7 @@ impl NativeSecureConfig {
         domain: R,
     ) -> Result<Self, NetworkError> {
         let pkcs_12_der =
-            std::fs::read(path).map_err(|err| NetworkError::Generic(err.to_string()))?;
+            std::fs::read(path).map_err(|err| NetworkError::generic(err.to_string()))?;
         Self::from_pkcs12_bytes(pkcs_12_der, password, domain)
     }
 
@@ -100,7 +101,7 @@ impl NativeSecureConfig {
     ) -> Result<Self, NetworkError> {
         let interop =
             citadel_wire::tls::create_server_config(pkcs_12_der.as_ref(), password.as_ref())
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
         Ok(Self {
             interop,
             domain: Some(domain.into()),
@@ -151,7 +152,7 @@ impl NativeP2PConfig {
     ) -> Result<Self, NetworkError> {
         let (cert, priv_key) =
             citadel_wire::misc::read_pkcs_12_der_to_quinn_keys(path, password.as_ref())
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
         Ok(Self {
             crypto: Some((cert, priv_key)),
             domain: Some(domain.into()),
@@ -167,7 +168,7 @@ impl NativeP2PConfig {
     ) -> Result<Self, NetworkError> {
         let (cert, priv_key) =
             citadel_wire::misc::pkcs12_to_quinn_keys(pkcs_12_der.as_ref(), password.as_ref())
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
         Ok(Self {
             crypto: Some((cert, priv_key)),
             domain: Some(domain.into()),

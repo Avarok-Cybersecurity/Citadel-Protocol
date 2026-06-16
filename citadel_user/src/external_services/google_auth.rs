@@ -66,26 +66,31 @@ impl GoogleAuth {
     ) -> Result<Self, AccountError> {
         let string = citadel_io::tokio::fs::read_to_string(path)
             .await
-            .map_err(|err| AccountError::Generic(err.to_string()))?;
-        let mut map: HashMap<String, String> = serde_json::from_str(string.as_str())
-            .map_err(|err| AccountError::Generic(err.to_string()))?;
+            .map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.to_string())
+            })?;
+        let mut map: HashMap<String, String> =
+            serde_json::from_str(string.as_str()).map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.to_string())
+            })?;
 
         let priv_key = map
             .remove("private_key")
-            .ok_or_else(|| AccountError::Generic("Private key does not exist".to_string()))?;
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::GooglePrivateKeyMissing))?;
 
-        let key = PKey::from_rsa(
-            Rsa::private_key_from_pem(priv_key.as_bytes())
-                .map_err(|err| AccountError::Generic(err.to_string()))?,
-        )
-        .map_err(|err| AccountError::Generic(err.to_string()))?;
+        let key = PKey::from_rsa(Rsa::private_key_from_pem(priv_key.as_bytes()).map_err(
+            |err| citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.to_string()),
+        )?)
+        .map_err(|err| {
+            citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.to_string())
+        })?;
         let digest = MessageDigest::sha256();
 
         let key = PKeyWithDigest { key, digest };
 
         let service_email = map
             .remove("client_email")
-            .ok_or_else(|| AccountError::Generic("Service email not present".to_string()))?;
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::GoogleServiceEmailMissing))?;
 
         Ok(Self {
             key: Arc::new(key),
@@ -104,7 +109,9 @@ impl GoogleAuth {
 
         let iat = SystemTime::UNIX_EPOCH
             .elapsed()
-            .map_err(|err| AccountError::Generic(err.to_string()))?
+            .map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.to_string())
+            })?
             .as_secs();
         let exp = iat + 1800;
 
@@ -128,6 +135,8 @@ impl GoogleAuth {
 
         claims
             .sign_with_key(key as &PKeyWithDigest<Private>)
-            .map_err(|err| AccountError::Generic(err.to_string()))
+            .map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.to_string())
+            })
     }
 }

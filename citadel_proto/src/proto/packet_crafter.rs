@@ -54,6 +54,7 @@ use citadel_crypt::messaging::MessengerLayerOrderedMessage;
 use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
+use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::ObjectId;
 use netbeam::time_tracker::TimeTracker;
@@ -155,7 +156,7 @@ impl<R: Ratchet> ObjectTransmitter<R> {
         let header = self.generate_group_header(virtual_target);
         self.to_primary_stream
             .unbounded_send(header)
-            .map_err(|err| NetworkError::msg(format!("Unable to transmit group header: {err:?}")))
+            .map_err(|err| error!(ErrorCode::GroupHeaderTransmitFailed, format!("{err:?}")))
     }
 
     /// Generates the group header for this set using the pre-allocated slab. Since the group header is always sent through the primary port,

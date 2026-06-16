@@ -33,7 +33,7 @@ async fn main() {
                     chan,
                 ))
                 .await
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
                 finished.store(true, Ordering::SeqCst);
                 connection.shutdown_kernel().await?;
                 Ok(())

@@ -1,0 +1,3 @@
+# AFL build output + fuzzing run artifacts (crashes/queue/stats) — never committed.
+/target
+/out

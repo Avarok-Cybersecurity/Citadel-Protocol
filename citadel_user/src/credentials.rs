@@ -140,15 +140,16 @@ impl CredentialRequirements {
         if username.len() < self.min_username_length as _
             || username.len() > self.max_username_length as _
         {
-            return Err(AccountError::Generic(format!(
-                "Username must be between {} and {} characters",
-                self.min_username_length, self.max_username_length
-            )));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::UsernameLengthOutOfRange,
+                self.min_username_length,
+                self.max_username_length
+            ));
         }
 
         if username.contains(' ') {
-            return Err(AccountError::Generic(
-                "Username cannot contain spaces. Use a period instead".to_string(),
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::UsernameContainsSpaces
             ));
         }
 
@@ -157,15 +158,16 @@ impl CredentialRequirements {
             if password.len() < self.min_password_length as _
                 || password.len() > self.max_password_length as _
             {
-                return Err(AccountError::Generic(format!(
-                    "Password must be between {} and {} characters",
-                    self.min_password_length, self.max_password_length
-                )));
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::PasswordLengthOutOfRange,
+                    self.min_password_length,
+                    self.max_password_length
+                ));
             }
 
             if password.contains(' ') {
-                return Err(AccountError::Generic(
-                    "Password cannot contain spaces".to_string(),
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::PasswordContainsSpaces
                 ));
             }
         }
@@ -173,10 +175,11 @@ impl CredentialRequirements {
         if full_name.len() < self.min_name_length as _
             || full_name.len() > self.max_name_length as _
         {
-            return Err(AccountError::Generic(format!(
-                "Full name must be between {} and {} characters",
-                self.min_name_length, self.max_name_length
-            )));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::FullNameLengthOutOfRange,
+                self.min_name_length,
+                self.max_name_length
+            ));
         }
 
         Ok(())
