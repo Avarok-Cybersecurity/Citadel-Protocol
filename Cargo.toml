@@ -14,6 +14,7 @@ members = [
     "citadel_logging",
     "citadel_io",
     "citadel_io_macros",
+    "citadel_treekem",
     "citadel_types",
     "example-library",
 ]
@@ -50,6 +51,7 @@ citadel_proto = { path = "./citadel_proto", default-features = false, version = 
 citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.14.0" }
 citadel_io = { path = "./citadel_io", default-features = false, version = "0.14.0" }
 citadel_io_macros = { path = "./citadel_io_macros", version = "0.14.0" }
+citadel_treekem = { path = "./citadel_treekem", default-features = false, version = "0.14.0" }
 citadel_types = { path = "./citadel_types", default-features = false, version = "0.14.0" }
 netbeam = { path = "./netbeam", default-features = false, version = "0.14.0" }
 firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.14.0" }
