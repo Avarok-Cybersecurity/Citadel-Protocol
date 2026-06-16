@@ -187,6 +187,7 @@ where
                     options: MessageGroupOptions {
                         group_type: GroupType::Public,
                         id: group_id.as_u128(),
+                        ..Default::default()
                     },
                 }
             }
