@@ -78,9 +78,9 @@ pub(super) fn spawn<R: Ratchet>(
                             .take()
                         {
                             log::trace!(target: "citadel", "C2S UDP subroutine sending channel to local user ... (is_server={is_server})");
-                            sender.send(channel).map_err(|_| {
-                                error!(ErrorCode::UdpChannelSendFailed)
-                            })?;
+                            sender
+                                .send(channel)
+                                .map_err(|_| error!(ErrorCode::UdpChannelSendFailed))?;
                             EndpointCryptoAccessor::C2S(sess.state_container.clone())
                         } else {
                             log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had no UDP sender");
@@ -103,9 +103,9 @@ pub(super) fn spawn<R: Ratchet>(
                             state_container.peer_kem_states.get_mut(&target_cid)
                         {
                             if let Some(sender) = kem_state.udp_channel_sender.tx.take() {
-                                sender.send(channel).map_err(|_| {
-                                    error!(ErrorCode::UdpChannelSendFailed)
-                                })?;
+                                sender
+                                    .send(channel)
+                                    .map_err(|_| error!(ErrorCode::UdpChannelSendFailed))?;
                                 EndpointCryptoAccessor::P2P(
                                     target_cid,
                                     sess.state_container.clone(),

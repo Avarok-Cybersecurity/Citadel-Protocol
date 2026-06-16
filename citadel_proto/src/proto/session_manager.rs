@@ -43,8 +43,8 @@ use bytes::BytesMut;
 
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::{error, ErrorCode};
 use citadel_io::ServerMode;
+use citadel_io::{error, ErrorCode};
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::prelude::{ConnectProtocol, UserIdentifierExt};
@@ -377,10 +377,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                             .can_proceed_with_new_incoming_connection(cid, false)
                             .await
                         {
-                            return Err(error!(
-                                ErrorCode::SessionManagerSessionAlreadyExists,
-                                cid
-                            ));
+                            return Err(error!(ErrorCode::SessionManagerSessionAlreadyExists, cid));
                         }
                     }
 
@@ -760,7 +757,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             inner_mut_state!(existing_session.1.state_container)
                 .process_outbound_broadcast_command(ticket, &command)
         } else {
-            Err(error!(ErrorCode::SessionManagerSessionNotFound, session_cid))
+            Err(error!(
+                ErrorCode::SessionManagerSessionNotFound,
+                session_cid
+            ))
         }
     }
 
@@ -793,7 +793,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 |_| {},
             )
         } else {
-            Err(error!(ErrorCode::SessionManagerSessionNotFound, session_cid))
+            Err(error!(
+                ErrorCode::SessionManagerSessionNotFound,
+                session_cid
+            ))
         }
     }
 
@@ -810,7 +813,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         if let Some((_, sess)) = lock.sessions.get(&session_cid) {
             sess.revfs_pull(ticket, v_conn, virtual_path, delete_on_pull, security_level)
         } else {
-            Err(error!(ErrorCode::SessionManagerSessionNotFound, session_cid))
+            Err(error!(
+                ErrorCode::SessionManagerSessionNotFound,
+                session_cid
+            ))
         }
     }
 
@@ -826,7 +832,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         if let Some((_, sess)) = lock.sessions.get(&session_cid) {
             sess.revfs_delete(ticket, v_conn, virtual_path, security_level)
         } else {
-            Err(error!(ErrorCode::SessionManagerSessionNotFound, session_cid))
+            Err(error!(
+                ErrorCode::SessionManagerSessionNotFound,
+                session_cid
+            ))
         }
     }
 
@@ -843,7 +852,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             let mut state_container = inner_mut_state!(sess.state_container);
             state_container.initiate_rekey(virtual_target, Some(ticket))
         } else {
-            Err(error!(ErrorCode::SessionManagerNotActiveSession, session_cid))
+            Err(error!(
+                ErrorCode::SessionManagerNotActiveSession,
+                session_cid
+            ))
         }
     }
 
@@ -859,7 +871,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             let sess = &sess.1;
             sess.initiate_deregister(connection_type, ticket)
         } else {
-            Err(error!(ErrorCode::SessionManagerNotActiveSession, session_cid))
+            Err(error!(
+                ErrorCode::SessionManagerNotActiveSession,
+                session_cid
+            ))
         }
     }
 
@@ -885,7 +900,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             if let Some(sess) = this.sessions.get(&session_cid) {
                 sess.1.clone()
             } else {
-                return Err(error!(ErrorCode::SessionManagerDispatchSessionNotFound, session_cid));
+                return Err(error!(
+                    ErrorCode::SessionManagerDispatchSessionNotFound,
+                    session_cid
+                ));
             }
         };
 
@@ -1575,7 +1593,10 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
                     .map_err(|err| NetworkError::msg(err.to_string()))
             })?
         } else {
-            Err(error!(ErrorCode::SessionManagerPeerSessionNotFound, target_cid))
+            Err(error!(
+                ErrorCode::SessionManagerPeerSessionNotFound,
+                target_cid
+            ))
         }
     }
 }

@@ -158,7 +158,9 @@ pub mod service {
                         &rtdb_config.api_key,
                     )
                     .await
-                    .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner))?;
+                    .map_err(|err| {
+                        citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner)
+                    })?;
                     Some(rtdb_root_instance.into())
                 } else {
                     None

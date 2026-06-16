@@ -110,8 +110,12 @@ pub trait SyncIO {
         Self: DeserializeOwned,
     {
         use bytes::Buf;
-        bincode::deserialize_from(input.reader())
-            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::DeserializationFailed, err.to_string()))
+        bincode::deserialize_from(input.reader()).map_err(|err| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::DeserializationFailed,
+                err.to_string()
+            )
+        })
     }
 
     /// Deserializes in-place
@@ -120,8 +124,12 @@ pub trait SyncIO {
         T: serde::de::Deserialize<'a>,
         R: BincodeRead<'a>,
     {
-        bincode::deserialize_in_place(reader, place)
-            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::DeserializationFailed, err.to_string()))
+        bincode::deserialize_in_place(reader, place).map_err(|err| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::DeserializationFailed,
+                err.to_string()
+            )
+        })
     }
 
     /// Serializes self into a buffer
@@ -134,7 +142,9 @@ pub trait SyncIO {
                 buf.reserve(amt as usize);
                 bincode::serialize_into(buf.writer(), self)
             })
-            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string()))
+            .map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
+            })
     }
 
     /// Serializes directly into a slice
@@ -142,7 +152,9 @@ pub trait SyncIO {
     where
         Self: Serialize,
     {
-        bincode::serialize_into(slice, self).map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string()))
+        bincode::serialize_into(slice, self).map_err(|err| {
+            citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
+        })
     }
 
     /// Returns the expected size of the serialized objects
@@ -158,10 +170,17 @@ impl<'a, T> SyncIO for T where T: Serialize + Deserialize<'a> + Sized {}
 
 /// Deserializes the bytes, T, into type D
 fn bytes_to_type<'a, D: Deserialize<'a>>(bytes: &'a [u8]) -> Result<D, AccountError> {
-    bincode::deserialize(bytes).map_err(|err| citadel_io::error!(citadel_io::ErrorCode::DeserializationFailed, err.to_string()))
+    bincode::deserialize(bytes).map_err(|err| {
+        citadel_io::error!(
+            citadel_io::ErrorCode::DeserializationFailed,
+            err.to_string()
+        )
+    })
 }
 
 /// Converts a type, D to Vec<u8>
 fn type_to_bytes<D: Serialize>(input: D) -> Result<Vec<u8>, AccountError> {
-    bincode::serialize(&input).map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string()))
+    bincode::serialize(&input).map_err(|err| {
+        citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
+    })
 }

@@ -40,9 +40,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 session_cid,
             } => (session_cid, peer_cid),
 
-            _ => {
-                return Err(error!(ErrorCode::StateExternalGroupNotImplemented))
-            }
+            _ => return Err(error!(ErrorCode::StateExternalGroupNotImplemented)),
         };
 
         let v_conn = self.get_endpoint_container(target_cid)?;

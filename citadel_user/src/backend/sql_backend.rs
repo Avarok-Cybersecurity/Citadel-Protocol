@@ -269,11 +269,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let mut args = AnyArguments::default();
 
         if self.variant == SqlVariant::Sqlite {
-            args.add(metadata.cid.to_string())
-                .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
+            args.add(metadata.cid.to_string()).map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}"))
+            })?;
         } else {
-            args.add(u64_into_i64(metadata.cid))
-                .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
+            args.add(u64_into_i64(metadata.cid)).map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}"))
+            })?;
         };
 
         args.add(metadata.is_personal as i32)
@@ -1068,7 +1070,8 @@ pub fn try_get_blob_as_utf8(key: &str, row: &AnyRow) -> Result<String, AccountEr
             let blob = row
                 .try_get::<Vec<u8>, _>(key)
                 .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
-            let blob = String::from_utf8(blob).map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, err.to_string()))?;
+            let blob = String::from_utf8(blob)
+                .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, err.to_string()))?;
             Ok(blob)
         }
         res => Err(citadel_io::error!(

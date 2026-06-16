@@ -34,8 +34,8 @@ use std::sync::Arc;
 
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::{error, ErrorCode};
 use citadel_io::Mutex;
+use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecurityLevel;
 use citadel_user::account_manager::AccountManager;
 use citadel_wire::hypernode_type::NodeType;
@@ -426,7 +426,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.recv().await {
             if let Some(cid) = outbound_request.session_cid() {
                 if cid == 0 {
-                    send_error(&to_kernel_tx, ticket_id, error!(ErrorCode::KernelZeroCidRequest, format!("{outbound_request:?}")))?;
+                    send_error(
+                        &to_kernel_tx,
+                        ticket_id,
+                        error!(
+                            ErrorCode::KernelZeroCidRequest,
+                            format!("{outbound_request:?}")
+                        ),
+                    )?;
                     continue;
                 }
             }

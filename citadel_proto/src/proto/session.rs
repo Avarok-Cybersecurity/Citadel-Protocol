@@ -52,9 +52,9 @@ use crate::constants::{
     LOGIN_EXPIRATION_TIME, REKEY_UPDATE_FREQUENCY_STANDARD,
 };
 use crate::error::NetworkError;
-use citadel_io::{error, ErrorCode, Dbg};
 use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse};
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
+use citadel_io::{error, Dbg, ErrorCode};
 //use futures_codec::Framed;
 use crate::proto::misc;
 use crate::proto::misc::dual_cell::DualCell;
@@ -365,9 +365,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     HdpSessionInitMode::Connect(auth) => {
                         match auth {
                             AuthenticationRequest::Credentialed { .. } => {
-                                let cnac = client_init_settings.cnac.clone().ok_or(
-                                    error!(ErrorCode::SessionClientNotLoaded),
-                                )?;
+                                let cnac = client_init_settings
+                                    .cnac
+                                    .clone()
+                                    .ok_or(error!(ErrorCode::SessionClientNotLoaded))?;
                                 let cid = cnac.get_cid();
                                 (Some(cnac), SessionState::NeedsConnect, Some(cid))
                             }
@@ -752,7 +753,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         // reset the toolset's ARA
         let static_aux_hr = &cnac.refresh_static_ratchet();
         // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
-        let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|_| error!(ErrorCode::SessionSecurityExceedsRegistration))?;
+        let _ = static_aux_hr
+            .verify_level(Some(session_security_settings.security_level))
+            .map_err(|_| error!(ErrorCode::SessionSecurityExceedsRegistration))?;
         let opts = static_aux_hr
             .get_next_constructor_opts()
             .into_iter()
@@ -1416,9 +1419,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         virtual_object_metadata: Option<VirtualObjectMetadata>,
         post_close_hook: impl for<'a> FnOnce(PathBuf) + Send + 'static,
     ) -> Result<(), NetworkError> {
-        let source_path = source.path().ok_or_else(|| {
-            error!(ErrorCode::FileTransferSourceMissingPath)
-        })?;
+        let source_path = source
+            .path()
+            .ok_or_else(|| error!(ErrorCode::FileTransferSourceMissingPath))?;
 
         let file_metadata =
             T::open_and_validate_for_transfer(&source_path, virtual_object_metadata.as_ref())?;
@@ -1585,9 +1588,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                     let preferred_primary_stream = state_container
                         .get_preferred_stream(target_cid)
-                        .ok_or_else(|| {
-                            error!(ErrorCode::SessionConnectionUnavailable)
-                        })?
+                        .ok_or_else(|| error!(ErrorCode::SessionConnectionUnavailable))?
                         .clone();
 
                     let (file_size, groups_needed, _max_bytes_per_group) = scramble_encrypt_source(
@@ -2148,9 +2149,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                     disconnect_token,
                                 },
                                 ticket,
-                                session_cid: self.session_cid.get().ok_or_else(|| {
-                                    error!(ErrorCode::SessionImplicatedCidNotSet)
-                                })?,
+                                session_cid: self
+                                    .session_cid
+                                    .get()
+                                    .ok_or_else(|| error!(ErrorCode::SessionImplicatedCidNotSet))?,
                             }))
                             .map_err(|err| NetworkError::generic(err.to_string()));
                     }

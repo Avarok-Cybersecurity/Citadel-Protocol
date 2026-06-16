@@ -29,11 +29,11 @@
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
 use crate::proto::misc::direct_frame_writer::DirectFrameWriter;
-use citadel_io::{error, ErrorCode};
 use bytes::Bytes;
 use citadel_io::tokio::io::{split, AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use citadel_io::tokio_stream::StreamExt;
 use citadel_io::tokio_util::codec::{FramedRead, LengthDelimitedCodec};
+use citadel_io::{error, ErrorCode};
 use futures::SinkExt;
 use serde::de::DeserializeOwned;
 use serde::Serialize;

@@ -139,8 +139,9 @@ impl ProposedCredentials {
             settings.clone(),
         )
         .await
-        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string()))?
-        {
+        .map_err(|err| {
+            citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string())
+        })? {
             ArgonStatus::HashSuccess(ret) => Ok(ret),
             other => Err(citadel_io::error!(
                 citadel_io::ErrorCode::ArgonHashUnexpected,
@@ -261,8 +262,9 @@ impl ProposedCredentials {
 
                 match AsyncArgon::hash(password_hashed, settings.clone())
                     .await
-                    .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string()))?
-                {
+                    .map_err(|err| {
+                        citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string())
+                    })? {
                     ArgonStatus::HashSuccess(hash_x2) => Ok(DeclaredAuthenticationMode::Argon {
                         username,
                         full_name,
@@ -294,8 +296,9 @@ impl ProposedCredentials {
             ArgonContainerType::Server(server_container) => {
                 match AsyncArgon::verify(password_hashed, server_container)
                     .await
-                    .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string()))?
-                {
+                    .map_err(|err| {
+                        citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string())
+                    })? {
                     ArgonStatus::VerificationSuccess => Ok(()),
 
                     ArgonStatus::VerificationFailed(None) => {

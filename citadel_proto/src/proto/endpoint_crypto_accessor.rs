@@ -23,10 +23,10 @@
 #![allow(dead_code)]
 use crate::error::NetworkError;
 use crate::inner_arg::ExpectedInnerTargetMut;
-use citadel_io::{error, ErrorCode};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::state_container::{StateContainer, StateContainerInner};
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 
 #[derive(Clone)]
 pub enum EndpointCryptoAccessor<R: Ratchet> {

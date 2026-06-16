@@ -163,7 +163,9 @@ impl SingleUDPHolePuncher {
                         .1
                         .execute(
                             this.socket.as_ref().ok_or_else(|| {
-                                citadel_io::error!(citadel_io::ErrorCode::FirewallUdpSocketNotLoaded)
+                                citadel_io::error!(
+                                    citadel_io::ErrorCode::FirewallUdpSocketNotLoaded
+                                )
                             })?,
                             &this.possible_endpoints,
                         )
@@ -193,7 +195,18 @@ impl SingleUDPHolePuncher {
                 ) -> Result<HolePunchedUdpSocket, FirewallError> {
                     match id_opt {
                         Some((_local_id, peer_id)) => {
-                            post_kill_rebuild.send(Some(this.recovery_mode_generate_socket_by_remote_id(peer_id).ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::FirewallKillSwitchNoMatch))?)).map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))?;
+                            post_kill_rebuild
+                                .send(Some(
+                                    this.recovery_mode_generate_socket_by_remote_id(peer_id)
+                                        .ok_or_else(|| {
+                                            citadel_io::error!(
+                                                citadel_io::ErrorCode::FirewallKillSwitchNoMatch
+                                            )
+                                        })?,
+                                ))
+                                .map_err(|err| {
+                                    FirewallError::firewall_hole_punch(err.to_string())
+                                })?;
                         }
 
                         None => {
@@ -223,10 +236,9 @@ impl SingleUDPHolePuncher {
             NatTraversalMethod::None => {
                 // assume the endpoint is exactly as expected. This is not recommended unless server to server communication occurs
                 // 1-1 mapping
-                let socket = self
-                    .socket
-                    .take()
-                    .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::FirewallUdpSocketNotLoaded))?;
+                let socket = self.socket.take().ok_or_else(|| {
+                    citadel_io::error!(citadel_io::ErrorCode::FirewallUdpSocketNotLoaded)
+                })?;
                 //let bind_addr = socket.local_addr()?;
                 let unique_id = self.unique_id;
                 Ok(HolePunchedUdpSocket {

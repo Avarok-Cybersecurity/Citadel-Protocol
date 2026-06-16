@@ -111,9 +111,7 @@ pub(crate) mod functions {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_sign(message, secret_key),
             SigAlgorithm::FnDsa512 => falcon_sign(message, secret_key),
-            SigAlgorithm::None => {
-                Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected))
-            }
+            SigAlgorithm::None => Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected)),
         }
     }
 
@@ -126,9 +124,7 @@ pub(crate) mod functions {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_verify(message, signature, public_key),
             SigAlgorithm::FnDsa512 => falcon_verify(message, signature, public_key),
-            SigAlgorithm::None => {
-                Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected))
-            }
+            SigAlgorithm::None => Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected)),
         }
     }
 
@@ -138,9 +134,7 @@ pub(crate) mod functions {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_keypair(),
             SigAlgorithm::FnDsa512 => falcon_keypair(),
-            SigAlgorithm::None => {
-                Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected))
-            }
+            SigAlgorithm::None => Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected)),
         }
     }
 
@@ -207,9 +201,8 @@ pub(crate) mod functions {
             "ML-DSA",
             "signature"
         ))?;
-        pk.verify(message.as_ref(), &sig).map_err(|_| {
-            citadel_io::error!(citadel_io::ErrorCode::SigVerificationFailed, "ML-DSA")
-        })
+        pk.verify(message.as_ref(), &sig)
+            .map_err(|_| citadel_io::error!(citadel_io::ErrorCode::SigVerificationFailed, "ML-DSA"))
     }
 
     fn ml_dsa_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
@@ -775,9 +768,7 @@ impl PostQuantumContainer {
                             payload.truncate(start_idx);
                             Ok(())
                         } else {
-                            Err(citadel_io::error!(
-                                citadel_io::ErrorCode::AntiReplayInvalid
-                            ))
+                            Err(citadel_io::error!(citadel_io::ErrorCode::AntiReplayInvalid))
                         }
                     } else {
                         Err(citadel_io::error!(
@@ -801,9 +792,8 @@ impl PostQuantumContainer {
     ) -> Result<(), Error> {
         let nonce = nonce.as_ref();
         let len = buf.len();
-        let mut in_place =
-            InPlaceBuffer::new(buf, 0..len)
-                .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
+        let mut in_place = InPlaceBuffer::new(buf, 0..len)
+            .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_encryption_key() {
             symmetric_key
                 .encrypt_in_place(nonce, &[], &mut in_place)
@@ -823,9 +813,8 @@ impl PostQuantumContainer {
     ) -> Result<(), Error> {
         let nonce = nonce.as_ref();
         let len = buf.len();
-        let mut in_place =
-            InPlaceBuffer::new(buf, 0..len)
-                .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
+        let mut in_place = InPlaceBuffer::new(buf, 0..len)
+            .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_decryption_key() {
             symmetric_key
                 .decrypt_in_place(nonce, &[], &mut in_place)
@@ -985,10 +974,9 @@ impl PostQuantumMeta {
         let (ciphertext, shared_secret) = match kem_scheme {
             KemAlgorithm::MlKem => {
                 let (ciphertext, shared_secret) =
-                    kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default())
-                        .map_err(|_err| {
-                            citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed)
-                        })?;
+                    kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default()).map_err(
+                        |_err| citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed),
+                    )?;
                 (ciphertext.to_vec(), shared_secret.to_vec())
             }
         };
@@ -1265,7 +1253,6 @@ impl PostQuantumMeta {
         }
     }
 }
-
 
 impl Debug for PostQuantumContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

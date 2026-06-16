@@ -391,7 +391,10 @@ impl<R: Ratchet> StateContainerInner<R> {
         if let Some(endpoint_container) = v_conn.endpoint_container.as_mut() {
             Ok(endpoint_container)
         } else {
-            Err(error!(ErrorCode::StateEndpointContainerNotFound, target_cid))
+            Err(error!(
+                ErrorCode::StateEndpointContainerNotFound,
+                target_cid
+            ))
         }
     }
 
@@ -403,7 +406,10 @@ impl<R: Ratchet> StateContainerInner<R> {
         if let Some(endpoint_container) = v_conn.endpoint_container.as_ref() {
             Ok(endpoint_container)
         } else {
-            Err(error!(ErrorCode::StateEndpointContainerNotFound, target_cid))
+            Err(error!(
+                ErrorCode::StateEndpointContainerNotFound,
+                target_cid
+            ))
         }
     }
 

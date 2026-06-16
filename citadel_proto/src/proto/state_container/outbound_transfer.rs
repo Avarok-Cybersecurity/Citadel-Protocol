@@ -2,7 +2,7 @@
 //! group-header acks, file-header acks, and wave acks.
 
 use super::includes::*;
-use citadel_io::{error, ErrorCode, Dbg};
+use citadel_io::{error, Dbg, ErrorCode};
 
 impl<R: Ratchet> StateContainerInner<R> {
     pub fn on_file_header_ack_received(
@@ -41,13 +41,9 @@ impl<R: Ratchet> StateContainerInner<R> {
                 file_transfer
                     .start
                     .take()
-                    .ok_or_else(|| {
-                        error!(ErrorCode::FileTransferAlreadyStarted, Dbg(key))
-                    })?
+                    .ok_or_else(|| error!(ErrorCode::FileTransferAlreadyStarted, Dbg(key)))?
                     .send(true)
-                    .map_err(|_| {
-                        error!(ErrorCode::FileTransferScramblerStartFailed, Dbg(key))
-                    })?;
+                    .map_err(|_| error!(ErrorCode::FileTransferScramblerStartFailed, Dbg(key)))?;
                 let (handle, tx) = ObjectTransferHandler::new(
                     session_cid,
                     receiver_cid,
@@ -57,7 +53,11 @@ impl<R: Ratchet> StateContainerInner<R> {
                 );
                 tx.send(ObjectTransferStatus::TransferBeginning)
                     .map_err(|err| {
-                        error!(ErrorCode::FileTransferBeginningStatusFailed, Dbg(key), err.to_string())
+                        error!(
+                            ErrorCode::FileTransferBeginningStatusFailed,
+                            Dbg(key),
+                            err.to_string()
+                        )
                     })?;
                 let _ = self
                     .file_transfer_handles
@@ -70,7 +70,11 @@ impl<R: Ratchet> StateContainerInner<R> {
                         session_cid,
                     }))
                     .map_err(|err| {
-                        error!(ErrorCode::FileTransferHandleAlertFailed, Dbg(key), err.to_string())
+                        error!(
+                            ErrorCode::FileTransferHandleAlertFailed,
+                            Dbg(key),
+                            err.to_string()
+                        )
                     })?;
             } else {
                 return Err(error!(ErrorCode::FileTransferOutboundMissing, Dbg(key)));
@@ -81,23 +85,15 @@ impl<R: Ratchet> StateContainerInner<R> {
                 // stop the async cryptscrambler
                 file_transfer
                     .stop_tx
-                    .ok_or_else(|| {
-                        error!(ErrorCode::FileTransferStopSignalMissing, Dbg(key))
-                    })?
+                    .ok_or_else(|| error!(ErrorCode::FileTransferStopSignalMissing, Dbg(key)))?
                     .send(())
-                    .map_err(|_| {
-                        error!(ErrorCode::FileTransferScramblerStopFailed, Dbg(key))
-                    })?;
+                    .map_err(|_| error!(ErrorCode::FileTransferScramblerStopFailed, Dbg(key)))?;
                 // stop the async task pulling from the async cryptscrambler
                 file_transfer
                     .start
-                    .ok_or_else(|| {
-                        error!(ErrorCode::FileTransferStartSignalMissing, Dbg(key))
-                    })?
+                    .ok_or_else(|| error!(ErrorCode::FileTransferStartSignalMissing, Dbg(key)))?
                     .send(false)
-                    .map_err(|_| {
-                        error!(ErrorCode::FileTransferScramblerHaltFailed, Dbg(key))
-                    })?;
+                    .map_err(|_| error!(ErrorCode::FileTransferScramblerHaltFailed, Dbg(key)))?;
                 let _ = self
                     .kernel_tx
                     .unbounded_send(NodeResult::InternalServerError(InternalServerError {

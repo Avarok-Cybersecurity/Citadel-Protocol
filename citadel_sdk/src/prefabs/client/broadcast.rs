@@ -632,7 +632,10 @@ mod tests {
                         }
                     }
 
-                    Err(citadel_io::error!(citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly, "signals_recv"))
+                    Err(citadel_io::error!(
+                        citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly,
+                        "signals_recv"
+                    ))
                 },
             );
 

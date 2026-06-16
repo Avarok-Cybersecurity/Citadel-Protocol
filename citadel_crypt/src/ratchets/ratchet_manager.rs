@@ -1001,9 +1001,7 @@ where
                                 self.cid, next_opts, transfer, &self.psks,
                             )
                             .ok_or_else(|| {
-                                citadel_io::error!(
-                                    citadel_io::ErrorCode::RekeyBobConstructorFailed
-                                )
+                                citadel_io::error!(citadel_io::ErrorCode::RekeyBobConstructorFailed)
                             })?;
 
                         // Offload update_sync_safe
@@ -1056,8 +1054,8 @@ where
                                 ))
                                 .await
                                 .map_err(|_err| {
-                        citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
-                    })?;
+                                    citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
+                                })?;
 
                             log::info!(
                                 target: "citadel",
@@ -1262,8 +1260,10 @@ where
                                     .send(RatchetMessage::Truncate(version_to_truncate))
                                     .await
                                     .map_err(|_err| {
-                        citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
-                    })?;
+                                        citadel_io::error!(
+                                            citadel_io::ErrorCode::RekeySinkSendError
+                                        )
+                                    })?;
                                 // We need to wait to be marked as complete
                             } else {
                                 // Send LoserCanFinish to Bob so he can finish
@@ -1273,8 +1273,10 @@ where
                                     .send(RatchetMessage::LoserCanFinish)
                                     .await
                                     .map_err(|_err| {
-                        citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
-                    })?;
+                                        citadel_io::error!(
+                                            citadel_io::ErrorCode::RekeySinkSendError
+                                        )
+                                    })?;
                             }
                         } else {
                             log::warn!(target:"citadel", "Client {} unexpected status as Leader: {status:?}", self.cid);
@@ -1347,8 +1349,8 @@ where
                         })
                         .await
                         .map_err(|_err| {
-                        citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
-                    })?;
+                            citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
+                        })?;
                     break;
                 }
 
@@ -1412,8 +1414,8 @@ where
                         })
                         .await
                         .map_err(|_err| {
-                        citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
-                    })?;
+                            citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
+                        })?;
                     break;
                 }
 

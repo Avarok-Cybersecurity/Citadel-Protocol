@@ -34,11 +34,11 @@
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
 use crate::proto::misc::dual_cell::DualCell;
-use citadel_io::{error, ErrorCode};
 use byteorder::WriteBytesExt;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use citadel_io as rand;
 use citadel_io::RngCore;
+use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::HeaderObfuscatorSettings;
 use rand::Rng;
 use rand::ThreadRng;

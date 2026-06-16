@@ -144,7 +144,10 @@ mod test {
     }
 
     fn from_hyper_error(e: Error) -> NetworkError {
-        citadel_io::error!(citadel_io::ErrorCode::InternalServiceHyperError, e.to_string())
+        citadel_io::error!(
+            citadel_io::ErrorCode::InternalServiceHyperError,
+            e.to_string()
+        )
     }
 
     async fn test_write_and_read_one_packet(

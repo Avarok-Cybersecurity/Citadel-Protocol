@@ -176,7 +176,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             #[cfg(all(feature = "sql", not(coverage)))]
             BackendType::SQLDatabase(..) => {
                 use crate::backend::sql_backend::SqlBackend;
-                let backend = SqlBackend::try_from(backend_type.clone()).map_err(|_| citadel_io::error!(citadel_io::ErrorCode::BackendUrlInvalid))?;
+                let backend = SqlBackend::try_from(backend_type.clone())
+                    .map_err(|_| citadel_io::error!(citadel_io::ErrorCode::BackendUrlInvalid))?;
                 PersistenceHandler::create(backend).await?
             }
 

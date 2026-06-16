@@ -227,8 +227,9 @@ impl ObjectTransferHandler {
 
     fn respond(&mut self, accept: bool) -> Result<(), AccountError> {
         if let Some(tx) = self.start_recv_tx.take() {
-            tx.send(accept)
-                .map_err(|_| citadel_io::error!(citadel_io::ErrorCode::FileTransferResponseFailed))?;
+            tx.send(accept).map_err(|_| {
+                citadel_io::error!(citadel_io::ErrorCode::FileTransferResponseFailed)
+            })?;
         }
 
         Ok(())

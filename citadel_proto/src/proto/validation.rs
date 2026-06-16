@@ -218,9 +218,9 @@ pub(crate) mod pre_connect {
     use crate::error::NetworkError;
     use crate::proto::packet::HdpPacket;
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
-    use citadel_io::{error, ErrorCode};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
     use citadel_crypt::ratchets::Ratchet;
+    use citadel_io::{error, ErrorCode};
     use citadel_types::crypto::PreSharedKey;
     use citadel_types::proto::SessionSecuritySettings;
     use citadel_types::proto::UdpMode;

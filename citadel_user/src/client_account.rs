@@ -436,9 +436,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     ) -> Result<(), AccountError> {
         self.remove_hyperlan_peer(other.get_cid())
             .ok_or_else(|| AccountError::account_client_non_exists(other.get_cid()))?;
-        other.remove_hyperlan_peer(self.get_cid()).ok_or_else(|| {
-            citadel_io::error!(citadel_io::ErrorCode::PeerRemoveSelfFailed)
-        })?;
+        other
+            .remove_hyperlan_peer(self.get_cid())
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::PeerRemoveSelfFailed))?;
 
         Ok(())
     }

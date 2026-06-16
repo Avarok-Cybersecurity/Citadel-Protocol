@@ -207,25 +207,23 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
         // Heavy: stage0_bob + finish — synchronous compute outside lock; callers should offload if needed
         log::info!(target: "citadel", "[CBD-CNRV-3] Client {} calling stage0_bob", local_cid);
-        let transfer = newest_version.stage0_bob().ok_or_else(|| {
-            citadel_io::error!(citadel_io::ErrorCode::RekeyStage0BobFailed)
-        })?;
+        let transfer = newest_version
+            .stage0_bob()
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RekeyStage0BobFailed))?;
         log::info!(target: "citadel", "[CBD-CNRV-4] Client {} stage0_bob complete, calling finish_with_custom_cid", local_cid);
 
         let next_ratchet = newest_version
             .finish_with_custom_cid(local_cid)
-            .ok_or_else(|| {
-                citadel_io::error!(citadel_io::ErrorCode::RekeyFinishFailed)
-            })?;
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RekeyFinishFailed))?;
         log::info!(target: "citadel", "[CBD-CNRV-5] Client {} finish_with_custom_cid complete, acquiring write lock", local_cid);
 
         // Short commit under write lock
         let status = {
             let mut toolset = self.toolset.write();
             log::info!(target: "citadel", "[CBD-CNRV-6] Client {} write lock acquired, calling update_from", local_cid);
-            toolset.update_from(next_ratchet).ok_or_else(|| {
-                citadel_io::error!(citadel_io::ErrorCode::RekeyUpdateFromFailed)
-            })?
+            toolset
+                .update_from(next_ratchet)
+                .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RekeyUpdateFromFailed))?
         };
         log::info!(target: "citadel", "[CBD-CNRV-7] Client {} successfully updated Ratchet from v{cur_vers} to v{next_vers}", local_cid);
 

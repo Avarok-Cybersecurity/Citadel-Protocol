@@ -240,12 +240,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             ProposedCredentials::new_register(full_name, username, proposed_password.into())
                 .await?;
         let register_request = NodeRequest::RegisterToHypernode(RegisterToHypernode {
-            remote_addr: addr
-                .to_socket_addrs()?
-                .next()
-                .ok_or(citadel_io::error!(
-                    citadel_io::ErrorCode::RemoteInvalidSocketAddr
-                ))?,
+            remote_addr: addr.to_socket_addrs()?.next().ok_or(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteInvalidSocketAddr
+            ))?,
             proposed_credentials: creds,
             static_security_settings: default_security_settings,
             session_password: server_password.unwrap_or_default(),
@@ -952,9 +949,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             .account_manager()
             .get_username_by_cid(session_cid)
             .await?
-            .ok_or_else(|| {
-                citadel_io::error!(citadel_io::ErrorCode::RemoteLocalUsernameMissing)
-            })?;
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RemoteLocalUsernameMissing))?;
         let peer_username_opt = self.target_username().map(ToString::to_string);
 
         let mut stream = self
@@ -1292,11 +1287,9 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         if self.user().get_target_cid() == 0 {
             // in this case, the user re-used a remote locked to a registration target
             // where the username was provided, but the cid was 0 (unknown).
-            let peer_username = self
-                .target_username()
-                .ok_or_else(|| {
-                    citadel_io::error!(citadel_io::ErrorCode::RemoteTargetCidZeroNoUsername)
-                })?;
+            let peer_username = self.target_username().ok_or_else(|| {
+                citadel_io::error!(citadel_io::ErrorCode::RemoteTargetCidZeroNoUsername)
+            })?;
             let session_cid = self.user().get_session_cid();
             let expected_peer_cid = self
                 .remote()

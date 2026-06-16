@@ -278,7 +278,11 @@ mod tests {
 
     #[test]
     fn sizes_are_minimal() {
-        assert_eq!(core::mem::size_of::<ErrorCode>(), 2, "ErrorCode must stay 2 bytes");
+        assert_eq!(
+            core::mem::size_of::<ErrorCode>(),
+            2,
+            "ErrorCode must stay 2 bytes"
+        );
         assert_eq!(
             core::mem::size_of::<NetworkError>(),
             8,

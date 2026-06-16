@@ -58,7 +58,9 @@ impl<R: Ratchet> BrowserConnection<R> {
             .with_no_central_server(config)
             .with_backend(BackendType::InMemory)
             .build(kernel)
-            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::NodeBuildFailed, err.to_string()))?;
+            .map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::NodeBuildFailed, err.to_string())
+            })?;
 
         let kernel_task =
             citadel_io::tokio::task::spawn_local(async move { node_future.await.map(|_| ()) });

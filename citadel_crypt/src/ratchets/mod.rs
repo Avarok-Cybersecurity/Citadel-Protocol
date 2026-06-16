@@ -175,9 +175,7 @@ pub trait Ratchet:
         let security_level = security_level_init.unwrap_or(SecurityLevel::Standard);
 
         if message_ratchet_count == 0 {
-            return Err(citadel_io::error!(
-                citadel_io::ErrorCode::NoMessageRatchets
-            ));
+            return Err(citadel_io::error!(citadel_io::ErrorCode::NoMessageRatchets));
         }
 
         let max_level = (message_ratchet_count - 1) as u8;

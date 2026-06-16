@@ -31,7 +31,6 @@ This module implements the core peer-to-peer networking layer for the Citadel Pr
 */
 
 use crate::error::NetworkError;
-use citadel_io::{error, ErrorCode};
 use crate::macros::SyncContextRequirements;
 use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -42,6 +41,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::time::Duration;
 use citadel_io::time::{delay_queue, DelayQueue};
 use citadel_io::tokio::time::error::Error;
+use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::PreSharedKey;
 use citadel_types::prelude::PeerInfo;
 pub use citadel_types::proto::{ClientConnectionType, PeerConnectionType};

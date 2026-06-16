@@ -420,9 +420,7 @@ pub mod constructor {
                         .encrypted_msg_entropy_banks
                         .get(idx)
                         .ok_or_else(|| {
-                            citadel_io::error!(
-                                citadel_io::ErrorCode::RekeyEntropyBankMissing
-                            )
+                            citadel_io::error!(citadel_io::ErrorCode::RekeyEntropyBankMissing)
                         })?[..],
                     nonce_msg,
                 ) {
@@ -462,19 +460,13 @@ pub mod constructor {
                 .scramble
                 .entropy_bank
                 .as_ref()
-                .ok_or_else(|| {
-                    citadel_io::error!(
-                        citadel_io::ErrorCode::RekeyEntropyBankMissing
-                    )
-                })?
+                .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RekeyEntropyBankMissing))?
                 .version
                 != self.message.inner[0]
                     .entropy_bank
                     .as_ref()
                     .ok_or_else(|| {
-                        citadel_io::error!(
-                            citadel_io::ErrorCode::RekeyEntropyBankMissing
-                        )
+                        citadel_io::error!(citadel_io::ErrorCode::RekeyEntropyBankMissing)
                     })?
                     .version
             {
@@ -487,19 +479,13 @@ pub mod constructor {
                 .scramble
                 .entropy_bank
                 .as_ref()
-                .ok_or_else(|| {
-                    citadel_io::error!(
-                        citadel_io::ErrorCode::RekeyEntropyBankMissing
-                    )
-                })?
+                .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RekeyEntropyBankMissing))?
                 .cid
                 != self.message.inner[0]
                     .entropy_bank
                     .as_ref()
                     .ok_or_else(|| {
-                        citadel_io::error!(
-                            citadel_io::ErrorCode::RekeyEntropyBankMissing
-                        )
+                        citadel_io::error!(citadel_io::ErrorCode::RekeyEntropyBankMissing)
                     })?
                     .cid
             {

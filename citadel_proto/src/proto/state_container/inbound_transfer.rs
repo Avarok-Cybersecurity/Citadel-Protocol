@@ -2,7 +2,7 @@
 //! file-header intake plus per-wave payload reassembly.
 
 use super::includes::*;
-use citadel_io::{error, ErrorCode, Dbg};
+use citadel_io::{error, Dbg, ErrorCode};
 
 impl<R: Ratchet> StateContainerInner<R> {
     /// Like the other functions in this file, ensure that verification is called before running this
@@ -30,7 +30,10 @@ impl<R: Ratchet> StateContainerInner<R> {
             );
             let security_level = SecurityLevel::for_value(header.security_level as usize)
                 .ok_or_else(|| {
-                    error!(ErrorCode::InboundInvalidSecurityLevel, header.security_level)
+                    error!(
+                        ErrorCode::InboundInvalidSecurityLevel,
+                        header.security_level
+                    )
                 })?;
             let mut receiver_container = GroupReceiverContainer::new(
                 object_id,
@@ -46,7 +49,10 @@ impl<R: Ratchet> StateContainerInner<R> {
                 if let Some(inbound_file_transfer) = self.inbound_files.get(&file_key) {
                     inbound_file_transfer.last_group_window_len
                 } else {
-                    return Err(error!(ErrorCode::InboundGroupHeaderFileKeyMissing, Dbg(file_key)));
+                    return Err(error!(
+                        ErrorCode::InboundGroupHeaderFileKeyMissing,
+                        Dbg(file_key)
+                    ));
                 }
             } else {
                 0

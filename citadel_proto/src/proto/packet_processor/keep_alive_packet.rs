@@ -107,9 +107,9 @@ pub async fn process_keep_alive<R: Ratchet, T: PlatformOps>(
                                 current_timestamp_ns + DELTA_NS,
                                 security_level,
                             );
-                            to_primary_stream
-                                .unbounded_send(next_ka)
-                                .map_err(|err| error!(ErrorCode::KeepAliveSendFailed, err.to_string()))
+                            to_primary_stream.unbounded_send(next_ka).map_err(|err| {
+                                error!(ErrorCode::KeepAliveSendFailed, err.to_string())
+                            })
                         })?;
 
                         Ok(PrimaryProcessorResult::Void)

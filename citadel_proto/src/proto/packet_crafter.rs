@@ -46,7 +46,6 @@
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
-use citadel_io::{error, ErrorCode};
 use crate::proto::remote::Ticket;
 use crate::proto::session::UserMessage;
 use crate::proto::state_container::VirtualTargetType;
@@ -55,6 +54,7 @@ use citadel_crypt::messaging::MessengerLayerOrderedMessage;
 use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
+use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::ObjectId;
 use netbeam::time_tracker::TimeTracker;

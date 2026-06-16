@@ -28,10 +28,10 @@
 
 use crate::error::NetworkError;
 use crate::proto::node_result::NodeResult;
-use citadel_io::{error, ErrorCode};
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::Mutex;
+use citadel_io::{error, ErrorCode};
 use futures::{Future, Stream};
 use std::collections::HashMap;
 use std::pin::Pin;

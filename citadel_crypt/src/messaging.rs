@@ -257,9 +257,7 @@ where
                         .send(RatchetMessage::JustMessage(message_not_sent))
                         .await
                         .map_err(|_| {
-                            citadel_io::error!(
-                                citadel_io::ErrorCode::RatchetManagerStreamDied
-                            )
+                            citadel_io::error!(citadel_io::ErrorCode::RatchetManagerStreamDied)
                         })
                 } else {
                     // Success; this message will trigger a simultaneous rekey

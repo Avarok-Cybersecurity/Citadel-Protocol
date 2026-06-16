@@ -26,7 +26,6 @@ use netbeam::sync::RelativeNodeType;
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
 use crate::proto::misc::udp_internal_interface::UdpSplittableTypes;
-use citadel_io::{error, ErrorCode};
 use crate::proto::node_result::NodeResult;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
@@ -34,6 +33,7 @@ use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualTargetType;
+use citadel_io::{error, ErrorCode};
 
 /// Platform-portable file metadata returned by [`PlatformOps::open_and_validate_for_transfer`].
 ///

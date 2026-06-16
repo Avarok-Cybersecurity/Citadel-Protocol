@@ -109,8 +109,9 @@ impl RtdbInstance {
 
         let _ = std::mem::replace(
             &mut self.inner,
-            FirebaseRTDB::new_from_token(url, api_key, token, auth, expire_time)
-                .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner))?,
+            FirebaseRTDB::new_from_token(url, api_key, token, auth, expire_time).map_err(
+                |err| citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner),
+            )?,
         );
 
         Ok(())

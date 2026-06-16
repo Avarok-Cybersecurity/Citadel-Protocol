@@ -28,7 +28,6 @@ use super::udp_internal_interface::{
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
 use crate::proto::node_result::NodeResult;
-use citadel_io::{error, ErrorCode};
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::p2p_conn_handler;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
@@ -36,6 +35,7 @@ use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualTargetType;
+use citadel_io::{error, ErrorCode};
 
 #[allow(private_interfaces)]
 impl PlatformOps for NativeIO {
