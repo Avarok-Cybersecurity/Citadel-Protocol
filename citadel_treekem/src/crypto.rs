@@ -81,6 +81,34 @@ fn aead_open(ss: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>, Error> {
         .map_err(|err| Error::generic(format!("treekem HPKE open failed: {err}")))
 }
 
+/// AEAD-seal with an explicit key + 12-byte nonce. The caller must ensure each `(key, nonce)` pair is
+/// used at most once (e.g. a single-use content key with a fixed nonce, or a reused key with a
+/// per-message nonce derived from unique material).
+pub(crate) fn sym_seal(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, Error> {
+    let cipher = ChaCha20Poly1305::new(key.into());
+    let nonce: Nonce = (*nonce).into();
+    cipher
+        .encrypt(&nonce, plaintext)
+        .map_err(|err| Error::generic(format!("treekem symmetric seal failed: {err}")))
+}
+
+/// AEAD-open the counterpart of [`sym_seal`].
+pub(crate) fn sym_open(
+    key: &[u8; 32],
+    nonce: &[u8; 12],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, Error> {
+    let cipher = ChaCha20Poly1305::new(key.into());
+    let nonce: Nonce = (*nonce).into();
+    cipher
+        .decrypt(&nonce, ciphertext)
+        .map_err(|err| Error::generic(format!("treekem symmetric open failed: {err}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
