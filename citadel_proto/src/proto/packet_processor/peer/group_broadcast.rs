@@ -528,11 +528,19 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 );
                 Ok(PrimaryProcessorResult::ReplyToSender(packet))
             } else {
-                // Client: decrypt the E2E CGKA ciphertext to plaintext before handing it to the app.
+                // Client: decrypt the E2E CGKA ciphertext to plaintext before handing it to the app. In
+                // a CommandHierarchy group a non-permitted reader (a sibling/subordinate of the sender)
+                // legitimately cannot decrypt — drop the message for them rather than erroring.
                 let plaintext = {
                     let state = inner_state!(session.state_container);
                     match state.group_cgka.get(&key) {
-                        Some(cgka) => cgka.decrypt_message(message.as_ref())?,
+                        Some(cgka) => match cgka.decrypt_message(message.as_ref()) {
+                            Ok(plaintext) => plaintext,
+                            Err(err) => {
+                                log::trace!(target: "citadel", "Dropping group message for {key:?}: not a permitted reader ({err})");
+                                return Ok(PrimaryProcessorResult::Void);
+                            }
+                        },
                         None => {
                             log::warn!(target: "citadel", "Dropping group message for {key:?}: no CGKA state");
                             return Ok(PrimaryProcessorResult::Void);
@@ -1126,6 +1134,23 @@ fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
         cgka.add_member(key_package_bytes)?
     };
 
+    // HierarchyAssign -> the joiner FIRST (before the Welcome), if this is a CommandHierarchy group and
+    // the joiner has a rank. Both travel the same ordered C2S→joiner stream, so applying the assignment
+    // (which switches the joiner into hierarchy mode) before the Welcome opens its channel removes the
+    // window where the joiner would otherwise send/receive in the wrong (flat) mode.
+    if let Some(sealed) = assignment {
+        send_hierarchy_assign(
+            session,
+            sess_ratchet,
+            key,
+            joiner_cid,
+            sealed,
+            ticket,
+            timestamp,
+            security_level,
+        )?;
+    }
+
     // Welcome -> the joiner (the relay routes to `joiner_cid`).
     let welcome = GroupBroadcast::Welcome {
         key,
@@ -1141,20 +1166,6 @@ fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
         security_level,
     );
     session.send_to_primary_stream(Some(ticket), welcome_packet)?;
-
-    // HierarchyAssign -> the joiner, if this is a CommandHierarchy group and the joiner has a rank.
-    if let Some(sealed) = assignment {
-        send_hierarchy_assign(
-            session,
-            sess_ratchet,
-            key,
-            joiner_cid,
-            sealed,
-            ticket,
-            timestamp,
-            security_level,
-        )?;
-    }
 
     // Commit -> the existing members (the relay fans out, excluding the owner).
     let commit = GroupBroadcast::Commit {

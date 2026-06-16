@@ -657,4 +657,133 @@ mod tests {
         assert!(receiver_success.load(Ordering::Relaxed));
         Ok(())
     }
+
+    /// End-to-end Decentralized Hierarchy Encryption: an owner founds a `SuperiorOnly` command-hierarchy
+    /// group and assigns a subordinate to `/alpha`. The subordinate sends a `DheEnvelope` message; the
+    /// owner (the hierarchy root, a superior of every node) reads it through the opaque relay — proving
+    /// the full network path: KeyPackage → HierarchyAssign → Welcome → DheEnvelope → relay → superior read.
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    async fn group_command_hierarchy_superior_reads_subordinate(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::prelude::GroupBroadcastPayload;
+        use citadel_types::crypto::SecBuffer;
+        use citadel_types::proto::{
+            CommandPath, GroupHierarchyMode, MessageGroupOptions, ReadPolicy,
+        };
+        use std::collections::HashMap;
+
+        let peer_count = 2;
+        citadel_logging::setup_log();
+        TestBarrier::setup(peer_count);
+
+        let owner_read = &AtomicBool::new(false);
+        let (server, server_addr) = server_info::<StackedRatchet>();
+        let client_kernels = FuturesUnordered::new();
+        let total_peers = (0..peer_count)
+            .map(|_| Uuid::new_v4())
+            .collect::<Vec<Uuid>>();
+
+        for idx in 0..peer_count {
+            let uuid = total_peers.get(idx).cloned().unwrap();
+            let peers = total_peers
+                .clone()
+                .into_iter()
+                .filter(|r| r != &uuid)
+                .map(UserIdentifier::from)
+                .collect::<Vec<UserIdentifier>>();
+            let server_connection_settings =
+                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = PeerConnectionKernel::new(
+                server_connection_settings,
+                peers,
+                move |mut results, remote| async move {
+                    let mut signals = remote.get_unprocessed_signals_receiver().unwrap();
+                    wait_for_peers().await;
+                    let conn = results.recv().await.unwrap()?;
+
+                    if idx == 0 {
+                        // Owner: create a SuperiorOnly hierarchy group, assigning the subordinate to /alpha.
+                        let sub_cid: u64 = conn.channel.get_peer_cid();
+                        let mut ranks = HashMap::new();
+                        let _ = ranks.insert(sub_cid, CommandPath::parse("/alpha"));
+                        let options = MessageGroupOptions {
+                            hierarchy: GroupHierarchyMode::CommandHierarchy {
+                                read_policy: ReadPolicy::SuperiorOnly,
+                                ranks,
+                            },
+                            ..Default::default()
+                        };
+                        let mut channel = remote
+                            .create_group_with_options(Some(vec![sub_cid.into()]), options)
+                            .await?;
+
+                        // The owner is the hierarchy root: it reads the subordinate's DheEnvelope.
+                        loop {
+                            match channel.recv().await {
+                                Some(GroupBroadcastPayload::Message { payload, sender: _ }) => {
+                                    assert_eq!(payload.as_ref(), b"sitrep from subordinate");
+                                    owner_read.store(true, Ordering::Relaxed);
+                                    break;
+                                }
+                                Some(_) => continue,
+                                None => break,
+                            }
+                        }
+                        wait_for_peers().await;
+                        return remote.shutdown_kernel().await;
+                    }
+
+                    // Subordinate: accept the invitation, then send once its (hierarchy-mode) channel is up.
+                    while let Some(evt) = signals.recv().await {
+                        match evt {
+                            NodeResult::GroupEvent(GroupEvent {
+                                event: GroupBroadcast::Invitation { .. },
+                                ..
+                            }) => {
+                                let _ = crate::responses::group_invite(evt, true, &remote.inner)
+                                    .await?;
+                            }
+                            NodeResult::GroupChannelCreated(GroupChannelCreated {
+                                channel,
+                                ..
+                            }) => {
+                                channel
+                                    .send_message(SecBuffer::from(
+                                        b"sitrep from subordinate".to_vec(),
+                                    ))
+                                    .await?;
+                                wait_for_peers().await;
+                                return remote.shutdown_kernel().await;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    Err(citadel_io::error!(
+                        citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly,
+                        "signals"
+                    ))
+                },
+            );
+            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+            client_kernels.push(async move { client.await.map(|_| ()) });
+        }
+
+        let clients = Box::pin(async move { client_kernels.try_collect::<()>().await.map(|_| ()) });
+        if let Err(err) = futures::future::try_select(server, clients).await {
+            return match err {
+                futures::future::Either::Left(res) => Err(res.0.into_string().into()),
+                futures::future::Either::Right(res) => Err(res.0.into_string().into()),
+            };
+        }
+
+        assert!(
+            owner_read.load(Ordering::Relaxed),
+            "owner (hierarchy root) must read the subordinate's DHE message"
+        );
+        Ok(())
+    }
 }
