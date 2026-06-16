@@ -144,6 +144,7 @@ impl<R: Ratchet> Debug for StateContainer<R> {
 define_outer_struct_wrapper!(StateContainer, StateContainerInner, <R: Ratchet>, <R>);
 
 mod channels;
+mod group_hierarchy_outbound;
 mod inbound_transfer;
 mod monitoring;
 mod outbound_transfer;

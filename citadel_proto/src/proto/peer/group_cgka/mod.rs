@@ -11,11 +11,14 @@
 //! relay, and the caller (`group_broadcast.rs`) performs the packet send. That keeps the crypto state
 //! machine unit-testable and avoids holding the `state_container` lock across an await.
 
+mod hierarchy;
+
 use crate::error::NetworkError;
 use citadel_io::{error, ErrorCode};
-use citadel_treekem::{AppCiphertext, Commit, GroupState, KeyPackage, Welcome};
-use citadel_types::proto::GroupHierarchyMode;
+use citadel_treekem::{AppCiphertext, Commit, GroupState, HierarchyMember, KeyPackage, Welcome};
+use citadel_types::proto::{CommandPath, GroupHierarchyMode};
 use citadel_user::serialization::SyncIO;
+use std::collections::HashMap;
 
 /// A 32-byte CGKA secret (leaf secret / path secret).
 type Secret = [u8; 32];
@@ -31,9 +34,15 @@ pub struct GroupCgkaState {
     own_leaf_secret: Secret,
     /// Whether this member is the group owner (the sole committer).
     is_owner: bool,
-    /// The group's hierarchy mode (carried for the DHE overlay; `Flat` is the ordinary path).
-    #[allow(dead_code)]
+    /// The group's hierarchy mode (`Flat` is the ordinary zero-trust path; `CommandHierarchy` adds the
+    /// Decentralized Hierarchy Encryption overlay).
     hierarchy: GroupHierarchyMode,
+    /// This member's DHE session: the root for the owner of a `CommandHierarchy` group, set on a
+    /// `HierarchyAssign` for an ordinary member, and `None` in `Flat` mode or before assignment.
+    hierarchy_self: Option<HierarchyMember>,
+    /// Owner-only (`CommandHierarchy`): cid → assigned command path. Seeded at create and updated by
+    /// `promote`/`demote`; a member's sealed assignment is produced when they join (see `add_member`).
+    pending_ranks: HashMap<u64, CommandPath>,
 }
 
 /// A fresh, cryptographically-random 32-byte secret (for leaf re-keys giving post-compromise security).
@@ -49,16 +58,26 @@ fn ser_err(context: &'static str) -> NetworkError {
 }
 
 impl GroupCgkaState {
-    /// Found a new group as the owner (sole member, epoch 0).
+    /// Found a new group as the owner (sole member, epoch 0). In `CommandHierarchy` mode the owner
+    /// becomes the hierarchy root (random root secret) and seeds its rank table from `options`.
     pub fn new_owner(cid: u64, hierarchy: GroupHierarchyMode) -> Result<Self, NetworkError> {
         let own_leaf_secret = fresh_secret();
         let kp = KeyPackage::generate(cid, &own_leaf_secret)?;
         let group = GroupState::create(kp.leaf, own_leaf_secret);
+        let (hierarchy_self, pending_ranks) = match &hierarchy {
+            GroupHierarchyMode::Flat => (None, HashMap::new()),
+            GroupHierarchyMode::CommandHierarchy { read_policy, ranks } => (
+                Some(HierarchyMember::root(fresh_secret(), *read_policy)),
+                ranks.clone(),
+            ),
+        };
         Ok(Self {
             group: Some(group),
             own_leaf_secret,
             is_owner: true,
             hierarchy,
+            hierarchy_self,
+            pending_ranks,
         })
     }
 
@@ -79,27 +98,33 @@ impl GroupCgkaState {
                 own_leaf_secret,
                 is_owner: false,
                 hierarchy,
+                hierarchy_self: None,
+                pending_ranks: HashMap::new(),
             },
             payload,
         ))
     }
 
     /// Owner-only: incorporate a joiner's published `KeyPackage`, producing the `Welcome` (for the
-    /// joiner) and the `Commit` (for the existing members). Returns `(welcome_bytes, commit_bytes,
-    /// new_epoch)`.
+    /// joiner), the `Commit` (for the existing members), and — in `CommandHierarchy` mode when the
+    /// joiner has a pending rank — its sealed hierarchy assignment. Returns
+    /// `(welcome_bytes, commit_bytes, new_epoch, sealed_assignment)`.
     pub fn add_member(
         &mut self,
         key_package_bytes: &[u8],
-    ) -> Result<(Vec<u8>, Vec<u8>, u64), NetworkError> {
+    ) -> Result<(Vec<u8>, Vec<u8>, u64, Option<Vec<u8>>), NetworkError> {
         if !self.is_owner {
             return Err(error!(ErrorCode::ProtoGroupCgkaNotOwner));
         }
+        let kp = KeyPackage::deserialize_from_vector(key_package_bytes)
+            .map_err(|_| ser_err("key_package"))?;
+        // Derive the joiner's hierarchy assignment first (reads `hierarchy_self`/`pending_ranks`, which
+        // are disjoint from the `group` mutation below).
+        let assignment = self.assignment_for_joiner(&kp)?;
         let group = self
             .group
             .as_mut()
             .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
-        let kp = KeyPackage::deserialize_from_vector(key_package_bytes)
-            .map_err(|_| ser_err("key_package"))?;
         let (commit, welcome) = group.add_member(&kp, fresh_secret())?;
         let epoch = group.epoch;
         let welcome_bytes = welcome
@@ -108,7 +133,7 @@ impl GroupCgkaState {
         let commit_bytes = commit
             .serialize_to_vector()
             .map_err(|_| ser_err("commit"))?;
-        Ok((welcome_bytes, commit_bytes, epoch))
+        Ok((welcome_bytes, commit_bytes, epoch, assignment))
     }
 
     /// Owner-only: remove a member by leaf index, producing the `Commit` to broadcast. Returns
@@ -180,27 +205,36 @@ impl GroupCgkaState {
         group.process_commit(&commit)
     }
 
-    /// Encrypt an outbound application message to the current epoch. Returns the serialized
-    /// [`AppCiphertext`] the relay forwards verbatim.
+    /// Encrypt an outbound application message. In `Flat` mode this is the per-epoch [`AppCiphertext`];
+    /// in `CommandHierarchy` mode it is a `DheEnvelope` (so superiors can read their subtree). The relay
+    /// forwards either verbatim.
     pub fn encrypt_message(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        let group = self
-            .group
-            .as_mut()
-            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
-        let ct = group.encrypt_message(plaintext)?;
-        ct.serialize_to_vector()
-            .map_err(|_| ser_err("app_ciphertext"))
+        if matches!(self.hierarchy, GroupHierarchyMode::Flat) {
+            let group = self
+                .group
+                .as_mut()
+                .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+            let ct = group.encrypt_message(plaintext)?;
+            ct.serialize_to_vector()
+                .map_err(|_| ser_err("app_ciphertext"))
+        } else {
+            self.encrypt_dhe(plaintext)
+        }
     }
 
-    /// Decrypt an inbound application message under the current epoch.
+    /// Decrypt an inbound application message (the counterpart of [`Self::encrypt_message`]).
     pub fn decrypt_message(&self, ciphertext: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        let group = self
-            .group
-            .as_ref()
-            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
-        let ct = AppCiphertext::deserialize_from_vector(ciphertext)
-            .map_err(|_| ser_err("app_ciphertext"))?;
-        group.decrypt_message(&ct)
+        if matches!(self.hierarchy, GroupHierarchyMode::Flat) {
+            let group = self
+                .group
+                .as_ref()
+                .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+            let ct = AppCiphertext::deserialize_from_vector(ciphertext)
+                .map_err(|_| ser_err("app_ciphertext"))?;
+            group.decrypt_message(&ct)
+        } else {
+            self.decrypt_dhe(ciphertext)
+        }
     }
 }
 
@@ -218,12 +252,12 @@ mod tests {
 
         // B joins.
         let (mut b, kp_b) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();
-        let (welcome_b, _commit_b, _e) = owner.add_member(&kp_b).unwrap();
+        let (welcome_b, _commit_b, _e, _a) = owner.add_member(&kp_b).unwrap();
         b.join(&welcome_b).unwrap();
 
         // C joins; existing member B processes the commit, C bootstraps from its Welcome.
         let (mut c, kp_c) = GroupCgkaState::new_joiner(3, GroupHierarchyMode::Flat).unwrap();
-        let (welcome_c, commit_c, epoch_c) = owner.add_member(&kp_c).unwrap();
+        let (welcome_c, commit_c, epoch_c, _a) = owner.add_member(&kp_c).unwrap();
         b.process_commit(&commit_c, epoch_c).unwrap();
         c.join(&welcome_c).unwrap();
 
@@ -240,7 +274,7 @@ mod tests {
     fn owner_removes_member_then_message_excludes_them() {
         let mut owner = GroupCgkaState::new_owner(1, GroupHierarchyMode::Flat).unwrap();
         let (mut b, kp_b) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();
-        let (welcome_b, _commit_b, _e) = owner.add_member(&kp_b).unwrap();
+        let (welcome_b, _commit_b, _e, _a) = owner.add_member(&kp_b).unwrap();
         b.join(&welcome_b).unwrap();
 
         // Remove B by cid; B can no longer decrypt a post-removal message.

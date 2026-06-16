@@ -260,6 +260,12 @@ pub enum GroupHierarchyMode {
     CommandHierarchy {
         /// Who can read each message.
         read_policy: ReadPolicy,
+        /// Initial rank assignment (member cid → command path), set by the owner at group creation.
+        /// Consumed **owner-locally** to seed the hierarchy and never forwarded to the relay (the owner
+        /// neutralizes this before the `Create` leaves the node), so command-structure labels stay off
+        /// the wire; only the owner and the assigned members (via E2E-sealed node secrets) learn them.
+        #[serde(default)]
+        ranks: std::collections::HashMap<u64, CommandPath>,
     },
 }
 

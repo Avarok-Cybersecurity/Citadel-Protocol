@@ -1130,14 +1130,24 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         &self,
         initial_users_to_invite: Option<Vec<UserIdentifier>>,
     ) -> Result<GroupChannel, NetworkError> {
+        self.create_group_with_options(initial_users_to_invite, MessageGroupOptions::default())
+            .await
+    }
+
+    /// Create a group with explicit [`MessageGroupOptions`] — e.g. a zero-trust
+    /// [`GroupHierarchyMode::CommandHierarchy`](citadel_types::proto::GroupHierarchyMode) where a
+    /// superior can read its subordinates' messages. `options.hierarchy` carries the initial rank
+    /// assignment (member cid → command path); it is consumed owner-locally and never reaches the relay.
+    async fn create_group_with_options(
+        &self,
+        initial_users_to_invite: Option<Vec<UserIdentifier>>,
+        options: MessageGroupOptions,
+    ) -> Result<GroupChannel, NetworkError> {
         let session_cid = self.user().get_session_cid();
 
         let mut initial_users = vec![];
-        // TODO: allow for custom message group options. For now, don't
-        let options = MessageGroupOptions::default();
-        // TODO/NOTE: default is PRIVATE mode, meaning all users in group must be registered to the owner
-        // in the future, allow for private/public modes by adjusting the below. Initial users should be
-        // a UserIdentifier
+        // NOTE: default is PRIVATE mode, meaning all users in group must be registered to the owner.
+        // Initial users are UserIdentifiers resolved to cids below.
         if let Some(initial_users_to_invite) = initial_users_to_invite {
             for user in initial_users_to_invite {
                 initial_users.push(

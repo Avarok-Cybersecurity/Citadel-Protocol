@@ -188,6 +188,35 @@ impl GroupChannelSendHalf {
         .await
     }
 
+    /// Assigns or raises a member to a command path in a `CommandHierarchy` group (owner only). The
+    /// path is applied owner-locally and never sent to the relay; the member receives only a sealed
+    /// node secret. Granting a path lets that member (and its superiors) read its subtree.
+    pub async fn promote(
+        &self,
+        peer_cid: u64,
+        path: citadel_types::proto::CommandPath,
+    ) -> Result<(), NetworkError> {
+        self.permission_gate()?;
+        self.send_group_command(GroupBroadcast::Promote {
+            key: self.key,
+            target_cid: peer_cid,
+            path,
+        })
+        .await
+    }
+
+    /// Revokes a member's elevated rank in a `CommandHierarchy` group (owner only). Rotates the
+    /// hierarchy and epoch-bumps, so the demoted member can no longer read its former subtree's future
+    /// traffic.
+    pub async fn demote(&self, peer_cid: u64) -> Result<(), NetworkError> {
+        self.permission_gate()?;
+        self.send_group_command(GroupBroadcast::Demote {
+            key: self.key,
+            target_cid: peer_cid,
+        })
+        .await
+    }
+
     /// Leaves the group
     pub async fn leave(&self) -> Result<(), NetworkError> {
         self.send_group_command(GroupBroadcast::LeaveRoom { key: self.key })

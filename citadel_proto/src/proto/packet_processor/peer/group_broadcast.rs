@@ -136,6 +136,36 @@ pub enum GroupBroadcast {
         /// Opaque serialized `citadel_treekem::Commit`
         payload: Vec<u8>,
     },
+    /// The group owner delivers a Decentralized-Hierarchy-Encryption node-secret assignment to one
+    /// member (routed to `target_cid`). `payload` is the member's command path + node secret, sealed to
+    /// that member's leaf KEM key — opaque to the relay, which sees neither the path nor the secret.
+    HierarchyAssign {
+        /// Group key
+        key: MessageGroupKey,
+        /// The member receiving the assignment (the server routes this packet to this CID)
+        target_cid: u64,
+        /// Opaque KEM-sealed `citadel_treekem::HierarchyMember`
+        payload: Vec<u8>,
+    },
+    /// Owner-local request (from the group handle) to assign/raise `target_cid` to `path`. Handled
+    /// entirely on the owner node — it never reaches the relay; the resulting [`Self::HierarchyAssign`]
+    /// (carrying only the sealed node secret) is what goes on the wire, so `path` stays off it.
+    Promote {
+        /// Group key
+        key: MessageGroupKey,
+        /// The member being (re)assigned
+        target_cid: u64,
+        /// The command path to assign (owner-local; never serialized to the relay)
+        path: citadel_types::proto::CommandPath,
+    },
+    /// Owner-local request (from the group handle) to revoke `target_cid`'s elevated rank. Handled on
+    /// the owner node: it rotates the hierarchy, re-seals each member's assignment, and epoch-bumps.
+    Demote {
+        /// Group key
+        key: MessageGroupKey,
+        /// The member being demoted
+        target_cid: u64,
+    },
     /// Add members to a group
     Add {
         /// Group key
@@ -839,11 +869,9 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
         ),
 
         GroupBroadcast::CreateResponse { key: key_opt } => match key_opt {
-            Some(key) => {
-                // The owner founds the CGKA group (sole member, epoch 0) before opening its channel.
-                cgka_init_owner(session, key)?;
-                create_group_channel(ticket, key, session)
-            }
+            // The owner already founded its CGKA group when it sent `Create` (the key is locally
+            // derivable), so here it just opens the channel.
+            Some(key) => create_group_channel(ticket, key, session),
 
             None => forward_signal(
                 session,
@@ -972,6 +1000,47 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 Ok(PrimaryProcessorResult::Void)
             }
         }
+
+        GroupBroadcast::HierarchyAssign {
+            key,
+            target_cid,
+            payload,
+        } => {
+            if session.is_server {
+                // Relay verbatim to the assigned member; the relay sees neither path nor node secret.
+                let _ = session
+                    .session_manager
+                    .route_packet_to(target_cid, move |peer_hr| {
+                        packet_crafter::peer_cmd::craft_group_message_packet(
+                            peer_hr,
+                            &GroupBroadcast::HierarchyAssign {
+                                key,
+                                target_cid,
+                                payload,
+                            },
+                            ticket,
+                            C2S_IDENTITY_CID,
+                            timestamp,
+                            security_level,
+                        )
+                    });
+                Ok(PrimaryProcessorResult::Void)
+            } else {
+                // Member: take up the assigned hierarchy position (path + node secret).
+                let mut state = inner_mut_state!(session.state_container);
+                if let Some(cgka) = state.group_cgka.get_mut(&key) {
+                    cgka.apply_hierarchy_assignment(&payload)?;
+                }
+                Ok(PrimaryProcessorResult::Void)
+            }
+        }
+
+        // Promote/Demote are owner-local admin requests handled entirely on the outbound path
+        // (`process_outbound_broadcast_command`); they are never relayed, so receiving one is a no-op.
+        GroupBroadcast::Promote { .. } | GroupBroadcast::Demote { .. } => {
+            log::warn!(target: "citadel", "Received an owner-local hierarchy admin signal inbound; ignoring");
+            Ok(PrimaryProcessorResult::Void)
+        }
     }
 }
 
@@ -993,24 +1062,6 @@ fn create_group_channel<R: Ratchet, T: PlatformOps>(
         session_cid,
     }))?;
     Ok(PrimaryProcessorResult::Void)
-}
-
-/// The owner founds the zero-trust CGKA group as the sole member (epoch 0) before opening its channel.
-fn cgka_init_owner<R: Ratchet, T: PlatformOps>(
-    session: &CitadelSession<R, T>,
-    key: MessageGroupKey,
-) -> Result<(), NetworkError> {
-    let session_cid = session
-        .session_cid
-        .get()
-        .ok_or_else(|| error!(ErrorCode::StateImplicatedCidNotLoaded))?;
-    let mut state = inner_mut_state!(session.state_container);
-    if !state.group_cgka.contains_key(&key) {
-        // Hierarchy threading (DHE overlay) is layered on top separately; the messaging core is Flat.
-        let cgka = GroupCgkaState::new_owner(session_cid, GroupHierarchyMode::Flat)?;
-        let _ = state.group_cgka.insert(key, cgka);
-    }
-    Ok(())
 }
 
 /// A joiner generates its TreeKEM `KeyPackage`, stores its pending CGKA state, and publishes the
@@ -1066,7 +1117,7 @@ fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
     timestamp: i64,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let (welcome_bytes, commit_bytes, epoch) = {
+    let (welcome_bytes, commit_bytes, epoch, assignment) = {
         let mut state = inner_mut_state!(session.state_container);
         let cgka = state
             .group_cgka
@@ -1091,6 +1142,20 @@ fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
     );
     session.send_to_primary_stream(Some(ticket), welcome_packet)?;
 
+    // HierarchyAssign -> the joiner, if this is a CommandHierarchy group and the joiner has a rank.
+    if let Some(sealed) = assignment {
+        send_hierarchy_assign(
+            session,
+            sess_ratchet,
+            key,
+            joiner_cid,
+            sealed,
+            ticket,
+            timestamp,
+            security_level,
+        )?;
+    }
+
     // Commit -> the existing members (the relay fans out, excluding the owner).
     let commit = GroupBroadcast::Commit {
         key,
@@ -1108,6 +1173,35 @@ fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
     session.send_to_primary_stream(Some(ticket), commit_packet)?;
 
     Ok(PrimaryProcessorResult::Void)
+}
+
+/// Send a sealed Decentralized-Hierarchy-Encryption assignment to a single member (relay routes it).
+#[allow(clippy::too_many_arguments)]
+fn send_hierarchy_assign<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    sess_ratchet: &R,
+    key: MessageGroupKey,
+    target_cid: u64,
+    sealed: Vec<u8>,
+    ticket: Ticket,
+    timestamp: i64,
+    security_level: SecurityLevel,
+) -> Result<(), NetworkError> {
+    let signal = GroupBroadcast::HierarchyAssign {
+        key,
+        target_cid,
+        payload: sealed,
+    };
+    let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+        sess_ratchet,
+        &signal,
+        ticket,
+        C2S_IDENTITY_CID,
+        timestamp,
+        security_level,
+    );
+    session.send_to_primary_stream(Some(ticket), packet)?;
+    Ok(())
 }
 
 impl From<GroupBroadcast> for GroupBroadcastPayload {

@@ -39,6 +39,15 @@ impl RatchetTree {
         })
     }
 
+    /// The live leaf carrying `cid` (for sealing to that member's current KEM public key).
+    pub fn leaf_of_cid(&self, cid: u64) -> Option<&LeafNode> {
+        let idx = self.leaf_index_of_cid(cid)?;
+        match self.get(leaf_to_node(idx)) {
+            Node::Leaf(leaf) => Some(leaf),
+            _ => None,
+        }
+    }
+
     /// Borrow node `x`.
     pub fn get(&self, x: NodeIndex) -> &Node {
         &self.nodes[x as usize]

@@ -2,6 +2,7 @@
 
 use super::includes::*;
 use citadel_io::{error, ErrorCode};
+use citadel_types::proto::GroupHierarchyMode;
 
 impl<R: Ratchet> StateContainerInner<R> {
     #[allow(unused_results)]
@@ -99,29 +100,75 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         let timestamp = self.time_tracker.get_global_time_ns();
 
-        // Zero-trust: an application `Message` is end-to-end encrypted with the group's CGKA epoch key
-        // here, before it ever leaves this client. The relay (and every hop) sees only ciphertext.
-        let encrypted;
-        let command = if let GroupBroadcast::Message {
-            sender,
+        // Owner-local hierarchy admin: Promote/Demote never leave the node as themselves — they produce
+        // sealed `HierarchyAssign` (+ a `Commit` for demote) and return here.
+        if let GroupBroadcast::Promote {
             key,
-            message,
+            target_cid,
+            path,
         } = command
         {
-            let cgka = self
-                .group_cgka
-                .get_mut(key)
-                .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
-            let ciphertext = cgka.encrypt_message(message.as_ref())?;
-            encrypted = GroupBroadcast::Message {
-                sender: *sender,
-                key: *key,
-                message: citadel_types::crypto::SecBuffer::from(ciphertext),
-            };
-            &encrypted
-        } else {
-            command
+            return self.outbound_promote(
+                *key,
+                *target_cid,
+                path.clone(),
+                &ratchet,
+                ticket,
+                timestamp,
+                security_level,
+                &to_primary_stream,
+            );
+        }
+        if let GroupBroadcast::Demote { key, target_cid } = command {
+            return self.outbound_demote(
+                *key,
+                *target_cid,
+                &ratchet,
+                ticket,
+                timestamp,
+                security_level,
+                &to_primary_stream,
+            );
+        }
+
+        // Rewrite the outbound command where needed: E2E-encrypt an application `Message`, or found the
+        // owner's CGKA at `Create` and strip command paths from the relayed copy (zero-trust metadata).
+        let replacement: Option<GroupBroadcast> = match command {
+            GroupBroadcast::Message {
+                sender,
+                key,
+                message,
+            } => {
+                let cgka = self
+                    .group_cgka
+                    .get_mut(key)
+                    .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+                let ciphertext = cgka.encrypt_message(message.as_ref())?;
+                Some(GroupBroadcast::Message {
+                    sender: *sender,
+                    key: *key,
+                    message: citadel_types::crypto::SecBuffer::from(ciphertext),
+                })
+            }
+            GroupBroadcast::Create {
+                initial_invitees,
+                options,
+            } => {
+                self.init_owner_cgka(options)?;
+                if matches!(options.hierarchy, GroupHierarchyMode::Flat) {
+                    None
+                } else {
+                    let mut wire_options = options.clone();
+                    wire_options.hierarchy = GroupHierarchyMode::Flat;
+                    Some(GroupBroadcast::Create {
+                        initial_invitees: initial_invitees.clone(),
+                        options: wire_options,
+                    })
+                }
+            }
+            _ => None,
         };
+        let command = replacement.as_ref().unwrap_or(command);
 
         let packet = match command {
             GroupBroadcast::Create { .. }
