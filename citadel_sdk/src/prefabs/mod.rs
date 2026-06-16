@@ -32,7 +32,9 @@
 //!         },
 //!     );
 //!
-//!     let client = DefaultNodeBuilder::default().build(kernel)?;
+//!     let client = DefaultNodeBuilder::default()
+//!         .build(kernel)
+//!         .map_err(|err| NetworkError::generic(err.to_string()))?;
 //!
 //!     let _result = client.await?;
 //!     Ok(())
