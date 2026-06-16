@@ -98,5 +98,5 @@ pub async fn read<D: DeserializeOwned>(
     file_io: &dyn FileIO,
 ) -> Result<D, AccountError> {
     let data = file_io.read_file(path).await?;
-    bincode::deserialize(&data).map_err(|err| AccountError::io(err.to_string()))
+    bincode::deserialize(&data).map_err(|err| citadel_io::error!(citadel_io::ErrorCode::DeserializationFailed, err.to_string()))
 }

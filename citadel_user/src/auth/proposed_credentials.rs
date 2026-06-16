@@ -139,12 +139,13 @@ impl ProposedCredentials {
             settings.clone(),
         )
         .await
-        .map_err(|err| AccountError::generic(err.to_string()))?
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string()))?
         {
             ArgonStatus::HashSuccess(ret) => Ok(ret),
-            other => Err(AccountError::generic(format!(
-                "Unable to hash input password: {other:?}",
-            ))),
+            other => Err(citadel_io::error!(
+                citadel_io::ErrorCode::ArgonHashUnexpected,
+                citadel_io::Dbg(other)
+            )),
         }
     }
 
@@ -243,8 +244,8 @@ impl ProposedCredentials {
                 if server_misc_settings.allow_transient_connections {
                     Ok(self.into_auth_store())
                 } else {
-                    Err(AccountError::msg(
-                        "This node does not support passwordless connections",
+                    Err(citadel_io::error!(
+                        citadel_io::ErrorCode::PasswordlessUnsupported
                     ))
                 }
             }
@@ -260,7 +261,7 @@ impl ProposedCredentials {
 
                 match AsyncArgon::hash(password_hashed, settings.clone())
                     .await
-                    .map_err(|err| AccountError::generic(err.to_string()))?
+                    .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string()))?
                 {
                     ArgonStatus::HashSuccess(hash_x2) => Ok(DeclaredAuthenticationMode::Argon {
                         username,
@@ -270,7 +271,9 @@ impl ProposedCredentials {
                         )),
                     }),
 
-                    _ => Err(AccountError::generic("Unable to hash password".to_string())),
+                    _ => Err(citadel_io::error!(
+                        citadel_io::ErrorCode::PasswordHashFailed
+                    )),
                 }
             }
         }
@@ -291,7 +294,7 @@ impl ProposedCredentials {
             ArgonContainerType::Server(server_container) => {
                 match AsyncArgon::verify(password_hashed, server_container)
                     .await
-                    .map_err(|err| AccountError::generic(err.to_string()))?
+                    .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string()))?
                 {
                     ArgonStatus::VerificationSuccess => Ok(()),
 
@@ -309,8 +312,8 @@ impl ProposedCredentials {
                 }
             }
 
-            _ => Err(AccountError::generic(
-                "Account does not have password loaded; account is personal".to_string(),
+            _ => Err(citadel_io::error!(
+                citadel_io::ErrorCode::AccountNotPasswordProtected
             )),
         }
     }

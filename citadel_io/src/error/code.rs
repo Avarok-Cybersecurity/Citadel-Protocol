@@ -397,4 +397,153 @@ pub enum ErrorCode {
     /// A scrambler block had the wrong length.
     #[form = "Bad input buffer length"]
     ScramblerBadBlockLength = 116,
+
+    // --- citadel_user: registration / account manager ---
+    /// A backend database URL did not parse into a supported target.
+    #[form = "Invalid database URL format. Please check documentation for preferred format"]
+    BackendUrlInvalid = 117,
+    /// The account manager could not establish a backend connection.
+    #[form = "Unable to connect to remote database via account manager"]
+    BackendNotConnected = 118,
+    /// A client network account registration was attempted with a CID of 0.
+    #[form = "Cannot register a client network account with a CID of 0"]
+    RegisterCidZero = 119,
+    /// The chosen username is already taken (username).
+    #[form = "Username {} already exists!"]
+    UsernameExists = 120,
+    /// A cryptographically secure CNAC was requested with a CID of 0.
+    #[form = "Cannot create a cryptographically secure CNAC with a CID of 0"]
+    CnacCidZero = 121,
+
+    // --- citadel_user: auth / credentials ---
+    /// Argon hashing returned an unexpected (non-success) status (status).
+    #[form = "Unable to hash input password: {}"]
+    ArgonHashUnexpected = 122,
+    /// The node was asked for a passwordless connection it does not support.
+    #[form = "This node does not support passwordless connections"]
+    PasswordlessUnsupported = 123,
+    /// A password hash could not be produced.
+    #[form = "Unable to hash password"]
+    PasswordHashFailed = 124,
+    /// Password validation was attempted on a personal (passwordless) account.
+    #[form = "Account does not have password loaded; account is personal"]
+    AccountNotPasswordProtected = 125,
+    /// The supplied username length was outside the allowed range (min, max).
+    #[form = "Username must be between {} and {} characters"]
+    UsernameLengthOutOfRange = 126,
+    /// The supplied username contained spaces.
+    #[form = "Username cannot contain spaces. Use a period instead"]
+    UsernameContainsSpaces = 127,
+    /// The supplied password length was outside the allowed range (min, max).
+    #[form = "Password must be between {} and {} characters"]
+    PasswordLengthOutOfRange = 128,
+    /// The supplied password contained spaces.
+    #[form = "Password cannot contain spaces"]
+    PasswordContainsSpaces = 129,
+    /// The supplied full name length was outside the allowed range (min, max).
+    #[form = "Full name must be between {} and {} characters"]
+    FullNameLengthOutOfRange = 130,
+
+    // --- citadel_user: client account / connection metadata ---
+    /// Mutual-peer removal from the counterpart CNAC failed.
+    #[form = "Could not remove self from other cnac"]
+    PeerRemoveSelfFailed = 131,
+    /// A connection target resolved to no socket address.
+    #[form = "No socket address"]
+    NoSocketAddress = 132,
+
+    // --- citadel_user: backend selection / RE-VFS ---
+    /// A backend address did not match any compiled-in backend (addr).
+    #[form = "The addr '{}' is not a valid target (hint: ensure either 'redis', 'sql', 'filesystem', or 'opfs' features are enabled when compiling)"]
+    BackendTargetInvalid = 133,
+    /// The selected backend does not implement the RE-VFS protocol.
+    #[form = "The target does not support the RE-VFS protocol"]
+    RevfsUnsupported = 134,
+
+    // --- citadel_user: file transfer ---
+    /// A file-transfer target name was empty.
+    #[form = "File transfer target name is empty"]
+    FileTransferNameEmpty = 135,
+    /// A file-transfer target name was rejected as unsafe (name).
+    #[form = "File transfer target name {} is not permitted (possible path traversal)"]
+    FileTransferNameInvalid = 136,
+    /// A file transfer was requested without a target name.
+    #[form = "File transfer type specified, yet, no target name given"]
+    FileTransferNoTargetName = 137,
+    /// A file transfer reported a failure status (reason).
+    #[form = "File transfer failed: {}"]
+    FileTransferFailed = 138,
+    /// The file-transfer stream ended before completion.
+    #[form = "Failed to receive file: stream ended"]
+    FileReceiveStreamEnded = 139,
+    /// A completed file reception yielded no save path.
+    #[form = "Failed to receive file: no file path"]
+    FileReceiveNoPath = 140,
+    /// A receive was requested on a non-Receiver handle.
+    #[form = "Cannot receive file: orientation is not Receiver"]
+    FileReceiveWrongOrientation = 141,
+    /// A transfer was requested on a non-Sender handle.
+    #[form = "Cannot transfer file: orientation is not Sender"]
+    FileTransferWrongOrientation = 142,
+    /// A file transfer returned a save path where none was expected.
+    #[form = "An unexpected error occurred: file transfer occurred, yet, returned a save path. Please report to developers"]
+    FileTransferUnexpectedSavePath = 143,
+    /// A file-transfer accept/decline response could not be delivered.
+    #[form = "Failed to send response"]
+    FileTransferResponseFailed = 144,
+
+    // --- citadel_user: virtual path validation ---
+    /// A virtual path was not an absolute remote encrypted directory (path).
+    #[form = "Path {} is not a valid remote encrypted virtual directory"]
+    VirtualPathNotRemoteDir = 145,
+    /// A virtual path referred to a directory, not a file (path).
+    #[form = "Path {} is a directory, not a file"]
+    VirtualPathIsDirectory = 146,
+    /// A virtual path contained a `..` traversal segment (path).
+    #[form = "Path {} cannot contain '..' for security reasons"]
+    VirtualPathTraversal = 147,
+
+    // --- citadel_user: serialization ---
+    /// A value could not be serialized (reason).
+    #[form = "Serialization failed: {}"]
+    SerializationFailed = 148,
+    /// A value could not be deserialized (reason).
+    #[form = "Deserialization failed: {}"]
+    DeserializationFailed = 149,
+
+    // --- citadel_user: backend/sql ---
+    /// A SQL backend operation failed (reason).
+    #[form = "Database operation failed: {}"]
+    SqlOp = 150,
+    /// A SQL backend operation was attempted before the connection was loaded.
+    #[form = "Connection not loaded"]
+    SqlConnectionNotLoaded = 151,
+    /// A peer CID could not be decoded from a SQL row.
+    #[form = "Failed to decode peer cid"]
+    SqlDecodePeerCid = 152,
+    /// A SQL column had an unexpected type (type info).
+    #[form = "Expected blob or text, got {}"]
+    SqlUnexpectedColumnType = 153,
+
+    // --- citadel_user: backend/redis ---
+    /// A Redis backend operation failed (reason).
+    #[form = "Redis operation failed: {}"]
+    RedisOp = 154,
+    /// A Redis backend operation was attempted before the client was loaded.
+    #[form = "Redis client not loaded"]
+    RedisClientNotLoaded = 155,
+    /// Redis pool `max_open` was configured below `max_idle`.
+    #[form = "Max open must be greater than or equal to max_idle"]
+    RedisMaxOpenLessThanIdle = 156,
+
+    // --- citadel_user: external services ---
+    /// An external service (Google auth / Firebase RTDB) call failed (reason).
+    #[form = "External service error: {}"]
+    ExternalService = 157,
+    /// A Google services file was missing its private key.
+    #[form = "Private key does not exist"]
+    GooglePrivateKeyMissing = 158,
+    /// A Google services file was missing its service email.
+    #[form = "Service email not present"]
+    GoogleServiceEmailMissing = 159,
 }

@@ -84,25 +84,28 @@ pub fn validate_virtual_path<R: AsRef<Path>>(virtual_path: R) -> Result<(), Acco
     const REQUIRED_BEGINNING: &str = "\\";
 
     if !virtual_path.starts_with(REQUIRED_BEGINNING) {
-        return Err(AccountError::io(format!(
-            "Path {virtual_path:?} is not a valid remote encrypted virtual directory"
-        )));
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::VirtualPathNotRemoteDir,
+            citadel_io::Dbg(virtual_path.to_path_buf())
+        ));
     }
 
     let buf = format!("{}", virtual_path.display());
 
     // we cannot use path.is_dir() since that checks for file existence, which we don't want
     if buf.ends_with(REQUIRED_BEGINNING) {
-        return Err(AccountError::io(format!(
-            "Path {virtual_path:?} is a directory, not a file"
-        )));
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::VirtualPathIsDirectory,
+            citadel_io::Dbg(virtual_path.to_path_buf())
+        ));
     }
 
     if buf.contains("..") {
         // we don't want the user trying to access files outside of the base directory
-        return Err(AccountError::io(format!(
-            "Path {virtual_path:?} cannot contain '..' for security reasons"
-        )));
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::VirtualPathTraversal,
+            citadel_io::Dbg(virtual_path.to_path_buf())
+        ));
     }
 
     Ok(())

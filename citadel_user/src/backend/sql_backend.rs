@@ -194,7 +194,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                 let _ = conn
                     .execute("DROP TRIGGER IF EXISTS post_cid_delete")
                     .await
-                    .map_err(|e| AccountError::generic(e.to_string()))?;
+                    .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
                 "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid"
             }
@@ -203,7 +203,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                 let _ = conn
                     .execute("DROP TRIGGER IF EXISTS post_cid_delete")
                     .await
-                    .map_err(|e| AccountError::generic(e.to_string()))?;
+                    .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
                 "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; END"
             }
@@ -212,17 +212,17 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                 let _ = conn
                     .execute("DROP TRIGGER IF EXISTS post_cid_delete ON cnacs")
                     .await
-                    .map_err(|e| AccountError::generic(e.to_string()))?;
+                    .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
                 let _ = conn
                     .execute("DROP FUNCTION IF EXISTS post_cid_delete")
                     .await
-                    .map_err(|e| AccountError::generic(e.to_string()))?;
+                    .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
                 let create_function = "CREATE OR REPLACE FUNCTION post_cid_delete() RETURNS TRIGGER LANGUAGE PLPGSQL AS $$ BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; RETURN NULL; END; $$";
                 let _ = conn
                     .execute(create_function)
                     .await
-                    .map_err(|e| AccountError::generic(e.to_string()))?;
+                    .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
                 "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW EXECUTE PROCEDURE post_cid_delete()"
             }
@@ -234,7 +234,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let _result = conn
             .execute(&*joined)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         Ok(())
     }
@@ -270,27 +270,27 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         if self.variant == SqlVariant::Sqlite {
             args.add(metadata.cid.to_string())
-                .map_err(|err| AccountError::generic(format!("{err:?}")))?;
+                .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
         } else {
             args.add(u64_into_i64(metadata.cid))
-                .map_err(|err| AccountError::generic(format!("{err:?}")))?;
+                .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
         };
 
         args.add(metadata.is_personal as i32)
-            .map_err(|err| AccountError::generic(format!("{err:?}")))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
         args.add(metadata.username)
-            .map_err(|err| AccountError::generic(format!("{err:?}")))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
         args.add(metadata.full_name)
-            .map_err(|err| AccountError::generic(format!("{err:?}")))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
         args.add(metadata.creation_date)
-            .map_err(|err| AccountError::generic(format!("{err:?}")))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
         args.add(bytes)
-            .map_err(|err| AccountError::generic(format!("{err:?}")))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
 
         let _query = sqlx::query_with(query.as_str(), args)
             .execute(conn)
             .await
-            .map_err(|err| AccountError::generic(format!("{err:?}")))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, format!("{err:?}")))?;
 
         Ok(())
     }
@@ -304,7 +304,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, cid)
             .fetch_optional(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         self.row_to_cnac(query)
     }
 
@@ -314,7 +314,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&quert), self, cid)
             .fetch_all(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         Ok(query.len() == 1)
     }
 
@@ -324,7 +324,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: AnyQueryResult = gen_query!(sqlx::query(&query), self, cid)
             .execute(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         if query.rows_affected() != 0 {
             Ok(())
@@ -338,15 +338,15 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let _query: AnyQueryResult = sqlx::query("DELETE FROM peers")
             .execute(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         let _query: AnyQueryResult = sqlx::query("DELETE FROM bytemap")
             .execute(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         let query: AnyQueryResult = sqlx::query("DELETE FROM cnacs")
             .execute(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         Ok(query.rows_affected() as usize)
     }
 
@@ -362,7 +362,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(false as i32)
             .fetch_all(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         let ret: Vec<u64> = query
             .into_iter()
             .filter_map(|r| try_get_cid_from_row(&r, "cid"))
@@ -381,7 +381,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, cid)
             .fetch_optional(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         if let Some(row) = query {
             Ok(Some(try_get_blob_as_utf8("username", &row)?))
@@ -396,7 +396,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, cid)
             .fetch_optional(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         if let Some(row) = query {
             Ok(Some(try_get_blob_as_utf8("full_name", &row)?))
@@ -422,7 +422,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         )
         .execute(conn)
         .await
-        .map_err(|e| AccountError::generic(e.to_string()))?;
+        .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         Ok(())
     }
@@ -441,7 +441,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(peer_username)
             .execute(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         Ok(())
     }
 
@@ -454,7 +454,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let _query = gen_query!(sqlx::query(&query), self, cid0, cid1, cid1, cid0)
             .execute(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         Ok(())
     }
@@ -468,12 +468,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let mut tx = conn
             .begin()
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         let query = self.format("SELECT username FROM peers WHERE peer_cid = ? AND cid = ?");
         let row: Option<AnyRow> = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
             .fetch_optional(tx.deref_mut())
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         if let Some(row) = row {
             let peer_username = try_get_blob_as_utf8("username", &row)?;
@@ -481,10 +481,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             let _query = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
                 .execute(tx.deref_mut())
                 .await
-                .map_err(|e| AccountError::generic(e.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
             tx.commit()
                 .await
-                .map_err(|e| AccountError::generic(e.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
             Ok(Some(MutualPeer {
                 cid: peer_cid,
@@ -505,7 +505,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         let map = query
             .into_iter()
@@ -528,7 +528,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_optional(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         if let Some(query) = query {
             let is_personal = self.get_bool(&query, "is_personal")?;
@@ -563,7 +563,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Vec<AnyRow> = sqlx::query(query.as_str())
             .fetch_all(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         Ok(query
             .into_iter()
@@ -600,7 +600,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Option<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid, peer_cid)
             .fetch_optional(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         if let Some(query) = query {
             match try_get_blob_as_utf8("username", &query) {
@@ -628,7 +628,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: AnyRow = gen_query!(sqlx::query(&query), self, peer_cid, session_cid)
             .fetch_one(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         Ok(query.try_get::<i64, _>("count").unwrap_or(-1) == 1)
     }
@@ -651,7 +651,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         let results = query
             .into_iter()
@@ -679,7 +679,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         Ok(query
             .into_iter()
@@ -704,12 +704,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         let mut ret = Vec::with_capacity(query.len());
 
         for row in query {
             let peer_cid = try_get_cid_from_row(&row, "peer_cid")
-                .ok_or_else(|| AccountError::generic("Failed to decode peer cid"))?;
+                .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::SqlDecodePeerCid))?;
             let username = try_get_blob_as_utf8("username", &row)?;
             ret.push(MutualPeer {
                 parent_icid: HYPERLAN_IDX,
@@ -738,14 +738,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             let mut tx = conn
                 .begin()
                 .await
-                .map_err(|e| AccountError::generic(e.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
             let session_cid = cnac.get_cid();
 
             let query = self.format("DELETE FROM peers WHERE cid = ?");
             let _query = gen_query!(sqlx::query(&query), self, session_cid)
                 .execute(tx.deref_mut())
                 .await
-                .map_err(|e| AccountError::generic(e.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
             for MutualPeer { cid, username, .. } in peers {
                 let query =
                     self.format("INSERT INTO peers (peer_cid, cid, username) VALUES(?, ?, ?)");
@@ -753,12 +753,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                     .bind(username.unwrap_or_else(|| "NULL".into()))
                     .execute(tx.deref_mut())
                     .await
-                    .map_err(|e| AccountError::generic(e.to_string()))?;
+                    .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
             }
 
             tx.commit()
                 .await
-                .map_err(|e| AccountError::generic(e.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         }
 
         Ok(())
@@ -778,7 +778,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(sub_key)
             .fetch_optional(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         if let Some(row) = row {
             match row.try_get::<Vec<u8>, _>("bin") {
@@ -812,7 +812,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                 .bind(sub_key)
                 .execute(conn)
                 .await
-                .map_err(|e| AccountError::generic(e.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
             Ok(Some(value))
         } else {
@@ -838,7 +838,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(sub_key)
             .fetch_optional(&conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         let _query = gen_query!(sqlx::query(&set_query), self, session_cid, peer_cid)
             .bind(key)
@@ -846,7 +846,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(value)
             .execute(&conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         if let Some(row) = row {
             match row.try_get::<Vec<u8>, _>("bin") {
@@ -872,14 +872,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(key)
             .fetch_all(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         let mut ret = HashMap::new();
         for row in rows {
             log::info!(target: "citadel", "Rows: {:?}", row.columns());
             let bin = row
                 .try_get::<Vec<u8>, _>("bin")
-                .map_err(|e| AccountError::generic(e.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
             let key = try_get_blob_as_utf8("sub_id", &row)?;
             let _ = ret.insert(key, bin);
         }
@@ -903,7 +903,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .bind(key)
             .execute(conn)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
         Ok(values)
     }
@@ -925,7 +925,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         } else {
             self.conn
                 .clone()
-                .ok_or_else(|| AccountError::generic("Connection not loaded".to_string()))
+                .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::SqlConnectionNotLoaded))
         }
     }
 
@@ -934,7 +934,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         log::trace!(target: "citadel", "Generating new connection ...");
         opts.connect(&self.url)
             .await
-            .map_err(|e| AccountError::generic(e.to_string()))
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))
     }
 
     fn row_to_cnac(
@@ -944,7 +944,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         if let Some(row) = query {
             let bin = row
                 .try_get::<Vec<u8>, _>("bin")
-                .map_err(|e| AccountError::generic(e.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
             let cnac_inner = ClientNetworkAccount::<R, Fcm>::deserialize_from_owned_vector(bin)?;
             Ok(Some(cnac_inner))
         } else {
@@ -1009,7 +1009,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     fn get_bool(&self, row: &AnyRow, key: &str) -> Result<bool, AccountError> {
         let int = row
             .try_get::<i32, _>(key)
-            .map_err(|e| AccountError::generic(e.to_string()))?;
+            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
         Ok(int != 0)
     }
 }
@@ -1061,19 +1061,20 @@ pub fn try_get_blob_as_utf8(key: &str, row: &AnyRow) -> Result<String, AccountEr
         AnyTypeInfoKind::Text => {
             let blob = row
                 .try_get::<String, _>(key)
-                .map_err(|e| AccountError::generic(e.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
             Ok(blob)
         }
         AnyTypeInfoKind::Blob => {
             let blob = row
                 .try_get::<Vec<u8>, _>(key)
-                .map_err(|e| AccountError::generic(e.to_string()))?;
-            let blob = String::from_utf8(blob).map_err(|err| AccountError::msg(err.to_string()))?;
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
+            let blob = String::from_utf8(blob).map_err(|err| citadel_io::error!(citadel_io::ErrorCode::SqlOp, err.to_string()))?;
             Ok(blob)
         }
-        res => Err(AccountError::generic(format!(
-            "Expected blob or text, got {res:?}"
-        ))),
+        res => Err(citadel_io::error!(
+            citadel_io::ErrorCode::SqlUnexpectedColumnType,
+            citadel_io::Dbg(res)
+        )),
     }
 }
 

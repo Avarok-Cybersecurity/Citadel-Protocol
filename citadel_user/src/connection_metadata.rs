@@ -80,7 +80,7 @@ impl ConnectionInfo {
         let addr = addr
             .to_socket_addrs()?
             .next()
-            .ok_or_else(|| AccountError::msg("No socket address"))?;
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::NoSocketAddress))?;
         Ok(ConnectionInfo { addr })
     }
 }

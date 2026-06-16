@@ -176,9 +176,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         crypto_session_state: Option<PeerSessionCrypto<R>>,
     ) -> Result<Self, AccountError> {
         if valid_cid == 0 && crypto_session_state.is_some() {
-            return Err(AccountError::generic(
-                "Cannot create a cryptographically secure CNAC with a CID of 0".to_string(),
-            ));
+            return Err(citadel_io::error!(citadel_io::ErrorCode::CnacCidZero));
         }
 
         log::trace!(target: "citadel", "Creating CNAC w/valid cid: {valid_cid:?}");
@@ -439,7 +437,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         self.remove_hyperlan_peer(other.get_cid())
             .ok_or_else(|| AccountError::account_client_non_exists(other.get_cid()))?;
         other.remove_hyperlan_peer(self.get_cid()).ok_or_else(|| {
-            AccountError::generic("Could not remove self from other cnac".to_string())
+            citadel_io::error!(citadel_io::ErrorCode::PeerRemoveSelfFailed)
         })?;
 
         Ok(())
