@@ -86,7 +86,7 @@ pub use rand::RngCore;
 
 /// The workspace-wide canonical error type. See [`error::NetworkError`].
 pub mod error;
-pub use error::{ErrorCode, NetworkError};
+pub use error::{Dbg, ErrorArgs, ErrorCode, NetworkError};
 
 pub mod time;
 

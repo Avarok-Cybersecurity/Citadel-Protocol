@@ -24,10 +24,10 @@ net = ["tokio/net", "tokio-util/net"]
 io-uring = ["dep:io-uring", "dep:libc"]
 
 [dependencies]
+citadel_io_macros = { workspace = true }
 rand = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
-thiserror = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true, features = [
