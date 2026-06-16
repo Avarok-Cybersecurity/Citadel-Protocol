@@ -36,6 +36,18 @@ pub fn group_header_validate(data: &[u8]) {
     let _ = validation::group::validate_header(&BytesMut::from(data));
 }
 
+/// Zero-trust group CGKA artifact deserialization: the relay forwards `Commit`/`Welcome`/`KeyPackage`/
+/// `AppCiphertext` bytes verbatim, so the group coordinator parses fully untrusted input here. Fuzzes
+/// the serde parse boundary for panics, hangs, and OOM (a malformed length could over-allocate).
+pub fn group_cgka_parse(data: &[u8]) {
+    use citadel_treekem::{AppCiphertext, Commit, KeyPackage, Welcome};
+    use citadel_user::serialization::SyncIO;
+    let _ = Commit::deserialize_from_vector(data);
+    let _ = Welcome::deserialize_from_vector(data);
+    let _ = KeyPackage::deserialize_from_vector(data);
+    let _ = AppCiphertext::deserialize_from_vector(data);
+}
+
 /// File / RE-VFS packet bincode deserialization (untrusted file paths + metadata). The header argument
 /// is unused by these validators, so a zeroed valid-length header suffices.
 pub fn file_packet_deser(data: &[u8]) {

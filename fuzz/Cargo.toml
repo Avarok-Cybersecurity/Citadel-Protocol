@@ -41,6 +41,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "group_cgka_parse"
+path = "src/bin/group_cgka_parse.rs"
+test = false
+doc = false
+bench = false
+
 # Keep debug symbols in the optimized fuzz build so crashes are easy to triage (afl builds release).
 [profile.release]
 debug = true
