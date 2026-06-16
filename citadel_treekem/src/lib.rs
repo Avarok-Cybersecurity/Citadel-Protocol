@@ -2,18 +2,25 @@
 //!
 //! A post-quantum **TreeKEM** Continuous Group Key Agreement (CGKA) for zero-trust Citadel group
 //! messaging. Members are leaves of a left-balanced binary ratchet tree of ML-KEM keypairs; each
-//! membership change re-keys a single root-ward path (O(log n)) and everyone derives the same
-//! per-epoch group secret **end-to-end** — the relay server never sees a key or plaintext.
+//! membership change or update re-keys a single root-ward path (O(log n)), and everyone derives the
+//! same per-epoch group secret **end-to-end** — the relay server never sees a key or plaintext.
 //!
 //! Post-quantum throughout: node keypairs are deterministically derived from path secrets via
-//! [`citadel_pqcrypto::kem_keypair_from_seed`] (ML-KEM), path secrets are encapsulated with ML-KEM,
-//! and the key schedule uses SHA3/BLAKE3 — reusing Citadel's own crypto abstractions.
+//! [`citadel_pqcrypto::kem_keypair_from_seed`] (ML-KEM), path secrets are HPKE-sealed with ML-KEM +
+//! ChaCha20-Poly1305, and the key schedule uses SHA3/BLAKE3 — reusing Citadel's own crypto abstractions.
 //!
-//! Status: **M0** — tree math + node model. Path secrets, key schedule, commit/welcome, and the
-//! application-message bridge land in subsequent milestones (see the plan).
+//! Status: **M1** — tree + path ratchet + key schedule + `commit`/`process_commit` (the CGKA core).
+//! Add/Remove/Welcome (M2), the application-message ratchet bridge (M3), and the hierarchy overlay (M4)
+//! land in subsequent milestones.
 
 #![forbid(unsafe_code)]
 
+pub mod crypto;
+pub mod group;
+pub mod path;
+pub mod schedule;
 pub mod tree;
 
-pub use tree::math;
+pub use group::GroupState;
+pub use path::UpdatePath;
+pub use tree::{math, node, ratchet_tree};

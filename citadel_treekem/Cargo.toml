@@ -17,8 +17,9 @@ citadel_types = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde-big-array = { workspace = true }
 bincode = { workspace = true }
-blake3 = { workspace = true }
+blake3 = { workspace = true, features = ["std"] }
 sha3 = { workspace = true }
+chacha20poly1305 = { workspace = true, features = ["alloc"] }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc"] }
 arrayvec = { workspace = true }
 rand = { workspace = true }

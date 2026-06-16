@@ -918,6 +918,25 @@ pub fn kem_keypair_from_seed(seed: &[u8; 64]) -> Result<(Vec<u8>, Vec<u8>), Erro
     Ok((kp.public.to_vec(), kp.secret.to_vec()))
 }
 
+/// Raw ML-KEM encapsulation to a public key. Returns `(ciphertext, shared_secret)`. The clean,
+/// container-free KEM API the TreeKEM ratchet tree encrypts path secrets with.
+pub fn kem_encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+    let (ct, ss) = kyber_pke::encapsulate(public_key, &mut rand::rngs::ThreadRng::default())
+        .map_err(|err| Error::generic(format!("ML-KEM encapsulate failed: {err:?}")))?;
+    let mut shared = [0u8; 32];
+    shared.copy_from_slice(&ss[..]);
+    Ok((ct.to_vec(), shared))
+}
+
+/// Raw ML-KEM decapsulation: recover the shared secret from a ciphertext with the secret key.
+pub fn kem_decapsulate(ciphertext: &[u8], secret_key: &[u8]) -> Result<[u8; 32], Error> {
+    let ss = kyber_pke::decapsulate(ciphertext, secret_key)
+        .map_err(|err| Error::generic(format!("ML-KEM decapsulate failed: {err:?}")))?;
+    let mut shared = [0u8; 32];
+    shared.copy_from_slice(&ss[..]);
+    Ok(shared)
+}
+
 impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
         log::trace!(target: "citadel", "About to generate keypair for {kem_alg:?}");
