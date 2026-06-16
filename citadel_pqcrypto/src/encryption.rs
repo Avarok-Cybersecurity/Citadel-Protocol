@@ -217,11 +217,11 @@ pub mod kyber_module {
             let signature_len = decode_length(input)?;
 
             if signature_len > input.len() {
-                return Err(Error::generic(format!(
-                    "Invalid signature length: {} > buffer length {}",
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::InvalidSignatureLength,
                     signature_len,
                     input.len()
-                )));
+                ));
             }
 
             let split_pt = input.len().saturating_sub(signature_len);
@@ -313,7 +313,9 @@ pub mod kyber_module {
         let len_be_bytes = &input.as_ref()[starting_pos..];
 
         if len_be_bytes.len() != 8 {
-            return Err(Error::generic("Bad sig_size_bytes length"));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::BadSigSizeBytesLength
+            ));
         }
 
         let mut len_buf = [0u8; 8];
@@ -322,9 +324,11 @@ pub mod kyber_module {
         let object_len = u64::from_be_bytes(len_buf) as usize;
 
         if object_len > total_len {
-            return Err(Error::generic(format!(
-                "Decoded length = {object_len}, yet, input buffer's len is only {total_len}",
-            )));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::DecodedLengthExceedsBuffer,
+                object_len,
+                total_len
+            ));
         }
 
         // now, truncate
@@ -381,9 +385,11 @@ pub mod kyber_module {
         let (ciphertext, sha_required) = input.as_ref().split_at(input.len().saturating_sub(32));
         let sha_ciphertext = sha3_256(ciphertext);
         if sha_ciphertext != sha_required {
-            return Err(Error::generic(format!(
-                "Invalid ciphertext checksum. {sha_ciphertext:?} != {sha_required:?}",
-            )));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::InvalidCiphertextChecksum,
+                citadel_io::Dbg(sha_ciphertext),
+                citadel_io::Dbg(sha_required.to_vec())
+            ));
         }
 
         input.truncate(input.len().saturating_sub(32));

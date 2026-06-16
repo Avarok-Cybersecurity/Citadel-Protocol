@@ -317,4 +317,84 @@ pub enum ErrorCode {
     /// UPnP port mapping was requested over a LAN IPv6 address, which is unsupported.
     #[form = "Detected LAN IPv6. Not yet implemented"]
     FirewallUpnpLanIpv6Unsupported = 92,
+
+    // --- citadel_types: crypto parameter validation ---
+    /// ML-KEM hybrid encryption was selected without the ML-KEM key-exchange algorithm.
+    #[form = "Invalid crypto parameter combination. ML-KEM hybrid encryption must be paired with ML-KEM"]
+    CryptoParamsHybridRequiresMlKem = 93,
+    /// ML-KEM hybrid encryption was selected without a post-quantum signature scheme.
+    #[form = "A post-quantum signature scheme must be selected when using ML-KEM hybrid encryption"]
+    CryptoParamsHybridRequiresSig = 94,
+    /// A raw `u8` could not be cast into the named crypto-parameter enum (value, enum name).
+    #[form = "Cannot cast `{}` into {}"]
+    CryptoParamEnumCastFailed = 95,
+
+    // --- citadel_pqcrypto: signatures ---
+    /// A signature operation was attempted with no signature algorithm selected.
+    #[form = "No signature algorithm selected"]
+    SigNoneSelected = 96,
+    /// A signature key could not be deserialized (scheme, key kind).
+    #[form = "Failed to deserialize {} {}"]
+    SigKeyDeserializeFailed = 97,
+    /// A signature object could not be decoded (scheme, object kind).
+    #[form = "Failed to decode {} {}"]
+    SigDecodeFailed = 98,
+    /// Signature verification failed (scheme).
+    #[form = "{} signature verification failed"]
+    SigVerificationFailed = 99,
+    /// A Falcon signing key had an invalid length.
+    #[form = "Invalid Falcon signing key length"]
+    FalconKeyLengthInvalid = 100,
+
+    // --- citadel_pqcrypto: container / keystore ---
+    /// The recursive keystore could not be computed during Bob construction.
+    #[form = "Error while calculating recursive keystore: {}"]
+    RecursiveKeystoreFailed = 101,
+    /// A post-quantum container failed (de)serialization.
+    #[form = "Deserialization failure"]
+    ContainerSerdeFailed = 102,
+    /// An in-place buffer window range was invalid.
+    #[form = "Bad window range"]
+    BadWindowRange = 103,
+    /// An anti-replay-attack PID was rejected as already seen / invalid.
+    #[form = "Anti-replay-attack: invalid"]
+    AntiReplayInvalid = 104,
+    /// The anti-replay-attack PID inscription had the wrong length.
+    #[form = "Anti-replay-attack: Invalid inscription length"]
+    AntiReplayBadLength = 105,
+    /// A secret key could not be retrieved from a post-quantum container.
+    #[form = "Unable to get secret key"]
+    SecretKeyUnavailable = 106,
+    /// A ciphertext could not be retrieved from a post-quantum container.
+    #[form = "Unable to get ciphertext"]
+    CiphertextUnavailable = 107,
+    /// A KEM encapsulation step failed.
+    #[form = "Failed encapsulate step"]
+    EncapsulateFailed = 108,
+
+    // --- citadel_pqcrypto: encoding / framing ---
+    /// The trailing length field had the wrong byte count.
+    #[form = "Bad sig_size_bytes length"]
+    BadSigSizeBytesLength = 109,
+    /// A decoded length field exceeded the available buffer (decoded, buffer len).
+    #[form = "Decoded length = {}, yet, input buffer's len is only {}"]
+    DecodedLengthExceedsBuffer = 110,
+    /// A decoded signature length exceeded the buffer (sig len, buffer len).
+    #[form = "Invalid signature length: {} > buffer length {}"]
+    InvalidSignatureLength = 111,
+    /// The ciphertext checksum did not match (computed, expected).
+    #[form = "Invalid ciphertext checksum. {} != {}"]
+    InvalidCiphertextChecksum = 112,
+    /// The provided nonce was shorter than the cipher requires.
+    #[form = "Nonce too short"]
+    NonceTooShort = 113,
+    /// A truncate was requested past the buffer length (requested len, buffer len).
+    #[form = "Cannot truncate len={} when buffer len={}"]
+    BufferTruncateOutOfRange = 114,
+    /// The scrambler input length was not a multiple of the block size (len).
+    #[form = "Invalid input len for scrambler: {}"]
+    ScramblerInvalidInputLength = 115,
+    /// A scrambler block had the wrong length.
+    #[form = "Bad input buffer length"]
+    ScramblerBadBlockLength = 116,
 }

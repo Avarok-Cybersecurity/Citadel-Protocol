@@ -440,9 +440,11 @@ impl TryFrom<u8> for SecrecyMode {
         if let Some(ret) = Self::from_repr(value) {
             Ok(ret)
         } else {
-            Err(Self::Error::generic(format!(
-                "Cannot cast `{value}` into SecrecyMode"
-            )))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::CryptoParamEnumCastFailed,
+                value,
+                "SecrecyMode"
+            ))
         }
     }
 }
@@ -485,9 +487,11 @@ impl TryFrom<u8> for KemAlgorithm {
         if let Some(ret) = Self::from_repr(value) {
             Ok(ret)
         } else {
-            Err(Self::Error::generic(format!(
-                "Cannot cast `{value}` into KemAlgorithm"
-            )))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::CryptoParamEnumCastFailed,
+                value,
+                "KemAlgorithm"
+            ))
         }
     }
 }
@@ -531,9 +535,11 @@ impl TryFrom<u8> for SigAlgorithm {
         if let Some(ret) = Self::from_repr(value) {
             Ok(ret)
         } else {
-            Err(Self::Error::generic(format!(
-                "Cannot cast `{value}` into Sigalgorithm"
-            )))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::CryptoParamEnumCastFailed,
+                value,
+                "SigAlgorithm"
+            ))
         }
     }
 }

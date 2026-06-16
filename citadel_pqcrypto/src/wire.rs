@@ -119,10 +119,10 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
         let buf = buf.as_mut();
 
         if buf.len() % chunk_len != 0 {
-            return Err(Error::generic(format!(
-                "Invalid input len for scrambler: {}",
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::ScramblerInvalidInputLength,
                 buf.len()
-            )));
+            ));
         }
 
         for chunk in buf.chunks_exact_mut(chunk_len) {
@@ -135,7 +135,9 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
     fn swap_in_place<T: AsMut<[u8]>>(&self, mut buf: T, reverse: bool) -> Result<(), Error> {
         let buf = buf.as_mut();
         if buf.len() != BLOCK_SIZE {
-            return Err(Error::generic("Bad input buffer length"));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::ScramblerBadBlockLength
+            ));
         }
 
         for (shift, buf) in self.mapping.iter().zip(buf.iter_mut()) {

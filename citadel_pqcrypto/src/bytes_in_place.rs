@@ -106,11 +106,11 @@ pub trait EzBuffer: AsRef<[u8]> + AsMut<[u8]> + BufMut {
 
     fn try_truncate(&mut self, len: usize) -> Result<(), Error> {
         if len > self.len() {
-            Err(Error::generic(format!(
-                "Cannot truncate len={} when buffer len={}",
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::BufferTruncateOutOfRange,
                 len,
                 self.len()
-            )))
+            ))
         } else {
             self.truncate(len);
             Ok(())

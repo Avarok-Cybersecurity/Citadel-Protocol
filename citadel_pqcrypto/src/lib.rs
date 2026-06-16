@@ -111,7 +111,9 @@ pub(crate) mod functions {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_sign(message, secret_key),
             SigAlgorithm::FnDsa512 => falcon_sign(message, secret_key),
-            SigAlgorithm::None => Err(Error::generic("No signature algorithm selected")),
+            SigAlgorithm::None => {
+                Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected))
+            }
         }
     }
 
@@ -124,7 +126,9 @@ pub(crate) mod functions {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_verify(message, signature, public_key),
             SigAlgorithm::FnDsa512 => falcon_verify(message, signature, public_key),
-            SigAlgorithm::None => Err(Error::generic("No signature algorithm selected")),
+            SigAlgorithm::None => {
+                Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected))
+            }
         }
     }
 
@@ -134,7 +138,9 @@ pub(crate) mod functions {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_keypair(),
             SigAlgorithm::FnDsa512 => falcon_keypair(),
-            SigAlgorithm::None => Err(Error::generic("No signature algorithm selected")),
+            SigAlgorithm::None => {
+                Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected))
+            }
         }
     }
 
@@ -159,8 +165,13 @@ pub(crate) mod functions {
         use ml_dsa::{EncodedSigningKey, MlDsa65, Signature, SigningKey};
 
         let sk_bytes = secret_key.as_ref();
-        let encoded_sk = EncodedSigningKey::<MlDsa65>::try_from(sk_bytes)
-            .map_err(|_| Error::generic("Failed to deserialize ML-DSA secret key"))?;
+        let encoded_sk = EncodedSigningKey::<MlDsa65>::try_from(sk_bytes).map_err(|_| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::SigKeyDeserializeFailed,
+                "ML-DSA",
+                "secret key"
+            )
+        })?;
         let sk = SigningKey::decode(&encoded_sk);
         let sig: Signature<MlDsa65> = sk.sign(message.as_ref());
         Ok(sig.encode().as_slice().to_vec())
@@ -174,15 +185,31 @@ pub(crate) mod functions {
         use ml_dsa::signature::Verifier;
         use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa65, Signature, VerifyingKey};
 
-        let encoded_pk = EncodedVerifyingKey::<MlDsa65>::try_from(public_key.as_ref())
-            .map_err(|_| Error::generic("Failed to deserialize ML-DSA public key"))?;
+        let encoded_pk =
+            EncodedVerifyingKey::<MlDsa65>::try_from(public_key.as_ref()).map_err(|_| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::SigKeyDeserializeFailed,
+                    "ML-DSA",
+                    "public key"
+                )
+            })?;
         let pk = VerifyingKey::<MlDsa65>::decode(&encoded_pk);
-        let encoded_sig = EncodedSignature::<MlDsa65>::try_from(signature.as_ref())
-            .map_err(|_| Error::generic("Failed to deserialize ML-DSA signature"))?;
-        let sig = Signature::decode(&encoded_sig)
-            .ok_or(Error::generic("Failed to decode ML-DSA signature"))?;
-        pk.verify(message.as_ref(), &sig)
-            .map_err(|_| Error::generic("ML-DSA signature verification failed"))
+        let encoded_sig =
+            EncodedSignature::<MlDsa65>::try_from(signature.as_ref()).map_err(|_| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::SigKeyDeserializeFailed,
+                    "ML-DSA",
+                    "signature"
+                )
+            })?;
+        let sig = Signature::decode(&encoded_sig).ok_or(citadel_io::error!(
+            citadel_io::ErrorCode::SigDecodeFailed,
+            "ML-DSA",
+            "signature"
+        ))?;
+        pk.verify(message.as_ref(), &sig).map_err(|_| {
+            citadel_io::error!(citadel_io::ErrorCode::SigVerificationFailed, "ML-DSA")
+        })
     }
 
     fn ml_dsa_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
@@ -209,10 +236,15 @@ pub(crate) mod functions {
         let sk_bytes = secret_key.as_ref();
         let expected_len = sign_key_size(FN_DSA_LOGN_512);
         if sk_bytes.len() != expected_len {
-            return Err(Error::generic("Invalid Falcon signing key length"));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::FalconKeyLengthInvalid
+            ));
         }
-        let mut sk = SigningKey512::decode(sk_bytes)
-            .ok_or(Error::generic("Failed to decode Falcon signing key"))?;
+        let mut sk = SigningKey512::decode(sk_bytes).ok_or(citadel_io::error!(
+            citadel_io::ErrorCode::SigDecodeFailed,
+            "Falcon",
+            "signing key"
+        ))?;
 
         let mut sig_buf = vec![0u8; signature_size(FN_DSA_LOGN_512)];
         let mut rng = rand::thread_rng();
@@ -233,8 +265,11 @@ pub(crate) mod functions {
     ) -> Result<(), Error> {
         use fn_dsa::{VerifyingKey as _, VerifyingKey512, DOMAIN_NONE, HASH_ID_RAW};
 
-        let pk = VerifyingKey512::decode(public_key.as_ref())
-            .ok_or(Error::generic("Failed to decode Falcon verifying key"))?;
+        let pk = VerifyingKey512::decode(public_key.as_ref()).ok_or(citadel_io::error!(
+            citadel_io::ErrorCode::SigDecodeFailed,
+            "Falcon",
+            "verifying key"
+        ))?;
         if pk.verify(
             signature.as_ref(),
             &DOMAIN_NONE,
@@ -243,7 +278,10 @@ pub(crate) mod functions {
         ) {
             Ok(())
         } else {
-            Err(Error::generic("Falcon signature verification failed"))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::SigVerificationFailed,
+                "Falcon"
+            ))
         }
     }
 
@@ -353,7 +391,10 @@ impl PostQuantumContainer {
         let (chain, keys) =
             Self::generate_recursive_keystore(pq_node, params, sig, ss, chain.as_ref(), kex, psks)
                 .map_err(|err| {
-                    Error::generic(format!("Error while calculating recursive keystore: {err}",))
+                    citadel_io::error!(
+                        citadel_io::ErrorCode::RecursiveKeystoreFailed,
+                        err.to_string()
+                    )
                 })?;
 
         let keys = Some(keys);
@@ -604,14 +645,15 @@ impl PostQuantumContainer {
 
     /// Serializes the entire package to a vector
     pub fn serialize_to_vector(&self) -> Result<Vec<u8>, Error> {
-        bincode::serialize(self).map_err(|_err| Error::generic("Deserialization failure"))
+        bincode::serialize(self)
+            .map_err(|_err| citadel_io::error!(citadel_io::ErrorCode::ContainerSerdeFailed))
     }
 
     /// Attempts to deserialize the input bytes presumed to be of type [PostQuantumExport],
     /// into a [PostQuantumContainer]
     pub fn deserialize_from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, Error> {
         bincode::deserialize::<PostQuantumContainer>(bytes.as_ref())
-            .map_err(|_err| Error::generic("Deserialization failure"))
+            .map_err(|_err| citadel_io::error!(citadel_io::ErrorCode::ContainerSerdeFailed))
     }
 
     /// Returns either Alice or Bob
@@ -690,7 +732,7 @@ impl PostQuantumContainer {
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBuffer::new(&mut payload, 0..payload_len)
-            .ok_or(Error::generic("Bad window range"))?;
+            .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_encryption_key() {
             symmetric_key
                 .encrypt_in_place(nonce, header.subset(0..header_len), &mut in_place_payload)
@@ -714,7 +756,7 @@ impl PostQuantumContainer {
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBuffer::new(payload, 0..payload_len)
-            .ok_or(Error::generic("Bad window range"))?;
+            .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_decryption_key() {
             symmetric_key
                 .decrypt_in_place(nonce, header, &mut in_place_payload)
@@ -733,11 +775,13 @@ impl PostQuantumContainer {
                             payload.truncate(start_idx);
                             Ok(())
                         } else {
-                            Err(Error::generic("Anti-replay-attack: invalid"))
+                            Err(citadel_io::error!(
+                                citadel_io::ErrorCode::AntiReplayInvalid
+                            ))
                         }
                     } else {
-                        Err(Error::generic(
-                            "Anti-replay-attack: Invalid inscription length",
+                        Err(citadel_io::error!(
+                            citadel_io::ErrorCode::AntiReplayBadLength
                         ))
                     }
                 })
@@ -758,7 +802,8 @@ impl PostQuantumContainer {
         let nonce = nonce.as_ref();
         let len = buf.len();
         let mut in_place =
-            InPlaceBuffer::new(buf, 0..len).ok_or(Error::generic("Bad window range"))?;
+            InPlaceBuffer::new(buf, 0..len)
+                .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_encryption_key() {
             symmetric_key
                 .encrypt_in_place(nonce, &[], &mut in_place)
@@ -779,7 +824,8 @@ impl PostQuantumContainer {
         let nonce = nonce.as_ref();
         let len = buf.len();
         let mut in_place =
-            InPlaceBuffer::new(buf, 0..len).ok_or(Error::generic("Bad window range"))?;
+            InPlaceBuffer::new(buf, 0..len)
+                .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_decryption_key() {
             symmetric_key
                 .decrypt_in_place(nonce, &[], &mut in_place)
@@ -940,7 +986,9 @@ impl PostQuantumMeta {
             KemAlgorithm::MlKem => {
                 let (ciphertext, shared_secret) =
                     kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default())
-                        .map_err(|_err| get_generic_error("Failed encapsulate step"))?;
+                        .map_err(|_err| {
+                            citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed)
+                        })?;
                 (ciphertext.to_vec(), shared_secret.to_vec())
             }
         };
@@ -1181,7 +1229,9 @@ impl PostQuantumMeta {
         if let Some(secret_key) = sk {
             Ok(secret_key)
         } else {
-            Err(get_generic_error("Unable to get secret key"))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::SecretKeyUnavailable
+            ))
         }
     }
 
@@ -1194,7 +1244,9 @@ impl PostQuantumMeta {
         if let Some(ciphertext) = ct {
             Ok(ciphertext)
         } else {
-            Err(get_generic_error("Unable to get ciphertext"))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::CiphertextUnavailable
+            ))
         }
     }
 
@@ -1207,14 +1259,13 @@ impl PostQuantumMeta {
         if let Some(shared_secret) = ss {
             Ok(shared_secret)
         } else {
-            Err(get_generic_error("Unable to get secret key"))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::SecretKeyUnavailable
+            ))
         }
     }
 }
 
-fn get_generic_error(text: &'static str) -> Error {
-    Error::generic(text)
-}
 
 impl Debug for PostQuantumContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -1290,7 +1341,7 @@ macro_rules! impl_basic_aead_module {
                 let nonce_slice = if nonce.len() >= $nonce_len {
                     &nonce[..$nonce_len]
                 } else {
-                    return Err(Error::generic("Nonce too short"));
+                    return Err(citadel_io::error!(citadel_io::ErrorCode::NonceTooShort));
                 };
 
                 self.aead
@@ -1311,7 +1362,7 @@ macro_rules! impl_basic_aead_module {
                 let nonce_slice = if nonce.len() >= $nonce_len {
                     &nonce[..$nonce_len]
                 } else {
-                    return Err(Error::generic("Nonce too short."));
+                    return Err(citadel_io::error!(citadel_io::ErrorCode::NonceTooShort));
                 };
 
                 self.aead
