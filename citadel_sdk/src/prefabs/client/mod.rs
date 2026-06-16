@@ -222,7 +222,7 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
                 .to_socket_addrs()
                 .map_err(|err| NetworkError::generic(err.to_string()))?
                 .next()
-                .ok_or(NetworkError::generic("No address found".to_string()))?;
+                .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoAddress))?;
             Some(addr)
         } else {
             None
@@ -231,7 +231,7 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
         if let Some(uuid) = self.transient_uuid {
             Ok(ServerConnectionSettings::<R>::Transient {
                 server_addr: server_addr
-                    .ok_or(NetworkError::generic("No address found".to_string()))?,
+                    .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoAddress))?,
                 uuid,
                 udp_mode: self.udp_mode.unwrap_or_default(),
                 session_security_settings: self.session_security_settings.unwrap_or_default(),
@@ -242,10 +242,10 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
             Ok(ServerConnectionSettings::<R>::CredentialedConnect {
                 username: self
                     .username
-                    .ok_or(NetworkError::generic("No username found".to_string()))?,
+                    .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoUsername))?,
                 password: self
                     .password
-                    .ok_or(NetworkError::generic("No password found".to_string()))?,
+                    .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoPassword))?,
                 udp_mode: self.udp_mode.unwrap_or_default(),
                 session_security_settings: self.session_security_settings.unwrap_or_default(),
                 pre_shared_key: self.psk,
@@ -254,16 +254,16 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
         } else {
             Ok(ServerConnectionSettings::<R>::CredentialedRegister {
                 address: server_addr
-                    .ok_or(NetworkError::generic("No address found".to_string()))?,
+                    .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoAddress))?,
                 username: self
                     .username
-                    .ok_or(NetworkError::generic("No username found".to_string()))?,
+                    .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoUsername))?,
                 alias: self
                     .name
-                    .ok_or(NetworkError::generic("No alias found".to_string()))?,
+                    .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoAlias))?,
                 password: self
                     .password
-                    .ok_or(NetworkError::generic("No password found".to_string()))?,
+                    .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoPassword))?,
                 pre_shared_key: self.psk,
                 udp_mode: self.udp_mode.unwrap_or_default(),
                 session_security_settings: self.session_security_settings.unwrap_or_default(),

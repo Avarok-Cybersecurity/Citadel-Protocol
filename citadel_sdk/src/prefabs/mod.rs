@@ -132,8 +132,8 @@ impl<R: Ratchet> ClientServerRemote<R> {
         self.file_transfer_handle_rx
             .lock()
             .take()
-            .ok_or(NetworkError::internal(
-                "This function has already been called",
+            .ok_or(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteFunctionAlreadyCalled
             ))
     }
 }
@@ -183,5 +183,5 @@ pub fn get_socket_addr<T: ToSocketAddrs>(addr: T) -> Result<SocketAddr, NetworkE
     addr.to_socket_addrs()
         .map_err(|err| NetworkError::socket(err.to_string()))?
         .next()
-        .ok_or_else(|| NetworkError::msg("Invalid socket address specified"))
+        .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::BuilderInvalidSocketAddress))
 }

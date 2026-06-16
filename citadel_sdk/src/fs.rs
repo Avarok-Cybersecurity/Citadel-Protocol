@@ -558,7 +558,7 @@ mod tests {
 
         let task = async move {
             citadel_io::tokio::select! {
-                server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
+                server_res = server => Err(citadel_io::error!(citadel_io::ErrorCode::PrefabServerEndedPrematurely, citadel_io::Dbg(server_res.map(|_| ())))),
                 client_res = clients => client_res.map(|_| ())
             }
         };

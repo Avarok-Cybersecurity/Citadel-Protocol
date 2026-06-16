@@ -170,10 +170,11 @@ where
                         .search_peer(session_cid, connect_success.account_manager())
                         .await?
                         .ok_or_else(|| {
-                            NetworkError::msg(format!(
-                                "[create] User {:?} is not registered to {:?}",
-                                peer, &local_user
-                            ))
+                            citadel_io::error!(
+                                citadel_io::ErrorCode::BroadcastCreateUserNotRegistered,
+                                format!("{peer:?}"),
+                                format!("{local_user:?}")
+                            )
                         })?;
 
                     peers_registered.push(peer.cid)
@@ -218,10 +219,11 @@ where
                 };
 
                 let owner = owner.ok_or_else(|| {
-                    NetworkError::msg(format!(
-                        "User {:?} is not registered to {:?}",
-                        owner_orig, &local_user
-                    ))
+                    citadel_io::error!(
+                        citadel_io::ErrorCode::BroadcastJoinUserNotRegistered,
+                        format!("{owner_orig:?}"),
+                        format!("{local_user:?}")
+                    )
                 })?;
 
                 let expected_message_group_key = MessageGroupKey {
@@ -244,9 +246,11 @@ where
 
                         retries += 1;
                         if retries > 4 {
-                            return Err(NetworkError::generic(format!(
-                                "Owner {owner:?} has not created group {group_id:?}"
-                            )));
+                            return Err(citadel_io::error!(
+                                citadel_io::ErrorCode::BroadcastOwnerGroupMissing,
+                                citadel_io::Dbg(owner),
+                                citadel_io::Dbg(group_id)
+                            ));
                         }
                     }
                 }
@@ -279,11 +283,11 @@ where
                 loop {
                     let post_register = citadel_io::tokio::select! {
                         reg_request = reg_rx.recv() => {
-                            reg_request.ok_or_else(|| NetworkError::internal("reg_rx ended unexpectedly"))?
+                            reg_request.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly, "reg_rx"))?
                         },
 
                         reg_request2 = subscription.next() => {
-                            let signal = reg_request2.ok_or_else(|| NetworkError::internal("subscription ended unexpectedly"))?;
+                            let signal = reg_request2.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly, "subscription"))?;
                             if let NodeResult::PeerEvent(PeerEvent { event: sig @ PeerSignal::PostRegister { .. }, .. }) = &signal {
                                 sig.clone()
                             } else {
@@ -372,7 +376,11 @@ where
                     session_cid: _,
                     ticket: _,
                     event: GroupBroadcast::CreateResponse { key: None },
-                }) => return Err(NetworkError::internal("Unable to create a message group")),
+                }) => {
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::BroadcastCreateGroupFailed
+                    ))
+                }
 
                 _ => {}
             }
@@ -624,7 +632,7 @@ mod tests {
                         }
                     }
 
-                    Err(NetworkError::internal("signals_recv ended unexpectedly"))
+                    Err(citadel_io::error!(citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly, "signals_recv"))
                 },
             );
 

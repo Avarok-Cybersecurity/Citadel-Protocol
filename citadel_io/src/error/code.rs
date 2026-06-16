@@ -886,4 +886,187 @@ pub enum ErrorCode {
     /// A provisional outbound connection to the given peer is already in progress (peer addr).
     #[form = "Localhost is already trying to connect to {}"]
     SessionManagerProvisionalConnectionExists = 265,
+
+    // --- citadel_sdk: builder / node ---
+    /// A node could not be built from its configuration (reason).
+    #[form = "Failed to build node: {}"]
+    NodeBuildFailed = 266,
+    /// The default server transport config could not be created (reason).
+    #[form = "Failed to create default server config: {}"]
+    NodeDefaultServerConfigFailed = 267,
+
+    // --- citadel_sdk: remote-ext ---
+    /// A supplied socket address could not be resolved to a usable address.
+    #[form = "Invalid socket addr"]
+    RemoteInvalidSocketAddr = 268,
+    /// A registration request was rejected by the server (reason).
+    #[form = "{}"]
+    RemoteRegisterFailure = 269,
+    /// The session was disconnected during an operation (reason).
+    #[form = "{}"]
+    RemoteDisconnected = 270,
+    /// The internal kernel stream died while awaiting a response (operation).
+    #[form = "Internal kernel stream died ({})"]
+    RemoteKernelStreamDied = 271,
+    /// A connect attempt failed (reason).
+    #[form = "{}"]
+    RemoteConnectFailed = 272,
+    /// An unexpected response was received while connecting (response).
+    #[form = "[connect] An unexpected response occurred: {}"]
+    RemoteConnectUnexpectedResponse = 273,
+    /// The requested target pair could not be found.
+    #[form = "Target pair not found"]
+    RemoteTargetPairNotFound = 274,
+    /// The active-sessions query stream died.
+    #[form = "Stream died"]
+    RemoteSessionStreamDied = 275,
+    /// The SDK sessions could not be queried.
+    #[form = "Failed to query SDK sessions"]
+    RemoteQuerySessionsFailed = 276,
+    /// The referenced user does not exist locally.
+    #[form = "User does not exist"]
+    RemoteUserDoesNotExist = 277,
+    /// A file-transfer handle failed while streaming (reason).
+    #[form = "{}"]
+    RemoteFileTransferFailed = 278,
+    /// A file-transfer stream died before completion.
+    #[form = "File transfer stream died"]
+    RemoteFileTransferStreamDied = 279,
+    /// A virtual path was invalid for a RE-VFS operation (reason).
+    #[form = "{}"]
+    RemoteRevfsInvalidVirtualPath = 280,
+    /// An invalid response was received from the protocol during a RE-VFS operation.
+    #[form = "Received invalid response from protocol"]
+    RemoteRevfsInvalidResponse = 281,
+    /// A RE-VFS file-transfer stream died before completion.
+    #[form = "REVFS File transfer stream died"]
+    RemoteRevfsFileTransferStreamDied = 282,
+    /// A RE-VFS delete stream died before completion.
+    #[form = "REVFS Delete stream died"]
+    RemoteRevfsDeleteStreamDied = 283,
+    /// A peer did not respond to a connection request in time.
+    #[form = "Peer did not respond in time"]
+    RemotePeerNoResponse = 284,
+    /// A peer declined the connection request.
+    #[form = "Peer declined to connect"]
+    RemotePeerDeclined = 285,
+    /// A P2P connection timed out waiting for PeerChannelCreated (timeout seconds).
+    #[form = "P2P connection timed out after {}s waiting for PeerChannelCreated"]
+    RemoteP2pConnectTimeout = 286,
+    /// No username could be found for the local user.
+    #[form = "Unable to find username for local user"]
+    RemoteLocalUsernameMissing = 287,
+    /// A deregister operation ended unexpectedly.
+    #[form = "Deregister ended unexpectedly"]
+    RemoteDeregisterEndedUnexpectedly = 288,
+    /// A deregistration request was rejected (status=false).
+    #[form = "Unable to deregister: status=false"]
+    RemoteDeregisterFailed = 289,
+    /// No valid disconnect event was received.
+    #[form = "Unable to receive valid disconnect event"]
+    RemoteDisconnectEventMissing = 290,
+    /// External group peer functionality is not enabled.
+    #[form = "External group peer functionality not enabled"]
+    RemoteExternalGroupPeerUnsupported = 291,
+    /// A create-group operation ended unexpectedly.
+    #[form = "Create_group ended unexpectedly"]
+    RemoteCreateGroupEndedUnexpectedly = 292,
+    /// An account could not be found for a local user while creating a group (account, local user).
+    #[form = "Account {} not found for local user {}"]
+    RemoteGroupAccountNotFound = 293,
+    /// A list-owned-groups operation ended unexpectedly.
+    #[form = "List_members ended unexpectedly"]
+    RemoteListGroupsEndedUnexpectedly = 294,
+    /// A list-sessions operation ended unexpectedly.
+    #[form = "List_sessions ended unexpectedly"]
+    RemoteListSessionsEndedUnexpectedly = 295,
+    /// A rekey operation failed (reason).
+    #[form = "Rekey failed: {}"]
+    RemoteRekeyFailed = 296,
+    /// A rekey operation ended unexpectedly.
+    #[form = "Rekey ended unexpectedly"]
+    RemoteRekeyEndedUnexpectedly = 297,
+    /// External group peers are not yet supported.
+    #[form = "External group peers are not supported yet"]
+    RemoteExternalGroupPeerUnsupportedYet = 298,
+    /// The locked target is not a peer.
+    #[form = "Target is not a peer"]
+    RemoteTargetNotPeer = 299,
+    /// A target_cid of 0 was used without supplying a username.
+    #[form = "target_cid=0, yet, no username was provided"]
+    RemoteTargetCidZeroNoUsername = 300,
+    /// RE-VFS can only be used with the Kyber/ML-KEM KEM.
+    #[form = "RE-VFS can only be used with Kyber KEM"]
+    RemoteRevfsRequiresKyber = 301,
+    /// RE-VFS cannot be used with this remote type.
+    #[form = "RE-VFS cannot be used with this remote type"]
+    RemoteRevfsUnsupportedRemote = 302,
+    /// A one-shot accessor function was already called.
+    #[form = "This function has already been called"]
+    RemoteFunctionAlreadyCalled = 303,
+
+    // --- citadel_sdk: responses ---
+    /// The local username implied by a peer signal could not be found.
+    #[form = "Unable to find local username implied by signal"]
+    ResponseLocalUsernameMissing = 304,
+    /// An input signal was not a valid PostRegister.
+    #[form = "Input signal is not a valid PostRegister"]
+    ResponseNotPostRegister = 305,
+    /// An input signal was not a valid PostConnect.
+    #[form = "Input signal is not a valid PostConnect"]
+    ResponseNotPostConnect = 306,
+    /// An input signal was not a group invitation.
+    #[form = "Input signal is not a group invitation"]
+    ResponseNotGroupInvitation = 307,
+    /// A response event was improperly formed (missing ticket).
+    #[form = "This event was improperly formed"]
+    ResponseEventImproperlyFormed = 308,
+
+    // --- citadel_sdk: prefabs / client ---
+    /// An address could not be resolved while building connection settings.
+    #[form = "No address found"]
+    BuilderNoAddress = 309,
+    /// A username was required but not provided while building connection settings.
+    #[form = "No username found"]
+    BuilderNoUsername = 310,
+    /// A password was required but not provided while building connection settings.
+    #[form = "No password found"]
+    BuilderNoPassword = 311,
+    /// An alias was required but not provided while building connection settings.
+    #[form = "No alias found"]
+    BuilderNoAlias = 312,
+    /// An invalid socket address was specified while resolving a target.
+    #[form = "Invalid socket address specified"]
+    BuilderInvalidSocketAddress = 313,
+    /// A user is not registered to the local user during group creation (peer, local user).
+    #[form = "[create] User {} is not registered to {}"]
+    BroadcastCreateUserNotRegistered = 314,
+    /// A user is not registered to the local user during a group join (owner, local user).
+    #[form = "User {} is not registered to {}"]
+    BroadcastJoinUserNotRegistered = 315,
+    /// A group owner has not created the expected group yet (owner, group id).
+    #[form = "Owner {} has not created group {}"]
+    BroadcastOwnerGroupMissing = 316,
+    /// A message group could not be created.
+    #[form = "Unable to create a message group"]
+    BroadcastCreateGroupFailed = 317,
+    /// A broadcast subscription/registration stream ended unexpectedly (stream).
+    #[form = "{} ended unexpectedly"]
+    BroadcastStreamEndedUnexpectedly = 318,
+
+    // --- citadel_sdk: prefabs / server ---
+    /// A test server ended prematurely (result).
+    #[form = "Server ended prematurely: {}"]
+    PrefabServerEndedPrematurely = 319,
+    /// A hyper HTTP error occurred in the internal service (reason).
+    #[form = "Hyper error: {}"]
+    InternalServiceHyperError = 320,
+    /// An internal-service response did not match the request.
+    #[form = "Response did not match request"]
+    InternalServiceResponseMismatch = 321,
+
+    // --- citadel_sdk: net / serverless ---
+    /// The kernel stopped before a serverless connection was established.
+    #[form = "Kernel stopped before connection established"]
+    ServerlessKernelStoppedEarly = 322,
 }

@@ -170,9 +170,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                 let underlying_proto = match underlying_proto {
                     Some(proto) => proto,
                     None => T::default_server_config().await.map_err(|err| {
-                        NetworkError::generic(format!(
-                            "Failed to create default server config: {err}"
-                        ))
+                        citadel_io::error!(
+                            citadel_io::ErrorCode::NodeDefaultServerConfigFailed,
+                            err.to_string()
+                        )
                     })?,
                 };
 
