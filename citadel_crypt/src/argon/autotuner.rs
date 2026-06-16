@@ -153,9 +153,10 @@ pub async fn calculate_optimal_argon_params(
                 }
             }
             res => {
-                return Err(CryptError::encrypt(format!(
-                    "Unable to hash password: {res:?}",
-                )))
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::ArgonHashFailed,
+                    citadel_io::Dbg(res)
+                ))
             }
         }
     }

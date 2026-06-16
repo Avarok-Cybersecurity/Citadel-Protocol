@@ -105,7 +105,7 @@ impl Ratchet for MonoRatchet {
     ) -> Result<(&PostQuantumContainer, &EntropyBank), CryptError> {
         if let Some(idx) = idx {
             if idx != 0 {
-                return Err(CryptError::out_of_bounds());
+                return Err(citadel_io::error!(citadel_io::ErrorCode::OutOfBounds));
             }
         }
 

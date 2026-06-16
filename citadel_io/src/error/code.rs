@@ -150,4 +150,144 @@ pub enum ErrorCode {
     /// A Firebase RTDB operation failed.
     #[form = "Firebase RTDB error: {}"]
     Rtdb = 39,
+
+    // --- crypt: rekey / ratchet progression (citadel_crypt) ---
+    /// A ratchet version bump could not be applied.
+    #[form = "Unable to progress past update_version"]
+    RekeyVersionUpdateFailed = 40,
+    /// Finishing the constructor failed on the bob-to-alice trigger path.
+    #[form = "Unable to progress past finish_with_custom_cid for bob-to-alice trigger"]
+    RekeyFinishBobToAliceFailed = 41,
+    /// The Bob stage-0 step of a rekey failed.
+    #[form = "Unable to progress past stage0_bob"]
+    RekeyStage0BobFailed = 42,
+    /// Finishing the constructor failed.
+    #[form = "Unable to progress past finish_with_custom_cid"]
+    RekeyFinishFailed = 43,
+    /// Committing the new ratchet into the toolset failed.
+    #[form = "Unable to progress past update_from"]
+    RekeyUpdateFromFailed = 44,
+    /// Committing the new ratchet into the toolset failed on the bob-to-alice trigger path.
+    #[form = "Unable to progress past update_from for bob-to-alice trigger"]
+    RekeyUpdateFromBobToAliceFailed = 45,
+    /// A commit returned no transfer when one was expected (conflicting program state).
+    #[form = "This should only be reached if triggered by a bob-to-alice transfer event, yet, conflicting program state"]
+    RekeyUnexpectedNoneTransfer = 46,
+    /// Ratchet deregistration was requested before the toolset reached capacity.
+    #[form = "Cannot call for deregistration unless the map len is maxed out"]
+    ToolsetDeregisterNotMaxed = 47,
+    /// The version supplied to deregister did not match the oldest version.
+    #[form = "Unable to deregister. Provided version: {}, expected version: {}"]
+    ToolsetDeregisterVersionMismatch = 48,
+    /// The ratchet carries no message-ratchet layers.
+    #[form = "No message ratchets available"]
+    NoMessageRatchets = 49,
+    /// The requested security level exceeds the available ratchet layers.
+    #[form = "Requested security level: {}. Resolved: {}. Only have max {} security levels"]
+    SecurityLevelOutOfRange = 50,
+    /// Encryption was requested over empty plaintext.
+    #[form = "Empty input"]
+    EmptyInput = 51,
+    /// The rekey-trigger semaphore was closed.
+    #[form = "Semaphore closed"]
+    RekeySemaphoreClosed = 52,
+    /// A rekey was requested while the rekey process is halted.
+    #[form = "Rekey process is halted"]
+    RekeyHalted = 53,
+    /// A rekey attempt exhausted its stale-version retry budget.
+    #[form = "Exceeded max stale version retries ({})"]
+    RekeyStaleVersionRetriesExceeded = 54,
+    /// The initial Alice transfer could not be produced.
+    #[form = "Failed to get initial transfer"]
+    RekeyInitialTransferFailed = 55,
+    /// An offloaded (spawn_blocking) rekey step failed to join.
+    #[form = "Join error on {}"]
+    RekeyJoinError = 56,
+    /// Sending a ratchet protocol message to the outbound sink failed.
+    #[form = "Sink send error"]
+    RekeySinkSendError = 57,
+    /// The local rekey listener was dropped without the version advancing.
+    #[form = "Local listener dropped without version advance"]
+    RekeyListenerDropped = 58,
+    /// A rekey protocol message did not arrive within the active timeout.
+    #[form = "Rekey protocol message timeout — resetting for retry"]
+    RekeyMessageTimeout = 59,
+    /// The expected stacked ratchet could not be retrieved during a rekey.
+    #[form = "Failed to get stacked ratchet"]
+    RekeyStackedRatchetFailed = 60,
+    /// Too many stale rekey protocol messages were received; a resync is required.
+    #[form = "Too many stale rekey messages ({}), resynchronization needed. Peer: {}, Local: {}"]
+    RekeyTooManyStaleResync = 61,
+    /// The peer's rekey version barrier did not match the local one.
+    #[form = "Rekey barrier mismatch (earliest/latest). Peer: ({}-{}) != Local: ({}-{})"]
+    RekeyBarrierMismatch = 62,
+    /// Too many stale rekey protocol messages were received (no resync context).
+    #[form = "Too many stale rekey messages ({})"]
+    RekeyTooManyStale = 63,
+    /// The peer's rekey metadata did not match the local metadata.
+    #[form = "Metadata mismatch ({}). Peer: {} != Local: {}"]
+    RekeyMetadataMismatch = 64,
+    /// An invalid rekey role transition to Leader was attempted.
+    #[form = "Invalid role transition from {} to Leader"]
+    RekeyInvalidRoleTransition = 65,
+    /// Too many double-Loser rekey messages were received; a resync is required.
+    #[form = "Too many double-Loser messages ({}), resynchronization needed"]
+    RekeyTooManyDoubleLoser = 66,
+    /// Too many unexpected BobToAlice messages while in the Loser role; a resync is required.
+    #[form = "Too many unexpected BobToAlice while Loser ({}), resynchronization needed"]
+    RekeyTooManyLoserBobToAlice = 67,
+    /// A constructor was required for a BobToAlice message but none was loaded.
+    #[form = "Unexpected BobToAlice message with no loaded local constructor for next_version {}"]
+    RekeyNoConstructorForBobToAlice = 68,
+    /// A Truncate message arrived while not in the Loser role.
+    #[form = "Unexpected Truncate message since our role is not Loser, but {}"]
+    RekeyUnexpectedTruncate = 69,
+    /// A LoserCanFinish message arrived while not in the Loser role.
+    #[form = "Unexpected LoserCanFinish message since our role is not Loser, but {}"]
+    RekeyUnexpectedLoserCanFinish = 70,
+    /// A LeaderCanFinish message arrived while not in the Leader role.
+    #[form = "Unexpected LeaderCanFinish message since our role is not Leader, but {}"]
+    RekeyUnexpectedLeaderCanFinish = 71,
+    /// The local and peer versions disagreed at LeaderCanFinish.
+    #[form = "Version mismatch in LeaderCanFinish. Local: {}, Peer: {}"]
+    RekeyLeaderCanFinishVersionMismatch = 72,
+    /// The rekey protocol stream ended unexpectedly.
+    #[form = "Unexpected end of stream"]
+    RekeyUnexpectedEndOfStream = 73,
+    /// The Bob-side constructor could not be created during a rekey.
+    #[form = "Failed to create bob constructor"]
+    RekeyBobConstructorFailed = 74,
+    /// An encrypted message-entropy-bank could not be retrieved during a rekey.
+    #[form = "Unable to get encrypted_msg_entropy_banks"]
+    RekeyEntropyBankMissing = 75,
+    /// The message and scramble entropy-bank versions disagreed.
+    #[form = "Message entropy_bank version != scramble entropy_bank version"]
+    RekeyEntropyBankVersionMismatch = 76,
+    /// The message and scramble entropy-bank cids disagreed.
+    #[form = "Message entropy_bank cid != scramble entropy_bank cid"]
+    RekeyEntropyBankCidMismatch = 77,
+    /// The messenger outbound stream is no longer active.
+    #[form = "Cannot send encrypted messages (stream died)"]
+    MessengerStreamDied = 78,
+    /// The ratchet manager's outbound stream died while sending.
+    #[form = "Ratchet Manager's outbound stream died"]
+    RatchetManagerStreamDied = 79,
+    /// A decode/transient-id trailer had the wrong size.
+    #[form = "Bad input size of {} (transient id)"]
+    BadTransientIdSize = 80,
+    /// A GroupReceiverConfig failed validation.
+    #[form = "Invalid GroupReceiverConfig: {}"]
+    InvalidGroupReceiverConfig = 81,
+    /// A scrambler source could not yield its filename.
+    #[form = "Unable to get filename"]
+    SourceFilenameUnavailable = 82,
+    /// A bytes source had already been exhausted.
+    #[form = "Source has already been exhausted"]
+    SourceExhausted = 83,
+    /// The requested group size exceeded the maximum.
+    #[form = "Maximum group size cannot be larger than {} bytes"]
+    GroupSizeTooLarge = 84,
+    /// Argon password hashing failed during autotuning.
+    #[form = "Unable to hash password: {}"]
+    ArgonHashFailed = 85,
 }

@@ -175,8 +175,8 @@ pub trait Ratchet:
         let security_level = security_level_init.unwrap_or(SecurityLevel::Standard);
 
         if message_ratchet_count == 0 {
-            return Err(CryptError::ratchet(
-                "No message ratchets available".to_string(),
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::NoMessageRatchets
             ));
         }
 
@@ -184,7 +184,12 @@ pub trait Ratchet:
         let validated_level = security_level.value();
 
         if security_level.value() > max_level {
-            Err(CryptError::ratchet(format!("Requested security level: {security_level_init:?}. Resolved: {security_level:?}. Only have max {max_level} security levels")))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::SecurityLevelOutOfRange,
+                citadel_io::Dbg(security_level_init),
+                citadel_io::Dbg(security_level),
+                max_level
+            ))
         } else {
             Ok(validated_level as usize)
         }

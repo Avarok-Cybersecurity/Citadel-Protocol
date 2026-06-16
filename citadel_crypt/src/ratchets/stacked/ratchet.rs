@@ -107,7 +107,7 @@ impl Ratchet for StackedRatchet {
             .inner
             .get(idx)
             .map(|r| (&r.pqc, &r.entropy_bank))
-            .ok_or(CryptError::out_of_bounds())
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::OutOfBounds))
     }
 
     fn get_scramble_pqc_and_entropy_bank(&self) -> (&PostQuantumContainer, &EntropyBank) {
@@ -420,8 +420,8 @@ pub mod constructor {
                         .encrypted_msg_entropy_banks
                         .get(idx)
                         .ok_or_else(|| {
-                            CryptError::rekey_update(
-                                "Unable to get encrypted_msg_entropy_banks".to_string(),
+                            citadel_io::error!(
+                                citadel_io::ErrorCode::RekeyEntropyBankMissing
                             )
                         })?[..],
                     nonce_msg,
@@ -463,8 +463,8 @@ pub mod constructor {
                 .entropy_bank
                 .as_ref()
                 .ok_or_else(|| {
-                    CryptError::rekey_update(
-                        "Unable to get encrypted_msg_entropy_banks".to_string(),
+                    citadel_io::error!(
+                        citadel_io::ErrorCode::RekeyEntropyBankMissing
                     )
                 })?
                 .version
@@ -472,14 +472,14 @@ pub mod constructor {
                     .entropy_bank
                     .as_ref()
                     .ok_or_else(|| {
-                        CryptError::rekey_update(
-                            "Unable to get encrypted_msg_entropy_banks".to_string(),
+                        citadel_io::error!(
+                            citadel_io::ErrorCode::RekeyEntropyBankMissing
                         )
                     })?
                     .version
             {
-                return Err(CryptError::rekey_update(
-                    "Message entropy_bank version != scramble entropy_bank version".to_string(),
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RekeyEntropyBankVersionMismatch
                 ));
             }
 
@@ -488,8 +488,8 @@ pub mod constructor {
                 .entropy_bank
                 .as_ref()
                 .ok_or_else(|| {
-                    CryptError::rekey_update(
-                        "Unable to get encrypted_msg_entropy_banks".to_string(),
+                    citadel_io::error!(
+                        citadel_io::ErrorCode::RekeyEntropyBankMissing
                     )
                 })?
                 .cid
@@ -497,14 +497,14 @@ pub mod constructor {
                     .entropy_bank
                     .as_ref()
                     .ok_or_else(|| {
-                        CryptError::rekey_update(
-                            "Unable to get encrypted_msg_entropy_banks".to_string(),
+                        citadel_io::error!(
+                            citadel_io::ErrorCode::RekeyEntropyBankMissing
                         )
                     })?
                     .cid
             {
-                return Err(CryptError::rekey_update(
-                    "Message entropy_bank cid != scramble entropy_bank cid".to_string(),
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RekeyEntropyBankCidMismatch
                 ));
             }
 

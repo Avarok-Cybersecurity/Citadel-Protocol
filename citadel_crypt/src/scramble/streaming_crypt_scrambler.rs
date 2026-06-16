@@ -104,10 +104,14 @@ macro_rules! impl_file_src {
             fn get_source_name(&self) -> Result<String, CryptError> {
                 let name = std::path::Path::new(self);
                 name.file_name()
-                    .ok_or_else(|| CryptError::encrypt("Unable to get filename".to_string()))?
+                    .ok_or_else(|| {
+                        citadel_io::error!(citadel_io::ErrorCode::SourceFilenameUnavailable)
+                    })?
                     .to_str()
                     .map(|r| r.to_string())
-                    .ok_or_else(|| CryptError::encrypt("Unable to get filename/2".to_string()))
+                    .ok_or_else(|| {
+                        citadel_io::error!(citadel_io::ErrorCode::SourceFilenameUnavailable)
+                    })
             }
 
             fn path(&self) -> Option<PathBuf> {
@@ -157,7 +161,7 @@ impl ObjectSource for BytesSource {
         let inner = self
             .inner
             .take()
-            .ok_or_else(|| CryptError::encrypt("Source has already been exhausted"))?;
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::SourceExhausted))?;
         let len = inner.len();
         let cursor = std::io::Cursor::new(inner);
         Ok(Box::new(VecReader { len, cursor }))
@@ -219,9 +223,10 @@ pub fn scramble_encrypt_source<
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
-        return Err(CryptError::encrypt(format!(
-            "Maximum group size cannot be larger than {MAX_BYTES_PER_GROUP} bytes",
-        )));
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::GroupSizeTooLarge,
+            MAX_BYTES_PER_GROUP
+        ));
     }
 
     let total_groups = Integer::div_ceil(&object_len, &max_bytes_per_group);

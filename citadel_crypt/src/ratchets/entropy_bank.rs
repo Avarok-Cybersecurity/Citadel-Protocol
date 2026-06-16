@@ -203,10 +203,10 @@ impl EntropyBank {
         let starting_pos = buf.len().saturating_sub(8);
         let transient_id_bytes = &buf.as_ref()[starting_pos..];
         if transient_id_bytes.len() != 8 {
-            return Err(CryptError::decrypt(format!(
-                "Bad input size of {} (transient id)",
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::BadTransientIdSize,
                 buf.as_ref().len()
-            )));
+            ));
         }
 
         let transient_id = byteorder::BigEndian::read_u64(transient_id_bytes);
@@ -238,10 +238,10 @@ impl EntropyBank {
         let starting_pos = buf.len().saturating_sub(8);
         let transient_id_bytes = &buf[starting_pos..];
         if transient_id_bytes.len() != 8 {
-            return Err(CryptError::decrypt(format!(
-                "Bad input size of {} (transient id)",
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::BadTransientIdSize,
                 buf.len()
-            )));
+            ));
         }
 
         let transient_id = byteorder::BigEndian::read_u64(transient_id_bytes);

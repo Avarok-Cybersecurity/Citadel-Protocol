@@ -232,8 +232,8 @@ where
 {
     pub async fn send(&mut self, message: impl Into<P>) -> Result<(), CryptError> {
         if !self.is_active.load(ORDERING) {
-            return Err(CryptError::encrypt(
-                "Cannot send encrypted messages (stream died)".to_string(),
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::MessengerStreamDied
             ));
         }
 
@@ -257,7 +257,9 @@ where
                         .send(RatchetMessage::JustMessage(message_not_sent))
                         .await
                         .map_err(|_| {
-                            CryptError::fatal_crypt("Ratchet Manager's outbound stream died")
+                            citadel_io::error!(
+                                citadel_io::ErrorCode::RatchetManagerStreamDied
+                            )
                         })
                 } else {
                     // Success; this message will trigger a simultaneous rekey

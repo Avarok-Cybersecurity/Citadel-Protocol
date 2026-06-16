@@ -98,7 +98,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     let plain_text = plain_text.as_ref();
 
     if plain_text.is_empty() {
-        return Err(CryptError::encrypt("Empty input".to_string()));
+        return Err(citadel_io::error!(citadel_io::ErrorCode::EmptyInput));
     }
 
     let max_packet_payload_size = get_max_packet_size(enx, sig_alg, security_level);
@@ -580,10 +580,11 @@ impl GroupReceiverConfig {
         // declares a huge number of (small) waves is rejected even when its buffers are tiny.
         const PER_WAVE_OVERHEAD_BYTES: u64 = 128;
 
-        let reject = |msg: &str| {
-            Err(CryptError::decrypt(format!(
-                "Invalid GroupReceiverConfig: {msg}"
-            )))
+        let reject = |msg: &'static str| {
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::InvalidGroupReceiverConfig,
+                msg
+            ))
         };
 
         if self.plaintext_length > MAX_BYTES_PER_GROUP as u64 {
@@ -606,7 +607,12 @@ impl GroupReceiverConfig {
         let derived_wave_count = self
             .number_of_full_waves
             .checked_add(self.number_of_partial_waves)
-            .ok_or_else(|| CryptError::decrypt("wave count overflow".to_string()))?;
+            .ok_or_else(|| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::InvalidGroupReceiverConfig,
+                    "wave count overflow"
+                )
+            })?;
         if derived_wave_count != self.wave_count {
             return reject("wave_count inconsistent with full/partial wave counts");
         }
@@ -615,7 +621,12 @@ impl GroupReceiverConfig {
             .number_of_full_waves
             .checked_mul(self.max_packets_per_wave)
             .and_then(|v| v.checked_add(self.packets_in_last_wave))
-            .ok_or_else(|| CryptError::decrypt("packets_needed overflow".to_string()))?;
+            .ok_or_else(|| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::InvalidGroupReceiverConfig,
+                    "packets_needed overflow"
+                )
+            })?;
         if derived_packets_needed != self.packets_needed {
             return reject("packets_needed inconsistent with wave layout");
         }
@@ -631,15 +642,30 @@ impl GroupReceiverConfig {
         let full_wave_cipher = (self.number_of_full_waves as u64)
             .checked_mul(self.max_payload_size)
             .and_then(|v| v.checked_mul(self.max_packets_per_wave as u64))
-            .ok_or_else(|| CryptError::decrypt("ciphertext size overflow".to_string()))?;
+            .ok_or_else(|| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::InvalidGroupReceiverConfig,
+                    "ciphertext size overflow"
+                )
+            })?;
         // Last wave: (packets_in_last_wave - 1) full payloads + last_payload_size.
         let last_wave_cipher = (self.packets_in_last_wave.saturating_sub(1) as u64)
             .checked_mul(self.max_payload_size)
             .and_then(|v| v.checked_add(self.last_payload_size))
-            .ok_or_else(|| CryptError::decrypt("last wave size overflow".to_string()))?;
+            .ok_or_else(|| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::InvalidGroupReceiverConfig,
+                    "last wave size overflow"
+                )
+            })?;
         let wave_overhead = (self.wave_count as u64)
             .checked_mul(PER_WAVE_OVERHEAD_BYTES)
-            .ok_or_else(|| CryptError::decrypt("wave overhead overflow".to_string()))?;
+            .ok_or_else(|| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::InvalidGroupReceiverConfig,
+                    "wave overhead overflow"
+                )
+            })?;
         let total = self
             .plaintext_length
             .checked_add(full_wave_cipher)
@@ -647,7 +673,12 @@ impl GroupReceiverConfig {
             .and_then(|v| v.checked_add((self.packets_needed as u64) / 8 + 1))
             .and_then(|v| v.checked_add((self.wave_count as u64) / 8 + 1))
             .and_then(|v| v.checked_add(wave_overhead))
-            .ok_or_else(|| CryptError::decrypt("total allocation overflow".to_string()))?;
+            .ok_or_else(|| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::InvalidGroupReceiverConfig,
+                    "total allocation overflow"
+                )
+            })?;
         if total > MAX_RECEIVER_ALLOCATION {
             return reject("implied receiver allocation exceeds ceiling");
         }
