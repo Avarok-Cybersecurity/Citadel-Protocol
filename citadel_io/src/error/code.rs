@@ -1069,4 +1069,15 @@ pub enum ErrorCode {
     /// The kernel stopped before a serverless connection was established.
     #[form = "Kernel stopped before connection established"]
     ServerlessKernelStoppedEarly = 322,
+
+    // --- citadel_proto: group CGKA (zero-trust TreeKEM) ---
+    /// Failed to (de)serialize a TreeKEM CGKA artifact.
+    #[form = "Group CGKA serialization failed for {}"]
+    ProtoGroupCgkaSerialization = 323,
+    /// A non-owner attempted a committer-only operation (Add/Remove).
+    #[form = "Only the group owner may commit membership changes"]
+    ProtoGroupCgkaNotOwner = 324,
+    /// The group's CGKA state is not present (not yet bootstrapped, or unknown group).
+    #[form = "Group CGKA state is not initialized"]
+    ProtoGroupCgkaNoState = 325,
 }

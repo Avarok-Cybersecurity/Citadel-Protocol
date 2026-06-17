@@ -2,6 +2,7 @@
 
 use super::includes::*;
 use citadel_io::{error, ErrorCode};
+use citadel_types::proto::GroupHierarchyMode;
 
 impl<R: Ratchet> StateContainerInner<R> {
     #[allow(unused_results)]
@@ -76,7 +77,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     }
 
     pub(crate) fn process_outbound_broadcast_command(
-        &self,
+        &mut self,
         ticket: Ticket,
         command: &GroupBroadcast,
     ) -> Result<(), NetworkError> {
@@ -94,9 +95,81 @@ impl<R: Ratchet> StateContainerInner<R> {
             .session_security_settings
             .map(|r| r.security_level)
             .unwrap();
-        let to_primary_stream = self.get_primary_stream().unwrap();
+        // Cloned (owned) so the `&self` borrow is released before the CGKA `&mut self` encryption below.
+        let to_primary_stream = self.get_primary_stream().unwrap().clone();
 
         let timestamp = self.time_tracker.get_global_time_ns();
+
+        // Owner-local hierarchy admin: Promote/Demote never leave the node as themselves — they produce
+        // sealed `HierarchyAssign` (+ a `Commit` for demote) and return here.
+        if let GroupBroadcast::Promote {
+            key,
+            target_cid,
+            path,
+        } = command
+        {
+            return self.outbound_promote(
+                *key,
+                *target_cid,
+                path.clone(),
+                &ratchet,
+                ticket,
+                timestamp,
+                security_level,
+                &to_primary_stream,
+            );
+        }
+        if let GroupBroadcast::Demote { key, target_cid } = command {
+            return self.outbound_demote(
+                *key,
+                *target_cid,
+                &ratchet,
+                ticket,
+                timestamp,
+                security_level,
+                &to_primary_stream,
+            );
+        }
+
+        // Rewrite the outbound command where needed: E2E-encrypt an application `Message`, or found the
+        // owner's CGKA at `Create` and strip command paths from the relayed copy (zero-trust metadata).
+        let replacement: Option<GroupBroadcast> = match command {
+            GroupBroadcast::Message {
+                sender,
+                key,
+                message,
+            } => {
+                let cgka = self
+                    .group_cgka
+                    .get_mut(key)
+                    .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+                let ciphertext = cgka.encrypt_message(message.as_ref())?;
+                Some(GroupBroadcast::Message {
+                    sender: *sender,
+                    key: *key,
+                    message: citadel_types::crypto::SecBuffer::from(ciphertext),
+                })
+            }
+            GroupBroadcast::Create {
+                initial_invitees,
+                options,
+            } => {
+                self.init_owner_cgka(options)?;
+                if matches!(options.hierarchy, GroupHierarchyMode::Flat) {
+                    None
+                } else {
+                    let mut wire_options = options.clone();
+                    wire_options.hierarchy = GroupHierarchyMode::Flat;
+                    Some(GroupBroadcast::Create {
+                        initial_invitees: initial_invitees.clone(),
+                        options: wire_options,
+                    })
+                }
+            }
+            _ => None,
+        };
+        let command = replacement.as_ref().unwrap_or(command);
+
         let packet = match command {
             GroupBroadcast::Create { .. }
             | GroupBroadcast::End { .. }
@@ -128,7 +201,39 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         to_primary_stream
             .unbounded_send(packet)
-            .map_err(|err| NetworkError::generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))?;
+
+        // Owner-side membership removal: a Kick also re-keys the group (post-compromise security), so
+        // a kicked member cannot read future traffic. Emit a remove `Commit` per kicked member, sent
+        // after the Kick itself so the relay drops them from the roster before fanning the Commit out.
+        if let GroupBroadcast::Kick { key, kick_list } = command {
+            for &cid in kick_list {
+                let removed = match self.group_cgka.get_mut(key) {
+                    Some(cgka) => cgka.remove_member_by_cid(cid)?,
+                    None => None,
+                };
+                if let Some((commit_bytes, epoch)) = removed {
+                    let signal = GroupBroadcast::Commit {
+                        key: *key,
+                        epoch,
+                        payload: commit_bytes,
+                    };
+                    let commit_packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                        &ratchet,
+                        &signal,
+                        ticket,
+                        C2S_IDENTITY_CID,
+                        timestamp,
+                        security_level,
+                    );
+                    to_primary_stream
+                        .unbounded_send(commit_packet)
+                        .map_err(|err| NetworkError::generic(err.to_string()))?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn setup_group_channel_endpoints<T: PlatformOps>(

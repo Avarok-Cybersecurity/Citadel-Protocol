@@ -77,6 +77,7 @@ citadel_user = { workspace = true }
 citadel_wire = { workspace = true }
 citadel_io = { workspace = true }
 citadel_pqcrypto = { workspace = true }
+citadel_treekem = { workspace = true }
 netbeam = { workspace = true }
 once_cell = { workspace = true }
 webrtc-util = { workspace = true, optional = true }

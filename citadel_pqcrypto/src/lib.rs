@@ -906,6 +906,37 @@ pub enum PostQuantumMeta {
     },
 }
 
+/// Deterministically derive an ML-KEM keypair from a 64-byte seed (per draft-schwabe-cfrg-kyber),
+/// returning `(public_key, secret_key)` in the same byte layout as [`kyber_pke::kem_keypair`] — so the
+/// result is directly usable with [`kyber_pke::encapsulate`] / [`kyber_pke::decapsulate`].
+///
+/// This is the primitive the TreeKEM ratchet tree needs: a tree node's keypair is reproducible from its
+/// path secret, so any member who learns the path secret recomputes the node and ratchets toward the root.
+pub fn kem_keypair_from_seed(seed: &[u8; 64]) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    let kp = pqc_kyber::derive(seed)
+        .map_err(|err| Error::generic(format!("ML-KEM deterministic keygen failed: {err:?}")))?;
+    Ok((kp.public.to_vec(), kp.secret.to_vec()))
+}
+
+/// Raw ML-KEM encapsulation to a public key. Returns `(ciphertext, shared_secret)`. The clean,
+/// container-free KEM API the TreeKEM ratchet tree encrypts path secrets with.
+pub fn kem_encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+    let (ct, ss) = kyber_pke::encapsulate(public_key, &mut rand::rngs::ThreadRng::default())
+        .map_err(|err| Error::generic(format!("ML-KEM encapsulate failed: {err:?}")))?;
+    let mut shared = [0u8; 32];
+    shared.copy_from_slice(&ss[..]);
+    Ok((ct.to_vec(), shared))
+}
+
+/// Raw ML-KEM decapsulation: recover the shared secret from a ciphertext with the secret key.
+pub fn kem_decapsulate(ciphertext: &[u8], secret_key: &[u8]) -> Result<[u8; 32], Error> {
+    let ss = kyber_pke::decapsulate(ciphertext, secret_key)
+        .map_err(|err| Error::generic(format!("ML-KEM decapsulate failed: {err:?}")))?;
+    let mut shared = [0u8; 32];
+    shared.copy_from_slice(&ss[..]);
+    Ok(shared)
+}
+
 impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
         log::trace!(target: "citadel", "About to generate keypair for {kem_alg:?}");
@@ -1441,6 +1472,44 @@ mod in_place_aead_tests {
             &pt[..],
             &plaintext[..],
             "in-place-encrypt -> Vec-decrypt mismatch"
+        );
+    }
+}
+
+#[cfg(test)]
+mod seed_keygen_tests {
+    use super::kem_keypair_from_seed;
+
+    /// R1: deterministic ML-KEM keygen must be (a) reproducible from the same seed, (b) distinct for
+    /// different seeds, and (c) byte-compatible with `encapsulate`/`decapsulate` so a node keypair
+    /// derived from a TreeKEM path secret actually round-trips a shared secret.
+    #[test]
+    fn derive_is_deterministic_and_kem_compatible() {
+        let seed_a = [7u8; 64];
+        // Differ in the FIRST half `d` (bytes 0..32) — the keygen seed. (The second half `z` is the
+        // ML-KEM implicit-rejection value and does not affect the public key.)
+        let seed_b = {
+            let mut s = [7u8; 64];
+            s[0] = 8;
+            s
+        };
+
+        let (pk1, sk1) = kem_keypair_from_seed(&seed_a).unwrap();
+        let (pk2, sk2) = kem_keypair_from_seed(&seed_a).unwrap();
+        assert_eq!(pk1, pk2, "same seed must yield the same public key");
+        assert_eq!(sk1, sk2, "same seed must yield the same secret key");
+
+        let (pk_b, _sk_b) = kem_keypair_from_seed(&seed_b).unwrap();
+        assert_ne!(pk1, pk_b, "different seeds must yield different keys");
+
+        // Encapsulate to the derived public key, decapsulate with the derived secret key.
+        let (ct, ss_enc) =
+            kyber_pke::encapsulate(&pk1, &mut rand::rngs::ThreadRng::default()).unwrap();
+        let ss_dec = kyber_pke::decapsulate(&ct, &sk1).unwrap();
+        assert_eq!(
+            &ss_enc[..],
+            &ss_dec[..],
+            "encapsulate(derived pk) must decapsulate to the same shared secret with the derived sk",
         );
     }
 }
