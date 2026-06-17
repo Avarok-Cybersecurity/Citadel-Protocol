@@ -483,3 +483,26 @@ mod nonce_counter_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod getter_tests {
+    use super::EntropyBank;
+    use citadel_types::crypto::EncryptionAlgorithm;
+
+    #[test]
+    fn getters_version_update_and_serde() {
+        let mut bank = EntropyBank::new(42, 7, EncryptionAlgorithm::AES_GCM_256).unwrap();
+        assert_eq!(bank.get_cid(), 42);
+        assert_eq!(bank.get_version(), 7);
+        assert!(bank.get_multiport_width() >= 1);
+
+        bank.update_version(9).unwrap();
+        assert_eq!(bank.get_version(), 9);
+
+        let bytes = bank.serialize_to_vec().unwrap();
+        let back = EntropyBank::deserialize_from(&bytes).unwrap();
+        assert_eq!(back.get_cid(), 42);
+        assert_eq!(back.get_version(), 9);
+        assert!(EntropyBank::deserialize_from([0u8; 2]).is_err());
+    }
+}

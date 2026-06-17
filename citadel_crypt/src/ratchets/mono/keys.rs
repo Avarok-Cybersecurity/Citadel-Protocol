@@ -87,3 +87,30 @@ impl std::fmt::Debug for FcmKeys {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fcm_keys_construct_deref_debug_clone_serde() {
+        // Non-secret placeholder values (kept low-entropy so secret scanners don't flag the fixture).
+        let api = "alpha";
+        let client = "bravo";
+        let keys = FcmKeys::new(api, client);
+        // Deref exposes the inner fields
+        assert_eq!(keys.api_key, api);
+        assert_eq!(keys.client_id, client);
+        // Clone shares the Arc but compares equal field-wise
+        let cloned = keys.clone();
+        assert_eq!(cloned.api_key, keys.api_key);
+        // Debug renders both fields
+        let dbg = format!("{keys:?}");
+        assert!(dbg.contains(api) && dbg.contains(client));
+        // serde round-trip
+        let bytes = bincode::serialize(&keys).unwrap();
+        let back: FcmKeys = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(back.api_key, api);
+        assert_eq!(back.client_id, client);
+    }
+}
