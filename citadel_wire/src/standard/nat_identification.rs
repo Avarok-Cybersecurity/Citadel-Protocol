@@ -933,3 +933,40 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod predicate_tests {
+    use super::{IpTranslation, NatType, PortTranslation, TraversalTypeRequired};
+
+    #[test]
+    fn traversal_and_stun_predicates() {
+        // Identity/Identity NAT is directly reachable.
+        let direct = NatType::offline();
+        assert_eq!(
+            direct.traversal_type_required(),
+            TraversalTypeRequired::Direct
+        );
+        assert!(direct.ip_addr_info().is_some());
+        assert!(!direct.is_ipv6_compatible());
+
+        // Unpredictable translation forces TURN.
+        let turn = NatType {
+            ip_translation: IpTranslation::Unpredictable,
+            port_translation: PortTranslation::Unpredictable,
+            ip_info: None,
+            is_ipv6_enabled: true,
+        };
+        assert_eq!(turn.traversal_type_required(), TraversalTypeRequired::TURN);
+        assert!(turn.ip_addr_info().is_none());
+        assert!(turn.is_ipv6_compatible());
+
+        // STUN works as long as at least one side is predictable.
+        assert!(direct.stun_compatible(&direct));
+        assert!(direct.stun_compatible(&turn));
+        assert!(!turn.stun_compatible(&turn));
+
+        let (a, b) = direct.traversal_type_required_with(&turn);
+        assert_eq!(a, TraversalTypeRequired::Direct);
+        assert_eq!(b, TraversalTypeRequired::TURN);
+    }
+}
