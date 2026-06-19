@@ -20,7 +20,7 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: Avarok-Cybersecurity/gh-actions-deps@master
       - name: Compile documentation
         run: cargo make docs
@@ -33,7 +33,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: success()
         with:
           ref: gh-pages
