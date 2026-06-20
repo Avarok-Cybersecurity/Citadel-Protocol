@@ -653,67 +653,78 @@ mod tests {
             }
             log::info!(target: "citadel", "Reload test on backend: {backend:?}");
 
-            // Session 1: write two sub_keys under CID 0.
-            {
-                let pers = acc_mgr(backend.clone())
-                    .await
-                    .get_persistence_handler()
-                    .clone();
-                assert!(pers
-                    .store_byte_map_value(0, 0, "thekey", "sub_one", value.clone())
-                    .await?
-                    .is_none());
-                assert!(pers
-                    .store_byte_map_value(0, 0, "thekey", "sub_two", sibling.clone())
-                    .await?
-                    .is_none());
-            }
+            // Capture every read/write first and `purge` before asserting, so a
+            // failed expectation can never skip cleanup and leave CID-0 state on
+            // a shared backend (e.g. SQL/Redis) to contaminate a later run.
 
-            // Session 2: reopen the same backend. Both values must survive the
-            // setup_local_only_account run inside AccountManager::new.
-            {
+            // Session 1: write two sub_keys under CID 0.
+            let (s1_one, s1_two) = {
                 let pers = acc_mgr(backend.clone())
                     .await
                     .get_persistence_handler()
                     .clone();
-                assert_eq!(
+                (
+                    pers.store_byte_map_value(0, 0, "thekey", "sub_one", value.clone())
+                        .await?,
+                    pers.store_byte_map_value(0, 0, "thekey", "sub_two", sibling.clone())
+                        .await?,
+                )
+            };
+
+            // Session 2: reopen the backend (a genuine restart that runs
+            // setup_local_only_account), read the persisted values, then remove
+            // one — that mutation must itself persist into session 3.
+            let (s2_one, s2_key_count, s2_removed) = {
+                let pers = acc_mgr(backend.clone())
+                    .await
+                    .get_persistence_handler()
+                    .clone();
+                (
                     pers.get_byte_map_value(0, 0, "thekey", "sub_one").await?,
-                    Some(value.clone()),
-                    "CID-0 byte_map value was wiped on reload for {backend:?}"
-                );
-                assert_eq!(
                     pers.get_byte_map_values_by_key(0, 0, "thekey").await?.len(),
-                    2,
-                    "CID-0 byte_map sub_keys were wiped on reload for {backend:?}"
-                );
-                // A mutation issued after reload must itself persist.
-                assert_eq!(
                     pers.remove_byte_map_value(0, 0, "thekey", "sub_one")
                         .await?,
-                    Some(value.clone())
-                );
-            }
+                )
+            };
 
             // Session 3: the removal must have persisted and the sibling survived.
-            {
-                let pers = acc_mgr(backend.clone())
-                    .await
-                    .get_persistence_handler()
-                    .clone();
-                assert!(
-                    pers.get_byte_map_value(0, 0, "thekey", "sub_one")
-                        .await?
-                        .is_none(),
-                    "removal of CID-0 byte_map value did not persist for {backend:?}"
-                );
-                assert_eq!(
-                    pers.get_byte_map_value(0, 0, "thekey", "sub_two").await?,
-                    Some(sibling.clone()),
-                    "sibling CID-0 value lost after reload for {backend:?}"
-                );
-                // Clean up the on-disk artifacts for this backend.
-                let _ = pers.purge().await?;
-            }
+            let pers3 = acc_mgr(backend.clone())
+                .await
+                .get_persistence_handler()
+                .clone();
+            let s3_one = pers3.get_byte_map_value(0, 0, "thekey", "sub_one").await?;
+            let s3_two = pers3.get_byte_map_value(0, 0, "thekey", "sub_two").await?;
+
+            // Unconditional cleanup before any assertion can panic.
+            let _ = pers3.purge().await?;
+
+            assert!(
+                s1_one.is_none() && s1_two.is_none(),
+                "CID-0 byte_map was not empty on first write for {backend:?}"
+            );
+            assert_eq!(
+                s2_one,
+                Some(value.clone()),
+                "CID-0 byte_map value was wiped on reload for {backend:?}"
+            );
+            assert_eq!(
+                s2_key_count, 2,
+                "CID-0 byte_map sub_keys were wiped on reload for {backend:?}"
+            );
+            assert_eq!(
+                s2_removed,
+                Some(value.clone()),
+                "remove did not return the stored CID-0 value for {backend:?}"
+            );
+            assert!(
+                s3_one.is_none(),
+                "removal of CID-0 byte_map value did not persist for {backend:?}"
+            );
+            assert_eq!(
+                s3_two,
+                Some(sibling.clone()),
+                "sibling CID-0 value lost after reload for {backend:?}"
+            );
         }
 
         Ok(())
