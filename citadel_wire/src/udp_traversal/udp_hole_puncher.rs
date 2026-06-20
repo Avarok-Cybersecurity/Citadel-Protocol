@@ -40,9 +40,22 @@ use futures::Future;
 use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::subscription::Subscribable;
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
+
+/// The address candidates each peer publishes during the synchronized pre-process exchange.
+/// `internal_bind_addrs` are the local bind addresses (loopback/same-LAN reachability);
+/// `reflexive_addrs` are the *observed* server-reflexive (external) addresses of the actual
+/// hole-punch sockets (ICE-style srflx candidates). Reflexive addrs are exact rather than
+/// predicted, so they enable direct traversal for NATs the predictive model cannot infer.
+#[derive(Serialize, Deserialize)]
+struct HolePunchCandidates {
+    internal_bind_addrs: Vec<SocketAddr>,
+    reflexive_addrs: Vec<SocketAddr>,
+}
 
 pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
@@ -144,7 +157,7 @@ async fn driver_inner(
 
     // Step 2: NAT type identification
     log::trace!(target: "citadel", "[driver] Step 2: Identifying local NAT type...");
-    let local_nat_type = match NatType::identify(stun_servers).await {
+    let local_nat_type = match NatType::identify(stun_servers.clone()).await {
         Ok(nat) => {
             log::trace!(target: "citadel", "[driver] Step 2: NAT identification successful: {nat:?}");
             nat
@@ -185,24 +198,41 @@ async fn driver_inner(
         sockets.push(additional_socket);
     }
 
-    // Step 4: Exchange internal bind ports, synchronizing the beginning of the hole punch process
-    log::trace!(target: "citadel", "[driver] Step 4: Exchanging internal bind addresses...");
-    let peer_internal_bind_addrs = match conn.sync_exchange_payload(internal_addresses).await {
-        Ok(addrs) => {
-            log::trace!(target: "citadel", "[driver] Step 4: Sync exchange successful, peer addrs: {addrs:?}");
-            addrs
+    // Step 3b: ICE-style — observe the *actual* external mapping of each hole-punch socket
+    // via STUN, rather than relying solely on the predictive NAT model. This lets traversal
+    // succeed for endpoint-independent NATs that randomize the external port. Failure to probe
+    // is non-fatal: we simply fall back to the predicted bands.
+    let local_reflexive_addrs = probe_reflexive_addrs(&sockets, stun_servers.as_deref()).await;
+    log::info!(target: "citadel", "[driver] Local reflexive (srflx) addrs: {local_reflexive_addrs:?}");
+
+    // Step 4: Exchange address candidates, synchronizing the beginning of the hole punch process
+    log::trace!(target: "citadel", "[driver] Step 4: Exchanging address candidates...");
+    let local_candidates = HolePunchCandidates {
+        internal_bind_addrs: internal_addresses,
+        reflexive_addrs: local_reflexive_addrs,
+    };
+    let peer_candidates = match conn.sync_exchange_payload(local_candidates).await {
+        Ok(candidates) => {
+            log::trace!(target: "citadel", "[driver] Step 4: Sync exchange successful, peer internal: {:?}, peer reflexive: {:?}", candidates.internal_bind_addrs, candidates.reflexive_addrs);
+            candidates
         }
         Err(e) => {
             log::error!(target: "citadel", "[driver] Step 4 FAILED: Sync exchange error: {e:?}");
             return Err(e);
         }
     };
+    let peer_internal_bind_addrs = peer_candidates.internal_bind_addrs;
     log::info!(target: "citadel", "\n~~~~~~~~~~~~\n [driver] Local NAT type: {local_nat_type:?}\n Peer NAT type: {peer_nat_type:?}");
     log::info!(target: "citadel", "[driver] Local internal bind addr: {internal_bind_addr_optimal:?}\nPeer internal bind addr: {peer_internal_bind_addrs:?}");
     log::info!(target: "citadel", "\n~~~~~~~~~~~~\n");
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
-    let hole_punch_config = HolePunchConfig::new(peer_nat_type, &peer_internal_bind_addrs, sockets);
+    let hole_punch_config = HolePunchConfig::new(
+        peer_nat_type,
+        &peer_internal_bind_addrs,
+        &peer_candidates.reflexive_addrs,
+        sockets,
+    );
 
     // Step 5: Execute DualStackUdpHolePuncher
     let conn = conn.clone();
@@ -233,6 +263,23 @@ async fn driver_inner(
             "**HOLE-PUNCH-ERR**: {err:?} | local_nat_type: {local_nat_type:?} | peer_nat_type: {peer_nat_type:?}",
         ))
     })
+}
+
+/// Concurrently STUN-probes each hole-punch socket for its server-reflexive (external)
+/// address. Probes run in parallel and degrade gracefully: any socket that fails to obtain
+/// a reflexive address (e.g. IPv6, or no STUN server reachable) is simply omitted.
+async fn probe_reflexive_addrs(
+    sockets: &[UdpSocket],
+    stun_servers: Option<&[String]>,
+) -> Vec<SocketAddr> {
+    let probes = sockets
+        .iter()
+        .map(|socket| NatType::get_reflexive_addr(socket, stun_servers));
+    futures::future::join_all(probes)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 /// since the NAT traversal process always ensures that both public-facing and loopback
