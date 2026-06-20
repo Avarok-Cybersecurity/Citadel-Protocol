@@ -272,6 +272,12 @@ async fn probe_reflexive_addrs(
     sockets: &[UdpSocket],
     stun_servers: Option<&[String]>,
 ) -> Vec<SocketAddr> {
+    // Under localhost-testing there are no reachable STUN servers; skip probing entirely
+    // (the configured/default servers would be unreachable and just add latency).
+    if cfg!(feature = "localhost-testing") {
+        return Vec::new();
+    }
+
     let probes = sockets
         .iter()
         .map(|socket| NatType::get_reflexive_addr(socket, stun_servers));
