@@ -663,12 +663,14 @@ mod tests {
             // the entire (possibly shared) backend and clobber other tests. Doing
             // it up front also clears anything an earlier aborted run left behind,
             // so the Session 1 "first write returns None" assertion is reliable.
+            // Best-effort: the result is dropped without `?` so a cleanup error
+            // never fails the test on its own.
             {
                 let pers = acc_mgr(backend.clone())
                     .await
                     .get_persistence_handler()
                     .clone();
-                let _ = pers.remove_byte_map_values_by_key(0, 0, key).await?;
+                let _ = pers.remove_byte_map_values_by_key(0, 0, key).await;
             }
 
             // Session 1: write two sub_keys under CID 0.
@@ -708,10 +710,11 @@ mod tests {
             let s3_one = pers3.get_byte_map_value(0, 0, key, "sub_one").await?;
             let s3_two = pers3.get_byte_map_value(0, 0, key, "sub_two").await?;
 
-            // Targeted cleanup of only this test's key, before any assertion can
-            // panic. A later run's up-front cleanup covers the case where an op
-            // above returns Err and skips this line.
-            let _ = pers3.remove_byte_map_values_by_key(0, 0, key).await?;
+            // Targeted, best-effort cleanup of only this test's key, run before
+            // any assertion can panic (so a failing assert never leaves data
+            // behind). If an op above returned Err and skipped this, a later
+            // run's up-front cleanup covers it.
+            let _ = pers3.remove_byte_map_values_by_key(0, 0, key).await;
 
             assert!(
                 s1_one.is_none() && s1_two.is_none(),
