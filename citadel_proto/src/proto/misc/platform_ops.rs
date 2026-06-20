@@ -33,6 +33,7 @@ use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualTargetType;
+use citadel_io::{error, ErrorCode};
 
 /// Platform-portable file metadata returned by [`PlatformOps::open_and_validate_for_transfer`].
 ///
@@ -140,9 +141,7 @@ pub trait PlatformOps: ProtocolIO {
         expected_metadata: Option<&VirtualObjectMetadata>,
     ) -> Result<TransferMetadata, NetworkError> {
         let _ = (source_path, expected_metadata);
-        Err(NetworkError::InternalError(
-            "File transfer not supported on this platform",
-        ))
+        Err(error!(ErrorCode::FileTransferPlatformUnsupported))
     }
 
     /// Asynchronously delete a file after transfer.

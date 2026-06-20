@@ -162,14 +162,19 @@ impl ObjectTransferHandler {
                 }
 
                 ObjectTransferStatus::Fail(err) => {
-                    return Err(AccountError::msg(err));
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::FileTransferFailed,
+                        err
+                    ));
                 }
 
                 _ => {}
             }
         }
 
-        Err(AccountError::msg("Failed to receive file: stream ended"))
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::FileReceiveStreamEnded
+        ))
     }
 
     /// Receives the file, exhausting the underlying stream and returning the save path
@@ -178,13 +183,13 @@ impl ObjectTransferHandler {
     /// If the orientation is Sender, this will return an error
     pub async fn receive_file(&mut self) -> Result<PathBuf, AccountError> {
         if !matches!(self.orientation, ObjectTransferOrientation::Receiver { .. }) {
-            return Err(AccountError::msg(
-                "Cannot receive file: orientation is not Receiver",
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::FileReceiveWrongOrientation
             ));
         }
 
         let file = self.exhaust_stream().await?;
-        file.ok_or_else(|| AccountError::msg("Failed to receive file: no file path"))
+        file.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::FileReceiveNoPath))
     }
 
     /// Transfers the file, exhausting the underlying stream
@@ -192,14 +197,16 @@ impl ObjectTransferHandler {
     /// If the orientation is Receiver, this will return an error
     pub async fn transfer_file(&mut self) -> Result<(), AccountError> {
         if !matches!(self.orientation, ObjectTransferOrientation::Sender) {
-            return Err(AccountError::msg(
-                "Cannot transfer file: orientation is not Sender",
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::FileTransferWrongOrientation
             ));
         }
 
         let file = self.exhaust_stream().await?;
         if file.is_some() {
-            Err(AccountError::msg("An unexpected error occurred: file transfer occurred, yet, returned a save path. Please report to developers"))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::FileTransferUnexpectedSavePath
+            ))
         } else {
             Ok(())
         }
@@ -220,8 +227,9 @@ impl ObjectTransferHandler {
 
     fn respond(&mut self, accept: bool) -> Result<(), AccountError> {
         if let Some(tx) = self.start_recv_tx.take() {
-            tx.send(accept)
-                .map_err(|_| AccountError::msg("Failed to send response"))?;
+            tx.send(accept).map_err(|_| {
+                citadel_io::error!(citadel_io::ErrorCode::FileTransferResponseFailed)
+            })?;
         }
 
         Ok(())

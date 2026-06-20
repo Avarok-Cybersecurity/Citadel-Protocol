@@ -41,7 +41,7 @@ async fn main() {
                 chan,
             ))
             .await
-            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+            .map_err(|err| NetworkError::generic(err.to_string()))?;
             finished.store(true, Ordering::SeqCst);
             if do_exit {
                 remote.shutdown_kernel().await?;

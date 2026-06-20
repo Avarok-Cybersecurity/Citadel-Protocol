@@ -544,7 +544,7 @@ where
 
                 tx.send(inner_task.await)
                     .await
-                    .map_err(|err| NetworkError::Generic(err.to_string()))
+                    .map_err(|err| NetworkError::generic(err.to_string()))
             };
 
             requests.push(Box::pin(task))
@@ -1281,7 +1281,7 @@ mod tests {
 
         let task = async move {
             tokio::select! {
-                server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
+                server_res = server => Err(citadel_io::error!(citadel_io::ErrorCode::PrefabServerEndedPrematurely, citadel_io::Dbg(server_res.map(|_| ())))),
                 client_res = clients => client_res.map(|_| ())
             }
         };

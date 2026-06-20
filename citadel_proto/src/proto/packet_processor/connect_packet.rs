@@ -40,6 +40,7 @@ use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 use citadel_types::proto::ConnectMode;
 use citadel_user::external_services::ServicesObject;
 
@@ -100,6 +101,21 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
             // Node is Bob. Bob gets the encrypted username and password (separately encrypted)
             packet_flags::cmd::aux::do_connect::STAGE0 => {
                 log::trace!(target: "citadel", "STAGE 0 CONNECT PACKET");
+                // Idempotency / replay guard: STAGE0 drives the one-time connection-upgrade path
+                // (init_new_c2s_virtual_connection -> upgrade_connection -> ConnectSuccess). The
+                // top-level guard above intentionally lets packets through once last_stage == SUCCESS
+                // (so the client can process the final status packet), but a replayed/duplicated
+                // STAGE0 reaching an already-SUCCESS session would re-run that path and churn/evict
+                // the live connection. Drop it here.
+                {
+                    let state_container = inner_state!(session.state_container);
+                    if state_container.connect_state.last_stage
+                        == packet_flags::cmd::aux::do_connect::SUCCESS
+                    {
+                        log::warn!(target: "citadel", "Dropping duplicate/replayed STAGE0 connect packet; session already reached SUCCESS");
+                        return Ok(PrimaryProcessorResult::Void);
+                    }
+                }
                 let task = {
                     match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
                         Ok(stage0_packet) => {
@@ -385,7 +401,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 post_login_object
                                     .setup_client_rtdb(&cnac)
                                     .await
-                                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                    .map_err(|err| NetworkError::generic(err.to_string()))?;
 
                                 if let ConnectMode::Fetch { .. } = connect_mode {
                                     log::trace!(target: "citadel", "[FETCH] complete ...");
@@ -427,13 +443,11 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                         .get_endpoint_container_mut(C2S_IDENTITY_CID)?
                         .channel_signal
                         .take()
-                        .ok_or(NetworkError::InternalError("Channel signal missing"))?;
+                        .ok_or(error!(ErrorCode::ConnectChannelSignalMissing))?;
                     session.send_to_kernel(signal)?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
-                    Err(NetworkError::InvalidPacket(
-                        "Received a SUCCESS_ACK as a client",
-                    ))
+                    Err(error!(ErrorCode::ConnectSuccessAckAsClient))
                 }
             }
 

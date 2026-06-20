@@ -32,7 +32,9 @@
 //!         },
 //!     );
 //!
-//!     let client = DefaultNodeBuilder::default().build(kernel)?;
+//!     let client = DefaultNodeBuilder::default()
+//!         .build(kernel)
+//!         .map_err(|err| NetworkError::generic(err.to_string()))?;
 //!
 //!     let _result = client.await?;
 //!     Ok(())
@@ -130,8 +132,8 @@ impl<R: Ratchet> ClientServerRemote<R> {
         self.file_transfer_handle_rx
             .lock()
             .take()
-            .ok_or(NetworkError::InternalError(
-                "This function has already been called",
+            .ok_or(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteFunctionAlreadyCalled
             ))
     }
 }
@@ -179,7 +181,7 @@ impl<R: Ratchet> ClientServerRemote<R> {
 
 pub fn get_socket_addr<T: ToSocketAddrs>(addr: T) -> Result<SocketAddr, NetworkError> {
     addr.to_socket_addrs()
-        .map_err(|err| NetworkError::SocketError(err.to_string()))?
+        .map_err(|err| NetworkError::socket(err.to_string()))?
         .next()
-        .ok_or_else(|| NetworkError::msg("Invalid socket address specified"))
+        .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::BuilderInvalidSocketAddress))
 }

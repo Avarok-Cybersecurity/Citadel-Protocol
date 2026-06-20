@@ -111,7 +111,7 @@ pub(crate) mod functions {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_sign(message, secret_key),
             SigAlgorithm::FnDsa512 => falcon_sign(message, secret_key),
-            SigAlgorithm::None => Err(Error::Generic("No signature algorithm selected")),
+            SigAlgorithm::None => Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected)),
         }
     }
 
@@ -124,7 +124,7 @@ pub(crate) mod functions {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_verify(message, signature, public_key),
             SigAlgorithm::FnDsa512 => falcon_verify(message, signature, public_key),
-            SigAlgorithm::None => Err(Error::Generic("No signature algorithm selected")),
+            SigAlgorithm::None => Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected)),
         }
     }
 
@@ -134,7 +134,7 @@ pub(crate) mod functions {
         match sig_alg {
             SigAlgorithm::MlDsa65 => ml_dsa_keypair(),
             SigAlgorithm::FnDsa512 => falcon_keypair(),
-            SigAlgorithm::None => Err(Error::Generic("No signature algorithm selected")),
+            SigAlgorithm::None => Err(citadel_io::error!(citadel_io::ErrorCode::SigNoneSelected)),
         }
     }
 
@@ -159,8 +159,13 @@ pub(crate) mod functions {
         use ml_dsa::{EncodedSigningKey, MlDsa65, Signature, SigningKey};
 
         let sk_bytes = secret_key.as_ref();
-        let encoded_sk = EncodedSigningKey::<MlDsa65>::try_from(sk_bytes)
-            .map_err(|_| Error::Generic("Failed to deserialize ML-DSA secret key"))?;
+        let encoded_sk = EncodedSigningKey::<MlDsa65>::try_from(sk_bytes).map_err(|_| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::SigKeyDeserializeFailed,
+                "ML-DSA",
+                "secret key"
+            )
+        })?;
         let sk = SigningKey::decode(&encoded_sk);
         let sig: Signature<MlDsa65> = sk.sign(message.as_ref());
         Ok(sig.encode().as_slice().to_vec())
@@ -174,15 +179,30 @@ pub(crate) mod functions {
         use ml_dsa::signature::Verifier;
         use ml_dsa::{EncodedSignature, EncodedVerifyingKey, MlDsa65, Signature, VerifyingKey};
 
-        let encoded_pk = EncodedVerifyingKey::<MlDsa65>::try_from(public_key.as_ref())
-            .map_err(|_| Error::Generic("Failed to deserialize ML-DSA public key"))?;
+        let encoded_pk =
+            EncodedVerifyingKey::<MlDsa65>::try_from(public_key.as_ref()).map_err(|_| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::SigKeyDeserializeFailed,
+                    "ML-DSA",
+                    "public key"
+                )
+            })?;
         let pk = VerifyingKey::<MlDsa65>::decode(&encoded_pk);
-        let encoded_sig = EncodedSignature::<MlDsa65>::try_from(signature.as_ref())
-            .map_err(|_| Error::Generic("Failed to deserialize ML-DSA signature"))?;
-        let sig = Signature::decode(&encoded_sig)
-            .ok_or(Error::Generic("Failed to decode ML-DSA signature"))?;
+        let encoded_sig =
+            EncodedSignature::<MlDsa65>::try_from(signature.as_ref()).map_err(|_| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::SigKeyDeserializeFailed,
+                    "ML-DSA",
+                    "signature"
+                )
+            })?;
+        let sig = Signature::decode(&encoded_sig).ok_or(citadel_io::error!(
+            citadel_io::ErrorCode::SigDecodeFailed,
+            "ML-DSA",
+            "signature"
+        ))?;
         pk.verify(message.as_ref(), &sig)
-            .map_err(|_| Error::Generic("ML-DSA signature verification failed"))
+            .map_err(|_| citadel_io::error!(citadel_io::ErrorCode::SigVerificationFailed, "ML-DSA"))
     }
 
     fn ml_dsa_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
@@ -209,10 +229,15 @@ pub(crate) mod functions {
         let sk_bytes = secret_key.as_ref();
         let expected_len = sign_key_size(FN_DSA_LOGN_512);
         if sk_bytes.len() != expected_len {
-            return Err(Error::Generic("Invalid Falcon signing key length"));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::FalconKeyLengthInvalid
+            ));
         }
-        let mut sk = SigningKey512::decode(sk_bytes)
-            .ok_or(Error::Generic("Failed to decode Falcon signing key"))?;
+        let mut sk = SigningKey512::decode(sk_bytes).ok_or(citadel_io::error!(
+            citadel_io::ErrorCode::SigDecodeFailed,
+            "Falcon",
+            "signing key"
+        ))?;
 
         let mut sig_buf = vec![0u8; signature_size(FN_DSA_LOGN_512)];
         let mut rng = rand::thread_rng();
@@ -233,8 +258,11 @@ pub(crate) mod functions {
     ) -> Result<(), Error> {
         use fn_dsa::{VerifyingKey as _, VerifyingKey512, DOMAIN_NONE, HASH_ID_RAW};
 
-        let pk = VerifyingKey512::decode(public_key.as_ref())
-            .ok_or(Error::Generic("Failed to decode Falcon verifying key"))?;
+        let pk = VerifyingKey512::decode(public_key.as_ref()).ok_or(citadel_io::error!(
+            citadel_io::ErrorCode::SigDecodeFailed,
+            "Falcon",
+            "verifying key"
+        ))?;
         if pk.verify(
             signature.as_ref(),
             &DOMAIN_NONE,
@@ -243,7 +271,10 @@ pub(crate) mod functions {
         ) {
             Ok(())
         } else {
-            Err(Error::Generic("Falcon signature verification failed"))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::SigVerificationFailed,
+                "Falcon"
+            ))
         }
     }
 
@@ -308,7 +339,7 @@ impl PostQuantumContainer {
         citadel_types::utils::validate_crypto_params(&params)?;
         let previous_symmetric_key = opts.chain;
         let data = Self::create_new_alice(params.kem_algorithm, params.sig_algorithm)
-            .map_err(|err| Error::Other(err.to_string()))?;
+            .map_err(|err| Error::generic(err.to_string()))?;
         let key_store = None;
         log::trace!(target: "citadel", "Success creating new ALICE container");
 
@@ -343,7 +374,8 @@ impl PostQuantumContainer {
 
         let chain = opts.chain;
 
-        let data = Self::create_new_bob(tx_params).map_err(|err| Error::Other(err.to_string()))?;
+        let data =
+            Self::create_new_bob(tx_params).map_err(|err| Error::generic(err.to_string()))?;
         // We must call the below to refresh the internal state to allow get_shared_secret to function
         let ss = data.get_shared_secret().unwrap().clone();
         let kex = data.kex().clone();
@@ -352,7 +384,10 @@ impl PostQuantumContainer {
         let (chain, keys) =
             Self::generate_recursive_keystore(pq_node, params, sig, ss, chain.as_ref(), kex, psks)
                 .map_err(|err| {
-                    Error::Other(format!("Error while calculating recursive keystore: {err}",))
+                    citadel_io::error!(
+                        citadel_io::ErrorCode::RecursiveKeystoreFailed,
+                        err.to_string()
+                    )
                 })?;
 
         let keys = Some(keys);
@@ -432,19 +467,19 @@ impl PostQuantumContainer {
             let chain = hasher.finalize();
 
             let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, false)
-                .ok_or(Error::InvalidLength)?;
+                .ok_or(Error::invalid_length())?;
 
             //log::trace!(target: "citadel", "Alice, Bob keys: {:?} || {:?}", alice_key, bob_key);
 
             let alice_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
                 alice_key.as_slice().iter().cloned(),
             )
-            .ok_or(Error::InvalidLength)?;
+            .ok_or(Error::invalid_length())?;
 
             let bob_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
                 bob_key.as_slice().iter().cloned(),
             )
-            .ok_or(Error::InvalidLength)?;
+            .ok_or(Error::invalid_length())?;
 
             (chain, alice_key, bob_key)
         } else {
@@ -469,17 +504,17 @@ impl PostQuantumContainer {
             );
             let chain = hasher.finalize();
             let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, true)
-                .ok_or(Error::InvalidLength)?;
+                .ok_or(Error::invalid_length())?;
 
             let alice_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
                 alice_key.iter().cloned(),
             )
-            .ok_or(Error::InvalidLength)?;
+            .ok_or(Error::invalid_length())?;
 
             let bob_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
                 bob_key.iter().cloned(),
             )
-            .ok_or(Error::InvalidLength)?;
+            .ok_or(Error::invalid_length())?;
 
             (chain, alice_key, bob_key)
         };
@@ -576,7 +611,7 @@ impl PostQuantumContainer {
             Ok(chain)
         } else {
             // chain won't be loaded for alice until she builds hers
-            Err(Error::InvalidLength)
+            Err(Error::invalid_length())
         }
     }
 
@@ -603,14 +638,15 @@ impl PostQuantumContainer {
 
     /// Serializes the entire package to a vector
     pub fn serialize_to_vector(&self) -> Result<Vec<u8>, Error> {
-        bincode::serialize(self).map_err(|_err| Error::Generic("Deserialization failure"))
+        bincode::serialize(self)
+            .map_err(|_err| citadel_io::error!(citadel_io::ErrorCode::ContainerSerdeFailed))
     }
 
     /// Attempts to deserialize the input bytes presumed to be of type [PostQuantumExport],
     /// into a [PostQuantumContainer]
     pub fn deserialize_from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, Error> {
         bincode::deserialize::<PostQuantumContainer>(bytes.as_ref())
-            .map_err(|_err| Error::Generic("Deserialization failure"))
+            .map_err(|_err| citadel_io::error!(citadel_io::ErrorCode::ContainerSerdeFailed))
     }
 
     /// Returns either Alice or Bob
@@ -632,7 +668,7 @@ impl PostQuantumContainer {
         if let Some(symmetric_key) = self.get_encryption_key() {
             symmetric_key.encrypt(nonce, input)
         } else {
-            Err(Error::SharedSecretNotLoaded)
+            Err(Error::shared_secret_not_loaded())
         }
     }
 
@@ -651,7 +687,7 @@ impl PostQuantumContainer {
         if let Some(symmetric_key) = self.get_encryption_key() {
             symmetric_key.local_user_encrypt(nonce, input)
         } else {
-            Err(Error::SharedSecretNotLoaded)
+            Err(Error::shared_secret_not_loaded())
         }
     }
 
@@ -670,7 +706,7 @@ impl PostQuantumContainer {
         if let Some(symmetric_key) = self.get_encryption_key() {
             symmetric_key.local_user_decrypt(nonce, input)
         } else {
-            Err(Error::SharedSecretNotLoaded)
+            Err(Error::shared_secret_not_loaded())
         }
     }
 
@@ -689,15 +725,15 @@ impl PostQuantumContainer {
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBuffer::new(&mut payload, 0..payload_len)
-            .ok_or(Error::Generic("Bad window range"))?;
+            .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_encryption_key() {
             symmetric_key
                 .encrypt_in_place(nonce, header.subset(0..header_len), &mut in_place_payload)
-                .map_err(|_| Error::EncryptionFailure)?;
+                .map_err(|_| Error::encryption_failure())?;
             header.unsplit(payload);
             Ok(())
         } else {
-            Err(Error::SharedSecretNotLoaded)
+            Err(Error::shared_secret_not_loaded())
         }
     }
 
@@ -713,7 +749,7 @@ impl PostQuantumContainer {
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBuffer::new(payload, 0..payload_len)
-            .ok_or(Error::Generic("Bad window range"))?;
+            .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_decryption_key() {
             symmetric_key
                 .decrypt_in_place(nonce, header, &mut in_place_payload)
@@ -732,16 +768,59 @@ impl PostQuantumContainer {
                             payload.truncate(start_idx);
                             Ok(())
                         } else {
-                            Err(Error::Generic("Anti-replay-attack: invalid"))
+                            Err(citadel_io::error!(citadel_io::ErrorCode::AntiReplayInvalid))
                         }
                     } else {
-                        Err(Error::Generic(
-                            "Anti-replay-attack: Invalid inscription length",
+                        Err(citadel_io::error!(
+                            citadel_io::ErrorCode::AntiReplayBadLength
                         ))
                     }
                 })
         } else {
-            Err(Error::SharedSecretNotLoaded)
+            Err(Error::shared_secret_not_loaded())
+        }
+    }
+
+    /// Raw in-place AEAD encrypt with NO header AAD and NO anti-replay PID — byte-for-byte
+    /// compatible with the output of [`Self::encrypt`]. Encrypts the whole buffer in place and
+    /// appends the authentication tag, avoiding the fresh `Vec` allocation `encrypt` performs.
+    /// Used by the scramble/group path (which encrypts a whole wave with no per-packet PID).
+    pub fn encrypt_in_place<T: EzBuffer, R: AsRef<[u8]>>(
+        &self,
+        buf: &mut T,
+        nonce: R,
+    ) -> Result<(), Error> {
+        let nonce = nonce.as_ref();
+        let len = buf.len();
+        let mut in_place = InPlaceBuffer::new(buf, 0..len)
+            .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
+        if let Some(symmetric_key) = self.get_encryption_key() {
+            symmetric_key
+                .encrypt_in_place(nonce, &[], &mut in_place)
+                .map_err(|_| Error::encryption_failure())
+        } else {
+            Err(Error::shared_secret_not_loaded())
+        }
+    }
+
+    /// Raw in-place AEAD decrypt matching [`Self::encrypt_in_place`] / [`Self::encrypt`] (no header
+    /// AAD, no anti-replay PID). Decrypts the buffer in place and removes the authentication tag,
+    /// avoiding the fresh `Vec` allocation `decrypt` performs.
+    pub fn decrypt_in_place<T: EzBuffer, R: AsRef<[u8]>>(
+        &self,
+        buf: &mut T,
+        nonce: R,
+    ) -> Result<(), Error> {
+        let nonce = nonce.as_ref();
+        let len = buf.len();
+        let mut in_place = InPlaceBuffer::new(buf, 0..len)
+            .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
+        if let Some(symmetric_key) = self.get_decryption_key() {
+            symmetric_key
+                .decrypt_in_place(nonce, &[], &mut in_place)
+                .map_err(|_| Error::decryption_failure())
+        } else {
+            Err(Error::shared_secret_not_loaded())
         }
     }
 
@@ -761,7 +840,7 @@ impl PostQuantumContainer {
         if let Some(symmetric_key) = self.get_decryption_key() {
             symmetric_key.decrypt(nonce, input)
         } else {
-            Err(Error::SharedSecretNotLoaded)
+            Err(Error::shared_secret_not_loaded())
         }
     }
 
@@ -827,13 +906,44 @@ pub enum PostQuantumMeta {
     },
 }
 
+/// Deterministically derive an ML-KEM keypair from a 64-byte seed (per draft-schwabe-cfrg-kyber),
+/// returning `(public_key, secret_key)` in the same byte layout as [`kyber_pke::kem_keypair`] — so the
+/// result is directly usable with [`kyber_pke::encapsulate`] / [`kyber_pke::decapsulate`].
+///
+/// This is the primitive the TreeKEM ratchet tree needs: a tree node's keypair is reproducible from its
+/// path secret, so any member who learns the path secret recomputes the node and ratchets toward the root.
+pub fn kem_keypair_from_seed(seed: &[u8; 64]) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    let kp = pqc_kyber::derive(seed)
+        .map_err(|err| Error::generic(format!("ML-KEM deterministic keygen failed: {err:?}")))?;
+    Ok((kp.public.to_vec(), kp.secret.to_vec()))
+}
+
+/// Raw ML-KEM encapsulation to a public key. Returns `(ciphertext, shared_secret)`. The clean,
+/// container-free KEM API the TreeKEM ratchet tree encrypts path secrets with.
+pub fn kem_encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+    let (ct, ss) = kyber_pke::encapsulate(public_key, &mut rand::rngs::ThreadRng::default())
+        .map_err(|err| Error::generic(format!("ML-KEM encapsulate failed: {err:?}")))?;
+    let mut shared = [0u8; 32];
+    shared.copy_from_slice(&ss[..]);
+    Ok((ct.to_vec(), shared))
+}
+
+/// Raw ML-KEM decapsulation: recover the shared secret from a ciphertext with the secret key.
+pub fn kem_decapsulate(ciphertext: &[u8], secret_key: &[u8]) -> Result<[u8; 32], Error> {
+    let ss = kyber_pke::decapsulate(ciphertext, secret_key)
+        .map_err(|err| Error::generic(format!("ML-KEM decapsulate failed: {err:?}")))?;
+    let mut shared = [0u8; 32];
+    shared.copy_from_slice(&ss[..]);
+    Ok(shared)
+}
+
 impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
         log::trace!(target: "citadel", "About to generate keypair for {kem_alg:?}");
         let (public_key, secret_key) = match kem_alg {
             KemAlgorithm::MlKem => {
                 let pk_alice =
-                    kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
+                    kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
                 (pk_alice.public.to_vec(), pk_alice.secret.to_vec())
             }
         };
@@ -887,7 +997,7 @@ impl PostQuantumMeta {
         let (kem_pk_bob, kem_sk_bob) = match kem_scheme {
             KemAlgorithm::MlKem => {
                 let pk_bob =
-                    kyber_pke::kem_keypair().map_err(|err| Error::Other(err.to_string()))?;
+                    kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
                 (pk_bob.public.to_vec(), pk_bob.secret.to_vec())
             }
         };
@@ -895,8 +1005,9 @@ impl PostQuantumMeta {
         let (ciphertext, shared_secret) = match kem_scheme {
             KemAlgorithm::MlKem => {
                 let (ciphertext, shared_secret) =
-                    kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default())
-                        .map_err(|_err| get_generic_error("Failed encapsulate step"))?;
+                    kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default()).map_err(
+                        |_err| citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed),
+                    )?;
                 (ciphertext.to_vec(), shared_secret.to_vec())
             }
         };
@@ -993,7 +1104,7 @@ impl PostQuantumMeta {
 
         let shared_secret = match self.kex().kem_alg {
             KemAlgorithm::MlKem => kyber_pke::decapsulate(&bob_ciphertext, secret_key)
-                .map_err(|err| Error::Other(err.to_string()))?
+                .map_err(|err| Error::generic(err.to_string()))?
                 .to_vec(),
         };
 
@@ -1137,7 +1248,9 @@ impl PostQuantumMeta {
         if let Some(secret_key) = sk {
             Ok(secret_key)
         } else {
-            Err(get_generic_error("Unable to get secret key"))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::SecretKeyUnavailable
+            ))
         }
     }
 
@@ -1150,7 +1263,9 @@ impl PostQuantumMeta {
         if let Some(ciphertext) = ct {
             Ok(ciphertext)
         } else {
-            Err(get_generic_error("Unable to get ciphertext"))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::CiphertextUnavailable
+            ))
         }
     }
 
@@ -1163,13 +1278,11 @@ impl PostQuantumMeta {
         if let Some(shared_secret) = ss {
             Ok(shared_secret)
         } else {
-            Err(get_generic_error("Unable to get secret key"))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::SecretKeyUnavailable
+            ))
         }
     }
-}
-
-fn get_generic_error(text: &'static str) -> Error {
-    Error::Generic(text)
 }
 
 impl Debug for PostQuantumContainer {
@@ -1246,14 +1359,14 @@ macro_rules! impl_basic_aead_module {
                 let nonce_slice = if nonce.len() >= $nonce_len {
                     &nonce[..$nonce_len]
                 } else {
-                    return Err(Error::Generic("Nonce too short"));
+                    return Err(citadel_io::error!(citadel_io::ErrorCode::NonceTooShort));
                 };
 
                 self.aead
                     .encrypt_in_place(GenericArray::from_slice(nonce_slice), ad, input)
                     .map_err(|err| {
                         log::error!(target: "citadel", "AEAD encrypt_in_place failed: {:?}", err);
-                        Error::EncryptionFailure
+                        Error::encryption_failure()
                     })
             }
 
@@ -1267,14 +1380,14 @@ macro_rules! impl_basic_aead_module {
                 let nonce_slice = if nonce.len() >= $nonce_len {
                     &nonce[..$nonce_len]
                 } else {
-                    return Err(Error::Generic("Nonce too short."));
+                    return Err(citadel_io::error!(citadel_io::ErrorCode::NonceTooShort));
                 };
 
                 self.aead
                     .decrypt_in_place(GenericArray::from_slice(nonce_slice), ad, input)
                     .map_err(|err| {
                         log::error!(target: "citadel", "AEAD decrypt_in_place failed: {:?}", err);
-                        Error::EncryptionFailure
+                        Error::encryption_failure()
                     })
             }
 
@@ -1301,4 +1414,140 @@ macro_rules! impl_basic_aead_module {
             }
         }
     };
+}
+
+#[cfg(test)]
+mod in_place_aead_tests {
+    use super::PostQuantumContainer;
+    use crate::constructor_opts::ConstructorOpts;
+    use bytes::BytesMut;
+
+    // AEAD keys are directional (a container's tx key differs from its rx key), mirroring the
+    // protocol's sender/receiver split. So encrypt on alice (tx) is decrypted on bob (rx).
+    fn keyed_pair() -> (PostQuantumContainer, PostQuantumContainer) {
+        let opts = ConstructorOpts::default();
+        let mut alice = PostQuantumContainer::new_alice(opts.clone()).unwrap();
+        let a2b = alice.generate_alice_to_bob_transfer().unwrap();
+        let bob = PostQuantumContainer::new_bob(opts, a2b, &[b"psk"]).unwrap();
+        let b2a = bob.generate_bob_to_alice_transfer().unwrap();
+        alice.alice_on_receive_ciphertext(b2a, &[b"psk"]).unwrap();
+        (alice, bob)
+    }
+
+    // The raw in-place AEAD primitives must round-trip and be byte-compatible with the existing
+    // Vec-allocating encrypt/decrypt (no header AAD, no anti-replay PID), so the scramble/group
+    // path can switch to them without a wire-format change.
+    #[test]
+    fn in_place_roundtrip_matches_vec_path() {
+        let (alice, bob) = keyed_pair();
+        let nonce = [0x5Au8; 32];
+        let plaintext = b"in-place AEAD must round-trip and match the Vec path".to_vec();
+
+        // encrypt_in_place (alice/tx) -> decrypt_in_place (bob/rx)
+        let mut buf = BytesMut::from(&plaintext[..]);
+        alice.encrypt_in_place(&mut buf, nonce).unwrap();
+        assert_ne!(
+            &buf[..],
+            &plaintext[..],
+            "ciphertext must differ from plaintext"
+        );
+        bob.decrypt_in_place(&mut buf, nonce).unwrap();
+        assert_eq!(&buf[..], &plaintext[..], "in-place round-trip failed");
+
+        // Vec encrypt (alice) -> in-place decrypt (bob): byte-compatible formats.
+        let ct = alice.encrypt(&plaintext, nonce).unwrap();
+        let mut buf2 = BytesMut::from(&ct[..]);
+        bob.decrypt_in_place(&mut buf2, nonce).unwrap();
+        assert_eq!(
+            &buf2[..],
+            &plaintext[..],
+            "Vec-encrypt -> in-place-decrypt mismatch"
+        );
+
+        // in-place encrypt (alice) -> Vec decrypt (bob): byte-compatible formats.
+        let mut buf3 = BytesMut::from(&plaintext[..]);
+        alice.encrypt_in_place(&mut buf3, nonce).unwrap();
+        let pt = bob.decrypt(&buf3[..], nonce).unwrap();
+        assert_eq!(
+            &pt[..],
+            &plaintext[..],
+            "in-place-encrypt -> Vec-decrypt mismatch"
+        );
+    }
+
+    #[test]
+    fn container_getters_serialize_and_local_crypto() {
+        let (alice, bob) = keyed_pair();
+        let nonce = [0x11u8; 32];
+
+        // Both endpoints derived the same shared secret.
+        assert_eq!(
+            alice.get_shared_secret().unwrap().as_slice(),
+            bob.get_shared_secret().unwrap().as_slice()
+        );
+        // Key-material getters return non-empty material.
+        assert!(!alice.get_public_key().is_empty());
+        assert!(!bob.get_public_key_remote().is_empty());
+        assert!(alice.get_secret_key().is_ok());
+        assert!(bob.get_ciphertext().is_ok());
+        assert!(alice.get_chain().is_ok());
+        let _ = alice.get_node_type();
+        let _ = alice.has_verified_packets();
+        alice.reset_counters();
+
+        // serialize -> deserialize retains the shared secret.
+        let bytes = alice.serialize_to_vector().unwrap();
+        let restored = PostQuantumContainer::deserialize_from_bytes(&bytes).unwrap();
+        assert_eq!(
+            restored.get_shared_secret().unwrap().as_slice(),
+            alice.get_shared_secret().unwrap().as_slice()
+        );
+
+        // local_encrypt -> local_decrypt round-trips on the same container.
+        let pt = b"local secret".to_vec();
+        let ct = alice.local_encrypt(&pt, nonce).unwrap();
+        assert_eq!(alice.local_decrypt(&ct, nonce).unwrap(), pt);
+
+        // Directional encrypt (alice tx) -> decrypt (bob rx).
+        let ct2 = alice.encrypt(b"hello", nonce).unwrap();
+        assert_eq!(bob.decrypt(&ct2, nonce).unwrap(), b"hello");
+    }
+}
+
+#[cfg(test)]
+mod seed_keygen_tests {
+    use super::kem_keypair_from_seed;
+
+    /// R1: deterministic ML-KEM keygen must be (a) reproducible from the same seed, (b) distinct for
+    /// different seeds, and (c) byte-compatible with `encapsulate`/`decapsulate` so a node keypair
+    /// derived from a TreeKEM path secret actually round-trips a shared secret.
+    #[test]
+    fn derive_is_deterministic_and_kem_compatible() {
+        let seed_a = [7u8; 64];
+        // Differ in the FIRST half `d` (bytes 0..32) — the keygen seed. (The second half `z` is the
+        // ML-KEM implicit-rejection value and does not affect the public key.)
+        let seed_b = {
+            let mut s = [7u8; 64];
+            s[0] = 8;
+            s
+        };
+
+        let (pk1, sk1) = kem_keypair_from_seed(&seed_a).unwrap();
+        let (pk2, sk2) = kem_keypair_from_seed(&seed_a).unwrap();
+        assert_eq!(pk1, pk2, "same seed must yield the same public key");
+        assert_eq!(sk1, sk2, "same seed must yield the same secret key");
+
+        let (pk_b, _sk_b) = kem_keypair_from_seed(&seed_b).unwrap();
+        assert_ne!(pk1, pk_b, "different seeds must yield different keys");
+
+        // Encapsulate to the derived public key, decapsulate with the derived secret key.
+        let (ct, ss_enc) =
+            kyber_pke::encapsulate(&pk1, &mut rand::rngs::ThreadRng::default()).unwrap();
+        let ss_dec = kyber_pke::decapsulate(&ct, &sk1).unwrap();
+        assert_eq!(
+            &ss_enc[..],
+            &ss_dec[..],
+            "encapsulate(derived pk) must decapsulate to the same shared secret with the derived sk",
+        );
+    }
 }

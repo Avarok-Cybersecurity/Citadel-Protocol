@@ -170,10 +170,11 @@ where
                         .search_peer(session_cid, connect_success.account_manager())
                         .await?
                         .ok_or_else(|| {
-                            NetworkError::msg(format!(
-                                "[create] User {:?} is not registered to {:?}",
-                                peer, &local_user
-                            ))
+                            citadel_io::error!(
+                                citadel_io::ErrorCode::BroadcastCreateUserNotRegistered,
+                                format!("{peer:?}"),
+                                format!("{local_user:?}")
+                            )
                         })?;
 
                     peers_registered.push(peer.cid)
@@ -186,6 +187,7 @@ where
                     options: MessageGroupOptions {
                         group_type: GroupType::Public,
                         id: group_id.as_u128(),
+                        ..Default::default()
                     },
                 }
             }
@@ -218,10 +220,11 @@ where
                 };
 
                 let owner = owner.ok_or_else(|| {
-                    NetworkError::msg(format!(
-                        "User {:?} is not registered to {:?}",
-                        owner_orig, &local_user
-                    ))
+                    citadel_io::error!(
+                        citadel_io::ErrorCode::BroadcastJoinUserNotRegistered,
+                        format!("{owner_orig:?}"),
+                        format!("{local_user:?}")
+                    )
                 })?;
 
                 let expected_message_group_key = MessageGroupKey {
@@ -244,9 +247,11 @@ where
 
                         retries += 1;
                         if retries > 4 {
-                            return Err(NetworkError::Generic(format!(
-                                "Owner {owner:?} has not created group {group_id:?}"
-                            )));
+                            return Err(citadel_io::error!(
+                                citadel_io::ErrorCode::BroadcastOwnerGroupMissing,
+                                citadel_io::Dbg(owner),
+                                citadel_io::Dbg(group_id)
+                            ));
                         }
                     }
                 }
@@ -279,11 +284,11 @@ where
                 loop {
                     let post_register = citadel_io::tokio::select! {
                         reg_request = reg_rx.recv() => {
-                            reg_request.ok_or_else(|| NetworkError::InternalError("reg_rx ended unexpectedly"))?
+                            reg_request.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly, "reg_rx"))?
                         },
 
                         reg_request2 = subscription.next() => {
-                            let signal = reg_request2.ok_or_else(|| NetworkError::InternalError("subscription ended unexpectedly"))?;
+                            let signal = reg_request2.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly, "subscription"))?;
                             if let NodeResult::PeerEvent(PeerEvent { event: sig @ PeerSignal::PostRegister { .. }, .. }) = &signal {
                                 sig.clone()
                             } else {
@@ -350,7 +355,7 @@ where
                     shared
                         .register_tx
                         .send(ps.clone())
-                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                        .map_err(|err| NetworkError::generic(err.to_string()))?;
                 }
                 NodeResult::GroupChannelCreated(GroupChannelCreated {
                     ticket: _,
@@ -373,8 +378,8 @@ where
                     ticket: _,
                     event: GroupBroadcast::CreateResponse { key: None },
                 }) => {
-                    return Err(NetworkError::InternalError(
-                        "Unable to create a message group",
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::BroadcastCreateGroupFailed
                     ))
                 }
 
@@ -421,7 +426,7 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for BroadcastKernel<'_, F, Fut, R> {
                     .shared
                     .register_tx
                     .send(ps.clone())
-                    .map_err(|err| NetworkError::Generic(err.to_string()));
+                    .map_err(|err| NetworkError::generic(err.to_string()));
             }
         }
 
@@ -628,8 +633,9 @@ mod tests {
                         }
                     }
 
-                    Err(NetworkError::InternalError(
-                        "signals_recv ended unexpectedly",
+                    Err(citadel_io::error!(
+                        citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly,
+                        "signals_recv"
                     ))
                 },
             );
@@ -649,6 +655,135 @@ mod tests {
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(receiver_success.load(Ordering::Relaxed));
+        Ok(())
+    }
+
+    /// End-to-end Decentralized Hierarchy Encryption: an owner founds a `SuperiorOnly` command-hierarchy
+    /// group and assigns a subordinate to `/alpha`. The subordinate sends a `DheEnvelope` message; the
+    /// owner (the hierarchy root, a superior of every node) reads it through the opaque relay — proving
+    /// the full network path: KeyPackage → HierarchyAssign → Welcome → DheEnvelope → relay → superior read.
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    async fn group_command_hierarchy_superior_reads_subordinate(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::prelude::GroupBroadcastPayload;
+        use citadel_types::crypto::SecBuffer;
+        use citadel_types::proto::{
+            CommandPath, GroupHierarchyMode, MessageGroupOptions, ReadPolicy,
+        };
+        use std::collections::HashMap;
+
+        let peer_count = 2;
+        citadel_logging::setup_log();
+        TestBarrier::setup(peer_count);
+
+        let owner_read = &AtomicBool::new(false);
+        let (server, server_addr) = server_info::<StackedRatchet>();
+        let client_kernels = FuturesUnordered::new();
+        let total_peers = (0..peer_count)
+            .map(|_| Uuid::new_v4())
+            .collect::<Vec<Uuid>>();
+
+        for idx in 0..peer_count {
+            let uuid = total_peers.get(idx).cloned().unwrap();
+            let peers = total_peers
+                .clone()
+                .into_iter()
+                .filter(|r| r != &uuid)
+                .map(UserIdentifier::from)
+                .collect::<Vec<UserIdentifier>>();
+            let server_connection_settings =
+                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
+                    .build()
+                    .unwrap();
+
+            let client_kernel = PeerConnectionKernel::new(
+                server_connection_settings,
+                peers,
+                move |mut results, remote| async move {
+                    let mut signals = remote.get_unprocessed_signals_receiver().unwrap();
+                    wait_for_peers().await;
+                    let conn = results.recv().await.unwrap()?;
+
+                    if idx == 0 {
+                        // Owner: create a SuperiorOnly hierarchy group, assigning the subordinate to /alpha.
+                        let sub_cid: u64 = conn.channel.get_peer_cid();
+                        let mut ranks = HashMap::new();
+                        let _ = ranks.insert(sub_cid, CommandPath::parse("/alpha"));
+                        let options = MessageGroupOptions {
+                            hierarchy: GroupHierarchyMode::CommandHierarchy {
+                                read_policy: ReadPolicy::SuperiorOnly,
+                                ranks,
+                            },
+                            ..Default::default()
+                        };
+                        let mut channel = remote
+                            .create_group_with_options(Some(vec![sub_cid.into()]), options)
+                            .await?;
+
+                        // The owner is the hierarchy root: it reads the subordinate's DheEnvelope.
+                        loop {
+                            match channel.recv().await {
+                                Some(GroupBroadcastPayload::Message { payload, sender: _ }) => {
+                                    assert_eq!(payload.as_ref(), b"sitrep from subordinate");
+                                    owner_read.store(true, Ordering::Relaxed);
+                                    break;
+                                }
+                                Some(_) => continue,
+                                None => break,
+                            }
+                        }
+                        wait_for_peers().await;
+                        return remote.shutdown_kernel().await;
+                    }
+
+                    // Subordinate: accept the invitation, then send once its (hierarchy-mode) channel is up.
+                    while let Some(evt) = signals.recv().await {
+                        match evt {
+                            NodeResult::GroupEvent(GroupEvent {
+                                event: GroupBroadcast::Invitation { .. },
+                                ..
+                            }) => {
+                                let _ = crate::responses::group_invite(evt, true, &remote.inner)
+                                    .await?;
+                            }
+                            NodeResult::GroupChannelCreated(GroupChannelCreated {
+                                channel,
+                                ..
+                            }) => {
+                                channel
+                                    .send_message(SecBuffer::from(
+                                        b"sitrep from subordinate".to_vec(),
+                                    ))
+                                    .await?;
+                                wait_for_peers().await;
+                                return remote.shutdown_kernel().await;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    Err(citadel_io::error!(
+                        citadel_io::ErrorCode::BroadcastStreamEndedUnexpectedly,
+                        "signals"
+                    ))
+                },
+            );
+            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+            client_kernels.push(async move { client.await.map(|_| ()) });
+        }
+
+        let clients = Box::pin(async move { client_kernels.try_collect::<()>().await.map(|_| ()) });
+        if let Err(err) = futures::future::try_select(server, clients).await {
+            return match err {
+                futures::future::Either::Left(res) => Err(res.0.into_string().into()),
+                futures::future::Either::Right(res) => Err(res.0.into_string().into()),
+            };
+        }
+
+        assert!(
+            owner_read.load(Ordering::Relaxed),
+            "owner (hierarchy root) must read the subordinate's DHE message"
+        );
         Ok(())
     }
 }

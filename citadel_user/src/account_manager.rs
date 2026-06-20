@@ -122,6 +122,10 @@ pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatche
     node_argon_settings: ArgonSettings,
     server_misc_settings: ServerMiscSettings,
     backend_ty: BackendType,
+    /// Serializes the username-exists check and the subsequent CNAC save during registration so two
+    /// concurrent registrations of the same username cannot both pass the existence check and race
+    /// to save (last-writer-wins / duplicate account). Shared across clones via `Arc`.
+    registration_lock: std::sync::Arc<citadel_io::tokio::sync::Mutex<()>>,
 }
 
 impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
@@ -172,7 +176,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             #[cfg(all(feature = "sql", not(coverage)))]
             BackendType::SQLDatabase(..) => {
                 use crate::backend::sql_backend::SqlBackend;
-                let backend = SqlBackend::try_from(backend_type.clone()).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
+                let backend = SqlBackend::try_from(backend_type.clone())
+                    .map_err(|_| citadel_io::error!(citadel_io::ErrorCode::BackendUrlInvalid))?;
                 PersistenceHandler::create(backend).await?
             }
 
@@ -185,8 +190,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         };
 
         if !persistence_handler.is_connected().await? {
-            return Err(AccountError::msg(
-                "Unable to connect to remote database via account manager",
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::BackendNotConnected
             ));
         }
 
@@ -198,6 +203,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             services_handler,
             node_argon_settings: server_argon_settings.unwrap_or_default().into(),
             server_misc_settings: server_misc_settings.unwrap_or_default(),
+            registration_lock: std::sync::Arc::new(citadel_io::tokio::sync::Mutex::new(())),
         };
 
         // Allow the local node to use the backend to store arbitrary data
@@ -226,10 +232,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .get_cid_by_username(creds.username());
 
         if reserved_cid == 0 {
-            return Err(AccountError::Generic(
-                "Cannot call register_impersonal_hyperlan_client_network_account with a CID of 0"
-                    .to_string(),
-            ));
+            return Err(citadel_io::error!(citadel_io::ErrorCode::RegisterCidZero));
         }
 
         let auth_store = creds
@@ -242,16 +245,19 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         let pers = &self.persistence_handler;
 
-        // We must lock the config to ensure that the obtained CID gets added into the database before any competing threads may get called
+        // Hold the registration lock across the existence check AND the save so two concurrent
+        // registrations of the same username cannot both observe "does not exist" and then race to
+        // save (which on SQL/Redis is an upsert => silent last-writer-wins / duplicate account).
+        let _registration_guard = self.registration_lock.lock().await;
         log::trace!(target: "citadel", "Checking username {} for correspondence ...", auth_store.username());
 
         let username = auth_store.username().to_string();
 
         if pers.username_exists(&username).await? {
-            return Err(AccountError::Generic(format!(
-                "Username {} already exists!",
-                &username
-            )));
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::UsernameExists,
+                username.clone()
+            ));
         }
 
         // cnac gets saved below
@@ -282,9 +288,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .get_cid_by_username(creds.username());
 
         if valid_cid == 0 {
-            return Err(AccountError::Generic(
-                "Cannot call register_personal_hyperlan_server with a CID of 0".to_string(),
-            ));
+            return Err(citadel_io::error!(citadel_io::ErrorCode::RegisterCidZero));
         }
 
         let client_auth_store = creds.into_auth_store();
@@ -372,7 +376,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .collect();
         let _: Vec<_> = cids
             .iter()
-            .zip(metadata.into_iter())
+            .zip(metadata)
             .map(|(&cid, user_data)| {
                 peer_info.insert(
                     cid,

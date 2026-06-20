@@ -94,7 +94,9 @@ pub fn process_file_packet<R: Ratchet, T: PlatformOps>(
                             let object_id = payload.object_id;
 
                             {
-                                let mut state_container = inner_mut_state!(session.state_container);
+                                // Read lock: notify_object_transfer_handle_failure_with is `&self`
+                                // (DashMap-backed file_transfer_handles) since the C8 conversion.
+                                let state_container = inner_state!(session.state_container);
                                 if let Err(err) = state_container
                                     .notify_object_transfer_handle_failure_with(
                                         target_cid,
@@ -210,18 +212,15 @@ pub fn process_file_packet<R: Ratchet, T: PlatformOps>(
                             // conclude by passing this data into the state container
                             {
                                 let mut state_container = inner_mut_state!(session.state_container);
-                                if state_container
-                                    .on_file_header_ack_received(
-                                        success,
-                                        session_cid,
-                                        header.context_info.get().into(),
-                                        object_id,
-                                        v_target,
-                                        payload.transfer_type,
-                                    )
-                                    .is_none()
-                                {
-                                    log::error!(target: "citadel", "on_file_header_ack_received failed. File transfer attempt invalidated");
+                                if let Err(err) = state_container.on_file_header_ack_received(
+                                    success,
+                                    session_cid,
+                                    header.context_info.get().into(),
+                                    object_id,
+                                    v_target,
+                                    payload.transfer_type,
+                                ) {
+                                    log::error!(target: "citadel", "on_file_header_ack_received failed. File transfer attempt invalidated: {err}");
                                 }
                             }
 

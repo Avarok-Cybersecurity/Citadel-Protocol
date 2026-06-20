@@ -232,6 +232,10 @@ pub enum GroupMemberAlterMode {
 pub struct MessageGroupOptions {
     pub group_type: GroupType,
     pub id: u128,
+    /// Whether the group uses the flat zero-trust CGKA or the Decentralized Hierarchy Encryption overlay.
+    #[cfg_attr(feature = "typescript", ts(skip))]
+    #[serde(default)]
+    pub hierarchy: GroupHierarchyMode,
 }
 
 impl Default for MessageGroupOptions {
@@ -239,7 +243,77 @@ impl Default for MessageGroupOptions {
         Self {
             group_type: GroupType::Private,
             id: Uuid::new_v4().as_u128(),
+            hierarchy: GroupHierarchyMode::default(),
         }
+    }
+}
+
+/// How a group's encryption is structured. `Flat` is the ordinary zero-trust CGKA where every member
+/// shares one epoch key; `CommandHierarchy` adds the Decentralized Hierarchy Encryption overlay where a
+/// superior can read its subordinates' messages (see [`ReadPolicy`]).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+pub enum GroupHierarchyMode {
+    /// Flat zero-trust group: one shared epoch key, no command hierarchy.
+    #[default]
+    Flat,
+    /// Command-hierarchy overlay: members occupy a [`CommandPath`]; superiors read their subtree.
+    CommandHierarchy {
+        /// Who can read each message.
+        read_policy: ReadPolicy,
+        /// Initial rank assignment (member cid → command path), set by the owner at group creation.
+        /// Consumed **owner-locally** to seed the hierarchy and never forwarded to the relay (the owner
+        /// neutralizes this before the `Create` leaves the node), so command-structure labels stay off
+        /// the wire; only the owner and the assigned members (via E2E-sealed node secrets) learn them.
+        #[serde(default)]
+        ranks: std::collections::HashMap<u64, CommandPath>,
+    },
+}
+
+/// Who can read a hierarchy-group message.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadPolicy {
+    /// Only the sender's command path + its ancestors (superiors).
+    SuperiorOnly,
+    /// Everyone in the flat group reads normally; superiors additionally retain a subtree audit capability.
+    BroadcastAudit,
+}
+
+/// A position in a command hierarchy: ordered segments from the root (e.g. `/HQ/Bn1/Co-A/Plt-2`). An
+/// empty path is the root authority. `is_ancestor_of` is the "superior reads subordinate" predicate.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct CommandPath(pub Vec<String>);
+
+impl CommandPath {
+    /// The root authority path (empty).
+    pub fn root() -> Self {
+        CommandPath(Vec::new())
+    }
+
+    /// Parse `/HQ/Bn1/Co-A` into segments (slashes split; empty segments ignored).
+    pub fn parse(path: &str) -> Self {
+        CommandPath(
+            path.split('/')
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect(),
+        )
+    }
+
+    /// A child path with one more segment.
+    pub fn child(&self, segment: &str) -> Self {
+        let mut segs = self.0.clone();
+        segs.push(segment.to_string());
+        CommandPath(segs)
+    }
+
+    /// Depth (number of segments).
+    pub fn depth(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether `self` is an ancestor of (or equal to) `other` — i.e. `self` is a prefix of `other`.
+    pub fn is_ancestor_of(&self, other: &CommandPath) -> bool {
+        other.0.len() >= self.0.len() && other.0[..self.0.len()] == self.0[..]
     }
 }
 
@@ -722,5 +796,226 @@ impl From<ClientConnectionType> for VirtualConnectionType {
                 interserver_cid,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_path_parse_root_child_depth() {
+        assert_eq!(CommandPath::root().depth(), 0);
+        let p = CommandPath::parse("/HQ/Bn1/Co-A");
+        assert_eq!(p.0, vec!["HQ", "Bn1", "Co-A"]);
+        assert_eq!(p.depth(), 3);
+        // leading/trailing/double slashes and empties are ignored
+        assert_eq!(CommandPath::parse("///HQ//Bn1/").0, vec!["HQ", "Bn1"]);
+        assert_eq!(CommandPath::parse("").depth(), 0);
+        let c = CommandPath::parse("/HQ").child("Bn1");
+        assert_eq!(c.0, vec!["HQ", "Bn1"]);
+    }
+
+    #[test]
+    fn command_path_is_ancestor_of() {
+        let root = CommandPath::root();
+        let hq = CommandPath::parse("/HQ");
+        let bn1 = CommandPath::parse("/HQ/Bn1");
+        let coa = CommandPath::parse("/HQ/Bn1/Co-A");
+        let cob = CommandPath::parse("/HQ/Bn1/Co-B");
+        // reflexive + prefix chain
+        assert!(hq.is_ancestor_of(&hq));
+        assert!(root.is_ancestor_of(&coa));
+        assert!(hq.is_ancestor_of(&bn1));
+        assert!(bn1.is_ancestor_of(&coa));
+        // not upward, not across
+        assert!(!coa.is_ancestor_of(&bn1));
+        assert!(!coa.is_ancestor_of(&cob));
+        assert!(!cob.is_ancestor_of(&coa));
+    }
+
+    #[test]
+    fn virtual_connection_type_accessors_and_predicates() {
+        let server = VirtualConnectionType::LocalGroupServer { session_cid: 7 };
+        let peer = VirtualConnectionType::LocalGroupPeer {
+            session_cid: 7,
+            peer_cid: 9,
+        };
+        let ext_peer = VirtualConnectionType::ExternalGroupPeer {
+            session_cid: 1,
+            interserver_cid: 2,
+            peer_cid: 3,
+        };
+        let ext_server = VirtualConnectionType::ExternalGroupServer {
+            session_cid: 4,
+            interserver_cid: 5,
+        };
+
+        assert_eq!(server.get_target_cid(), C2S_IDENTITY_CID);
+        assert_eq!(server.get_session_cid(), 7);
+        assert_eq!(peer.get_target_cid(), 9);
+        assert_eq!(ext_peer.get_target_cid(), 3);
+        assert_eq!(ext_server.get_target_cid(), 5);
+        assert_eq!(ext_peer.get_session_cid(), 1);
+
+        assert!(server.is_server_connection() && !server.is_peer_connection());
+        assert!(peer.is_peer_connection() && !peer.is_server_connection());
+        assert!(server.is_local_group() && !server.is_external_group());
+        assert!(ext_peer.is_external_group() && !ext_peer.is_local_group());
+
+        assert!(peer.try_as_peer_connection().is_some());
+        assert!(server.try_as_peer_connection().is_none());
+        assert!(server.try_as_client_connection().is_some());
+        assert!(peer.try_as_client_connection().is_none());
+    }
+
+    #[test]
+    fn virtual_connection_type_mutators_and_roundtrip() {
+        let mut peer = VirtualConnectionType::LocalGroupPeer {
+            session_cid: 7,
+            peer_cid: 9,
+        };
+        peer.set_target_cid(42);
+        peer.set_session_cid(11);
+        assert_eq!(peer.get_target_cid(), 42);
+        assert_eq!(peer.get_session_cid(), 11);
+
+        // set_target_cid is a no-op on server connections
+        let mut server = VirtualConnectionType::LocalGroupServer { session_cid: 1 };
+        server.set_target_cid(99);
+        assert_eq!(server.get_target_cid(), C2S_IDENTITY_CID);
+        server.set_session_cid(2);
+        assert_eq!(server.get_session_cid(), 2);
+
+        let bytes = peer.serialize();
+        assert_eq!(VirtualConnectionType::deserialize_from(&bytes), Some(peer));
+        assert!(VirtualConnectionType::deserialize_from([0xFFu8; 1]).is_none());
+        // Display does not panic for any variant
+        let _ = format!("{server}{peer}");
+    }
+
+    #[test]
+    fn peer_connection_type_reverse_and_convert() {
+        let local = PeerConnectionType::LocalGroupPeer {
+            session_cid: 1,
+            peer_cid: 2,
+        };
+        assert_eq!(local.get_original_session_cid(), 1);
+        assert_eq!(local.get_original_target_cid(), 2);
+        let rev = local.reverse();
+        assert_eq!(rev.get_original_session_cid(), 2);
+        assert_eq!(rev.get_original_target_cid(), 1);
+
+        let ext = PeerConnectionType::ExternalGroupPeer {
+            session_cid: 1,
+            interserver_cid: 5,
+            peer_cid: 2,
+        };
+        assert_eq!(ext.reverse().get_original_session_cid(), 2);
+
+        // round-trip through VirtualConnectionType conversions
+        let v: VirtualConnectionType = local.into();
+        assert_eq!(v.try_as_peer_connection(), Some(local));
+        assert_eq!(VirtualConnectionType::from(ext).get_target_cid(), 2);
+        let _ = format!("{local}{ext}");
+    }
+
+    #[test]
+    fn client_connection_type_accessors() {
+        let server = ClientConnectionType::Server { session_cid: 8 };
+        let ext = ClientConnectionType::Extended {
+            session_cid: 8,
+            interserver_cid: 3,
+        };
+        assert_eq!(server.session_cid(), 8);
+        assert_eq!(server.interserver_cid(), None);
+        assert_eq!(ext.interserver_cid(), Some(3));
+        // From<ClientConnectionType> mapping
+        assert_eq!(
+            VirtualConnectionType::from(server),
+            VirtualConnectionType::LocalGroupServer { session_cid: 8 }
+        );
+        assert!(matches!(
+            VirtualConnectionType::from(ext),
+            VirtualConnectionType::ExternalGroupServer { .. }
+        ));
+        let _ = format!("{server}{ext}");
+    }
+
+    #[test]
+    fn object_transfer_status_predicates_and_display() {
+        assert!(ObjectTransferStatus::TransferTick(1, 2, 3.0).is_tick_type());
+        assert!(ObjectTransferStatus::ReceptionTick(1, 2, 3.0).is_tick_type());
+        assert!(!ObjectTransferStatus::TransferBeginning.is_tick_type());
+        assert!(ObjectTransferStatus::TransferComplete.is_finished_type());
+        assert!(ObjectTransferStatus::ReceptionComplete.is_finished_type());
+        assert!(ObjectTransferStatus::Fail("x".into()).is_finished_type());
+        assert!(!ObjectTransferStatus::TransferBeginning.is_finished_type());
+        for s in [
+            ObjectTransferStatus::TransferBeginning,
+            ObjectTransferStatus::TransferTick(1, 4, 2.5),
+            ObjectTransferStatus::ReceptionTick(2, 4, 1.0),
+            ObjectTransferStatus::TransferComplete,
+            ObjectTransferStatus::ReceptionComplete,
+            ObjectTransferStatus::Fail("boom".into()),
+        ] {
+            assert!(!format!("{s}").is_empty());
+        }
+    }
+
+    #[test]
+    fn virtual_object_metadata_roundtrip_and_security_level() {
+        let file = VirtualObjectMetadata {
+            name: "f".into(),
+            date_created: "now".into(),
+            author: "a".into(),
+            plaintext_length: 10,
+            group_count: 1,
+            object_id: ObjectId::zero(),
+            cid: 5,
+            transfer_type: TransferType::FileTransfer,
+        };
+        let bytes = file.serialize();
+        let back = VirtualObjectMetadata::deserialize_from(&bytes).unwrap();
+        assert_eq!(back.cid, 5);
+        assert!(file.get_security_level().is_none());
+
+        let revfs = VirtualObjectMetadata {
+            transfer_type: TransferType::RemoteEncryptedVirtualFilesystem {
+                virtual_path: PathBuf::from("/v"),
+                security_level: SecurityLevel::High,
+            },
+            ..file
+        };
+        assert!(matches!(
+            revfs.get_security_level(),
+            Some(SecurityLevel::High)
+        ));
+        assert!(VirtualObjectMetadata::deserialize_from([0u8; 1]).is_none());
+    }
+
+    #[test]
+    fn object_id_and_message_group_key_helpers() {
+        assert_eq!(ObjectId::zero().0, 0);
+        assert_eq!(ObjectId::from(42u128).0, 42);
+        assert_ne!(ObjectId::random(), ObjectId::random());
+        assert_eq!(format!("{}", ObjectId::from(7u128)), "7");
+
+        let key = MessageGroupKey::new(3, 99);
+        assert_eq!(key.cid, 3);
+        assert_eq!(key.mgid, 99);
+        assert!(!format!("{key}").is_empty());
+        assert!(!format!("{key:?}").is_empty());
+    }
+
+    #[test]
+    fn udp_mode_and_defaults() {
+        assert_eq!(UdpMode::default(), UdpMode::Disabled);
+        assert!(!UdpMode::variants().is_empty());
+        assert_eq!(GroupHierarchyMode::default(), GroupHierarchyMode::Flat);
+        assert_eq!(
+            MessageGroupOptions::default().group_type,
+            GroupType::Private
+        );
     }
 }

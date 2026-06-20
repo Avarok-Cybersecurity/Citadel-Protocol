@@ -285,6 +285,58 @@ jobs:
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing
 
+  io_uring:
+    # Linux-only: validates the opt-in io_uring inbound-UDP backend. Compile-checks both thread models
+    # with the feature on, then runs the UDP-exercising stress tests. If the runner sandbox blocks
+    # io_uring_setup(2), the backend falls back to the standard tokio path, so these still pass — the
+    # job then asserts "no regression with the feature enabled" rather than io_uring-specific behavior.
+    name: io_uring UDP backend (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - name: Setup dependencies
+        id: deps
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 2, wait 15s)
+        if: steps.deps.outcome == 'failure'
+        run: sleep 15
+      - name: Setup dependencies (retry 2)
+        if: steps.deps.outcome == 'failure'
+        id: deps-retry-2
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 3, wait 30s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        run: sleep 30
+      - name: Setup dependencies (retry 3)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        id: deps-retry-3
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 4, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 4)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        id: deps-retry-4
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 5, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 5)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        id: deps-retry-5
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - uses: taiki-e/install-action@nextest
+      - name: Build with io_uring (single-threaded)
+        run: cargo build --package citadel_sdk --features=localhost-testing,io-uring
+      - name: Build with io_uring (multi-threaded)
+        run: cargo build --package citadel_sdk --features=multi-threaded,localhost-testing,io-uring
+      - name: UDP stress tests with io_uring
+        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,io-uring -E 'test(stress_test_c2s_messaging) | test(stress_test_p2p_messaging)'
+
   citadel_sdk_release:
     runs-on: macos-latest
     timeout-minutes: 80
@@ -474,7 +526,7 @@ jobs:
       - name: Run llvm-cov nextest
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/upnp_handler.rs"
+        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip -p citadel_treekem -p citadel_types -p citadel_io --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/standard/upnp_handler.rs"
       - uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

@@ -44,6 +44,7 @@ use bytes::BytesMut;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ServerMode;
+use citadel_io::{error, ErrorCode};
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::prelude::{ConnectProtocol, UserIdentifierExt};
@@ -100,6 +101,13 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [CitadelSessionManager] and thereafter placed inside an appropriate session
     pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, CitadelSession<R, T>)>,
+    /// Reserves a CID the instant an incoming connection is cleared to proceed, closing the window
+    /// between `can_proceed_with_new_incoming_connection` and the SYN commit (which is when the
+    /// provisional connection first becomes findable by CID). Without this, two SYNs for the same
+    /// CID arriving on different sockets could both pass the check and race to commit. Entries are
+    /// released on commit/failure and auto-expire as a safety net so a dropped attempt cannot
+    /// permanently block the CID.
+    provisional_cid_reservations: HashMap<u64, Instant>,
     kernel_tx: UnboundedSender<NodeResult<R>>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
@@ -110,6 +118,12 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
 }
+
+/// Safety-net lifetime for a provisional CID reservation. Reservations are released explicitly on
+/// SYN commit and on connection failure; this bounds how long an unexpectedly-dropped attempt can
+/// block a CID. It only needs to outlive the (fast) window between clearing `can_proceed` and the
+/// SYN commit that associates the CID with the provisional connection.
+const PROVISIONAL_CID_RESERVATION_TTL: Duration = Duration::from_secs(30);
 
 impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Creates a new [SessionManager] which handles individual connections
@@ -136,6 +150,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             incoming_cxn_count,
             account_manager,
             provisional_connections: HashMap::new(),
+            provisional_cid_reservations: HashMap::new(),
             kernel_tx,
             time_tracker,
             client_config,
@@ -162,9 +177,19 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     }
 
     /// Determines if `cid` is connected
-    pub async fn can_proceed_with_new_incoming_connection(&self, cid: u64) -> bool {
+    /// `reserve`: when true (the server-side incoming-SYN path), the CID is reserved on success so a
+    /// concurrent same-CID SYN cannot also proceed; the reservation is released by the SYN handler on
+    /// commit/failure. When false (the client-side outgoing-connect pre-check), this only *checks* for
+    /// an existing/connecting session and never takes a reservation — taking one there would leak
+    /// (nothing releases it) and block legitimate reconnects until the TTL expires.
+    pub async fn can_proceed_with_new_incoming_connection(&self, cid: u64, reserve: bool) -> bool {
         let await_for_drop_rx = {
-            let this = inner!(self);
+            let mut this = inner_mut!(self);
+
+            // Drop any reservations that have outlived the commit window (failed/abandoned attempts)
+            // so a dropped SYN cannot permanently block the CID.
+            this.provisional_cid_reservations
+                .retain(|_, reserved_at| reserved_at.elapsed() < PROVISIONAL_CID_RESERVATION_TTL);
 
             if let Some(sess) = this.sessions.get(&cid).map(|(_, sess)| sess).or_else(|| {
                 this.provisional_connections
@@ -203,7 +228,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                 await_for_drop_rx
             } else {
-                // No session exists, so we can proceed with the connection attempt
+                // No live or provisional session for this CID. On the server incoming-SYN path,
+                // guard against a concurrent SYN for the same CID (on another socket) that has not
+                // yet committed: if it already reserved the CID, yield to it; otherwise reserve and
+                // proceed. The client outgoing path (reserve == false) only checks and never reserves.
+                if reserve {
+                    if this.provisional_cid_reservations.contains_key(&cid) {
+                        citadel_logging::warn!(target: "citadel", "A concurrent connection attempt for {cid} is already in progress; yielding");
+                        return false;
+                    }
+                    this.provisional_cid_reservations
+                        .insert(cid, Instant::now());
+                }
                 return true;
             }
         };
@@ -227,9 +263,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let mut this = inner_mut!(self);
                 this.sessions.remove(&cid);
                 this.provisional_connections.retain(|_, sess| sess.2.session_cid.get().unwrap_or(0) != cid);
+                this.provisional_cid_reservations.remove(&cid);
                 true
             },
         }
+    }
+
+    /// Releases the provisional CID reservation taken by
+    /// [`Self::can_proceed_with_new_incoming_connection`]. Called once the SYN has committed (the
+    /// provisional connection is now findable by CID) or when the attempt fails, so the CID is not
+    /// blocked longer than necessary. Idempotent.
+    pub fn release_provisional_cid_reservation(&self, cid: u64) {
+        let _ = inner_mut!(self).provisional_cid_reservations.remove(&cid);
     }
 
     /// Called by the higher-level [CitadelNode] async writer loop
@@ -308,16 +353,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                         inner.account_manager.clone()
                                     };
 
-                                    let cnac = id.search(&acc_mgr).await?.ok_or(
-                                        NetworkError::InternalError("Client does not exist"),
-                                    )?;
+                                    let cnac = id
+                                        .search(&acc_mgr)
+                                        .await?
+                                        .ok_or(error!(ErrorCode::SessionClientNotLoaded))?;
                                     let conn_info = cnac.get_connect_info();
                                     let peer_addr = conn_info.addr;
 
                                     let proposed_credentials = cnac
                                         .generate_connect_credentials(password.clone())
                                         .await
-                                        .map_err(|err| NetworkError::Generic(err.into_string()))?;
+                                        .map_err(|err| NetworkError::generic(err.into_string()))?;
 
                                     (peer_addr, Some(cnac), proposed_credentials)
                                 }
@@ -327,10 +373,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                     // Wait for any disconnecting session to clean up before proceeding
                     if let Some(cid) = cnac.as_ref().map(|c| c.get_cid()) {
-                        if !self.can_proceed_with_new_incoming_connection(cid).await {
-                            return Err(NetworkError::Generic(format!(
-                                "Session for CID {cid} already exists. Disconnect first before reconnecting."
-                            )));
+                        if !self
+                            .can_proceed_with_new_incoming_connection(cid, false)
+                            .await
+                        {
+                            return Err(error!(ErrorCode::SessionManagerSessionAlreadyExists, cid));
                         }
                     }
 
@@ -351,9 +398,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                             // remove the entry, since it's expired anyways
                             let _ = this.provisional_connections.remove(&peer_addr);
                         } else {
-                            return Err(NetworkError::Generic(format!(
-                                "Localhost is already trying to connect to {peer_addr}"
-                            )));
+                            return Err(error!(
+                                ErrorCode::SessionManagerProvisionalConnectionExists,
+                                peer_addr
+                            ));
                         }
                     }
 
@@ -379,10 +427,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let primary_stream =
                     T::connect(default_client_config, T::from_socket_addr(peer_addr))
                         .await
-                        .map_err(|err| NetworkError::SocketError(err.to_string()))?;
+                        .map_err(|err| NetworkError::socket(err.to_string()))?;
                 let local_bind_addr: SocketAddr = T::to_socket_addr(
                     &T::local_addr(&primary_stream)
-                        .map_err(|err| NetworkError::Generic(err.to_string()))?,
+                        .map_err(|err| NetworkError::generic(err.to_string()))?,
                 );
                 (
                     remote,
@@ -709,7 +757,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             inner_mut_state!(existing_session.1.state_container)
                 .process_outbound_broadcast_command(ticket, &command)
         } else {
-            Err(NetworkError::Generic(format!("Hypernode session for {session_cid} does not exist! Not going to handle group broadcast signal {command:?} ...")))
+            Err(error!(
+                ErrorCode::SessionManagerSessionNotFound,
+                session_cid
+            ))
         }
     }
 
@@ -742,9 +793,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 |_| {},
             )
         } else {
-            Err(NetworkError::Generic(format!(
-                "Hypernode session for {session_cid} does not exist! Not going to send data ..."
-            )))
+            Err(error!(
+                ErrorCode::SessionManagerSessionNotFound,
+                session_cid
+            ))
         }
     }
 
@@ -761,9 +813,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         if let Some((_, sess)) = lock.sessions.get(&session_cid) {
             sess.revfs_pull(ticket, v_conn, virtual_path, delete_on_pull, security_level)
         } else {
-            Err(NetworkError::Generic(format!(
-                "Hypernode session for {session_cid} does not exist! Not going to process request ..."
-            )))
+            Err(error!(
+                ErrorCode::SessionManagerSessionNotFound,
+                session_cid
+            ))
         }
     }
 
@@ -779,9 +832,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         if let Some((_, sess)) = lock.sessions.get(&session_cid) {
             sess.revfs_delete(ticket, v_conn, virtual_path, security_level)
         } else {
-            Err(NetworkError::Generic(format!(
-                "Hypernode session for {session_cid} does not exist! Not going to process request ..."
-            )))
+            Err(error!(
+                ErrorCode::SessionManagerSessionNotFound,
+                session_cid
+            ))
         }
     }
 
@@ -798,9 +852,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             let mut state_container = inner_mut_state!(sess.state_container);
             state_container.initiate_rekey(virtual_target, Some(ticket))
         } else {
-            Err(NetworkError::Generic(format!(
-                "Unable to initiate entropy_bank update subroutine for {session_cid} (not an active session)"
-            )))
+            Err(error!(
+                ErrorCode::SessionManagerNotActiveSession,
+                session_cid
+            ))
         }
     }
 
@@ -816,9 +871,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             let sess = &sess.1;
             sess.initiate_deregister(connection_type, ticket)
         } else {
-            Err(NetworkError::Generic(format!(
-                "Unable to initiate deregister subroutine for {session_cid} (not an active session)"
-            )))
+            Err(error!(
+                ErrorCode::SessionManagerNotActiveSession,
+                session_cid
+            ))
         }
     }
 
@@ -844,7 +900,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             if let Some(sess) = this.sessions.get(&session_cid) {
                 sess.1.clone()
             } else {
-                return Err(NetworkError::msg(format!("Session for {session_cid} not found in session manager. Failed to dispatch peer command {peer_command:?}")));
+                return Err(error!(
+                    ErrorCode::SessionManagerDispatchSessionNotFound,
+                    session_cid
+                ));
             }
         };
 
@@ -1114,7 +1173,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 security_level,
             )
             .await
-            .map_err(NetworkError::Generic)?;
+            .map_err(NetworkError::generic)?;
 
         let len = to_broadcast_left.len();
         let peers_and_statuses_left = to_broadcast_left
@@ -1130,7 +1189,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 security_level,
             )
             .await
-            .map_err(NetworkError::Generic)?;
+            .map_err(NetworkError::generic)?;
 
         Ok(true)
     }
@@ -1356,16 +1415,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 }
                 (recv, len)
             } else {
-                return Err(NetworkError::InternalError(
-                    "UnboundedReceiver not loaded in session manager",
-                ));
+                return Err(error!(ErrorCode::SessionManagerReceiverNotLoaded));
             }
         };
 
         for _ in 0..len {
-            recv.recv().await.ok_or(NetworkError::InternalError(
-                "Unable to receive shutdown signal",
-            ))?;
+            recv.recv()
+                .await
+                .ok_or(error!(ErrorCode::SessionManagerShutdownRecvFailed))?;
         }
 
         log::trace!(target: "citadel", "All sessions dropped");
@@ -1526,7 +1583,7 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
             let peer_sender = peer_sess
                 .to_primary_stream
                 .as_ref()
-                .ok_or(NetworkError::InternalError("Peer stream absent"))?;
+                .ok_or(error!(ErrorCode::SessionManagerPeerStreamAbsent))?;
             let accessor = EndpointCryptoAccessor::C2S(peer_sess.state_container.clone());
 
             accessor.borrow_hr(None, |hr, _| {
@@ -1536,9 +1593,10 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
                     .map_err(|err| NetworkError::msg(err.to_string()))
             })?
         } else {
-            Err(NetworkError::Generic(format!(
-                "unable to find peer sess {target_cid}"
-            )))
+            Err(error!(
+                ErrorCode::SessionManagerPeerSessionNotFound,
+                target_cid
+            ))
         }
     }
 }

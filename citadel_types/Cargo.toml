@@ -12,11 +12,11 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+citadel_io = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 strum = { workspace = true, features = ["derive"] }
 strum_macros = { workspace = true }
 bytes = { workspace = true, features = ["serde"] }
-twox-hash = { workspace = true, features = ["xxhash64"] }
 packed_struct = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v4"] }
 bincode = { workspace = true }

@@ -13,13 +13,29 @@ members = [
     "netbeam",
     "citadel_logging",
     "citadel_io",
+    "citadel_io_macros",
+    "citadel_treekem",
     "citadel_types",
     "example-library",
 ]
 
 exclude = [
     "./target/*",
+    # AFL fuzz harness — its own crate with AFL-instrumented build flags + the `afl` runtime; kept out
+    # of the main workspace so it never affects normal builds/CI. Built via `cargo make fuzz`.
+    "fuzz",
 ]
+
+# Aggressive release optimization. `lto = "fat"` + `codegen-units = 1` let the optimizer inline
+# and vectorize across crate boundaries (the per-packet crypto/serialization/scramble paths span
+# citadel_crypt/pqcrypto/proto). NOT `panic = "abort"` — a server must keep unwinding so one
+# panicking session task can't abort the whole process. `bench` inherits these, so benchmarks
+# measure the shipped profile.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
 
 [workspace.lints.clippy]
 await_holding_lock = "warn"
@@ -34,6 +50,8 @@ citadel_pqcrypto = { path = "./citadel_pqcrypto", default-features = false, vers
 citadel_proto = { path = "./citadel_proto", default-features = false, version = "0.14.0" }
 citadel_logging = { path = "./citadel_logging", default-features = false, version = "0.14.0" }
 citadel_io = { path = "./citadel_io", default-features = false, version = "0.14.0" }
+citadel_io_macros = { path = "./citadel_io_macros", version = "0.14.0" }
+citadel_treekem = { path = "./citadel_treekem", default-features = false, version = "0.14.0" }
 citadel_types = { path = "./citadel_types", default-features = false, version = "0.14.0" }
 netbeam = { path = "./netbeam", default-features = false, version = "0.14.0" }
 firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.14.0" }
@@ -51,6 +69,10 @@ log = { default-features = false, version = "0.4.17" }
 strum = { version = "0.27.1", default-features = false }
 strum_macros = { version = "0.27.1", default-features = false }
 sha3 = { version = "0.10", default-features = false }
+# BLAKE3 (SIMD) keyed-hash PRF for the per-message nonce KDF (faster than SHA3-256/Keccak). SHA3
+# remains for ratchet key-evolution + the PQ layer. `std` (enabled via citadel_crypt's std feature)
+# turns on x86 runtime SIMD feature detection.
+blake3 = { version = "1.5", default-features = false }
 kyber-pke = { version = "0.5.0", default-features = false }
 packed_struct = { version = "0.10.1" }
 getrandom = { version = "0.3.3", default-features = false }
@@ -63,6 +85,7 @@ tokio = { version = "1.47.0" }
 bytes = { default-features = false, version = "1.3.0" }
 async-trait = { default-features = false, version = "0.1.61" }
 anyhow = { default-features = false, version = "1.0.68" }
+thiserror = { default-features = false, version = "2.0" }
 rand = { default-features = false, version = "0.8.5" }
 async-stream = { default-features = false, version = "0.3.3" }
 sync_wrapper = { default-features = false, version = "1.0.0" }
@@ -79,6 +102,8 @@ rust-argon2 = { version = "3.0", default-features = false }
 tokio-stream = { default-features = false, version = "0.1.17" }
 zeroize = { default-features = false, version = "1.5.7" }
 libc = { version = "0.2.139", default-features = false }
+io-uring = { version = "0.7.9", default-features = false }
+dashmap = { version = "6.1.0", default-features = false }
 kernel32-sys = { version = "0.2.2", default-features = false }
 rayon = { default-features = false, version = "1.7.0" }
 sysinfo = { default-features = false, version = "0.29.8" }

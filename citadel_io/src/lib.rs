@@ -67,6 +67,9 @@ pub use wasm::locks::*;
 #[cfg(not(target_family = "wasm"))]
 pub use standard::locks::*;
 
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+pub use standard::udp_io_uring::IoUringUdpReceiver;
+
 #[cfg(all(feature = "deadlock-detection", not(target_family = "wasm")))]
 pub use parking_lot::deadlock;
 
@@ -81,12 +84,9 @@ pub use wasm::rng::{WasmRng as ThreadRng, *};
 pub use rand::Rng;
 pub use rand::RngCore;
 
-/// Represents errors that can occur during I/O operations
-#[derive(Debug)]
-pub enum Error {
-    /// Wraps a standard I/O error
-    IoError(std::io::Error),
-}
+/// The workspace-wide canonical error type. See [`error::NetworkError`].
+pub mod error;
+pub use error::{Dbg, ErrorArgs, ErrorCode, NetworkError};
 
 pub mod time;
 

@@ -327,9 +327,9 @@ impl Future for AsyncArgon {
 const DEFAULT_LANES: u32 = 8;
 pub const DEFAULT_HASH_LENGTH: u32 = 32;
 #[cfg(not(debug_assertions))]
-const DEFAULT_MEM_COST: u32 = 1024 * 64;
+pub(crate) const DEFAULT_MEM_COST: u32 = 1024 * 64;
 #[cfg(debug_assertions)]
-const DEFAULT_MEM_COST: u32 = 1024;
+pub(crate) const DEFAULT_MEM_COST: u32 = 1024;
 #[cfg(not(debug_assertions))]
 const DEFAULT_TIME_COST: u32 = 10;
 #[cfg(debug_assertions)]

@@ -1,0 +1,53 @@
+[package]
+name = "citadel-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "AFL fuzz harnesses for the Citadel Protocol parse/validate boundary (not a workspace member)."
+
+[dependencies]
+# AFL (American Fuzzy Lop) library: the `fuzz!` harness macro + instrumentation runtime. The matching
+# CLI subcommand is the separate `cargo-afl` crate (`cargo install cargo-afl`) — keep versions aligned.
+afl = "0.18"
+# The `fuzzing` feature exposes citadel_proto::fuzz_targets (thin wrappers over internal parse fns).
+citadel_proto = { path = "../citadel_proto", features = ["fuzzing"] }
+
+# One instrumented binary per untrusted-input boundary. test/doc/bench off — these are fuzz drivers.
+[[bin]]
+name = "hdp_header_parse"
+path = "src/bin/hdp_header_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "header_obfuscator"
+path = "src/bin/header_obfuscator.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "group_header_validate"
+path = "src/bin/group_header_validate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "file_packet_deser"
+path = "src/bin/file_packet_deser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "group_cgka_parse"
+path = "src/bin/group_cgka_parse.rs"
+test = false
+doc = false
+bench = false
+
+# Keep debug symbols in the optimized fuzz build so crashes are easy to triage (afl builds release).
+[profile.release]
+debug = true

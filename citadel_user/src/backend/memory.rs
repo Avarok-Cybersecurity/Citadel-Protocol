@@ -116,7 +116,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         let mut write = self.clients.write();
         let cl = write
             .remove(&cid)
-            .ok_or(AccountError::ClientNonExists(cid))?;
+            .ok_or(AccountError::account_client_non_exists(cid))?;
 
         // delete all related peer entries in other CNACs
         if let Some(peers) = cl.get_hyperlan_peer_list() {
@@ -174,8 +174,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let read = self.clients.read();
-        let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
-        let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid0))?;
+        let cnac0 = read
+            .get(&cid0)
+            .ok_or(AccountError::account_client_non_exists(cid0))?;
+        let cnac1 = read
+            .get(&cid1)
+            .ok_or(AccountError::account_client_non_exists(cid0))?;
         cnac0.register_hyperlan_p2p_as_server(cnac1)
     }
 
@@ -188,7 +192,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         self.clients
             .read()
             .get(&session_cid)
-            .ok_or(AccountError::ClientNonExists(session_cid))?
+            .ok_or(AccountError::account_client_non_exists(session_cid))?
             .insert_hyperlan_peer(peer_cid, peer_username);
 
         Ok(())
@@ -196,8 +200,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let read = self.clients.read();
-        let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
-        let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid0))?;
+        let cnac0 = read
+            .get(&cid0)
+            .ok_or(AccountError::account_client_non_exists(cid0))?;
+        let cnac1 = read
+            .get(&cid1)
+            .ok_or(AccountError::account_client_non_exists(cid0))?;
 
         cnac0.deregister_hyperlan_p2p_as_server(cnac1)
     }
@@ -211,7 +219,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
             .clients
             .read()
             .get(&session_cid)
-            .ok_or(AccountError::ClientNonExists(session_cid))?
+            .ok_or(AccountError::account_client_non_exists(session_cid))?
             .remove_hyperlan_peer(peer_cid))
     }
 

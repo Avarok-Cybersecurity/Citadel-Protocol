@@ -28,7 +28,7 @@ async fn main() {
                         chan,
                     ))
                     .await
-                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    .map_err(|err| NetworkError::generic(err.to_string()))?;
                     Ok(())
                 },
             ),

@@ -35,7 +35,7 @@
 
 use crate::error::NetworkError;
 use crate::proto::packet::packet_flags;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 pub use citadel_io::tokio::sync::mpsc::{
     error::SendError, Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
 };
@@ -69,28 +69,84 @@ pub fn channel<T>(len: usize) -> (Sender<T>, Receiver<T>) {
     citadel_io::tokio::sync::mpsc::channel(len)
 }
 
-#[derive(Clone)]
-pub struct OutboundPrimaryStreamSender(UnboundedSender<bytes::BytesMut>);
+/// A unit of work queued for the primary outbound stream.
+///
+/// `Contiguous` carries a single `[header | payload]` buffer (control, message, and
+/// single-packet paths). `Split` carries the header and the (shared) ciphertext payload
+/// as two independent buffers so the wire writer can emit them with vectored I/O,
+/// avoiding the per-chunk copy that concatenating them would require. In both cases the
+/// on-wire bytes are identical to a single `[length | header | payload]` frame.
+#[derive(Debug)]
+pub enum OutboundPacket {
+    Contiguous(BytesMut),
+    Split {
+        header: BytesMut,
+        payload: Bytes,
+    },
+    /// A flush-barrier (carries no wire bytes): the writer flushes everything queued before it, then
+    /// signals `ack`. Used on the graceful-disconnect path to deterministically wait for the FINAL
+    /// packet to reach the socket BEFORE the session ends (and the writer is dropped), replacing a
+    /// fixed sleep. Best-effort on the writer side — a flush failure is swallowed (still acks), so it
+    /// can never resolve the writer task with an error / change the session exit reason.
+    Flush(citadel_io::tokio::sync::oneshot::Sender<()>),
+}
 
-impl OutboundPrimaryStreamSender {
+impl OutboundPacket {
+    /// Total on-wire body length (the value written into the length-delimited frame prefix).
     #[inline]
-    pub fn unbounded_send(&self, item: bytes::BytesMut) -> Result<(), SendError<BytesMut>> {
-        self.0.unbounded_send(item)
+    pub fn body_len(&self) -> usize {
+        match self {
+            OutboundPacket::Contiguous(buf) => buf.len(),
+            OutboundPacket::Split { header, payload } => header.len() + payload.len(),
+            OutboundPacket::Flush(_) => 0,
+        }
     }
 }
 
-impl From<UnboundedSender<bytes::BytesMut>> for OutboundPrimaryStreamSender {
-    fn from(inner: UnboundedSender<BytesMut>) -> Self {
+#[derive(Clone)]
+pub struct OutboundPrimaryStreamSender(UnboundedSender<OutboundPacket>);
+
+impl OutboundPrimaryStreamSender {
+    #[inline]
+    pub fn unbounded_send(&self, item: bytes::BytesMut) -> Result<(), SendError<OutboundPacket>> {
+        self.0.unbounded_send(OutboundPacket::Contiguous(item))
+    }
+
+    /// Queue a packet whose header and payload are sent as two buffers via vectored I/O,
+    /// eliminating the copy that materializing a single contiguous packet would require.
+    #[inline]
+    pub fn unbounded_send_split(
+        &self,
+        header: BytesMut,
+        payload: Bytes,
+    ) -> Result<(), SendError<OutboundPacket>> {
+        self.0
+            .unbounded_send(OutboundPacket::Split { header, payload })
+    }
+
+    /// Queue a flush-barrier: the writer flushes everything queued before this marker, then signals
+    /// `ack`. See [`OutboundPacket::Flush`].
+    #[inline]
+    pub fn send_flush(
+        &self,
+        ack: citadel_io::tokio::sync::oneshot::Sender<()>,
+    ) -> Result<(), SendError<OutboundPacket>> {
+        self.0.unbounded_send(OutboundPacket::Flush(ack))
+    }
+}
+
+impl From<UnboundedSender<OutboundPacket>> for OutboundPrimaryStreamSender {
+    fn from(inner: UnboundedSender<OutboundPacket>) -> Self {
         Self(inner)
     }
 }
 
 pub struct OutboundPrimaryStreamReceiver(
-    pub citadel_io::tokio_stream::wrappers::UnboundedReceiverStream<bytes::BytesMut>,
+    pub citadel_io::tokio_stream::wrappers::UnboundedReceiverStream<OutboundPacket>,
 );
 
-impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundPrimaryStreamReceiver {
-    fn from(inner: UnboundedReceiver<BytesMut>) -> Self {
+impl From<UnboundedReceiver<OutboundPacket>> for OutboundPrimaryStreamReceiver {
+    fn from(inner: UnboundedReceiver<OutboundPacket>) -> Self {
         Self(citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(inner))
     }
 }
@@ -124,7 +180,7 @@ impl OutboundUdpSender {
     pub fn unbounded_send<T: Into<BytesMut>>(&self, packet: T) -> Result<(), NetworkError> {
         self.sender
             .unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet.into()))
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     pub fn send_keep_alive(&self) -> bool {
@@ -151,25 +207,25 @@ impl Sink<BytesMut> for OutboundUdpSender {
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(&mut self.sender)
             .poll_ready(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     fn start_send(mut self: Pin<&mut Self>, item: BytesMut) -> Result<(), Self::Error> {
         Pin::new(&mut self.sender)
             .start_send((packet_flags::cmd::aux::udp::STREAM, item))
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(&mut self.sender)
             .poll_flush(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(&mut self.sender)
             .poll_close(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 }
 
@@ -219,7 +275,7 @@ impl<T> Sink<T> for UnboundedSender<T> {
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.0.is_closed() {
-            Poll::Ready(Err(NetworkError::InternalError("Channel tx closed")))
+            Poll::Ready(Err(NetworkError::internal("Channel tx closed")))
         } else {
             Poll::Ready(Ok(()))
         }
@@ -228,7 +284,7 @@ impl<T> Sink<T> for UnboundedSender<T> {
     fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
         self.0
             .send(item)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

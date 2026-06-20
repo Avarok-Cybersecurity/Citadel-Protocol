@@ -47,10 +47,10 @@ pub(crate) mod do_connect {
     ) -> Result<DoConnectStage0Packet, NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
         let payload = DoConnectStage0Packet::deserialize_from_vector(payload)
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         cnac.validate_credentials(payload.proposed_credentials.clone())
             .await
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         log::trace!(target: "citadel", "Success validating credentials!");
         Ok(payload)
     }
@@ -104,10 +104,12 @@ pub(crate) mod group {
     pub(crate) fn validate_header(payload: &BytesMut) -> Option<GroupHeader> {
         let mut group_header = GroupHeader::deserialize_from_vector(payload).ok()?;
         if let GroupHeader::Standard(group_receiver_config, _) = &mut group_header {
-            if group_receiver_config.plaintext_length as usize
-                > citadel_user::prelude::MAX_BYTES_PER_GROUP
-            {
-                log::error!(target: "citadel", "The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
+            // Reject configs that are internally inconsistent or would drive an out-of-proportion
+            // receiver-side allocation (memory-exhaustion DoS). This bounds every allocation field
+            // (wave_count, packets_needed, max_payload_size, max_packets_per_wave), not just
+            // plaintext_length, which is the only field the legacy check covered.
+            if let Err(err) = group_receiver_config.validate() {
+                log::error!(target: "citadel", "The provided GroupReceiverConfiguration was rejected: {err:?}. Dropping ...");
                 return None;
             }
         }
@@ -218,6 +220,7 @@ pub(crate) mod pre_connect {
     use crate::proto::packet_crafter::pre_connect::{PreConnectStage0, SynPacket};
     use crate::proto::packet_processor::includes::packet_crafter::pre_connect::SynAckPacket;
     use citadel_crypt::ratchets::Ratchet;
+    use citadel_io::{error, ErrorCode};
     use citadel_types::crypto::PreSharedKey;
     use citadel_types::proto::SessionSecuritySettings;
     use citadel_types::proto::UdpMode;
@@ -247,17 +250,20 @@ pub(crate) mod pre_connect {
         >,
         NetworkError,
     > {
-        // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
+        // refresh_static_ratchet() resets the static auxiliary ratchet's transient state, including
+        // its anti-replay container. This MUST happen before validating the SYN: a legitimate
+        // reconnect reuses low packet IDs (starting at 0), so validating against the previous
+        // connection's anti-replay window would reject it. (An attacker cannot exploit this without
+        // already possessing the static device key required to pass the AEAD check below.)
         let static_auxiliary_ratchet = cnac.refresh_static_ratchet();
         let (header, payload, _, _) = packet.decompose();
         // After this point, we validate that the other end had the right static symmetric key. This proves device identity, thought not necessarily account identity
         let (header, payload) =
-            super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload).ok_or(
-                NetworkError::InternalError("Unable to validate initial packet"),
-            )?;
+            super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload)
+                .ok_or(error!(ErrorCode::ValidationInitialPacketFailed))?;
 
         let transfer = SynPacket::<R>::deserialize_from_vector(&payload)
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
 
         let session_security_settings = transfer.session_security_settings;
         let peer_only_connect_mode = transfer.peer_only_connect_protocol;
@@ -266,7 +272,7 @@ pub(crate) mod pre_connect {
         let kat = transfer.keep_alive_timeout;
         let _ = static_auxiliary_ratchet
             .verify_level(Some(transfer.session_security_settings.security_level))
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         let opts = static_auxiliary_ratchet
             .get_next_constructor_opts()
             .into_iter()
@@ -279,18 +285,16 @@ pub(crate) mod pre_connect {
             transfer.transfer,
             session_password.as_ref(),
         )
-        .ok_or(NetworkError::InternalError(
-            "Unable to create bob container",
-        ))?;
+        .ok_or(error!(ErrorCode::ValidationBobContainerFailed))?;
         let transfer = bob_constructor
             .stage0_bob()
-            .ok_or(NetworkError::InternalError("Unable to execute stage0_bob"))?;
-        let new_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError(
-            "Unable to finish bob constructor",
-        ))?;
+            .ok_or(error!(ErrorCode::ValidationStage0BobFailed))?;
+        let new_ratchet = bob_constructor
+            .finish()
+            .ok_or(error!(ErrorCode::ValidationBobConstructorFinishFailed))?;
         let _ = new_ratchet
             .verify_level(transfer.security_level().into())
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+            .map_err(|err| NetworkError::generic(err.into_string()))?;
         // below, we need to ensure the hyper ratchet stays constant throughout transformations
         let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_ratchet.clone()));
 

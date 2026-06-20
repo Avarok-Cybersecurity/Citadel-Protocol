@@ -35,6 +35,7 @@ use crate::proto::session::SessionState;
 use citadel_io::time::{delay_queue, DelayQueue};
 use citadel_io::tokio::sync::broadcast::Sender;
 use citadel_io::tokio::time::error::Error;
+use citadel_io::{error, ErrorCode};
 use futures::Stream;
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -132,7 +133,11 @@ impl<R: Ratchet> SessionQueueWorkerHandle<R> {
     ) {
         self.insert_reserved(
             Some(QueueWorkerTicket::Periodic(
-                idx + QUEUE_WORKER_RESERVED_INDEX + self.rolling_idx.fetch_add(1, Ordering::SeqCst),
+                // Relaxed is sufficient: this counter only mints a unique periodic-ticket index; it
+                // guards no other memory and needs no happens-before ordering, so SeqCst's full
+                // fence is unnecessary (and costlier on weak-memory archs like aarch64).
+                idx + QUEUE_WORKER_RESERVED_INDEX
+                    + self.rolling_idx.fetch_add(1, Ordering::Relaxed),
                 target_cid,
             )),
             timeout,
@@ -327,9 +332,7 @@ impl<R: Ratchet> futures::Future for SessionQueueWorker<R> {
                     //log::error!(target: "citadel", "Unable to shutdown session: {:?}", err);
                 }
 
-                Poll::Ready(Err(NetworkError::InternalError(
-                    "Queue handler signalled shutdown",
-                )))
+                Poll::Ready(Err(error!(ErrorCode::QueueHandlerShutdown)))
             }
         }
     }

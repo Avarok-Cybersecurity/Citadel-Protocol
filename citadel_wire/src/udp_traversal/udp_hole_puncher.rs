@@ -49,7 +49,7 @@ pub struct UdpHolePuncher<'a> {
 }
 
 const DEFAULT_TIMEOUT: Duration =
-    Duration::from_millis((IDENTIFY_TIMEOUT.as_millis() + 5000) as u64);
+    Duration::from_millis((IDENTIFY_TIMEOUT.as_millis() + 17000) as u64);
 
 impl<'a> UdpHolePuncher<'a> {
     pub fn new(
@@ -354,6 +354,88 @@ mod tests {
             assert_ne!(len, 0);
             //assert_eq!(res0.addr.receive_address, addr);
             log::trace!(target: "citadel", "D");
+        }
+    }
+
+    /// Regression test for the hole-punch consensus under high coordination-channel lag — and, since
+    /// the retry-desync fix, for the RETRY-RECOVERY path itself. `NetworkConnSimulator` adds a random
+    /// 1x..2x delay per message, so 450 ms here means up to 900 ms/msg. That puts a single consensus
+    /// attempt right at the production per-attempt timeout (`DEFAULT_TIMEOUT = IDENTIFY_TIMEOUT + 17s
+    /// = 20s`), so the unlucky-tail runs exceed it and trigger a RETRY.
+    ///
+    /// Previously a retry was fatal: re-running the driver re-created the multiplex subscriptions,
+    /// and because each attempt consumes a *variable* number of ids, a cancelled attempt left the two
+    /// peers' subscription counters skewed — every later subscription then paired on mismatched ids,
+    /// the consensus never agreed, the punched paths mismatched, and the exchange deadlocked. The fix
+    /// (netbeam: hole-punch conns disable the local pre-reserve fast-path + `subscribe` catches up to
+    /// the peer-driven id instead of panicking on a gap) lets a retry RECOVER: the Initiator simply
+    /// re-pairs on the Receiver's next id. So at 450 ms this now passes by *succeeding on retry* —
+    /// which is exactly what we want to guard. The budget below is sized to absorb a 20s attempt
+    /// timeout + the recovering retry.
+    #[cfg(not(target_os = "windows"))]
+    // Skipped under coverage: llvm-cov instrumentation slows the consensus past the
+    // (production) per-attempt timeout, deadlocking this lag-calibrated test in the
+    // instrumented environment only. It still runs uninstrumented in the core_libs CI job.
+    #[cfg_attr(coverage, ignore)]
+    #[tokio::test]
+    async fn test_dual_hole_puncher_high_lag_consensus() {
+        use std::time::Duration;
+        citadel_logging::setup_log();
+        const LAG_MS: usize = 450;
+        const ITERS: usize = 5;
+        // Big enough to absorb a 20s attempt-timeout followed by a recovering retry (the retry now
+        // re-pairs instead of deadlocking). A genuine failure (consensus never agreeing) still trips
+        // it within MAX_RETRIES × DEFAULT_TIMEOUT.
+        const PER_ITER_TIMEOUT: Duration = Duration::from_secs(75);
+
+        for i in 0..ITERS {
+            let (server_stream, client_stream) = create_streams_with_addrs_and_lag(LAG_MS).await;
+
+            let iteration = async move {
+                let server = citadel_io::tokio::task::spawn(async move {
+                    server_stream
+                        .begin_udp_hole_punch(Default::default())
+                        .await
+                        .map_err(|e| e.to_string())
+                });
+                let client = citadel_io::tokio::task::spawn(async move {
+                    client_stream
+                        .begin_udp_hole_punch(Default::default())
+                        .await
+                        .map_err(|e| e.to_string())
+                });
+                let (res0, res1) = citadel_io::tokio::join!(server, client);
+                let s0 = res0
+                    .expect("server task panicked")
+                    .expect("server punch err");
+                let s1 = res1
+                    .expect("client task panicked")
+                    .expect("client punch err");
+
+                // Exchange a datagram both ways. If the consensus failed and the two sides
+                // picked mismatched candidate sockets, this hangs and the per-iter timeout fires.
+                let dummy = b"Hello, world!";
+                s0.send_to(dummy as &[u8], s0.addr.send_address)
+                    .await
+                    .unwrap();
+                let buf = &mut [0u8; 4096];
+                let (len, _) = s1.recv_from(buf).await.unwrap();
+                assert_ne!(len, 0);
+                s1.send_to(dummy as &[u8], s1.addr.send_address)
+                    .await
+                    .unwrap();
+                let (len, _) = s0.recv_from(buf).await.unwrap();
+                assert_ne!(len, 0);
+            };
+
+            match citadel_io::tokio::time::timeout(PER_ITER_TIMEOUT, iteration).await {
+                Ok(()) => {
+                    log::info!(target: "citadel", "[hole-punch-consensus] iter {i}/{ITERS} OK")
+                }
+                Err(_) => {
+                    panic!("iter {i}: hole-punch consensus deadlocked at lag {LAG_MS}ms (per-attempt timeout too short?)")
+                }
+            }
         }
     }
 }

@@ -45,11 +45,15 @@ impl TimeTracker {
         Default::default()
     }
 
-    /// Returns the current global time in nanoseconds.
+    /// Returns the current wall-clock time in nanoseconds since the Unix epoch (modulo i64::MAX).
     ///
-    /// This method returns the number of nanoseconds since the Unix epoch,
-    /// modulo i64::MAX to prevent overflow. This provides approximately
-    /// 100 years of unique timestamps before wrapping around.
+    /// NOTE: this is **wall-clock** (`SystemTime`) time, not a monotonic clock, so it can jump
+    /// backward/forward across NTP adjustments. Callers must not rely on it being monotonic.
+    /// It is safe for the distributed-lock arbitration tie-break (`net_mutex`/`net_rwlock`) because
+    /// each side generates its timestamp locally and *transmits* it; both peers then compare the
+    /// identical pair of absolute values with a strict ordering (ties broken deterministically by
+    /// `RelativeNodeType`), so exactly one side wins regardless of clock skew. Skew affects only
+    /// fairness (which side is deemed "first"), never mutual exclusion.
     ///
     /// # Returns
     ///

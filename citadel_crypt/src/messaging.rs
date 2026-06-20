@@ -148,7 +148,7 @@ where
                 }
             };
 
-            let mut ordered_channel = OrderedChannel::new(tx);
+            let ordered_channel = OrderedChannel::new(tx);
 
             let ordered_receiver = async move {
                 while let Some(message) = payload_rx.recv().await {
@@ -232,8 +232,8 @@ where
 {
     pub async fn send(&mut self, message: impl Into<P>) -> Result<(), CryptError> {
         if !self.is_active.load(ORDERING) {
-            return Err(CryptError::Encrypt(
-                "Cannot send encrypted messages (stream died)".to_string(),
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::MessengerStreamDied
             ));
         }
 
@@ -257,7 +257,7 @@ where
                         .send(RatchetMessage::JustMessage(message_not_sent))
                         .await
                         .map_err(|_| {
-                            CryptError::FatalError("Ratchet Manager's outbound stream died".into())
+                            citadel_io::error!(citadel_io::ErrorCode::RatchetManagerStreamDied)
                         })
                 } else {
                     // Success; this message will trigger a simultaneous rekey

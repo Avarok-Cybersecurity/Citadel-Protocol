@@ -172,7 +172,10 @@ impl BackendType {
             }
         }
 
-        Err(AccountError::msg(format!("The addr '{addr}' is not a valid target (hint: ensure either 'redis', 'sql', 'filesystem', or 'opfs' features are enabled when compiling")))
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::BackendTargetInvalid,
+            addr.to_string()
+        ))
     }
 
     #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
@@ -397,9 +400,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
         cid: u64,
         virtual_path: std::path::PathBuf,
     ) -> Result<(Box<dyn ObjectSource>, VirtualObjectMetadata), AccountError> {
-        Err(AccountError::Generic(
-            "The target does not support the RE-VFS protocol".into(),
-        ))
+        Err(citadel_io::error!(citadel_io::ErrorCode::RevfsUnsupported))
     }
     /// Deletes the encrypted file from the virtual filesystem
     #[allow(unused_variables)]
@@ -408,9 +409,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
         cid: u64,
         virtual_path: std::path::PathBuf,
     ) -> Result<(), AccountError> {
-        Err(AccountError::Generic(
-            "The target does not support the RE-VFS protocol".into(),
-        ))
+        Err(citadel_io::error!(citadel_io::ErrorCode::RevfsUnsupported))
     }
 }
 

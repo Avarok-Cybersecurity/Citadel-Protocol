@@ -35,6 +35,7 @@ use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualTargetType;
+use citadel_io::{error, ErrorCode};
 
 #[allow(private_interfaces)]
 impl PlatformOps for NativeIO {
@@ -67,7 +68,7 @@ impl PlatformOps for NativeIO {
         async move {
             let endpoint = NetworkEndpoint::register(node_type, stream)
                 .await
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
             log::trace!(target: "citadel", "{node_type:?} created for C2S hole punch");
 
             let config = generate_hole_punch_crypt_container(
@@ -172,24 +173,22 @@ impl PlatformOps for NativeIO {
         use citadel_crypt::prelude::FixedSizedSource;
 
         let file = std::fs::File::open(source_path)
-            .map_err(|err: std::io::Error| NetworkError::Generic(err.to_string()))?;
+            .map_err(|err: std::io::Error| NetworkError::generic(err.to_string()))?;
 
         if let Some(virtual_object_metadata) = expected_metadata {
             let expected_min_length = virtual_object_metadata.plaintext_length;
             let file_length = file
                 .length()
-                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
             if file_length < expected_min_length as u64 {
                 log::warn!(target: "citadel", "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem: Current file length: {file_length}, expected min length: {expected_min_length}");
-                return Err(NetworkError::InternalError(
-                    "The REVFS file cannot be pulled since it has not yet synchronized with the filesystem",
-                ));
+                return Err(error!(ErrorCode::RevfsFileNotSynchronized));
             }
         }
 
         file.metadata()
             .map(Into::into)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
     fn async_delete_file(source: PathBuf) {

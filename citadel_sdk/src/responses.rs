@@ -67,10 +67,9 @@ pub async fn peer_register<R: Ratchet>(
             let username = remote
                 .account_manager()
                 .get_username_by_cid(this_cid)
-                .await
-                .map_err(|err| NetworkError::Generic(err.into_string()))?
-                .ok_or(NetworkError::InvalidRequest(
-                    "Unable to find local username implied by signal",
+                .await?
+                .ok_or(citadel_io::error!(
+                    citadel_io::ErrorCode::ResponseLocalUsernameMissing
                 ))?;
             PeerResponse::Accept(Some(username))
         } else {
@@ -96,8 +95,8 @@ pub async fn peer_register<R: Ratchet>(
             .await
             .map(|_| ticket)
     } else {
-        Err(NetworkError::InternalError(
-            "Input signal is not a valid PostRegister",
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::ResponseNotPostRegister
         ))
     }
 }
@@ -143,8 +142,8 @@ pub async fn peer_connect<R: Ratchet>(
             .await
             .map(|_| ticket)
     } else {
-        Err(NetworkError::InternalError(
-            "Input signal is not a valid PostConnect",
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::ResponseNotPostConnect
         ))
     }
 }
@@ -176,14 +175,14 @@ pub async fn group_invite<R: Ratchet>(
             .await
             .map(|_| ticket)
     } else {
-        Err(NetworkError::InternalError(
-            "Input signal is not a group invitation",
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::ResponseNotGroupInvitation
         ))
     }
 }
 
 fn get_ticket(ticket: Option<Ticket>) -> Result<Ticket, NetworkError> {
-    ticket.ok_or(NetworkError::InvalidPacket(
-        "This event was improperly formed",
+    ticket.ok_or(citadel_io::error!(
+        citadel_io::ErrorCode::ResponseEventImproperlyFormed
     ))
 }

@@ -53,6 +53,7 @@
 
 use crate::argon::argon_container::{
     ArgonDefaultServerSettings, ArgonSettings, ArgonStatus, AsyncArgon, DEFAULT_HASH_LENGTH,
+    DEFAULT_MEM_COST,
 };
 use crate::misc::CryptError;
 use citadel_types::crypto::SecBuffer;
@@ -67,7 +68,7 @@ pub async fn calculate_optimal_argon_params(
     millis_minimum: u16,
     hash_length: Option<u32>,
     secret: Option<Vec<u8>>,
-) -> Result<ArgonDefaultServerSettings, CryptError<String>> {
+) -> Result<ArgonDefaultServerSettings, CryptError> {
     if cfg!(debug_assertions) {
         log::warn!(target: "citadel", "You are running the argon autotuner in a debug build. \
         This will give inaccurate results. Use a release build to ensure the best possible performance. \
@@ -75,9 +76,14 @@ pub async fn calculate_optimal_argon_params(
     }
 
     let system = sysinfo::System::new_all();
-    let available_memory_sys = system.free_memory();
-    let available_memory = std::cmp::min(available_memory_sys, 1024 * 1024); // ensure we don't start at too low of a value
-    let available_memory_kb = available_memory / 1024;
+    // sysinfo 0.29 reports memory in bytes; Argon2's mem_cost is expressed in KiB.
+    let available_memory_kb = system.free_memory() / 1024;
+    // Start the memory cost high and tune downward (memory-first strategy). Use half of the
+    // currently-free RAM to leave headroom for the rest of the process, but never start below
+    // DEFAULT_MEM_COST so an idle/low-memory probe still yields a memory-hard configuration.
+    // (The previous `min(.., 1 MiB)` *capped* the start at ~1 MiB, contradicting its own comment
+    // and producing far weaker-than-intended parameters.)
+    let start_mem_cost_kb = std::cmp::max(available_memory_kb / 2, DEFAULT_MEM_COST as u64);
     let hash_length = hash_length.unwrap_or(DEFAULT_HASH_LENGTH);
 
     let lanes: u32 = num_cpus::get() as _;
@@ -88,7 +94,7 @@ pub async fn calculate_optimal_argon_params(
     let mut mem_cost_tuned = false;
     // start with 1
     let mut time_cost = 1;
-    let mut mem_cost = available_memory_kb;
+    let mut mem_cost = start_mem_cost_kb;
 
     loop {
         let init_time = citadel_io::time::Instant::now();
@@ -104,7 +110,7 @@ pub async fn calculate_optimal_argon_params(
 
         match AsyncArgon::hash(fake_password.clone(), settings_this_round)
             .await
-            .map_err(|err| CryptError::Encrypt(err.to_string()))?
+            .map_err(|err| CryptError::encrypt(err.to_string()))?
         {
             ArgonStatus::HashSuccess(_) => {
                 let elapsed = init_time.elapsed().as_millis();
@@ -147,9 +153,10 @@ pub async fn calculate_optimal_argon_params(
                 }
             }
             res => {
-                return Err(CryptError::Encrypt(format!(
-                    "Unable to hash password: {res:?}",
-                )))
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::ArgonHashFailed,
+                    citadel_io::Dbg(res)
+                ))
             }
         }
     }

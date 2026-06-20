@@ -535,7 +535,9 @@ mod tests {
 
             result = client => {
                 if let Err(error) = result {
-                    assert!(error.into_string().contains("EncryptionFailure"));
+                    // Canonical NetworkError message is human-readable ("Encryption failure")
+                    // rather than the old variant-name Debug string ("EncryptionFailure").
+                    assert!(error.into_string().contains("Encryption failure"));
                 } else {
                     panic!("Client should not have connected")
                 }

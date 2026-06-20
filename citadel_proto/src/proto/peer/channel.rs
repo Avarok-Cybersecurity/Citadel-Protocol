@@ -62,6 +62,7 @@ use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::UserMessage;
 use crate::proto::state_container::VirtualConnectionType;
 use crate::{ProtocolMessenger, ProtocolMessengerRx, ProtocolMessengerTx};
+use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Pin;
 use citadel_types::crypto::SecBuffer;
@@ -179,7 +180,46 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
         self.to_outbound_stream
             .send(request)
             .await
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::generic(err.to_string()))
+    }
+
+    /// Fill-in-place send. Hands `fill` a mutable, zero-initialized buffer of exactly
+    /// `payload_len` bytes that becomes this message's payload, then seals and sends it.
+    /// This lets the caller serialize directly into the message buffer instead of staging
+    /// the payload in a separate allocation and handing it to [`Self::send`] — the bytes
+    /// are born in the buffer that gets encrypted.
+    ///
+    /// Note: on the ordered-reliable channel the payload is still serialized once into the
+    /// sealed packet (the sequencing envelope that guarantees in-order delivery). This API
+    /// removes the caller-side staging copy, not that envelope.
+    pub async fn reserve_write<F>(
+        &mut self,
+        payload_len: usize,
+        fill: F,
+    ) -> Result<(), NetworkError>
+    where
+        F: FnOnce(&mut [u8]) -> std::io::Result<()>,
+    {
+        // Zero-initialized so a short fill never exposes uninitialized memory (CWE-457).
+        let mut buf = BytesMut::zeroed(payload_len);
+        fill(&mut buf[..]).map_err(|err| NetworkError::generic(err.to_string()))?;
+        self.send(SecBuffer::from(buf)).await
+    }
+
+    /// Consumes the send half and returns a socket-like [`futures::Sink`] of `Bytes`, so
+    /// callers can `forward` a stream of payloads into the channel. Each item is moved into
+    /// a [`SecBuffer`] (zero-copy when the `Bytes` uniquely owns its allocation), sealed,
+    /// and sent through the same ordered-reliable path as [`Self::send`].
+    pub fn into_sink(self) -> impl futures::Sink<bytes::Bytes, Error = NetworkError> + Unpin {
+        // Box::pin so the returned sink is `Unpin` and usable directly with `SinkExt`
+        // (the `unfold` state future is not `Unpin`); one allocation per channel.
+        Box::pin(futures::sink::unfold(
+            self,
+            |mut this, item: bytes::Bytes| async move {
+                this.send(item).await?;
+                Ok::<_, NetworkError>(this)
+            },
+        ))
     }
 
     /// used to identify this channel in the network

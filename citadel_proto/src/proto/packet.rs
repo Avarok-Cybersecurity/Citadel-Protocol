@@ -38,6 +38,7 @@ use byteorder::WriteBytesExt;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use citadel_io as rand;
 use citadel_io::RngCore;
+use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::HeaderObfuscatorSettings;
 use rand::Rng;
 use rand::ThreadRng;
@@ -169,6 +170,13 @@ pub(crate) mod packet_sizes {
     /// Group packets
     pub(crate) const GROUP_HEADER_BASE_LEN: usize = HDP_HEADER_BYTE_LEN + 1;
     pub(crate) const GROUP_HEADER_ACK_LEN: usize = HDP_HEADER_BYTE_LEN + 1 + 1 + 4 + 4;
+
+    /// Wire overhead added per AEAD security layer when a packet is protected in place:
+    /// the anti-replay PID (u64) + the AEAD authentication tag (16) + the per-packet nonce
+    /// transient-id trailer (u64). Used to pre-size message buffers so the in-place
+    /// `protect_message_packet` never reallocates. (The Kyber-hybrid AEAD expands more and may
+    /// trigger one realloc — acceptable, as that path is dominated by PKE/signature cost.)
+    pub(crate) const MESSAGE_PACKET_PER_LAYER_OVERHEAD: usize = 8 + 16 + 8;
 }
 
 #[derive(Debug, FromZeroes, AsBytes, FromBytes, Unaligned, Clone)]
@@ -340,13 +348,13 @@ impl HeaderObfuscator {
 
             if key == 0 {
                 log::error!(target: "citadel", "[Header Obfuscator] Invalid first packet key == 0");
-                return Err(NetworkError::msg("Invalid first packet key"));
+                return Err(error!(ErrorCode::InvalidFirstPacketKey));
             }
 
             if let Some(expected_key) = self.expected_key {
                 if key != expected_key.get() {
                     log::error!(target: "citadel", "[Header Obfuscator] Invalid first packet key {key} != {expected_key}");
-                    return Err(NetworkError::msg("Invalid first packet key"));
+                    return Err(error!(ErrorCode::InvalidFirstPacketKey));
                 }
             }
 
@@ -366,16 +374,19 @@ impl HeaderObfuscator {
         }
     }
 
-    /// This will only obfuscate packets that are at least HDP_HEADER_BYTE_LEN
-    pub fn prepare_outbound(&self, mut packet: BytesMut) -> Bytes {
+    /// Applies the outbound header cipher in place. Only obfuscates buffers that are at
+    /// least HDP_HEADER_BYTE_LEN (the cipher covers the header region at the start of the
+    /// buffer). Used directly by the vectored wire writer, which keeps the header in its
+    /// own buffer rather than concatenated with the payload.
+    pub fn obfuscate_header(&self, packet: &mut BytesMut) {
         if self.client_intends_disable.get() && self.disabled.get() {
-            return packet.freeze();
+            return;
         }
 
         if let Some(key) = self.load() {
             if packet.len() >= HDP_HEADER_BYTE_LEN {
                 log::trace!(target: "citadel", "[Header Obfuscator] Applying outbound cipher w/key {key}");
-                apply_cipher(key, false, &mut packet);
+                apply_cipher(key, false, packet);
 
                 if self.client_intends_disable.get() {
                     // Prevent further use of the obfuscator
@@ -383,7 +394,11 @@ impl HeaderObfuscator {
                 }
             }
         }
+    }
 
+    /// This will only obfuscate packets that are at least HDP_HEADER_BYTE_LEN
+    pub fn prepare_outbound(&self, mut packet: BytesMut) -> Bytes {
+        self.obfuscate_header(&mut packet);
         packet.freeze()
     }
 
@@ -527,24 +542,11 @@ impl HdpBuffer for BytesMut {
     }
 }
 
-impl HdpBuffer for Vec<u8> {
-    type Immutable = Vec<u8>;
-
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    fn split_to(&mut self, idx: usize) -> Self {
-        let tail = self[..idx].to_vec();
-        self.copy_within(idx.., 0);
-        self.truncate(self.len() - idx);
-        tail // now, tail is the head
-    }
-
-    fn to_immutable(self) -> Self::Immutable {
-        self
-    }
-}
+// NOTE: `HdpBuffer` is only ever instantiated with `BytesMut` in production (the framed
+// reader yields `BytesMut`, and `HdpPacket` defaults `B = BytesMut`). The previous
+// `impl HdpBuffer for Vec<u8>` was never constructed anywhere and its `split_to` performed
+// a `to_vec()` + `copy_within` re-materialization on every call — a redundant-copy footgun.
+// Removed; add it back only if a `Vec`-backed packet path is genuinely introduced.
 
 #[cfg(test)]
 mod tests {

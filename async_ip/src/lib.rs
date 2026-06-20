@@ -69,7 +69,6 @@
     unused_results
 )]
 
-use std::fmt::Formatter;
 use std::net::IpAddr;
 use std::str::FromStr;
 
@@ -126,7 +125,7 @@ pub async fn get_all_multi_concurrent_from(
 
     let (res0, res2) = citadel_io::tokio::join!(internal_ip_future, external_ipv6_future);
     let internal_ip =
-        res0.ok_or_else(|| IpRetrieveError::Error("Could not obtain internal IP".to_string()))?;
+        res0.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::IpInternalUnobtainable))?;
     let external_ipv6 = res2.ok().map(|r| r.0);
 
     Ok(IpAddressInfo {
@@ -150,7 +149,7 @@ pub async fn get_all_from(
     let external_ipv6_future = get_ip_from(Some(client), v6_addr);
     let (res0, res2) = citadel_io::tokio::join!(internal_ip_future, external_ipv6_future);
     let internal_ip =
-        res0.ok_or_else(|| IpRetrieveError::Error("Could not obtain internal IP".to_string()))?;
+        res0.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::IpInternalUnobtainable))?;
     let external_ipv6 = res2.ok();
 
     Ok(IpAddressInfo {
@@ -174,14 +173,14 @@ pub async fn get_ip_from(
         .get(addr)
         .send()
         .await
-        .map_err(|err| IpRetrieveError::Error(err.to_string()))?;
+        .map_err(|err| IpRetrieveError::ip_retrieve(err.to_string()))?;
 
     let text = resp
         .text()
         .await
-        .map_err(|err| IpRetrieveError::Error(err.to_string()))?;
+        .map_err(|err| IpRetrieveError::ip_retrieve(err.to_string()))?;
 
-    IpAddr::from_str(text.as_str()).map_err(|err| IpRetrieveError::Error(err.to_string()))
+    IpAddr::from_str(text.as_str()).map_err(|err| IpRetrieveError::ip_retrieve(err.to_string()))
 }
 
 // --- Platform-specific internal IP resolution ---
@@ -245,16 +244,4 @@ pub fn get_default_client() -> reqwest::Client {
 }
 
 /// The default error type for this crate
-#[derive(Debug)]
-pub enum IpRetrieveError {
-    /// Generic wrapper
-    Error(String),
-}
-
-impl std::fmt::Display for IpRetrieveError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IpRetrieveError::Error(err) => write!(f, "{err}"),
-        }
-    }
-}
+pub type IpRetrieveError = citadel_io::NetworkError;

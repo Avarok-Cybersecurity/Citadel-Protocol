@@ -348,19 +348,35 @@ pub mod macros {
     };
 }
 
+    // The `_state` macros are used exclusively on `*.state_container`. Under `lock-profiling` they
+    // route through a timing helper that records the acquire-wait; otherwise they expand to the plain
+    // guard. Both forms are a *single expression* so `&mut inner_mut_state!(..)` deref-coercion at the
+    // call sites is preserved. Defined as a cfg pair (not an inner cfg block) for exactly that reason.
+    #[cfg(not(feature = "lock-profiling"))]
     macro_rules! inner_state {
-    ($item:expr) => {
-        //$item.inner.try_read_for(std::time::Duration::from_millis(10)).expect("PANIC ON READ (TIMEOUT)")
-        $item.inner.read()
-    };
-}
+        ($item:expr) => {
+            $item.inner.read()
+        };
+    }
+    #[cfg(feature = "lock-profiling")]
+    macro_rules! inner_state {
+        ($item:expr) => {
+            $crate::proto::misc::lock_profiling::timed_read(&$item.inner)
+        };
+    }
 
+    #[cfg(not(feature = "lock-profiling"))]
     macro_rules! inner_mut_state {
-    ($item:expr) => {
-        //$item.inner.try_write_for(std::time::Duration::from_millis(10)).expect("PANIC ON WRITE (TIMEOUT)")
-        $item.inner.write()
-    };
-}
+        ($item:expr) => {
+            $item.inner.write()
+        };
+    }
+    #[cfg(feature = "lock-profiling")]
+    macro_rules! inner_mut_state {
+        ($item:expr) => {
+            $crate::proto::misc::lock_profiling::timed_write(&$item.inner)
+        };
+    }
 
     macro_rules! define_outer_struct_wrapper {
     // Version with generic parameters
@@ -502,6 +518,8 @@ pub mod re_imports {
     pub use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
     pub use futures::future::try_join3;
 
+    #[cfg(not(target_family = "wasm"))]
+    pub use crate::proto::misc::native_io::NativeClientConfig;
     pub use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
     pub use citadel_io::tokio_util::io::{SinkWriter, StreamReader};
     pub use citadel_pqcrypto::build_tag;
@@ -630,6 +648,16 @@ mod inner_arg;
 pub mod kernel;
 /// The primary module of this crate
 mod proto;
+
+/// Public fuzz entry points (opt-in `fuzzing` feature). Thin wrappers over internal parse/validate
+/// functions for the out-of-tree AFL harness; `proto` itself is private.
+#[cfg(feature = "fuzzing")]
+pub mod fuzz_targets;
+
+/// StateContainer lock-contention counters (opt-in `lock-profiling` feature). Re-exported at the
+/// crate root so benches/diagnostics can read them; `proto` itself is private.
+#[cfg(feature = "lock-profiling")]
+pub use proto::misc::lock_profiling;
 
 pub(crate) type ProtocolRatchetManager<R> =
     DefaultRatchetManager<NetworkError, R, MessengerLayerOrderedMessage<UserMessage>>;

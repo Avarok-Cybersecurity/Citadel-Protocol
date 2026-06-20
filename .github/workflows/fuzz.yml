@@ -1,0 +1,65 @@
+name: Fuzz (AFL)
+
+# NON-BLOCKING by design: never on the pull_request critical path. AFL fuzzing is long-running, so it
+# runs on manual dispatch and a weekly schedule only. It builds the AFL-instrumented harnesses in the
+# out-of-tree `fuzz/` crate and fuzzes each untrusted-input parse/validate boundary for a bounded time,
+# failing the job (and uploading the reproducers) if any crash is found.
+on:
+  workflow_dispatch:
+    inputs:
+      seconds_per_target:
+        description: "Fuzz duration per target (seconds)"
+        required: false
+        default: "300"
+  schedule:
+    - cron: "0 3 * * 0" # Sundays 03:00 UTC
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  IN_CI: "true"
+
+jobs:
+  afl:
+    name: AFL fuzz the parse/validate boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup dependencies
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+
+      - name: Rust toolchain
+        run: rustc --version && cargo --version
+
+      - name: Install cargo-make + cargo-afl
+        run: |
+          cargo install cargo-binstall --locked || true
+          cargo binstall -y cargo-make cargo-afl \
+            || { cargo install cargo-make --locked; cargo install cargo-afl --locked; }
+
+      - name: AFL system config (core pattern, governor) — best-effort
+        run: sudo cargo afl system-config || true
+
+      - name: Fuzz all targets
+        env:
+          # Per-target budget; workflow_dispatch input overrides the weekly default.
+          FUZZ_SECONDS: ${{ github.event.inputs.seconds_per_target || '300' }}
+        run: cargo make fuzz
+
+      - name: Upload crashes + corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: afl-fuzz-results
+          path: |
+            fuzz/out/*/default/crashes/**
+            fuzz/out/*/default/queue/**
+          if-no-files-found: ignore

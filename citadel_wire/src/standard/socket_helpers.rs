@@ -58,8 +58,18 @@ use socket2::{Domain, SockAddr, Socket, Type};
 use std::net::{IpAddr, SocketAddr, SocketAddrV6};
 use std::time::Duration;
 
+/// Requested UDP socket buffer size. Reduces datagram drops under burst on the QUIC / raw-UDP data
+/// path. The OS clamps this to its `rmem_max`/`wmem_max`, so the request is best-effort.
+const UDP_SOCKET_BUFFER_BYTES: usize = 2 * 1024 * 1024;
+
 fn get_udp_socket_builder(domain: Domain) -> Result<Socket, anyhow::Error> {
     let socket = socket2::Socket::new(domain, Type::DGRAM, None)?;
+
+    // Best-effort larger send/recv buffers: pure buffering, so this does NOT change hole-punch
+    // timing or semantics (only fewer drops when the receiver is briefly busy). Errors are ignored
+    // so socket creation never fails on a host with restrictive limits.
+    let _ = socket.set_recv_buffer_size(UDP_SOCKET_BUFFER_BYTES);
+    let _ = socket.set_send_buffer_size(UDP_SOCKET_BUFFER_BYTES);
 
     // On Windows, disable the behavior where ICMP "port unreachable" messages
     // cause WSAECONNRESET (10054) errors on UDP sockets. This is a well-known
@@ -160,7 +170,12 @@ async fn setup_connect(
 ) -> Result<TcpStream, anyhow::Error> {
     setup_base_socket(connect_addr, &socket, reuse)?;
     let socket = citadel_io::tokio::net::TcpSocket::from_std_stream(socket.into());
-    Ok(citadel_io::time::timeout(timeout, socket.connect(connect_addr)).await??)
+    let stream = citadel_io::time::timeout(timeout, socket.connect(connect_addr)).await??;
+    // Disable Nagle's algorithm on every outbound TCP stream. The protocol writes small framed
+    // packets and depends on low per-message latency, so write-coalescing only adds delay. This
+    // covers both plain-TCP and TLS-over-TCP (which wraps this same stream).
+    stream.set_nodelay(true)?;
+    Ok(stream)
 }
 
 fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(

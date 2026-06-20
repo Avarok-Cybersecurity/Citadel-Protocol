@@ -240,10 +240,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             ProposedCredentials::new_register(full_name, username, proposed_password.into())
                 .await?;
         let register_request = NodeRequest::RegisterToHypernode(RegisterToHypernode {
-            remote_addr: addr
-                .to_socket_addrs()?
-                .next()
-                .ok_or(NetworkError::InternalError("Invalid socket addr"))?,
+            remote_addr: addr.to_socket_addrs()?.next().ok_or(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteInvalidSocketAddr
+            ))?,
             proposed_credentials: creds,
             static_security_settings: default_security_settings,
             session_password: server_password.unwrap_or_default(),
@@ -256,10 +255,16 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                     return Ok(RegisterSuccess { cid });
                 }
                 NodeResult::RegisterFailure(err) => {
-                    return Err(NetworkError::Generic(err.error_message));
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::RemoteRegisterFailure,
+                        err.error_message
+                    ));
                 }
                 NodeResult::Disconnect(err) => {
-                    return Err(NetworkError::Generic(err.message));
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::RemoteDisconnected,
+                        err.message
+                    ));
                 }
                 evt => {
                     log::warn!(target: "citadel", "Invalid NodeResult for Register request received: {evt:?}");
@@ -267,8 +272,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             }
         }
 
-        Err(NetworkError::InternalError(
-            "Internal kernel stream died (register)",
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteKernelStreamDied,
+            "register"
         ))
     }
 
@@ -318,12 +324,10 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         });
 
         let mut subscription = self.send_callback_subscription(connect_request).await?;
-        let status = subscription
-            .next()
-            .await
-            .ok_or(NetworkError::InternalError(
-                "Internal kernel stream died (connect)",
-            ))?;
+        let status = subscription.next().await.ok_or(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteKernelStreamDied,
+            "connect"
+        ))?;
 
         return match status.into_result()? {
             NodeResult::ConnectSuccess(ConnectSuccess {
@@ -355,13 +359,20 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 ticket: _,
                 cid_opt: _,
                 error_message: err,
-            }) => Err(NetworkError::Generic(err)),
+            }) => Err(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteConnectFailed,
+                err
+            )),
             NodeResult::Disconnect(err) => {
-                return Err(NetworkError::Generic(err.message));
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RemoteDisconnected,
+                    err.message
+                ));
             }
-            res => Err(NetworkError::msg(format!(
-                "[connect] An unexpected response occurred: {res:?}"
-            ))),
+            res => Err(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteConnectUnexpectedResponse,
+                citadel_io::Dbg(res)
+            )),
         };
     }
 
@@ -425,7 +436,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                     }
                 }
             })
-            .ok_or_else(|| NetworkError::msg("Target pair not found"))
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RemoteTargetPairNotFound))
     }
 
     /// Creates a proposed target from the valid local user to an unregistered peer in the network. Used when creating registration requests for peers.
@@ -500,7 +511,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             {
                 return Ok(peer_info
                     .into_iter()
-                    .zip(is_onlines.into_iter())
+                    .zip(is_onlines)
                     .filter_map(|(peer_info, is_online)| {
                         peer_info.map(|info| LocalGroupPeerFullInfo {
                             cid: info.cid,
@@ -513,8 +524,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             }
         }
 
-        Err(NetworkError::InternalError(
-            "Internal kernel stream died (get_local_group_peers)",
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteKernelStreamDied,
+            "get_local_group_peers"
         ))
     }
 
@@ -549,7 +561,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             {
                 return Ok(peer_info
                     .into_iter()
-                    .zip(is_onlines.into_iter())
+                    .zip(is_onlines)
                     .filter_map(|(peer_info, is_online)| {
                         peer_info.map(|info| LocalGroupPeerFullInfo {
                             cid: info.cid,
@@ -562,7 +574,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             }
         }
 
-        Err(NetworkError::msg("Stream died"))
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteSessionStreamDied
+        ))
     }
 
     /// Returns all the active sessions in the protocol, including all P2P connections hierarchically placed as children to C2S
@@ -583,8 +597,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 }
 
                 citadel_logging::warn!("Failed to receive response from SDK (stream died)");
-                return Err(NetworkError::InternalError(
-                    "Internal kernel stream died (get_active_sessions)",
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RemoteKernelStreamDied,
+                    "get_active_sessions"
                 ));
             }
             Err(e) => {
@@ -592,7 +607,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             }
         }
 
-        Err(NetworkError::msg("Failed to query SDK sessions"))
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteQuerySessionsFailed
+        ))
     }
 
     #[doc(hidden)]
@@ -607,7 +624,9 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         Ok(account_manager
             .find_local_user_information(local_user)
             .await?
-            .ok_or(NetworkError::InvalidRequest("User does not exist"))?)
+            .ok_or(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteUserDoesNotExist
+            ))?)
     }
 }
 
@@ -655,10 +674,12 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         while let Some(event) = stream.next().await {
             match event.into_result()? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
-                    return handle
-                        .transfer_file()
-                        .await
-                        .map_err(|err| NetworkError::Generic(err.into_string()));
+                    return handle.transfer_file().await.map_err(|err| {
+                        citadel_io::error!(
+                            citadel_io::ErrorCode::RemoteFileTransferFailed,
+                            err.into_string()
+                        )
+                    });
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -672,7 +693,9 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError("File transfer stream died"))
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteFileTransferStreamDied
+        ))
     }
 
     /// Sends a file to the provided target using the default chunking size
@@ -696,8 +719,12 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         self.can_use_revfs()?;
         let mut virtual_path = virtual_directory.into();
         virtual_path = prepare_virtual_path(virtual_path);
-        validate_virtual_path(&virtual_path)
-            .map_err(|err| NetworkError::Generic(err.into_string()))?;
+        validate_virtual_path(&virtual_path).map_err(|err| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::RemoteRevfsInvalidVirtualPath,
+                err.into_string()
+            )
+        })?;
         let tx_type = TransferType::RemoteEncryptedVirtualFilesystem {
             virtual_path,
             security_level,
@@ -744,10 +771,12 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         while let Some(event) = stream.next().await {
             match event.into_result()? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
-                    return handle
-                        .receive_file()
-                        .await
-                        .map_err(|err| NetworkError::Generic(err.into_string()));
+                    return handle.receive_file().await.map_err(|err| {
+                        citadel_io::error!(
+                            citadel_io::ErrorCode::RemoteFileTransferFailed,
+                            err.into_string()
+                        )
+                    });
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -757,15 +786,15 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
 
                 res => {
                     log::error!(target: "citadel", "Invalid NodeResult for REVFS FileTransfer request received: {res:?}");
-                    return Err(NetworkError::InternalError(
-                        "Received invalid response from protocol",
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::RemoteRevfsInvalidResponse
                     ));
                 }
             }
         }
 
-        Err(NetworkError::InternalError(
-            "REVFS File transfer stream died",
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteRevfsFileTransferStreamDied
         ))
     }
 
@@ -788,7 +817,10 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             match event.into_result()? {
                 NodeResult::ReVFS(result) => {
                     return if let Some(error) = result.error_message {
-                        Err(NetworkError::Generic(error))
+                        Err(citadel_io::error!(
+                            citadel_io::ErrorCode::RemoteFileTransferFailed,
+                            error
+                        ))
                     } else {
                         Ok(())
                     }
@@ -800,7 +832,9 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError("REVFS Delete stream died"))
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteRevfsDeleteStreamDied
+        ))
     }
 
     /// Connects to the peer with custom settings
@@ -868,10 +902,14 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                         ..
                     }) => match invitee_response {
                         Some(PeerResponse::Timeout) => {
-                            return Err(NetworkError::msg("Peer did not respond in time"))
+                            return Err(citadel_io::error!(
+                                citadel_io::ErrorCode::RemotePeerNoResponse
+                            ))
                         }
                         Some(PeerResponse::Decline) => {
-                            return Err(NetworkError::msg("Peer declined to connect"))
+                            return Err(citadel_io::error!(
+                                citadel_io::ErrorCode::RemotePeerDeclined
+                            ))
                         }
                         _ => {}
                     },
@@ -880,17 +918,18 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 }
             }
 
-            Err(NetworkError::InternalError(
-                "Internal kernel stream died (connect_to_peer_custom)",
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteKernelStreamDied,
+                "connect_to_peer_custom"
             ))
         };
 
         match citadel_io::time::timeout(P2P_CONNECT_TIMEOUT, connect_task).await {
             Ok(result) => result,
-            Err(_elapsed) => Err(NetworkError::msg(format!(
-                "P2P connection timed out after {}s waiting for PeerChannelCreated",
+            Err(_elapsed) => Err(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteP2pConnectTimeout,
                 P2P_CONNECT_TIMEOUT.as_secs()
-            ))),
+            )),
         }
     }
 
@@ -910,7 +949,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             .account_manager()
             .get_username_by_cid(session_cid)
             .await?
-            .ok_or_else(|| NetworkError::msg("Unable to find username for local user"))?;
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RemoteLocalUsernameMissing))?;
         let peer_username_opt = self.target_username().map(ToString::to_string);
 
         let mut stream = self
@@ -950,10 +989,10 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::Generic(format!(
-            "Internal kernel stream died (register_to_peer): {:?}",
-            stream.callback_key()
-        )))
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteKernelStreamDied,
+            format!("register_to_peer: {:?}", stream.callback_key())
+        ))
     }
 
     /// Deregisters the currently locked target. If the target is a client to server
@@ -1001,8 +1040,8 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                         ticket_opt: _,
                         success: false,
                     }) => {
-                        return Err(NetworkError::msg(
-                            "Unable to deregister: status=false".to_string(),
+                        return Err(citadel_io::error!(
+                            citadel_io::ErrorCode::RemoteDeregisterFailed
                         ))
                     }
 
@@ -1011,7 +1050,9 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError("Deregister ended unexpectedly"))
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteDeregisterEndedUnexpectedly
+        ))
     }
 
     async fn disconnect(&self) -> Result<(), NetworkError> {
@@ -1048,12 +1089,12 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                     }
                 }
 
-                Err(NetworkError::InternalError(
-                    "Unable to receive valid disconnect event",
+                Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RemoteDisconnectEventMissing
                 ))
             } else {
-                Err(NetworkError::msg(
-                    "External group peer functionality not enabled",
+                Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RemoteExternalGroupPeerUnsupported
                 ))
             }
         } else {
@@ -1071,13 +1112,16 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                     return if success {
                         Ok(())
                     } else {
-                        Err(NetworkError::msg(message))
+                        Err(citadel_io::error!(
+                            citadel_io::ErrorCode::RemoteDisconnected,
+                            message
+                        ))
                     };
                 }
             }
 
-            Err(NetworkError::InternalError(
-                "Unable to receive valid disconnect event",
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteDisconnectEventMissing
             ))
         }
     }
@@ -1086,26 +1130,37 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         &self,
         initial_users_to_invite: Option<Vec<UserIdentifier>>,
     ) -> Result<GroupChannel, NetworkError> {
+        self.create_group_with_options(initial_users_to_invite, MessageGroupOptions::default())
+            .await
+    }
+
+    /// Create a group with explicit [`MessageGroupOptions`] — e.g. a zero-trust
+    /// [`GroupHierarchyMode::CommandHierarchy`](citadel_types::proto::GroupHierarchyMode) where a
+    /// superior can read its subordinates' messages. `options.hierarchy` carries the initial rank
+    /// assignment (member cid → command path); it is consumed owner-locally and never reaches the relay.
+    async fn create_group_with_options(
+        &self,
+        initial_users_to_invite: Option<Vec<UserIdentifier>>,
+        options: MessageGroupOptions,
+    ) -> Result<GroupChannel, NetworkError> {
         let session_cid = self.user().get_session_cid();
 
         let mut initial_users = vec![];
-        // TODO: allow for custom message group options. For now, don't
-        let options = MessageGroupOptions::default();
-        // TODO/NOTE: default is PRIVATE mode, meaning all users in group must be registered to the owner
-        // in the future, allow for private/public modes by adjusting the below. Initial users should be
-        // a UserIdentifier
+        // NOTE: default is PRIVATE mode, meaning all users in group must be registered to the owner.
+        // Initial users are UserIdentifiers resolved to cids below.
         if let Some(initial_users_to_invite) = initial_users_to_invite {
             for user in initial_users_to_invite {
                 initial_users.push(
                     self.remote()
                         .account_manager()
                         .find_target_information(session_cid, user.clone())
-                        .await
-                        .map_err(|err| NetworkError::msg(err.into_string()))?
+                        .await?
                         .ok_or_else(|| {
-                            NetworkError::msg(format!(
-                                "Account {user:?} not found for local user {session_cid:?}"
-                            ))
+                            citadel_io::error!(
+                                citadel_io::ErrorCode::RemoteGroupAccountNotFound,
+                                citadel_io::Dbg(user),
+                                citadel_io::Dbg(session_cid)
+                            )
                         })
                         .map(|r| r.1.cid)?,
                 )
@@ -1132,8 +1187,8 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError(
-            "Create_group ended unexpectedly",
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteCreateGroupEndedUnexpectedly
         ))
     }
 
@@ -1165,8 +1220,8 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }
         }
 
-        Err(NetworkError::InternalError(
-            "List_members ended unexpectedly",
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteListGroupsEndedUnexpectedly
         ))
     }
 
@@ -1181,8 +1236,8 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             return Ok(result.sessions);
         }
 
-        Err(NetworkError::InternalError(
-            "List_sessions ended unexpectedly",
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteListSessionsEndedUnexpectedly
         ))
     }
 
@@ -1200,14 +1255,17 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 return match result.status {
                     ReKeyReturnType::Success { version } => Ok(Some(version)),
                     ReKeyReturnType::AlreadyInProgress => Ok(None),
-                    ReKeyReturnType::Failure { err } => {
-                        Err(NetworkError::Generic(format!("Rekey failed: {err}")))
-                    }
+                    ReKeyReturnType::Failure { err } => Err(citadel_io::error!(
+                        citadel_io::ErrorCode::RemoteRekeyFailed,
+                        err
+                    )),
                 };
             }
         }
 
-        Err(NetworkError::InternalError("Rekey ended unexpectedly"))
+        Err(citadel_io::error!(
+            citadel_io::ErrorCode::RemoteRekeyEndedUnexpectedly
+        ))
     }
 
     /// Checks if the locked target is registered
@@ -1222,8 +1280,8 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             citadel_logging::info!(target: "citadel", "Checking to see if {target} is registered in {peers:?}");
             Ok(peers.iter().any(|p| p.cid == peer_cid))
         } else {
-            Err(NetworkError::Generic(
-                "External group peers are not supported yet".to_string(),
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteExternalGroupPeerUnsupportedYet
             ))
         }
     }
@@ -1231,16 +1289,17 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
     #[doc(hidden)]
     async fn try_as_peer_connection(&self) -> Result<PeerConnectionType, NetworkError> {
         let verified_return = |user: &VirtualTargetType| {
-            user.try_as_peer_connection()
-                .ok_or(NetworkError::InvalidRequest("Target is not a peer"))
+            user.try_as_peer_connection().ok_or(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteTargetNotPeer
+            ))
         };
 
         if self.user().get_target_cid() == 0 {
             // in this case, the user re-used a remote locked to a registration target
             // where the username was provided, but the cid was 0 (unknown).
-            let peer_username = self
-                .target_username()
-                .ok_or_else(|| NetworkError::msg("target_cid=0, yet, no username was provided"))?;
+            let peer_username = self.target_username().ok_or_else(|| {
+                citadel_io::error!(citadel_io::ErrorCode::RemoteTargetCidZeroNoUsername)
+            })?;
             let session_cid = self.user().get_session_cid();
             let expected_peer_cid = self
                 .remote()
@@ -1253,8 +1312,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 .remote()
                 .account_manager()
                 .find_target_information(session_cid, peer_username)
-                .await
-                .map_err(|err| NetworkError::Generic(err.into_string()))?
+                .await?
                 .map(|r| r.1.cid)
                 .unwrap_or(expected_peer_cid);
 
@@ -1272,13 +1330,13 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             if sess.crypto_params.kem_algorithm == KemAlgorithm::MlKem {
                 Ok(())
             } else {
-                Err(NetworkError::InvalidRequest(
-                    "RE-VFS can only be used with Kyber KEM",
+                Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RemoteRevfsRequiresKyber
                 ))
             }
         } else {
-            Err(NetworkError::InvalidRequest(
-                "RE-VFS cannot be used with this remote type",
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteRevfsUnsupportedRemote
             ))
         }
     }
@@ -1319,8 +1377,8 @@ pub mod results {
         ) -> Result<FileTransferHandleRx, NetworkError> {
             self.incoming_object_transfer_handles
                 .take()
-                .ok_or(NetworkError::InternalError(
-                    "This function has already been called",
+                .ok_or(citadel_io::error!(
+                    citadel_io::ErrorCode::RemoteFunctionAlreadyCalled
                 ))
         }
     }

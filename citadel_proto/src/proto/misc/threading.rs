@@ -46,7 +46,7 @@ pub(crate) async fn run_server_with_kernel(
         let server_future = ExplicitPanicFuture::new(rt.spawn(server));
         citadel_io::tokio::select! {
             ret0 = kernel => ret0,
-            ret1 = server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?
+            ret1 = server_future => ret1.map_err(|err| NetworkError::generic(err.to_string()))?
         }
     }
 

@@ -172,7 +172,27 @@ impl SecBuffer {
     }
 
     pub fn reserve(&mut self, additional: usize) {
-        self.inner.reserve(additional)
+        let required = self.inner.len().saturating_add(additional);
+        if required <= self.inner.capacity() {
+            // Sufficient capacity already; no reallocation, so no secrets can be left behind.
+            return;
+        }
+        // Grow manually so the old, secret-bearing allocation is zeroized BEFORE it is freed.
+        // Delegating to BytesMut::reserve would reallocate and free the old buffer in the clear,
+        // leaving plaintext lingering in freed heap until some later allocation overwrites it.
+        //
+        // Grow with amortized headroom (at least double the current capacity) rather than to the
+        // exact size, so a sequence of incremental reservations does not reallocate-and-zeroize the
+        // whole accumulated buffer each time — that would be O(n^2) secret-wiping copies. Doubling
+        // keeps the (necessarily copying) reallocations amortized O(1).
+        let new_capacity = required.max(self.inner.capacity().saturating_mul(2));
+        self.unlock();
+        let mut grown = BytesMut::with_capacity(new_capacity);
+        grown.extend_from_slice(&self.inner[..]);
+        // Wipe the old allocation's live bytes, then drop it (replaced below).
+        self.zeroize();
+        self.inner = grown;
+        self.lock();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -234,6 +254,14 @@ impl From<BytesMut> for SecBuffer {
         let this = Self { inner };
         this.lock();
         this
+    }
+}
+
+impl From<Bytes> for SecBuffer {
+    fn from(inner: Bytes) -> Self {
+        // Zero-copy when the `Bytes` uniquely owns its allocation (e.g. came from a
+        // `Vec`/`BytesMut`); otherwise reclaims by copying. Mirrors the `Vec<u8>` path.
+        Self::from(BytesMut::from(inner))
     }
 }
 
@@ -335,7 +363,7 @@ impl TryFrom<u8> for CryptoParameters {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         let value: [u8; 1] = [value];
         let this: CryptoParameters = CryptoParameters::unpack(&value)
-            .map_err(|err| crate::errors::Error::Other(err.to_string()))?;
+            .map_err(|err| crate::errors::Error::generic(err.to_string()))?;
         validate_crypto_params(&this)?;
         Ok(this)
     }
@@ -412,9 +440,11 @@ impl TryFrom<u8> for SecrecyMode {
         if let Some(ret) = Self::from_repr(value) {
             Ok(ret)
         } else {
-            Err(Self::Error::Other(format!(
-                "Cannot cast `{value}` into SecrecyMode"
-            )))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::CryptoParamEnumCastFailed,
+                value,
+                "SecrecyMode"
+            ))
         }
     }
 }
@@ -457,9 +487,11 @@ impl TryFrom<u8> for KemAlgorithm {
         if let Some(ret) = Self::from_repr(value) {
             Ok(ret)
         } else {
-            Err(Self::Error::Other(format!(
-                "Cannot cast `{value}` into KemAlgorithm"
-            )))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::CryptoParamEnumCastFailed,
+                value,
+                "KemAlgorithm"
+            ))
         }
     }
 }
@@ -503,9 +535,11 @@ impl TryFrom<u8> for SigAlgorithm {
         if let Some(ret) = Self::from_repr(value) {
             Ok(ret)
         } else {
-            Err(Self::Error::Other(format!(
-                "Cannot cast `{value}` into Sigalgorithm"
-            )))
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::CryptoParamEnumCastFailed,
+                value,
+                "SigAlgorithm"
+            ))
         }
     }
 }
@@ -725,5 +759,85 @@ impl AsRef<[Vec<u8>]> for PreSharedKey {
 impl<T: AsRef<[u8]>> From<T> for PreSharedKey {
     fn from(password: T) -> Self {
         PreSharedKey::default().add_password(password)
+    }
+}
+
+#[cfg(test)]
+mod coverage_extra {
+    use super::*;
+
+    #[test]
+    fn sec_buffer_construct_len_and_mutate() {
+        assert!(SecBuffer::empty().is_empty());
+        assert_eq!(SecBuffer::empty().len(), 0);
+        let mut b = SecBuffer::with_capacity(16);
+        assert!(b.is_empty());
+        b.reserve(32);
+        {
+            let mut h = b.handle();
+            h.extend_from_slice(b"abc");
+        }
+        assert_eq!(b.len(), 3);
+        assert!(!b.is_empty());
+        assert_eq!(b.as_ref(), b"abc");
+        b.as_mut()[0] = b'A';
+        assert_eq!(b.as_ref(), b"Abc");
+        assert_eq!(b.clone().into_buffer().as_ref(), b"Abc");
+    }
+
+    #[test]
+    fn sec_buffer_from_impls_and_serde() {
+        assert_eq!(SecBuffer::from(vec![1u8, 2, 3]).as_ref(), &[1, 2, 3]);
+        assert_eq!(SecBuffer::from(&[4u8, 5][..]).as_ref(), &[4, 5]);
+        assert_eq!(SecBuffer::from("hi").as_ref(), b"hi");
+        assert_eq!(
+            SecBuffer::from(bytes::BytesMut::from(&b"x"[..])).as_ref(),
+            b"x"
+        );
+        assert_eq!(
+            SecBuffer::from(bytes::Bytes::from_static(b"y")).as_ref(),
+            b"y"
+        );
+        // Debug must not leak contents
+        assert!(!format!("{:?}", SecBuffer::from("secret")).contains("secret"));
+        // serde round-trip
+        let original = SecBuffer::from("payload");
+        let bytes = bincode::serialize(&original).unwrap();
+        let back: SecBuffer = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(back.as_ref(), b"payload");
+    }
+
+    #[test]
+    fn crypto_param_enums_variants_and_try_from() {
+        assert!(!EncryptionAlgorithm::variants().is_empty());
+        assert!(!SecrecyMode::variants().is_empty());
+        assert!(!KemAlgorithm::variants().is_empty());
+        assert!(!SigAlgorithm::variants().is_empty());
+
+        // valid discriminant 0 round-trips; 255 is rejected for each enum
+        assert!(SecrecyMode::try_from(0).is_ok());
+        assert!(SecrecyMode::try_from(255).is_err());
+        assert!(KemAlgorithm::try_from(0).is_ok());
+        assert!(KemAlgorithm::try_from(255).is_err());
+        assert_eq!(SigAlgorithm::try_from(1).unwrap(), SigAlgorithm::MlDsa65);
+        assert!(SigAlgorithm::try_from(255).is_err());
+    }
+
+    #[test]
+    fn security_level_value_for_value_and_from() {
+        assert!(!SecurityLevel::variants().is_empty());
+        assert_eq!(SecurityLevel::Standard.value(), 0);
+        assert_eq!(SecurityLevel::from(0u8).value(), 0);
+        assert!(SecurityLevel::for_value(0).is_some());
+        // Custom catch-all for large values
+        assert_eq!(SecurityLevel::from(200u8).value(), 200);
+    }
+
+    #[test]
+    fn crypto_parameters_u8_roundtrip() {
+        let params = add_inner(KemAlgorithm::MlKem, EncryptionAlgorithm::AES_GCM_256);
+        let byte: u8 = params.into();
+        let back = CryptoParameters::try_from(byte).unwrap();
+        assert_eq!(u8::from(back), byte);
     }
 }

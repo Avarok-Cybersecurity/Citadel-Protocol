@@ -288,4 +288,56 @@ mod tests {
         assert_eq!(payload, &vec![9, 9, 9, 9, 9, 9, 9, 9, 9, 9]);
         assert_eq!(payload_ext, &vec![4, 4, 4, 4, 4]);
     }
+
+    #[test]
+    fn finish_and_message_len_and_debug() {
+        let mut p = SecureMessagePacket::<4>::new().unwrap();
+        assert_eq!(p.message_len(), 0);
+        p.write_payload(6, |s| {
+            s.fill(1);
+            Ok(())
+        })
+        .unwrap();
+        assert!(p.message_len() > 0);
+        assert!(format!("{p:?}").contains("Secure message packet"));
+        p.write_header(|h| {
+            h.fill(2);
+            Ok(())
+        })
+        .unwrap();
+        // finish() is write_payload_extension(0): no extension appended.
+        assert!(!p.finish().unwrap().is_empty());
+    }
+
+    #[test]
+    fn invalid_construction_flow_errors() {
+        // header before payload is rejected
+        let mut p = SecureMessagePacket::<4>::new().unwrap();
+        assert!(p.write_header(|_| Ok(())).is_err());
+        // a second payload write is rejected (state already advanced)
+        let mut p2 = SecureMessagePacket::<4>::new().unwrap();
+        p2.write_payload(3, |s| {
+            s.fill(0);
+            Ok(())
+        })
+        .unwrap();
+        assert!(p2
+            .write_payload(3, |s| {
+                s.fill(0);
+                Ok(())
+            })
+            .is_err());
+        // extension before header is rejected
+        let p3 = SecureMessagePacket::<4>::new().unwrap();
+        assert!(p3.write_payload_extension(1, |_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn extract_payload_rejects_bad_input() {
+        use bytes::BytesMut;
+        let mut tiny = BytesMut::from(&[1u8, 2][..]);
+        assert!(SecureMessagePacket::<4>::extract_payload(&mut tiny).is_err());
+        let mut bad = BytesMut::from(&[0u8, 0, 0, 200, 1, 2][..]);
+        assert!(SecureMessagePacket::<4>::extract_payload(&mut bad).is_err());
+    }
 }

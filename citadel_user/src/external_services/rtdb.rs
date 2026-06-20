@@ -95,7 +95,7 @@ impl RtdbInstance {
             config.auth_payload.clone(),
             config.expire_time,
         )
-        .map_err(|err| AccountError::Generic(err.inner))
+        .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner))
         .map(|r| r.into())
     }
 
@@ -109,8 +109,9 @@ impl RtdbInstance {
 
         let _ = std::mem::replace(
             &mut self.inner,
-            FirebaseRTDB::new_from_token(url, api_key, token, auth, expire_time)
-                .map_err(|err| AccountError::Generic(err.inner))?,
+            FirebaseRTDB::new_from_token(url, api_key, token, auth, expire_time).map_err(
+                |err| citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner),
+            )?,
         );
 
         Ok(())
@@ -149,7 +150,7 @@ impl ExternalServiceChannel for RtdbInstance {
         Ok(self
             .root()
             .await
-            .map_err(|err| AccountError::Generic(err.inner))?
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner))?
             .child("users")
             .child(peer_cid.to_string())
             .child("peers")
@@ -158,6 +159,6 @@ impl ExternalServiceChannel for RtdbInstance {
             .post(data)
             .await
             .map(|_| ())
-            .map_err(|err| AccountError::Generic(err.inner))?)
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner))?)
     }
 }

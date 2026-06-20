@@ -110,8 +110,12 @@ pub trait SyncIO {
         Self: DeserializeOwned,
     {
         use bytes::Buf;
-        bincode::deserialize_from(input.reader())
-            .map_err(|err| AccountError::Generic(err.to_string()))
+        bincode::deserialize_from(input.reader()).map_err(|err| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::DeserializationFailed,
+                err.to_string()
+            )
+        })
     }
 
     /// Deserializes in-place
@@ -120,8 +124,12 @@ pub trait SyncIO {
         T: serde::de::Deserialize<'a>,
         R: BincodeRead<'a>,
     {
-        bincode::deserialize_in_place(reader, place)
-            .map_err(|err| AccountError::Generic(err.to_string()))
+        bincode::deserialize_in_place(reader, place).map_err(|err| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::DeserializationFailed,
+                err.to_string()
+            )
+        })
     }
 
     /// Serializes self into a buffer
@@ -134,7 +142,9 @@ pub trait SyncIO {
                 buf.reserve(amt as usize);
                 bincode::serialize_into(buf.writer(), self)
             })
-            .map_err(|_| AccountError::Generic("Bad ser".to_string()))
+            .map_err(|err| {
+                citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
+            })
     }
 
     /// Serializes directly into a slice
@@ -142,7 +152,9 @@ pub trait SyncIO {
     where
         Self: Serialize,
     {
-        bincode::serialize_into(slice, self).map_err(|err| AccountError::Generic(err.to_string()))
+        bincode::serialize_into(slice, self).map_err(|err| {
+            citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
+        })
     }
 
     /// Returns the expected size of the serialized objects
@@ -158,10 +170,72 @@ impl<'a, T> SyncIO for T where T: Serialize + Deserialize<'a> + Sized {}
 
 /// Deserializes the bytes, T, into type D
 fn bytes_to_type<'a, D: Deserialize<'a>>(bytes: &'a [u8]) -> Result<D, AccountError> {
-    bincode::deserialize(bytes).map_err(|err| AccountError::IoError(err.to_string()))
+    bincode::deserialize(bytes).map_err(|err| {
+        citadel_io::error!(
+            citadel_io::ErrorCode::DeserializationFailed,
+            err.to_string()
+        )
+    })
 }
 
 /// Converts a type, D to Vec<u8>
 fn type_to_bytes<D: Serialize>(input: D) -> Result<Vec<u8>, AccountError> {
-    bincode::serialize(&input).map_err(|err| AccountError::IoError(err.to_string()))
+    bincode::serialize(&input).map_err(|err| {
+        citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+    struct Sample {
+        id: u64,
+        name: String,
+        flags: Vec<bool>,
+    }
+
+    fn sample() -> Sample {
+        Sample {
+            id: 1234,
+            name: "alice".to_string(),
+            flags: vec![true, false, true],
+        }
+    }
+
+    #[test]
+    fn vector_roundtrip() {
+        let s = sample();
+        let bytes = s.serialize_to_vector().unwrap();
+        assert_eq!(Sample::deserialize_from_vector(&bytes).unwrap(), s);
+        assert_eq!(Sample::deserialize_from_owned_vector(bytes).unwrap(), s);
+    }
+
+    #[test]
+    fn buf_and_slice_roundtrip() {
+        let s = sample();
+        let mut buf = BytesMut::with_capacity(8);
+        s.serialize_into_buf(&mut buf).unwrap();
+        assert_eq!(Sample::deserialize_from_vector(&buf).unwrap(), s);
+
+        let size = s.serialized_size().unwrap();
+        assert_eq!(size, s.serialize_to_vector().unwrap().len());
+        let mut slice = vec![0u8; size];
+        s.serialize_into_slice(&mut slice).unwrap();
+        assert_eq!(Sample::deserialize_from_vector(&slice).unwrap(), s);
+    }
+
+    #[test]
+    fn serialize_into_undersized_slice_errors() {
+        let s = sample();
+        let mut tiny = [0u8; 1];
+        assert!(s.serialize_into_slice(&mut tiny).is_err());
+    }
+
+    #[test]
+    fn deserialize_garbage_errors() {
+        assert!(Sample::deserialize_from_vector(&[0xFFu8; 2]).is_err());
+        assert!(Sample::deserialize_from_owned_vector(vec![0xFFu8; 2]).is_err());
+    }
 }

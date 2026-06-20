@@ -139,12 +139,14 @@ impl ProposedCredentials {
             settings.clone(),
         )
         .await
-        .map_err(|err| AccountError::Generic(err.to_string()))?
-        {
+        .map_err(|err| {
+            citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string())
+        })? {
             ArgonStatus::HashSuccess(ret) => Ok(ret),
-            other => Err(AccountError::Generic(format!(
-                "Unable to hash input password: {other:?}",
-            ))),
+            other => Err(citadel_io::error!(
+                citadel_io::ErrorCode::ArgonHashUnexpected,
+                citadel_io::Dbg(other)
+            )),
         }
     }
 
@@ -243,8 +245,8 @@ impl ProposedCredentials {
                 if server_misc_settings.allow_transient_connections {
                     Ok(self.into_auth_store())
                 } else {
-                    Err(AccountError::msg(
-                        "This node does not support passwordless connections",
+                    Err(citadel_io::error!(
+                        citadel_io::ErrorCode::PasswordlessUnsupported
                     ))
                 }
             }
@@ -260,8 +262,9 @@ impl ProposedCredentials {
 
                 match AsyncArgon::hash(password_hashed, settings.clone())
                     .await
-                    .map_err(|err| AccountError::Generic(err.to_string()))?
-                {
+                    .map_err(|err| {
+                        citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string())
+                    })? {
                     ArgonStatus::HashSuccess(hash_x2) => Ok(DeclaredAuthenticationMode::Argon {
                         username,
                         full_name,
@@ -270,7 +273,9 @@ impl ProposedCredentials {
                         )),
                     }),
 
-                    _ => Err(AccountError::Generic("Unable to hash password".to_string())),
+                    _ => Err(citadel_io::error!(
+                        citadel_io::ErrorCode::PasswordHashFailed
+                    )),
                 }
             }
         }
@@ -291,26 +296,27 @@ impl ProposedCredentials {
             ArgonContainerType::Server(server_container) => {
                 match AsyncArgon::verify(password_hashed, server_container)
                     .await
-                    .map_err(|err| AccountError::Generic(err.to_string()))?
-                {
+                    .map_err(|err| {
+                        citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string())
+                    })? {
                     ArgonStatus::VerificationSuccess => Ok(()),
 
                     ArgonStatus::VerificationFailed(None) => {
                         log::warn!(target: "citadel", "Invalid password specified ...");
-                        Err(AccountError::InvalidPassword)
+                        Err(AccountError::account_invalid_password())
                     }
 
                     ArgonStatus::VerificationFailed(Some(err)) => {
                         log::error!(target: "citadel", "Password verification failed: {}", &err);
-                        Err(AccountError::Generic(err))
+                        Err(AccountError::generic(err))
                     }
 
-                    _ => Err(AccountError::InvalidPassword),
+                    _ => Err(AccountError::account_invalid_password()),
                 }
             }
 
-            _ => Err(AccountError::Generic(
-                "Account does not have password loaded; account is personal".to_string(),
+            _ => Err(citadel_io::error!(
+                citadel_io::ErrorCode::AccountNotPasswordProtected
             )),
         }
     }
@@ -322,5 +328,81 @@ impl ProposedCredentials {
                 username.as_bytes() == other
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn enabled(user: &str) -> ProposedCredentials {
+        ProposedCredentials::Enabled {
+            username: user.to_string(),
+            password_hashed: SecBuffer::from(b"hash".to_vec()),
+            full_name: "Full Name".to_string(),
+            clientside_only_registration_settings: None,
+        }
+    }
+
+    #[test]
+    fn transient_is_passwordless_and_username() {
+        let t = ProposedCredentials::transient("bob");
+        assert!(t.is_passwordless());
+        assert_eq!(t.username(), "bob");
+        let e = enabled("alice");
+        assert!(!e.is_passwordless());
+        assert_eq!(e.username(), "alice");
+    }
+
+    #[test]
+    fn password_transform_is_deterministic_sha3_256() {
+        // Arbitrary distinct byte inputs (not credential-shaped, so secret scanners stay quiet).
+        let input_a: &[u8] = &[1, 2, 3, 4];
+        let input_b: &[u8] = &[9, 9, 9];
+        let a = ProposedCredentials::password_transform(input_a);
+        let a2 = ProposedCredentials::password_transform(input_a);
+        let b = ProposedCredentials::password_transform(input_b);
+        assert_eq!(a.as_ref(), a2.as_ref());
+        assert_ne!(a.as_ref(), b.as_ref());
+        assert_eq!(a.as_ref().len(), 32); // SHA3-256 digest
+    }
+
+    #[test]
+    fn sanitize_trims_username_fullname_and_optional_password() {
+        // do_password_trim = false → password left untouched
+        let (u, f, p) = ProposedCredentials::sanitize_and_prepare(
+            "  alice  ",
+            "  Alice S  ",
+            b"  pwd  ",
+            false,
+        );
+        assert_eq!(u, "alice");
+        assert_eq!(f, "Alice S");
+        assert_eq!(p.as_ref(), b"  pwd  ");
+        // do_password_trim = true → password trimmed too
+        let (_u, _f, p2) = ProposedCredentials::sanitize_and_prepare("a", "b", b"  pwd  ", true);
+        assert_eq!(p2.as_ref(), b"pwd");
+    }
+
+    #[test]
+    fn decompose_enabled_and_disabled() {
+        let (u, pw, fname, settings) = enabled("alice").decompose();
+        assert_eq!(u, "alice");
+        assert_eq!(pw.as_ref(), b"hash");
+        assert_eq!(fname, "Full Name");
+        assert!(settings.is_none());
+
+        let (u2, pw2, fname2, settings2) = ProposedCredentials::transient("bob").decompose();
+        assert_eq!(u2, "bob");
+        assert!(pw2.as_ref().is_empty());
+        assert!(fname2.is_empty());
+        assert!(settings2.is_none());
+    }
+
+    #[test]
+    fn compare_username_matches_exactly() {
+        assert!(enabled("alice").compare_username(b"alice"));
+        assert!(!enabled("alice").compare_username(b"bob"));
+        assert!(ProposedCredentials::transient("x").compare_username(b"x"));
     }
 }

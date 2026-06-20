@@ -13,6 +13,7 @@
 //! - Multiple STUN server fallback support
 //! - NAT traversal strategy determination
 
+#[cfg(not(target_family = "wasm"))]
 use crate::error::FirewallError;
 use async_ip::IpAddressInfo;
 use itertools::Itertools;
@@ -452,13 +453,13 @@ mod native {
         ) -> Result<Self, FirewallError> {
             match citadel_io::time::timeout(_timeout, get_nat_type(stun_servers)).await {
                 Ok(res) => res
-                    .map_err(|err| FirewallError::HolePunch(err.to_string()))
+                    .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))
                     .inspect(|nat_type| {
                         *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
                     }),
 
-                Err(_elapsed) => Err(FirewallError::HolePunch(
-                    "NAT identification elapsed".to_string(),
+                Err(_elapsed) => Err(citadel_io::error!(
+                    citadel_io::ErrorCode::FirewallNatIdentTimeout
                 )),
             }
         }
@@ -930,5 +931,42 @@ mod tests {
                 },
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod predicate_tests {
+    use super::{IpTranslation, NatType, PortTranslation, TraversalTypeRequired};
+
+    #[test]
+    fn traversal_and_stun_predicates() {
+        // Identity/Identity NAT is directly reachable.
+        let direct = NatType::offline();
+        assert_eq!(
+            direct.traversal_type_required(),
+            TraversalTypeRequired::Direct
+        );
+        assert!(direct.ip_addr_info().is_some());
+        assert!(!direct.is_ipv6_compatible());
+
+        // Unpredictable translation forces TURN.
+        let turn = NatType {
+            ip_translation: IpTranslation::Unpredictable,
+            port_translation: PortTranslation::Unpredictable,
+            ip_info: None,
+            is_ipv6_enabled: true,
+        };
+        assert_eq!(turn.traversal_type_required(), TraversalTypeRequired::TURN);
+        assert!(turn.ip_addr_info().is_none());
+        assert!(turn.is_ipv6_compatible());
+
+        // STUN works as long as at least one side is predictable.
+        assert!(direct.stun_compatible(&direct));
+        assert!(direct.stun_compatible(&turn));
+        assert!(!turn.stun_compatible(&turn));
+
+        let (a, b) = direct.traversal_type_required_with(&turn);
+        assert_eq!(a, TraversalTypeRequired::Direct);
+        assert_eq!(b, TraversalTypeRequired::TURN);
     }
 }

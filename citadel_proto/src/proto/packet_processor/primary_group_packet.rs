@@ -53,14 +53,15 @@ use std::ops::Deref;
 /// `proxy_cid_info`: is None if the packets were not proxied, and will thus use the session's pqcrypto to authenticate the data.
 /// If `proxy_cid_info` is Some, then a tuple of the original implicated cid (peer cid) and the original target cid (this cid)
 /// will be provided. In this case, we must use the virtual conn's crypto
+// `src`/`target` are declared `Empty` and recorded once (below) from the header the body already
+// parses, rather than re-parsing the packet per field — the zerocopy `parse()` ran 3x otherwise.
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
     level = "trace",
     target = "citadel",
     skip_all,
     ret,
     err,
-    fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
-    )
+    fields(is_server = session_ref.is_server, src = tracing::field::Empty, target = tracing::field::Empty)
 ))]
 pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
     session_ref: &CitadelSession<R, T>,
@@ -89,12 +90,24 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
 
     let timestamp = time_tracker.get_global_time_ns();
 
-    let mut state_container = inner_mut_state!(state_container);
+    // Read-default: the common prefix (ratchet, validation, meta_expiry), the fast-message delivery
+    // branch (interior-mutable OrderedChannel), and the GROUP_HEADER_ACK branch (outbound_transmitters
+    // is now a DashMap → `&self`) are all read-only, so concurrent vconns deliver + ack concurrently.
+    // Only the genuinely-mutating file/wave branches escalate to a write lock via the wrapper. The
+    // owned `ratchet` below survives the read→write guard swap.
+    let state_container_wrapper = state_container;
+    let state_container = inner_state!(state_container_wrapper);
     let udp_mode = state_container.udp_mode;
     // get the proper pqc
     let header_bytes = &header[..];
     let header = return_if_none!(Ref::new(header_bytes), "Unable to load header [PGP]")
         as Ref<&[u8], HdpHeader>;
+    #[cfg(feature = "localhost-testing")]
+    {
+        let span = tracing::Span::current();
+        span.record("src", header.session_cid.get());
+        span.record("target", header.target_cid.get());
+    }
     let ratchet = return_if_none!(
         get_orientation_safe_ratchet(
             header.entropy_bank_version.get(),
@@ -108,6 +121,10 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
     match header.cmd_aux {
         packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
             log::trace!(target: "citadel", "RECV GROUP PAYLOAD {header:?}");
+            // File payload path: runs under the READ lock (C8). `on_group_payload_received` is `&self`
+            // and the inbound group/file maps are `DashMap`, so concurrent vconns' file transfers shard
+            // per entry instead of serializing on the StateContainer write lock (the inbound twin of the
+            // outbound_transmitters convoy fix). The error path's failure-notify is `&self` too.
             // These packets do not get encrypted with the message key. They get scrambled and encrypted
             match state_container.on_group_payload_received(&header, payload.freeze(), &ratchet) {
                 Ok(res) => {
@@ -211,6 +228,10 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                 }
 
                                 GroupHeader::Standard(group_receiver_config, virtual_target) => {
+                                    // Mutating (file header) branch: escalate read → write.
+                                    drop(state_container);
+                                    let mut state_container =
+                                        inner_mut_state!(state_container_wrapper);
                                     // First, check to make sure the virtual target can accept
                                     let object_id = group_receiver_config.object_id;
                                     let ticket = header.context_info.get().into();
@@ -224,13 +245,20 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                         "Unable to get resp_target_cid [PGP]"
                                     );
 
-                                    // the below will return None if not ready to accept
-                                    let initial_wave_window = state_container
+                                    // Err => not ready to accept (logged with cause); the ack then
+                                    // carries a None window and no group-timeout device is registered.
+                                    let initial_wave_window = match state_container
                                         .on_group_header_received(
                                             &header,
                                             group_receiver_config,
                                             virtual_target,
-                                        );
+                                        ) {
+                                        Ok(window) => Some(window),
+                                        Err(err) => {
+                                            log::warn!(target: "citadel", "Group HEADER not accepted: {err}");
+                                            None
+                                        }
+                                    };
                                     if initial_wave_window.is_some() {
                                         // register group timeout device
                                         //std::mem::drop(state_container);
@@ -239,41 +267,52 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
 
                                         session.queue_handle.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                                             let key = GroupKey::new(peer_cid, group_id, object_id);
-                                            if let Some(group) = state_container.inbound_groups.get(&key) {
-                                                if group.has_begun {
-                                                    if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
-                                                        if state_container.meta_expiry_state.expired() {
-                                                            log::warn!(target: "citadel", "Inbound group {group_id} has expired; removing for {peer_cid}.");
-                                                            if let Some(group) = state_container.inbound_groups.remove(&key) {
-                                                                if group.object_id != ObjectId::zero() {
-                                                                    // belongs to a file. Delete file; stop transmission
-                                                                    let key = FileKey::new(group.object_id);
-                                                                    if let Some(_file) = state_container.inbound_files.remove(&key) {
-                                                                        // dropping this will automatically drop the future streaming to HD
-                                                                        log::warn!(target: "citadel", "File transfer expired");
-                                                                        // TODO: Create file FIN
-                                                                    }
-
-                                                                    let _ = state_container.file_transfer_handles.remove(&key);
-                                                                }
-                                                            }
-
-                                                            QueueWorkerResult::Complete
-                                                        } else {
-                                                            log::trace!(target: "citadel", "Other inbound groups being processed; patiently awaiting group {group_id}");
-                                                            QueueWorkerResult::Incomplete
-                                                        }
-                                                    } else {
-                                                        // The inbound group is still receiving, and it hasn't expired. Keep polling
-                                                        QueueWorkerResult::Incomplete
+                                            // Decide under a scoped `Ref`, then DROP it before any
+                                            // inbound_groups.remove (DashMap self-deadlock otherwise).
+                                            let (present, should_remove) =
+                                                match state_container.inbound_groups.get(&key) {
+                                                    None => (false, false),
+                                                    Some(group) => {
+                                                        let remove = group.has_begun
+                                                            && group
+                                                                .receiver
+                                                                .has_expired(GROUP_EXPIRE_TIME_MS)
+                                                            && state_container
+                                                                .meta_expiry_state
+                                                                .expired();
+                                                        (true, remove)
                                                     }
-                                                } else {
-                                                    // group has not started; previous group is still transferring. Do no interrupt transfer
-                                                    QueueWorkerResult::Incomplete
-                                                }
-                                            } else {
+                                                };
+                                            if !present {
                                                 // has been removed, thus is complete
                                                 QueueWorkerResult::Complete
+                                            } else if should_remove {
+                                                log::warn!(target: "citadel", "Inbound group {group_id} has expired; removing for {peer_cid}.");
+                                                if let Some((_, group)) =
+                                                    state_container.inbound_groups.remove(&key)
+                                                {
+                                                    if group.object_id != ObjectId::zero() {
+                                                        // belongs to a file. Delete file; stop transmission
+                                                        let key = FileKey::new(group.object_id);
+                                                        if state_container
+                                                            .inbound_files
+                                                            .remove(&key)
+                                                            .is_some()
+                                                        {
+                                                            // dropping this drops the future streaming to HD
+                                                            log::warn!(target: "citadel", "File transfer expired");
+                                                            // TODO: Create file FIN
+                                                        }
+                                                        let _ = state_container
+                                                            .file_transfer_handles
+                                                            .remove(&key);
+                                                    }
+                                                }
+                                                QueueWorkerResult::Complete
+                                            } else {
+                                                // still receiving, or expired but other groups are
+                                                // processing — keep polling
+                                                QueueWorkerResult::Incomplete
                                             }
                                         });
                                     }
@@ -392,6 +431,9 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
 
                         packet_flags::cmd::aux::group::WAVE_ACK => {
                             log::trace!(target: "citadel", "RECV WAVE ACK");
+                            // Mutating (wave-ack) branch: escalate read → write.
+                            drop(state_container);
+                            let mut state_container = inner_mut_state!(state_container_wrapper);
                             match validation::group::validate_wave_ack(&payload) {
                                 Some(WaveAck { range }) => {
                                     if range.is_some() {

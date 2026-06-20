@@ -158,7 +158,9 @@ pub mod service {
                         &rtdb_config.api_key,
                     )
                     .await
-                    .map_err(|err| AccountError::Generic(err.inner))?;
+                    .map_err(|err| {
+                        citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner)
+                    })?;
                     Some(rtdb_root_instance.into())
                 } else {
                     None
@@ -210,7 +212,7 @@ impl ServicesObject {
                 rtdb_cfg.api_key.clone(),
             )
             .await
-            .map_err(|err| crate::misc::AccountError::Generic(err.inner))?;
+            .map_err(|err| citadel_io::error!(citadel_io::ErrorCode::ExternalService, err.inner))?;
 
             let firebase_rtdb::FirebaseRTDB {
                 base_url,

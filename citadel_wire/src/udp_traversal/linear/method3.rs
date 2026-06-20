@@ -182,8 +182,8 @@ impl Method3 {
             );
 
             timeout.await.unwrap_or_else(|_| {
-                Err(FirewallError::HolePunch(
-                    "Timeout while waiting for UDP penetration".to_string(),
+                Err(citadel_io::error!(
+                    citadel_io::ErrorCode::FirewallPenetrationTimeout
                 ))
             })
         };
@@ -192,7 +192,7 @@ impl Method3 {
             //citadel_io::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
             Self::send_packet_barrage(packet_send_params, None)
                 .await
-                .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))?;
             Ok(()) as Result<(), FirewallError>
         };
 
@@ -203,7 +203,7 @@ impl Method3 {
         if let Some(default_ttl) = default_ttl {
             let _ = socket
                 .set_ttl(default_ttl)
-                .map_err(|err| FirewallError::HolePunch(err.to_string()));
+                .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()));
         }
 
         let hole_punched_addr = res0?;
@@ -321,7 +321,7 @@ impl Method3 {
                     };
 
                     match bincode::deserialize(&packet)
-                        .map_err(|err| FirewallError::HolePunch(err.to_string()))
+                        .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))
                     {
                         Ok(NatPacket::Check) => {
                             continue;
@@ -368,7 +368,7 @@ impl Method3 {
                                 Some((their_send_addr, peer_unique_id)),
                             )
                             .await
-                            .map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                            .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))?;
                         }
 
                         // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
@@ -436,8 +436,8 @@ impl Method3 {
                     );
 
                     if err.kind() == ErrorKind::ConnectionReset {
-                        return Err(FirewallError::HolePunch(
-                            "Connection reset while waiting for UDP penetration".to_string(),
+                        return Err(citadel_io::error!(
+                            citadel_io::ErrorCode::FirewallConnectionReset
                         ));
                     }
                 }
