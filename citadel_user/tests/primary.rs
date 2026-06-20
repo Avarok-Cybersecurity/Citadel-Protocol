@@ -627,6 +627,98 @@ mod tests {
         .await
     }
 
+    // Regression test for the CID-0 "local-only account" clobber bug.
+    //
+    // `AccountManager::new` -> `setup_local_only_account` runs on every startup,
+    // *after* the backend has loaded persisted accounts. It used to
+    // unconditionally re-create the CID-0 CNAC and `save_cnac` it, overwriting
+    // the just-loaded CID-0 `byte_map` with an empty one — silently wiping any
+    // data stored under CID 0 (the local node's global KV store) on every
+    // restart. `test_byte_map_local` only exercises a single session, so it
+    // could not catch this; this test forces a real reload.
+    //
+    // Each `acc_mgr` call opens the same backend afresh (new in-memory cache +
+    // a load from disk), so session 2 is a genuine restart. InMemory is skipped
+    // because each open is a brand-new store by design.
+    #[tokio::test]
+    async fn test_local_only_account_byte_map_persists_across_reload() -> Result<(), AccountError> {
+        citadel_logging::setup_log();
+
+        let value = Vec::from("local-only-persisted");
+        let sibling = Vec::from("sibling-value");
+
+        for backend in server_backends() {
+            if matches!(backend, BackendType::InMemory) {
+                continue;
+            }
+            log::info!(target: "citadel", "Reload test on backend: {backend:?}");
+
+            // Session 1: write two sub_keys under CID 0.
+            {
+                let pers = acc_mgr(backend.clone())
+                    .await
+                    .get_persistence_handler()
+                    .clone();
+                assert!(pers
+                    .store_byte_map_value(0, 0, "thekey", "sub_one", value.clone())
+                    .await?
+                    .is_none());
+                assert!(pers
+                    .store_byte_map_value(0, 0, "thekey", "sub_two", sibling.clone())
+                    .await?
+                    .is_none());
+            }
+
+            // Session 2: reopen the same backend. Both values must survive the
+            // setup_local_only_account run inside AccountManager::new.
+            {
+                let pers = acc_mgr(backend.clone())
+                    .await
+                    .get_persistence_handler()
+                    .clone();
+                assert_eq!(
+                    pers.get_byte_map_value(0, 0, "thekey", "sub_one").await?,
+                    Some(value.clone()),
+                    "CID-0 byte_map value was wiped on reload for {backend:?}"
+                );
+                assert_eq!(
+                    pers.get_byte_map_values_by_key(0, 0, "thekey").await?.len(),
+                    2,
+                    "CID-0 byte_map sub_keys were wiped on reload for {backend:?}"
+                );
+                // A mutation issued after reload must itself persist.
+                assert_eq!(
+                    pers.remove_byte_map_value(0, 0, "thekey", "sub_one")
+                        .await?,
+                    Some(value.clone())
+                );
+            }
+
+            // Session 3: the removal must have persisted and the sibling survived.
+            {
+                let pers = acc_mgr(backend.clone())
+                    .await
+                    .get_persistence_handler()
+                    .clone();
+                assert!(
+                    pers.get_byte_map_value(0, 0, "thekey", "sub_one")
+                        .await?
+                        .is_none(),
+                    "removal of CID-0 byte_map value did not persist for {backend:?}"
+                );
+                assert_eq!(
+                    pers.get_byte_map_value(0, 0, "thekey", "sub_two").await?,
+                    Some(sibling.clone()),
+                    "sibling CID-0 value lost after reload for {backend:?}"
+                );
+                // Clean up the on-disk artifacts for this backend.
+                let _ = pers.purge().await?;
+            }
+        }
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_byte_map2() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, _pers_se| async move {
