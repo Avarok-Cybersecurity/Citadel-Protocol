@@ -309,6 +309,18 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// it is highly advisable to independently use and store an encryption key outside of the local program such
     /// that all stored data is encrypted in case of attack. This function needs to be used with caution.
     async fn setup_local_only_account(&self) -> Result<(), AccountError> {
+        // Idempotent on purpose. `AccountManager::new` runs this on every
+        // startup, *after* the backend has loaded any persisted accounts. The
+        // local-only (CID 0) account doubles as the local node's persistent
+        // store: callers stash arbitrary data in its `byte_map` via the CID-0
+        // KV path (e.g. server-global, account-independent metadata).
+        // Unconditionally re-creating a fresh CID-0 CNAC here would `save_cnac`
+        // an empty `byte_map` over the one just loaded from disk, wiping that
+        // data on every restart. Only create the account when it is absent.
+        if self.persistence_handler.cid_is_registered(0).await? {
+            return Ok(());
+        }
+
         // Setup mock CNAC
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(
             0,
