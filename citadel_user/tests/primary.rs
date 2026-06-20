@@ -646,6 +646,11 @@ mod tests {
 
         let value = Vec::from("local-only-persisted");
         let sibling = Vec::from("sibling-value");
+        // A key unique to this test. CID 0 is a shared namespace (other tests use
+        // it too, e.g. `test_byte_map_local`'s "thekey"), so a distinct key keeps
+        // this test's data isolated even when the suite runs concurrently against
+        // a shared backend.
+        let key = "reload_test_local_only";
 
         for backend in server_backends() {
             if matches!(backend, BackendType::InMemory) {
@@ -653,9 +658,18 @@ mod tests {
             }
             log::info!(target: "citadel", "Reload test on backend: {backend:?}");
 
-            // Capture every read/write first and `purge` before asserting, so a
-            // failed expectation can never skip cleanup and leave CID-0 state on
-            // a shared backend (e.g. SQL/Redis) to contaminate a later run.
+            // Cleanup, here and at the end, removes ONLY this test's own key via
+            // `remove_byte_map_values_by_key` — never `purge()`, which would wipe
+            // the entire (possibly shared) backend and clobber other tests. Doing
+            // it up front also clears anything an earlier aborted run left behind,
+            // so the Session 1 "first write returns None" assertion is reliable.
+            {
+                let pers = acc_mgr(backend.clone())
+                    .await
+                    .get_persistence_handler()
+                    .clone();
+                let _ = pers.remove_byte_map_values_by_key(0, 0, key).await?;
+            }
 
             // Session 1: write two sub_keys under CID 0.
             let (s1_one, s1_two) = {
@@ -664,9 +678,9 @@ mod tests {
                     .get_persistence_handler()
                     .clone();
                 (
-                    pers.store_byte_map_value(0, 0, "thekey", "sub_one", value.clone())
+                    pers.store_byte_map_value(0, 0, key, "sub_one", value.clone())
                         .await?,
-                    pers.store_byte_map_value(0, 0, "thekey", "sub_two", sibling.clone())
+                    pers.store_byte_map_value(0, 0, key, "sub_two", sibling.clone())
                         .await?,
                 )
             };
@@ -680,10 +694,9 @@ mod tests {
                     .get_persistence_handler()
                     .clone();
                 (
-                    pers.get_byte_map_value(0, 0, "thekey", "sub_one").await?,
-                    pers.get_byte_map_values_by_key(0, 0, "thekey").await?.len(),
-                    pers.remove_byte_map_value(0, 0, "thekey", "sub_one")
-                        .await?,
+                    pers.get_byte_map_value(0, 0, key, "sub_one").await?,
+                    pers.get_byte_map_values_by_key(0, 0, key).await?.len(),
+                    pers.remove_byte_map_value(0, 0, key, "sub_one").await?,
                 )
             };
 
@@ -692,11 +705,13 @@ mod tests {
                 .await
                 .get_persistence_handler()
                 .clone();
-            let s3_one = pers3.get_byte_map_value(0, 0, "thekey", "sub_one").await?;
-            let s3_two = pers3.get_byte_map_value(0, 0, "thekey", "sub_two").await?;
+            let s3_one = pers3.get_byte_map_value(0, 0, key, "sub_one").await?;
+            let s3_two = pers3.get_byte_map_value(0, 0, key, "sub_two").await?;
 
-            // Unconditional cleanup before any assertion can panic.
-            let _ = pers3.purge().await?;
+            // Targeted cleanup of only this test's key, before any assertion can
+            // panic. A later run's up-front cleanup covers the case where an op
+            // above returns Err and skips this line.
+            let _ = pers3.remove_byte_map_values_by_key(0, 0, key).await?;
 
             assert!(
                 s1_one.is_none() && s1_two.is_none(),
