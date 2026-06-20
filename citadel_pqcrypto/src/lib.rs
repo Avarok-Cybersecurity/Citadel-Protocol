@@ -1474,6 +1474,44 @@ mod in_place_aead_tests {
             "in-place-encrypt -> Vec-decrypt mismatch"
         );
     }
+
+    #[test]
+    fn container_getters_serialize_and_local_crypto() {
+        let (alice, bob) = keyed_pair();
+        let nonce = [0x11u8; 32];
+
+        // Both endpoints derived the same shared secret.
+        assert_eq!(
+            alice.get_shared_secret().unwrap().as_slice(),
+            bob.get_shared_secret().unwrap().as_slice()
+        );
+        // Key-material getters return non-empty material.
+        assert!(!alice.get_public_key().is_empty());
+        assert!(!bob.get_public_key_remote().is_empty());
+        assert!(alice.get_secret_key().is_ok());
+        assert!(bob.get_ciphertext().is_ok());
+        assert!(alice.get_chain().is_ok());
+        let _ = alice.get_node_type();
+        let _ = alice.has_verified_packets();
+        alice.reset_counters();
+
+        // serialize -> deserialize retains the shared secret.
+        let bytes = alice.serialize_to_vector().unwrap();
+        let restored = PostQuantumContainer::deserialize_from_bytes(&bytes).unwrap();
+        assert_eq!(
+            restored.get_shared_secret().unwrap().as_slice(),
+            alice.get_shared_secret().unwrap().as_slice()
+        );
+
+        // local_encrypt -> local_decrypt round-trips on the same container.
+        let pt = b"local secret".to_vec();
+        let ct = alice.local_encrypt(&pt, nonce).unwrap();
+        assert_eq!(alice.local_decrypt(&ct, nonce).unwrap(), pt);
+
+        // Directional encrypt (alice tx) -> decrypt (bob rx).
+        let ct2 = alice.encrypt(b"hello", nonce).unwrap();
+        assert_eq!(bob.decrypt(&ct2, nonce).unwrap(), b"hello");
+    }
 }
 
 #[cfg(test)]

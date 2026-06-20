@@ -336,3 +336,37 @@ mod tests {
         )
     }
 }
+
+#[cfg(test)]
+mod extra_tests {
+    use super::PartitionedSecBuffer;
+
+    #[test]
+    fn reserve_window_layout_into_buffer() {
+        let mut buf = PartitionedSecBuffer::<3>::new().unwrap();
+        buf.reserve_partition(0, 4).unwrap();
+        buf.reserve_partition(1, 2).unwrap();
+        buf.reserve_partition(2, 1).unwrap();
+        assert_eq!(buf.layout(), &[4u32, 2, 1]);
+        {
+            let mut w = buf.partition_window(1).unwrap();
+            w.fill(7);
+        }
+        let bytes = buf.into_buffer();
+        assert_eq!(bytes.len(), 7);
+        assert_eq!(&bytes[4..6], &[7, 7]);
+    }
+
+    #[test]
+    fn construction_and_reserve_errors() {
+        assert!(PartitionedSecBuffer::<0>::new().is_err());
+        let mut buf = PartitionedSecBuffer::<2>::new().unwrap();
+        // out-of-order reservation (idx 1 before idx 0) is rejected
+        assert!(buf.reserve_partition(1, 4).is_err());
+        buf.reserve_partition(0, 4).unwrap();
+        // double reservation of the same index is rejected
+        assert!(buf.reserve_partition(0, 4).is_err());
+        // out-of-bounds window
+        assert!(buf.partition_window(5).is_err());
+    }
+}

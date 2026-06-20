@@ -184,3 +184,58 @@ fn type_to_bytes<D: Serialize>(input: D) -> Result<Vec<u8>, AccountError> {
         citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+    struct Sample {
+        id: u64,
+        name: String,
+        flags: Vec<bool>,
+    }
+
+    fn sample() -> Sample {
+        Sample {
+            id: 1234,
+            name: "alice".to_string(),
+            flags: vec![true, false, true],
+        }
+    }
+
+    #[test]
+    fn vector_roundtrip() {
+        let s = sample();
+        let bytes = s.serialize_to_vector().unwrap();
+        assert_eq!(Sample::deserialize_from_vector(&bytes).unwrap(), s);
+        assert_eq!(Sample::deserialize_from_owned_vector(bytes).unwrap(), s);
+    }
+
+    #[test]
+    fn buf_and_slice_roundtrip() {
+        let s = sample();
+        let mut buf = BytesMut::with_capacity(8);
+        s.serialize_into_buf(&mut buf).unwrap();
+        assert_eq!(Sample::deserialize_from_vector(&buf).unwrap(), s);
+
+        let size = s.serialized_size().unwrap();
+        assert_eq!(size, s.serialize_to_vector().unwrap().len());
+        let mut slice = vec![0u8; size];
+        s.serialize_into_slice(&mut slice).unwrap();
+        assert_eq!(Sample::deserialize_from_vector(&slice).unwrap(), s);
+    }
+
+    #[test]
+    fn serialize_into_undersized_slice_errors() {
+        let s = sample();
+        let mut tiny = [0u8; 1];
+        assert!(s.serialize_into_slice(&mut tiny).is_err());
+    }
+
+    #[test]
+    fn deserialize_garbage_errors() {
+        assert!(Sample::deserialize_from_vector(&[0xFFu8; 2]).is_err());
+        assert!(Sample::deserialize_from_owned_vector(vec![0xFFu8; 2]).is_err());
+    }
+}

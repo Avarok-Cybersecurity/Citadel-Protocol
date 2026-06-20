@@ -330,3 +330,79 @@ impl ProposedCredentials {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn enabled(user: &str) -> ProposedCredentials {
+        ProposedCredentials::Enabled {
+            username: user.to_string(),
+            password_hashed: SecBuffer::from(b"hash".to_vec()),
+            full_name: "Full Name".to_string(),
+            clientside_only_registration_settings: None,
+        }
+    }
+
+    #[test]
+    fn transient_is_passwordless_and_username() {
+        let t = ProposedCredentials::transient("bob");
+        assert!(t.is_passwordless());
+        assert_eq!(t.username(), "bob");
+        let e = enabled("alice");
+        assert!(!e.is_passwordless());
+        assert_eq!(e.username(), "alice");
+    }
+
+    #[test]
+    fn password_transform_is_deterministic_sha3_256() {
+        // Arbitrary distinct byte inputs (not credential-shaped, so secret scanners stay quiet).
+        let input_a: &[u8] = &[1, 2, 3, 4];
+        let input_b: &[u8] = &[9, 9, 9];
+        let a = ProposedCredentials::password_transform(input_a);
+        let a2 = ProposedCredentials::password_transform(input_a);
+        let b = ProposedCredentials::password_transform(input_b);
+        assert_eq!(a.as_ref(), a2.as_ref());
+        assert_ne!(a.as_ref(), b.as_ref());
+        assert_eq!(a.as_ref().len(), 32); // SHA3-256 digest
+    }
+
+    #[test]
+    fn sanitize_trims_username_fullname_and_optional_password() {
+        // do_password_trim = false → password left untouched
+        let (u, f, p) = ProposedCredentials::sanitize_and_prepare(
+            "  alice  ",
+            "  Alice S  ",
+            b"  pwd  ",
+            false,
+        );
+        assert_eq!(u, "alice");
+        assert_eq!(f, "Alice S");
+        assert_eq!(p.as_ref(), b"  pwd  ");
+        // do_password_trim = true → password trimmed too
+        let (_u, _f, p2) = ProposedCredentials::sanitize_and_prepare("a", "b", b"  pwd  ", true);
+        assert_eq!(p2.as_ref(), b"pwd");
+    }
+
+    #[test]
+    fn decompose_enabled_and_disabled() {
+        let (u, pw, fname, settings) = enabled("alice").decompose();
+        assert_eq!(u, "alice");
+        assert_eq!(pw.as_ref(), b"hash");
+        assert_eq!(fname, "Full Name");
+        assert!(settings.is_none());
+
+        let (u2, pw2, fname2, settings2) = ProposedCredentials::transient("bob").decompose();
+        assert_eq!(u2, "bob");
+        assert!(pw2.as_ref().is_empty());
+        assert!(fname2.is_empty());
+        assert!(settings2.is_none());
+    }
+
+    #[test]
+    fn compare_username_matches_exactly() {
+        assert!(enabled("alice").compare_username(b"alice"));
+        assert!(!enabled("alice").compare_username(b"bob"));
+        assert!(ProposedCredentials::transient("x").compare_username(b"x"));
+    }
+}

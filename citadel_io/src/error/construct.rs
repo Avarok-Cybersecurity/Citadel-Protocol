@@ -228,3 +228,121 @@ impl NetworkError {
         crate::error!(ErrorCode::Rtdb, msg)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every shim constructor must carry its declared `ErrorCode` and render a non-empty message.
+    #[test]
+    fn all_constructors_carry_their_code() {
+        let cases: Vec<(NetworkError, ErrorCode)> = vec![
+            (NetworkError::generic("x"), ErrorCode::Generic),
+            (NetworkError::msg("x"), ErrorCode::Generic),
+            (NetworkError::socket("x"), ErrorCode::Socket),
+            (NetworkError::timeout(5), ErrorCode::Timeout),
+            (NetworkError::invalid_packet("x"), ErrorCode::InvalidPacket),
+            (
+                NetworkError::invalid_packet_size(9),
+                ErrorCode::InvalidPacketSize,
+            ),
+            (
+                NetworkError::invalid_request("x"),
+                ErrorCode::InvalidRequest,
+            ),
+            (NetworkError::internal("x"), ErrorCode::InternalError),
+            (
+                NetworkError::node_remote_send("x"),
+                ErrorCode::NodeRemoteSend,
+            ),
+            (NetworkError::proper_shutdown(), ErrorCode::ProperShutdown),
+            (NetworkError::io("x"), ErrorCode::Io),
+            (NetworkError::encrypt("x"), ErrorCode::Encrypt),
+            (NetworkError::decrypt("x"), ErrorCode::Decrypt),
+            (NetworkError::rekey_update("x"), ErrorCode::RekeyUpdate),
+            (NetworkError::ratchet("x"), ErrorCode::Ratchet),
+            (NetworkError::out_of_bounds(), ErrorCode::OutOfBounds),
+            (
+                NetworkError::bad_security_setting(),
+                ErrorCode::BadSecuritySetting,
+            ),
+            (NetworkError::fatal_crypt("x"), ErrorCode::FatalCrypt),
+            (
+                NetworkError::shared_secret_not_loaded(),
+                ErrorCode::SharedSecretNotLoaded,
+            ),
+            (
+                NetworkError::encryption_failure(),
+                ErrorCode::EncryptionFailure,
+            ),
+            (
+                NetworkError::decryption_failure(),
+                ErrorCode::DecryptionFailure,
+            ),
+            (NetworkError::invalid_length(), ErrorCode::InvalidLength),
+            (
+                NetworkError::unsupported_algorithm(),
+                ErrorCode::UnsupportedAlgorithm,
+            ),
+            (
+                NetworkError::account_client_exists(1),
+                ErrorCode::AccountClientExists,
+            ),
+            (
+                NetworkError::account_client_non_exists(1),
+                ErrorCode::AccountClientNonExists,
+            ),
+            (
+                NetworkError::account_server_exists(1),
+                ErrorCode::AccountServerExists,
+            ),
+            (
+                NetworkError::account_server_non_exists(1),
+                ErrorCode::AccountServerNonExists,
+            ),
+            (
+                NetworkError::account_invalid_username(),
+                ErrorCode::AccountInvalidUsername,
+            ),
+            (
+                NetworkError::account_invalid_password(),
+                ErrorCode::AccountInvalidPassword,
+            ),
+            (
+                NetworkError::account_disengaged(1),
+                ErrorCode::AccountDisengaged,
+            ),
+            (NetworkError::firewall_upnp("x"), ErrorCode::FirewallUpnp),
+            (
+                NetworkError::firewall_hole_punch("x"),
+                ErrorCode::FirewallHolePunch,
+            ),
+            (NetworkError::firewall_skip(), ErrorCode::FirewallSkip),
+            (
+                NetworkError::firewall_not_applicable(),
+                ErrorCode::FirewallNotApplicable,
+            ),
+            (
+                NetworkError::firewall_hole_punch_exhausted(),
+                ErrorCode::FirewallHolePunchExhausted,
+            ),
+            (
+                NetworkError::firewall_local_ip_fail(),
+                ErrorCode::FirewallLocalIpFail,
+            ),
+            (NetworkError::channel_send("x"), ErrorCode::ChannelSend),
+            (NetworkError::channel_recv(), ErrorCode::ChannelRecv),
+            (
+                NetworkError::channel_internal("x"),
+                ErrorCode::ChannelInternal,
+            ),
+            (NetworkError::ip_retrieve("x"), ErrorCode::IpRetrieve),
+            (NetworkError::rtdb("x"), ErrorCode::Rtdb),
+        ];
+        for (err, code) in cases {
+            assert_eq!(err.code(), code, "constructor produced the wrong code");
+            assert_eq!(err.code_u16(), code as u16);
+            assert!(!err.into_string().is_empty());
+        }
+    }
+}
