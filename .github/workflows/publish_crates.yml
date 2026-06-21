@@ -1,52 +1,212 @@
-name: Publish to Crates.io
+name: Publish to crates.io
+
+# Manually-invocable release pipeline for the whole workspace.
+#
+# It publishes every publishable workspace crate to crates.io in dependency order,
+# waiting for the index to update between crates (so each crate's just-published
+# dependencies are resolvable by the next one). It is idempotent: crates whose
+# current version is already on crates.io are skipped, so a failed run can simply
+# be re-run.
+#
+# Versioning is centralized: each member pins `[package] version` and the root
+# `[workspace.dependencies]` pins the matching version. `cargo workspaces` keeps
+# both in lockstep when bumping, so the two never drift.
+#
+# Typical use:
+#   * bump = none   -> publish the versions currently committed (the repo is the
+#                      source of truth). Use this when versions were already bumped
+#                      in a normal PR.
+#   * bump = patch/minor/major/custom -> bump all crates in lockstep, commit, tag,
+#                      push, then publish.
+#
+# Always do a dry_run = true pass first: it verifies the workspace compiles and
+# prints exactly which crates would be published (local vs crates.io), without
+# touching crates.io or git.
 
 on:
   workflow_dispatch:
     inputs:
-      version_type:
-        description: 'Version publish type'
-        required: true
+      bump:
+        description: "Version action (none = publish the currently-committed versions as-is)"
         type: choice
+        default: none
         options:
+          - none
           - patch
           - minor
           - major
+          - custom
+      custom_version:
+        description: "Exact x.y.z version (only used when bump = custom)"
+        type: string
+        default: ""
+      dry_run:
+        description: "Dry run: verify + print the publish plan, but do NOT publish or push"
+        type: boolean
+        default: true
+
+# Never let two publishes race (crates.io ordering + git tags must be serialized).
+concurrency:
+  group: crates-io-publish
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 env:
   CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  CARGO_TERM_COLOR: always
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: Install cargo-make
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: --force cargo-make
-
-      - name: Publish version
+      - name: Validate inputs
         run: |
-          git config user.email "tbraun96@gmail.com"
-          git config user.name "Thomas Braun"
-          if [ "${{ github.event.inputs.version_type }}" = "patch" ]; then
-            cargo make publish-patch
-          elif [ "${{ github.event.inputs.version_type }}" = "minor" ]; then
-            cargo make publish-minor
+          set -euo pipefail
+          if [ "${{ inputs.bump }}" = "custom" ] && [ -z "${{ inputs.custom_version }}" ]; then
+            echo "::error::bump=custom requires a custom_version (x.y.z)"; exit 1
+          fi
+          if [ "${{ inputs.dry_run }}" != "true" ] && [ -z "${{ secrets.CARGO_REGISTRY_TOKEN }}" ]; then
+            echo "::error::A real publish requires the CARGO_REGISTRY_TOKEN secret"; exit 1
+          fi
+
+      # A PAT (CRATES_RELEASE_PAT) is used when present so that the version-bump commit can be
+      # pushed to a protected default branch; otherwise the built-in token is used (sufficient
+      # for tag-only 'none' releases and for repos whose default branch is not push-protected).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CRATES_RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Mirrors the toolchain/system deps used by CI so the verify build matches `validate.yml`.
+      - name: Setup system dependencies
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+
+      - name: Install cargo-workspaces
+        run: cargo install cargo-workspaces --locked
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # The publish step uses --no-verify (the only way to do a first-time multi-crate publish,
+      # since unpublished sibling versions are not yet resolvable from the index). This step is
+      # the safety net that catches a broken tree before anything is uploaded.
+      - name: Verify workspace compiles
+        run: cargo check --workspace
+
+      - name: Compute publish plan
+        id: plan
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, urllib.request
+
+          meta = json.loads(subprocess.check_output(
+              ["cargo", "metadata", "--no-deps", "--format-version", "1"]))
+          crates = sorted(
+              ((p["name"], p["version"]) for p in meta["packages"] if p.get("publish") is None),
+              key=lambda x: x[0])
+
+          def semver_key(v):
+              # Sort numerically (so 0.13.0 > 0.9.0); a pre-release suffix sorts below its release.
+              core = v.split("-", 1)
+              nums = []
+              for part in core[0].split("."):
+                  nums.append(int(part) if part.isdigit() else 0)
+              return (nums, 0 if len(core) > 1 else 1)
+
+          ua = {"User-Agent": "citadel-release-pipeline (tbraun96@gmail.com)"}
+          print("crate                | local   | crates.io | action")
+          print("---------------------+---------+-----------+--------")
+          will_publish = 0
+          for name, ver in crates:
+              try:
+                  req = urllib.request.Request(
+                      f"https://crates.io/api/v1/crates/{name}/versions", headers=ua)
+                  data = json.load(urllib.request.urlopen(req, timeout=20))
+                  published = {v["num"] for v in data.get("versions", []) if not v.get("yanked")}
+                  latest = max(published, key=semver_key, default="-")
+              except Exception:
+                  latest = "(new)"
+                  published = set()
+              action = "skip (already published)" if ver in published else "PUBLISH"
+              if action == "PUBLISH":
+                  will_publish += 1
+              print(f"{name:<20} | {ver:<7} | {latest:<9} | {action}")
+          print(f"\n{will_publish} crate(s) will be published.")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(f"### Publish plan (bump=`{os.environ['BUMP']}`)\n\n")
+              f.write(f"{will_publish} crate(s) will be published at version "
+                      f"`{crates[0][1] if crates else '?'}`.\n")
+          PY
+
+      - name: Build cargo-workspaces version args
+        id: vargs
+        run: |
+          case "${{ inputs.bump }}" in
+            none)   echo "args=--publish-as-is" >> "$GITHUB_OUTPUT" ;;
+            custom) echo "args=custom ${{ inputs.custom_version }}" >> "$GITHUB_OUTPUT" ;;
+            *)      echo "args=${{ inputs.bump }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      # ---- DRY RUN ----------------------------------------------------------------
+      # cargo-workspaces' own --dry-run cannot validate a first-time multi-crate publish
+      # (the unpublished sibling versions aren't on the index yet), so for a dry run we
+      # instead preview the version bump (then revert just the manifests) and rely on the
+      # plan + verify steps.
+      - name: Dry run (version preview only, no publish/push)
+        if: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.bump }}" != "none" ]; then
+            cargo workspaces version ${{ steps.vargs.outputs.args }} \
+              --yes --no-git-commit --force '*'
+            echo "=== version changes that WOULD be committed ==="
+            git --no-pager diff --stat
+            git checkout -- '*Cargo.toml' Cargo.toml
+          fi
+          echo "Dry run complete — nothing was published or pushed."
+
+      # ---- REAL PUBLISH -----------------------------------------------------------
+      - name: Publish to crates.io
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          set -euo pipefail
+          cargo workspaces publish ${{ steps.vargs.outputs.args }} \
+            --yes \
+            --no-verify \
+            --token "$CARGO_REGISTRY_TOKEN" \
+            --publish-interval 30 \
+            --allow-branch master \
+            --no-git-push \
+            --allow-dirty
+
+      # For bump releases, push the version-bump commit + per-crate tags now that the publish
+      # succeeded (publish-first so a blocked push never leaves crates.io half-released).
+      - name: Push version bump commit + tags
+        if: ${{ inputs.dry_run == false && inputs.bump != 'none' }}
+        run: git push --follow-tags origin HEAD:master
+
+      # For an as-is release there is no version commit; record the release with a global tag.
+      - name: Tag as-is release
+        if: ${{ inputs.dry_run == false && inputs.bump == 'none' }}
+        run: |
+          set -euo pipefail
+          V="$(cargo metadata --no-deps --format-version 1 \
+                | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="citadel_sdk"))')"
+          if git rev-parse "v$V" >/dev/null 2>&1; then
+            echo "Tag v$V already exists; leaving it as-is."
           else
-            cargo make publish-major
+            git tag -a "v$V" -m "Release v$V"
+            git push origin "v$V"
           fi
