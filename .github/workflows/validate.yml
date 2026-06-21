@@ -67,6 +67,9 @@ jobs:
         run: cargo make ratchet-stability-test
   core_libs:
     strategy:
+      # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
+      # with no cross-leg dependency, and cancelling destroys which leg actually failed.
+      fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
@@ -180,6 +183,9 @@ jobs:
 
   nat:
     strategy:
+      # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
+      # with no cross-leg dependency, and cancelling destroys which leg actually failed.
+      fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
@@ -222,15 +228,22 @@ jobs:
         uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --package netbeam
+      # --release: the UDP-traversal timing tests (esp. the high-lag consensus regression) are
+      # calibrated against fixed timeouts; a debug build's slowness widens the lag/barrier
+      # windows enough that shared-runner scheduler jitter tips a boundary-calibrated attempt
+      # over its deadline. Release removes that confounder (mirrors the citadel_sdk_release job).
       - name: Run basic localhost NAT tests
         if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --package citadel_wire --features=localhost-testing
+        run: cargo nextest run --release --package citadel_wire --features=localhost-testing
       - name: Run basic localhost NAT tests (windows only)
         if: startsWith(matrix.os, 'windows')
-        run: cargo nextest run --package citadel_wire --features=localhost-testing,vendored
+        run: cargo nextest run --release --package citadel_wire --features=localhost-testing,vendored
 
   citadel_sdk:
     strategy:
+      # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
+      # with no cross-leg dependency, and cancelling destroys which leg actually failed.
+      fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
@@ -534,6 +547,9 @@ jobs:
   docker_nat_client_server:
     runs-on: ubuntu-latest
     strategy:
+      # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
+      # with no cross-leg dependency, and cancelling destroys which leg actually failed.
+      fail-fast: false
       matrix:
         nat_type_client_a:
           - "full_cone"
@@ -551,6 +567,9 @@ jobs:
   docker_nat_p2p:
     runs-on: ubuntu-latest
     strategy:
+      # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
+      # with no cross-leg dependency, and cancelling destroys which leg actually failed.
+      fail-fast: false
       matrix:
         nat_type_peer_a:
           - "full_cone"

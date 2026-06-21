@@ -436,10 +436,15 @@ mod tests {
         citadel_logging::setup_log();
         const LAG_MS: usize = 450;
         const ITERS: usize = 5;
-        // Big enough to absorb a 20s attempt-timeout followed by a recovering retry (the retry now
-        // re-pairs instead of deadlocking). A genuine failure (consensus never agreeing) still trips
-        // it within MAX_RETRIES × DEFAULT_TIMEOUT.
-        const PER_ITER_TIMEOUT: Duration = Duration::from_secs(75);
+        // Derive the per-iter budget from the production retry envelope (SSOT) rather than a magic
+        // literal that silently drifts if DEFAULT_TIMEOUT/MAX_RETRIES change: a full run is at most
+        // MAX_RETRIES attempt-timeouts, plus slack for the post-consensus datagram round-trip. This
+        // is exactly the production worst case — NOT inflated — so a genuine consensus deadlock still
+        // trips it. (The actual flake fix is running this job in --release; see validate.yml.)
+        const DATAGRAM_EXCHANGE_SLACK: Duration = Duration::from_secs(15);
+        let per_iter_timeout = super::DEFAULT_TIMEOUT
+            .saturating_mul(super::MAX_RETRIES as u32)
+            .saturating_add(DATAGRAM_EXCHANGE_SLACK);
 
         for i in 0..ITERS {
             let (server_stream, client_stream) = create_streams_with_addrs_and_lag(LAG_MS).await;
@@ -481,7 +486,7 @@ mod tests {
                 assert_ne!(len, 0);
             };
 
-            match citadel_io::tokio::time::timeout(PER_ITER_TIMEOUT, iteration).await {
+            match citadel_io::tokio::time::timeout(per_iter_timeout, iteration).await {
                 Ok(()) => {
                     log::info!(target: "citadel", "[hole-punch-consensus] iter {i}/{ITERS} OK")
                 }
