@@ -51,7 +51,11 @@ io-uring = { workspace = true, optional = true }
 libc = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-tokio_wasm = { package = "tokio", version = "=1.36.0", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = [
+# NOTE: `git` forces the WASI fork (branch v1.36.x = tokio 1.36.0) for actual wasm builds; the
+# version is only a constraint. It must stay caret-compatible with the native tokio requirement
+# (^1.47) so `cargo package`/publish — which strips the git source and maps both to crates.io —
+# can resolve a single tokio version. An exact `=1.36.0` pin makes the crate unpublishable.
+tokio_wasm = { package = "tokio", version = "1.36", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = [
     "macros",
     "sync",
     "rt",
