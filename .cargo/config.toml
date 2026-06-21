@@ -1,3 +1,14 @@
+# Build-network resilience (SSOT — docker images `COPY . .`, so every build context inherits this).
+# crates.io downloads over HTTP/2 intermittently abort with "[16] Error in the HTTP2 framing layer"
+# (a CDN/proxy hiccup); this repeatedly failed docker NAT image builds during releases. Disabling
+# HTTP/2 multiplexing forces resilient single-stream HTTP, and a high retry count rides out blips.
+[net]
+retry = 10
+git-fetch-with-cli = true
+
+[http]
+multiplexing = false
+
 # Enable ARMv8 hardware AES (FEAT_AES) for the RustCrypto `aes` crate on aarch64. The 0.8.x
 # `aes` crate gates its aarch64 hardware backend behind `--cfg aes_armv8` (x86-64 AES-NI is
 # already runtime-detected and needs nothing here). Measured: AES-GCM per-message protect
