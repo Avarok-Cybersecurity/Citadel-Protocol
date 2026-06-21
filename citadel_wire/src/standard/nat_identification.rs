@@ -463,6 +463,102 @@ mod native {
                 )),
             }
         }
+
+        /// STUN-probes the *actual* hole-punch socket to learn its server-reflexive
+        /// (external) address — the exact mapping the remote peer will target.
+        ///
+        /// Unlike [`NatType::identify`], which models the NAT from throwaway sockets and
+        /// then *predicts* an external address, this observes the real mapping. That makes
+        /// traversal succeed for endpoint-independent NATs that do not preserve the port
+        /// (where prediction is impossible). The socket is probed un-connected, so it stays
+        /// usable for the subsequent hole-punch barrage.
+        ///
+        /// Returns `None` when no server answers — the caller then relies solely on the
+        /// predicted bands, preserving prior behavior. IPv6 sockets are skipped: IPv6 is
+        /// typically un-NATed and is already covered by the `ip_info`-derived band.
+        ///
+        /// The caller decides *when* to probe (the hole-punch driver skips this under
+        /// `localhost-testing`, where there are no real STUN servers); this function itself
+        /// probes unconditionally so it stays unit-testable against a local STUN responder.
+        pub async fn get_reflexive_addr(
+            socket: &UdpSocket,
+            stun_servers: Option<&[String]>,
+        ) -> Option<SocketAddr> {
+            // The probe socket is IPv4; an IPv6 socket cannot reach the IPv4 STUN servers.
+            if !socket.local_addr().ok()?.is_ipv4() {
+                return None;
+            }
+
+            let owned_default;
+            let servers: &[String] = match stun_servers {
+                Some(servers) if !servers.is_empty() => servers,
+                _ => {
+                    owned_default = STUN_SERVERS
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>();
+                    &owned_default
+                }
+            };
+
+            for server in servers {
+                if let Some(addr) = stun_probe_socket(socket, server).await {
+                    return Some(addr);
+                }
+            }
+
+            None
+        }
+    }
+
+    /// Sends a single STUN BINDING request from `socket` to `server` and returns the
+    /// observed XOR-mapped (external) address. IPv4 only; bounded by a short timeout.
+    async fn stun_probe_socket(socket: &UdpSocket, server: &str) -> Option<SocketAddr> {
+        // Resolve to an IPv4 endpoint (the probe socket is IPv4).
+        let server_addr = citadel_io::tokio::net::lookup_host(server)
+            .await
+            .ok()?
+            .find(SocketAddr::is_ipv4)?;
+
+        let mut request = Message::new();
+        request
+            .build(&[
+                Box::<stun::agent::TransactionId>::default(),
+                Box::new(BINDING_REQUEST),
+            ])
+            .ok()?;
+        let transaction_id = request.transaction_id;
+
+        socket.send_to(&request.raw, server_addr).await.ok()?;
+
+        let recv = async {
+            let mut buf = [0u8; 256];
+            loop {
+                let (len, from) = socket.recv_from(&mut buf).await.ok()?;
+                if from != server_addr {
+                    // Not the STUN server (e.g. a stray/early hole-punch packet); ignore.
+                    continue;
+                }
+
+                let mut response = Message::new();
+                response.raw = buf[..len].to_vec();
+                if response.decode().is_err() || response.transaction_id != transaction_id {
+                    continue;
+                }
+
+                let mut xor_addr = XorMappedAddress::default();
+                if xor_addr.get_from(&response).is_err() {
+                    continue;
+                }
+
+                return Some(SocketAddr::new(xor_addr.ip, xor_addr.port));
+            }
+        };
+
+        citadel_io::time::timeout(Duration::from_millis(1500), recv)
+            .await
+            .ok()
+            .flatten()
     }
 
     #[cfg_attr(
@@ -617,6 +713,69 @@ mod tests {
         let nat_type = NatType::identify(None).await.unwrap();
         let traversal_type = nat_type.traversal_type_required();
         log::trace!(target: "citadel", "NAT Type: {nat_type:?} | Reaching this node will require: {traversal_type:?} NAT traversal | Hypothetical connect scenario");
+    }
+
+    /// Exercises `get_reflexive_addr` (and `stun_probe_socket`) end-to-end against a local
+    /// fake STUN responder over loopback — no real network — so the observe-the-real-mapping
+    /// path is covered even though the hole-punch driver gates it off under localhost-testing.
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn get_reflexive_addr_parses_local_stun_response() {
+        use citadel_io::tokio::net::UdpSocket;
+        use stun::message::{Message, BINDING_SUCCESS};
+        use stun::xoraddr::XorMappedAddress;
+
+        // The external address the fake STUN server will report back.
+        let mapped = SocketAddr::from_str("203.0.113.9:51234").unwrap();
+
+        // Fake STUN server: echoes the request's transaction id in a BINDING_SUCCESS carrying
+        // an XOR-MAPPED-ADDRESS. `build()` clears attributes but preserves `transaction_id`,
+        // and `XorMappedAddress` encodes against it, so the client can match and decode.
+        let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let server_addr = server.local_addr().unwrap();
+        let server_task = citadel_io::tokio::task::spawn(async move {
+            let mut buf = [0u8; 256];
+            let (len, from) = server.recv_from(&mut buf).await.unwrap();
+            let mut request = Message::new();
+            request.raw = buf[..len].to_vec();
+            request.decode().unwrap();
+
+            let mut response = Message::new();
+            response.transaction_id = request.transaction_id;
+            response
+                .build(&[
+                    Box::new(BINDING_SUCCESS),
+                    Box::new(XorMappedAddress {
+                        ip: mapped.ip(),
+                        port: mapped.port(),
+                    }),
+                ])
+                .unwrap();
+            server.send_to(&response.raw, from).await.unwrap();
+        });
+
+        let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let observed = NatType::get_reflexive_addr(&client, Some(&[server_addr.to_string()])).await;
+        server_task.await.unwrap();
+
+        assert_eq!(
+            observed,
+            Some(mapped),
+            "reflexive addr must match the STUN-reported mapping"
+        );
+    }
+
+    /// An IPv6 probe socket is skipped (cannot reach the IPv4 STUN servers) and returns None
+    /// without any network I/O.
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn get_reflexive_addr_skips_ipv6_socket() {
+        let socket = citadel_io::tokio::net::UdpSocket::bind("[::1]:0")
+            .await
+            .unwrap();
+        let observed =
+            NatType::get_reflexive_addr(&socket, Some(&["127.0.0.1:3478".to_string()])).await;
+        assert_eq!(observed, None);
     }
 
     #[test]

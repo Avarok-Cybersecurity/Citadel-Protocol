@@ -15,7 +15,7 @@
 //!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 //!     let target_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
 //!     let peer_nat = NatType::identify(None).await?;
-//!     let config = HolePunchConfig::new(&peer_nat, &[target_addr], vec![socket]);
+//!     let config = HolePunchConfig::new(&peer_nat, &[target_addr], &[], vec![socket]);
 //!     Ok(())
 //! }
 //! ```
@@ -51,6 +51,7 @@
 //!     let config = HolePunchConfig::new(
 //!         &peer_nat,
 //!         &[peer_addr],
+//!         &[],
 //!         vec![socket]
 //!     );
 //!     
@@ -135,9 +136,15 @@ mod native {
     }
 
     impl HolePunchConfig {
+        /// `peer_reflexive_addrs` are the peer's *observed* server-reflexive (external)
+        /// addresses — see [`NatType::get_reflexive_addr`]. They are exact (not predicted),
+        /// so they are added as candidates to every band set, letting traversal succeed for
+        /// endpoint-independent NATs whose port the predictive model cannot infer.
+        /// Version-incompatible entries are filtered downstream per local socket.
         pub fn new(
             peer_nat: &NatType,
             peer_internal_addrs: &[SocketAddr],
+            peer_reflexive_addrs: &[SocketAddr],
             local_sockets: Vec<UdpSocket>,
         ) -> Self {
             assert_eq!(peer_internal_addrs.len(), local_sockets.len());
@@ -158,6 +165,12 @@ mod native {
                         anticipated_ports: vec![peer_internal_addr.port()],
                     }]
                 };
+
+                // ICE-style server-reflexive candidates: exact, observed external addrs.
+                bands.extend(peer_reflexive_addrs.iter().map(|addr| AddrBand {
+                    necessary_ip: addr.ip(),
+                    anticipated_ports: vec![addr.port()],
+                }));
 
                 bands.extend(get_localhost_bands(peer_internal_addr));
 
@@ -185,3 +198,34 @@ mod native {
 
 #[cfg(not(target_family = "wasm"))]
 pub use native::HolePunchConfig;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::HolePunchConfig;
+    use crate::nat_identification::NatType;
+    use citadel_io::tokio;
+    use std::net::SocketAddr;
+    use std::str::FromStr;
+
+    /// An observed server-reflexive (external) address must become a ping candidate even
+    /// when the predictive NAT model yields nothing — this is the whole point of probing
+    /// the real socket for endpoint-independent NATs that randomize the external port.
+    #[tokio::test]
+    async fn reflexive_addr_becomes_candidate() {
+        let socket = citadel_io::tokio::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .unwrap();
+        let peer_internal = SocketAddr::from_str("192.168.1.50:40000").unwrap();
+        let reflexive = SocketAddr::from_str("203.0.113.7:55555").unwrap();
+
+        // Default NatType is Unpredictable -> predict() returns None (no model bands).
+        let nat = NatType::default();
+        let config = HolePunchConfig::new(&nat, &[peer_internal], &[reflexive], vec![socket]);
+
+        let candidates: Vec<SocketAddr> = config.into_iter().flatten().collect();
+        assert!(
+            candidates.contains(&reflexive),
+            "observed reflexive candidate must be pinged, got: {candidates:?}"
+        );
+    }
+}
