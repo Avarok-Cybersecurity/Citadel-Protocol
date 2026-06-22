@@ -180,7 +180,18 @@ pub async fn get_ip_from(
         .await
         .map_err(|err| IpRetrieveError::ip_retrieve(err.to_string()))?;
 
-    IpAddr::from_str(text.as_str()).map_err(|err| IpRetrieveError::ip_retrieve(err.to_string()))
+    parse_ip_response(&text)
+}
+
+/// Parses an IP address out of an IP-echo service's HTTP response body.
+///
+/// Several of the upstream services append a trailing newline (and some surround the
+/// address with whitespace), which `IpAddr::from_str` rejects verbatim. Trimming first
+/// makes resolution robust to those harmless formatting differences instead of letting an
+/// otherwise-valid fallback service fail. The trimmed text must still be exactly one IP
+/// address — embedded whitespace or extra tokens are still rejected.
+fn parse_ip_response(text: &str) -> Result<IpAddr, IpRetrieveError> {
+    IpAddr::from_str(text.trim()).map_err(|err| IpRetrieveError::ip_retrieve(err.to_string()))
 }
 
 // --- Platform-specific internal IP resolution ---
@@ -245,3 +256,47 @@ pub fn get_default_client() -> reqwest::Client {
 
 /// The default error type for this crate
 pub type IpRetrieveError = citadel_io::NetworkError;
+
+#[cfg(test)]
+mod tests {
+    use super::parse_ip_response;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn parses_bare_ipv4() {
+        assert_eq!(
+            parse_ip_response("1.2.3.4").unwrap(),
+            IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))
+        );
+    }
+
+    #[test]
+    fn trims_trailing_newline() {
+        // Some IP-echo services append a trailing '\n'; this previously broke parsing.
+        assert_eq!(
+            parse_ip_response("1.2.3.4\n").unwrap(),
+            IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))
+        );
+    }
+
+    #[test]
+    fn trims_surrounding_whitespace_and_crlf() {
+        assert_eq!(
+            parse_ip_response("  1.2.3.4  ").unwrap(),
+            IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))
+        );
+        assert_eq!(
+            parse_ip_response("2001:db8::1\r\n").unwrap(),
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))
+        );
+    }
+
+    #[test]
+    fn rejects_garbage_and_embedded_tokens() {
+        assert!(parse_ip_response("").is_err());
+        assert!(parse_ip_response("not-an-ip").is_err());
+        // Trimming must not turn a multi-token body into a valid parse.
+        assert!(parse_ip_response("1.2.3.4 5.6.7.8").is_err());
+        assert!(parse_ip_response("<html>error</html>").is_err());
+    }
+}
