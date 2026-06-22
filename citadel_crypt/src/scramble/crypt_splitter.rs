@@ -1138,6 +1138,18 @@ impl<const N: usize> GroupSenderDevice<N> {
     /// Frees the RAM internally. Returns true if the entire group is complete
     #[allow(unused_results)]
     pub fn on_wave_tail_ack_received(&mut self, wave_id: u32) -> bool {
+        // `wave_id` is taken verbatim from a remote-peer-controlled WAVE_ACK header and is not
+        // otherwise validated by the caller. Reject out-of-range ids so a malformed/forged ack
+        // cannot (a) overflow the `max_packets_per_wave * wave_id` offset arithmetic — a panic in
+        // debug builds, a silent wrap in release — (b) trip the `get_packets_in_wave` debug_assert,
+        // or (c) inflate the `packets_received` accounting that drives group completion (which would
+        // either prematurely tear the transfer down or wedge it so it never completes). A legitimate
+        // ack always has `wave_id < wave_count`.
+        if wave_id >= self.receiver_config.wave_count {
+            log::warn!(target: "citadel", "Discarding WAVE_ACK for out-of-range wave_id {wave_id} (wave_count={})", self.receiver_config.wave_count);
+            return false;
+        }
+
         let offset = self.receiver_config.max_packets_per_wave * wave_id;
         let packets_in_this_wave = self.get_packets_in_wave(wave_id);
 
@@ -1403,6 +1415,78 @@ mod group_config_validation_tests {
                 usize::MAX
             ),
             None
+        );
+    }
+}
+
+#[cfg(test)]
+mod sender_wave_ack_tests {
+    use super::{GroupReceiverConfig, GroupSenderDevice};
+    use citadel_types::proto::ObjectId;
+    use std::collections::HashMap;
+
+    /// Internally-consistent config: wave_count == full + partial == 3.
+    fn valid_config() -> GroupReceiverConfig {
+        let number_of_full_waves = 2u32;
+        let number_of_partial_waves = 1u32;
+        let max_packets_per_wave = 4u32;
+        let packets_in_last_wave = 3u32;
+        GroupReceiverConfig {
+            packets_needed: number_of_full_waves * max_packets_per_wave + packets_in_last_wave,
+            max_packets_per_wave,
+            plaintext_length: 1000,
+            max_payload_size: 100,
+            last_payload_size: 50,
+            number_of_full_waves,
+            number_of_partial_waves,
+            wave_count: number_of_full_waves + number_of_partial_waves,
+            max_plaintext_wave_length: 360,
+            last_plaintext_wave_length: 200,
+            packets_in_last_wave,
+            header_size_bytes: 72,
+            group_id: 0,
+            object_id: ObjectId::from(0u128),
+            transfer_type: None,
+            empty_transfer: false,
+        }
+    }
+
+    fn empty_sender() -> GroupSenderDevice<0> {
+        GroupSenderDevice::<0>::new(valid_config(), HashMap::new())
+    }
+
+    // An out-of-range `wave_id` is rejected without panicking, without overflowing the
+    // `max_packets_per_wave * wave_id` offset arithmetic, and without corrupting the
+    // `packets_received` accounting. Before the bounds check this would overflow-panic in
+    // debug builds and double-count in release.
+    #[test]
+    fn out_of_range_wave_ack_is_ignored() {
+        let cfg = valid_config();
+        for bad_wave_id in [cfg.wave_count, cfg.wave_count + 1, u32::MAX] {
+            let mut sender = empty_sender();
+            assert!(
+                !sender.on_wave_tail_ack_received(bad_wave_id),
+                "out-of-range wave_id {bad_wave_id} must not report group completion"
+            );
+            assert_eq!(
+                sender.get_packets_received(),
+                0,
+                "out-of-range wave_id {bad_wave_id} must not advance the received counter"
+            );
+        }
+    }
+
+    // A legitimate (in-range) ack is still accepted and advances accounting as before.
+    #[test]
+    fn in_range_wave_ack_still_accounts() {
+        let cfg = valid_config();
+        let mut sender = empty_sender();
+        // ack the (in-range) final wave: 3 packets, not the whole group, so not complete yet.
+        let complete = sender.on_wave_tail_ack_received(cfg.wave_count - 1);
+        assert!(!complete);
+        assert_eq!(
+            sender.get_packets_received(),
+            cfg.packets_in_last_wave as usize
         );
     }
 }
