@@ -132,19 +132,19 @@ pub trait SyncIO {
         })
     }
 
-    /// Serializes self into a buffer
+    /// Serializes self into a buffer, appending to any existing contents.
     fn serialize_into_buf(&self, buf: &mut BytesMut) -> Result<(), AccountError>
     where
         Self: Serialize,
     {
-        bincode::serialized_size(self)
-            .and_then(|amt| {
-                buf.reserve(amt as usize);
-                bincode::serialize_into(buf.writer(), self)
-            })
-            .map_err(|err| {
-                citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
-            })
+        // Single-pass serialization directly into the buffer. The previous implementation first
+        // called `bincode::serialized_size(self)` to pre-reserve exact capacity, but that is a
+        // full second serialization pass over `self` on every outbound packet (this is invoked by
+        // nearly every packet-crafter). `BytesMut`'s writer already grows amortized, so the sizing
+        // pass was pure CPU overhead. The emitted bytes are byte-for-byte identical to before.
+        bincode::serialize_into(buf.writer(), self).map_err(|err| {
+            citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
+        })
     }
 
     /// Serializes directly into a slice
@@ -224,6 +224,31 @@ mod tests {
         let mut slice = vec![0u8; size];
         s.serialize_into_slice(&mut slice).unwrap();
         assert_eq!(Sample::deserialize_from_vector(&slice).unwrap(), s);
+    }
+
+    #[test]
+    fn serialize_into_buf_matches_vector_and_appends() {
+        let s = sample();
+        let expected = s.serialize_to_vector().unwrap();
+
+        // Into an empty buffer: output must equal the canonical vector form byte-for-byte
+        // (guards the single-pass optimization against any wire-format drift).
+        let mut buf = BytesMut::new();
+        s.serialize_into_buf(&mut buf).unwrap();
+        assert_eq!(&buf[..], &expected[..]);
+
+        // Into a non-empty buffer: serialization must APPEND, leaving the existing prefix
+        // intact, because packet crafters write a header before the serialized body.
+        let prefix = [0xDEu8, 0xAD, 0xBE, 0xEF];
+        let mut buf = BytesMut::from(&prefix[..]);
+        s.serialize_into_buf(&mut buf).unwrap();
+        assert_eq!(&buf[..prefix.len()], &prefix[..]);
+        assert_eq!(&buf[prefix.len()..], &expected[..]);
+        // The appended body still round-trips independently of the prefix.
+        assert_eq!(
+            Sample::deserialize_from_vector(&buf[prefix.len()..]).unwrap(),
+            s
+        );
     }
 
     #[test]
