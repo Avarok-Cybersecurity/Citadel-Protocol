@@ -178,7 +178,17 @@ impl<const N: usize> SecureMessagePacket<N> {
     ) -> std::io::Result<()> {
         match self {
             Self::PayloadNext(packet) => {
-                packet.prepare_payload(len + 4)?; // adds 4 for length field
+                // Reserve `len` bytes plus the 4-byte big-endian length prefix. Use a checked add
+                // so a near-`u32::MAX` `len` returns a clean error instead of overflowing: in debug
+                // `len + 4` panics, and in release it wraps to a tiny reservation, after which the
+                // `payload[0..4]` length-prefix write below panics with an out-of-bounds slice.
+                let reserve_len = len.checked_add(4).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "payload length overflows u32 with the 4-byte length prefix",
+                    )
+                })?;
+                packet.prepare_payload(reserve_len)?; // adds 4 for length field
                 let mut payload = packet.payload()?;
                 BigEndian::write_u32(&mut payload[0..4], len);
                 let ret = (fx)(&mut payload[4..]);
@@ -330,6 +340,20 @@ mod tests {
         // extension before header is rejected
         let p3 = SecureMessagePacket::<4>::new().unwrap();
         assert!(p3.write_payload_extension(1, |_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn write_payload_rejects_length_prefix_overflow() {
+        // `len + 4` (payload + 4-byte length prefix) must not overflow u32. For any `len` in
+        // `(u32::MAX - 4, u32::MAX]` the add overflows; the API must return an InvalidInput error
+        // instead of panicking (debug overflow / release wrap -> out-of-bounds prefix write).
+        for len in [u32::MAX, u32::MAX - 1, u32::MAX - 3] {
+            let mut p = SecureMessagePacket::<4>::new().unwrap();
+            let err = p
+                .write_payload(len, |_| Ok(()))
+                .expect_err("overflowing payload length must be rejected");
+            assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        }
     }
 
     #[test]
