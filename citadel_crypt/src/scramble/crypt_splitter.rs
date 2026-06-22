@@ -913,22 +913,25 @@ impl GroupReceiver {
                     Ok(()) => {
                         let plaintext = &completed_wave.ciphertext_buffer[..];
 
+                        // `max_plaintext_wave_length` is a peer-supplied field that `validate()`
+                        // does NOT bound, so a malicious/buggy config can place this wave's window
+                        // past the pre-sized plaintext slab. Compute the window with checked
+                        // arithmetic and reject an out-of-range result as a corrupt wave instead of
+                        // panicking on the slab slice (DoS hardening — mirrors the `check_bounds`
+                        // guard already applied to the ciphertext-buffer write above).
                         let plaintext_insert_index =
-                            Self::get_plaintext_buffer_insertion_range_by_wave_id(
+                            match Self::get_plaintext_buffer_insertion_range_by_wave_id(
                                 wave_id,
-                                plaintext,
+                                plaintext.len(),
                                 self.max_plaintext_wave_length,
-                            );
-                        // Guard the slab insertion the same way the ciphertext insertion above is
-                        // guarded: if a config/peer desyncs the decrypted wave length from the
-                        // declared plaintext layout, reject the wave gracefully rather than panic on
-                        // an out-of-bounds slice. (`validate()` rejects inconsistent configs up
-                        // front; this is the in-place backstop, since `debug_assert!` is a no-op in
-                        // release builds.)
-                        if plaintext_insert_index.end > self.unified_plaintext_slab.len() {
-                            log::error!(target: "citadel", "Bad plaintext slab insertion index {plaintext_insert_index:?} for slab of len {}", self.unified_plaintext_slab.len());
-                            return GroupReceiverStatus::CORRUPT_WAVE;
-                        }
+                                self.unified_plaintext_slab.len(),
+                            ) {
+                                Some(range) => range,
+                                None => {
+                                    log::error!(target: "citadel", "Plaintext slab insertion window for wave {wave_id} (len {}, stride {}) is out of bounds for slab of len {}", plaintext.len(), self.max_plaintext_wave_length, self.unified_plaintext_slab.len());
+                                    return GroupReceiverStatus::CORRUPT_WAVE;
+                                }
+                            };
                         let dest_bytes =
                             &mut self.unified_plaintext_slab[plaintext_insert_index.clone()];
                         debug_assert_eq!(
@@ -1053,15 +1056,23 @@ impl GroupReceiver {
         }
     }
 
+    /// Computes the destination window in the unified plaintext slab for a decrypted wave.
+    ///
+    /// Returns `None` (rather than risking an overflow/out-of-bounds slab slice) when the
+    /// peer-supplied `max_plaintext_wave_length` would place the window past `slab_len`. All
+    /// arithmetic is checked so a hostile config cannot wrap into a small, in-bounds-looking range.
     fn get_plaintext_buffer_insertion_range_by_wave_id(
         wave_id: u32,
-        plaintext: &[u8],
+        plaintext_length: usize,
         max_plaintext_wave_length: usize,
-    ) -> Range<usize> {
-        let plaintext_length = plaintext.len();
-        let start_idx = wave_id as usize * max_plaintext_wave_length;
-        let end_idx = start_idx + plaintext_length;
-        start_idx..end_idx
+        slab_len: usize,
+    ) -> Option<Range<usize>> {
+        let start_idx = (wave_id as usize).checked_mul(max_plaintext_wave_length)?;
+        let end_idx = start_idx.checked_add(plaintext_length)?;
+        if end_idx > slab_len {
+            return None;
+        }
+        Some(start_idx..end_idx)
     }
 
     /// Returns the number of waves expected to receive
@@ -1409,5 +1420,50 @@ mod group_config_validation_tests {
         cfg.max_payload_size = 1;
         cfg.last_payload_size = 1;
         assert!(cfg.validate().is_err());
+    }
+
+    // --- plaintext-slab window bounds (DoS hardening for the wave-completion path) ---
+    use super::GroupReceiver;
+
+    #[test]
+    fn plaintext_window_in_bounds_is_accepted() {
+        // wave 1 of stride 360, writing 360 bytes into a 1000-byte slab → [360, 720): in bounds.
+        let range =
+            GroupReceiver::get_plaintext_buffer_insertion_range_by_wave_id(1, 360, 360, 1000);
+        assert_eq!(range, Some(360..720));
+    }
+
+    #[test]
+    fn plaintext_window_past_slab_is_rejected() {
+        // A hostile `max_plaintext_wave_length` pushes the window past the pre-sized slab.
+        // Previously this panicked on the slab slice; it must now be rejected (None).
+        assert_eq!(
+            GroupReceiver::get_plaintext_buffer_insertion_range_by_wave_id(
+                1,
+                10,
+                u32::MAX as usize,
+                1000
+            ),
+            None
+        );
+        // start in-bounds but end past the slab is also rejected.
+        assert_eq!(
+            GroupReceiver::get_plaintext_buffer_insertion_range_by_wave_id(0, 2000, 360, 1000),
+            None
+        );
+    }
+
+    #[test]
+    fn plaintext_window_overflow_is_rejected() {
+        // wave_id * stride must not wrap into a small, in-bounds-looking start index.
+        assert_eq!(
+            GroupReceiver::get_plaintext_buffer_insertion_range_by_wave_id(
+                u32::MAX,
+                0,
+                usize::MAX,
+                usize::MAX
+            ),
+            None
+        );
     }
 }

@@ -82,10 +82,35 @@
 
 use crate::misc::AccountError;
 use bincode::BincodeRead;
+use bincode::Options;
 use bytes::BufMut;
 use bytes::BytesMut;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+
+/// Builds the bincode configuration used for deserializing untrusted input.
+///
+/// This is byte-for-byte identical to the configuration used by the free
+/// `bincode::deserialize` / `bincode::deserialize_from` functions
+/// (fixint encoding, little-endian, trailing bytes allowed) with one addition:
+/// a byte limit equal to the length of the input buffer.
+///
+/// A correctly-encoded value can never require reading more bytes than the
+/// input itself contains, so the limit never rejects a legitimate message.
+/// What it does prevent is a hostile peer sending a tiny packet whose internal
+/// length prefix (e.g. for a `Vec<u8>` or `String` field) claims billions of
+/// elements: without a limit, bincode honors that prefix and attempts the
+/// corresponding heap allocation *before* discovering the bytes are not there,
+/// turning a few-byte packet into a multi-gigabyte allocation (remote
+/// memory-exhaustion DoS). With the limit, the oversized length is rejected up
+/// front with a clean `SizeLimit` error and no allocation occurs.
+#[inline]
+fn limited_options(input_len: usize) -> impl Options {
+    bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .with_limit(input_len as u64)
+}
 
 /// Convenient serialization methods for types that #[derive(Serialize, Deserialize)]
 pub trait SyncIO {
@@ -110,12 +135,17 @@ pub trait SyncIO {
         Self: DeserializeOwned,
     {
         use bytes::Buf;
-        bincode::deserialize_from(input.reader()).map_err(|err| {
-            citadel_io::error!(
-                citadel_io::ErrorCode::DeserializationFailed,
-                err.to_string()
-            )
-        })
+        // Cap the allocation at the input length to defeat length-prefix
+        // allocation bombs from untrusted peers (see `limited_options`).
+        // Wire-compatible with the previous `bincode::deserialize_from` call.
+        limited_options(input.len())
+            .deserialize_from(input.reader())
+            .map_err(|err| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::DeserializationFailed,
+                    err.to_string()
+                )
+            })
     }
 
     /// Deserializes in-place
@@ -132,19 +162,19 @@ pub trait SyncIO {
         })
     }
 
-    /// Serializes self into a buffer
+    /// Serializes self into a buffer, appending to any existing contents.
     fn serialize_into_buf(&self, buf: &mut BytesMut) -> Result<(), AccountError>
     where
         Self: Serialize,
     {
-        bincode::serialized_size(self)
-            .and_then(|amt| {
-                buf.reserve(amt as usize);
-                bincode::serialize_into(buf.writer(), self)
-            })
-            .map_err(|err| {
-                citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
-            })
+        // Single-pass serialization directly into the buffer. The previous implementation first
+        // called `bincode::serialized_size(self)` to pre-reserve exact capacity, but that is a
+        // full second serialization pass over `self` on every outbound packet (this is invoked by
+        // nearly every packet-crafter). `BytesMut`'s writer already grows amortized, so the sizing
+        // pass was pure CPU overhead. The emitted bytes are byte-for-byte identical to before.
+        bincode::serialize_into(buf.writer(), self).map_err(|err| {
+            citadel_io::error!(citadel_io::ErrorCode::SerializationFailed, err.to_string())
+        })
     }
 
     /// Serializes directly into a slice
@@ -170,12 +200,17 @@ impl<'a, T> SyncIO for T where T: Serialize + Deserialize<'a> + Sized {}
 
 /// Deserializes the bytes, T, into type D
 fn bytes_to_type<'a, D: Deserialize<'a>>(bytes: &'a [u8]) -> Result<D, AccountError> {
-    bincode::deserialize(bytes).map_err(|err| {
-        citadel_io::error!(
-            citadel_io::ErrorCode::DeserializationFailed,
-            err.to_string()
-        )
-    })
+    // Cap the allocation at the input length to defeat length-prefix allocation
+    // bombs from untrusted peers (see `limited_options`). Wire-compatible with
+    // the previous `bincode::deserialize` call.
+    limited_options(bytes.len())
+        .deserialize(bytes)
+        .map_err(|err| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::DeserializationFailed,
+                err.to_string()
+            )
+        })
 }
 
 /// Converts a type, D to Vec<u8>
@@ -227,6 +262,31 @@ mod tests {
     }
 
     #[test]
+    fn serialize_into_buf_matches_vector_and_appends() {
+        let s = sample();
+        let expected = s.serialize_to_vector().unwrap();
+
+        // Into an empty buffer: output must equal the canonical vector form byte-for-byte
+        // (guards the single-pass optimization against any wire-format drift).
+        let mut buf = BytesMut::new();
+        s.serialize_into_buf(&mut buf).unwrap();
+        assert_eq!(&buf[..], &expected[..]);
+
+        // Into a non-empty buffer: serialization must APPEND, leaving the existing prefix
+        // intact, because packet crafters write a header before the serialized body.
+        let prefix = [0xDEu8, 0xAD, 0xBE, 0xEF];
+        let mut buf = BytesMut::from(&prefix[..]);
+        s.serialize_into_buf(&mut buf).unwrap();
+        assert_eq!(&buf[..prefix.len()], &prefix[..]);
+        assert_eq!(&buf[prefix.len()..], &expected[..]);
+        // The appended body still round-trips independently of the prefix.
+        assert_eq!(
+            Sample::deserialize_from_vector(&buf[prefix.len()..]).unwrap(),
+            s
+        );
+    }
+
+    #[test]
     fn serialize_into_undersized_slice_errors() {
         let s = sample();
         let mut tiny = [0u8; 1];
@@ -237,5 +297,42 @@ mod tests {
     fn deserialize_garbage_errors() {
         assert!(Sample::deserialize_from_vector(&[0xFFu8; 2]).is_err());
         assert!(Sample::deserialize_from_owned_vector(vec![0xFFu8; 2]).is_err());
+    }
+
+    /// A hostile peer can hand-craft a tiny payload whose internal length prefix
+    /// claims a huge number of elements. Before the byte-limit hardening, bincode
+    /// would honor the prefix and attempt the corresponding (multi-gigabyte) heap
+    /// allocation before noticing the bytes are absent — a remote
+    /// memory-exhaustion DoS. The deserializer must now reject these cheaply.
+    #[test]
+    fn rejects_oversized_length_prefix() {
+        // `Vec<u8>` is length-prefixed by a fixint u64 (8 little-endian bytes).
+        // Claim ~18 EB of elements but supply no payload.
+        let mut malicious = u64::MAX.to_le_bytes().to_vec(); // length prefix = u64::MAX
+        malicious.extend_from_slice(&[0u8; 4]); // a few real bytes, far fewer than claimed
+
+        // Must error (not allocate/OOM). The wrapper caps the limit at the input
+        // length, so the oversized prefix is rejected up front.
+        assert!(Vec::<u8>::deserialize_from_vector(&malicious).is_err());
+        assert!(Vec::<u8>::deserialize_from_owned_vector(malicious.clone()).is_err());
+
+        // The same protection applies to `String` fields.
+        assert!(String::deserialize_from_vector(&malicious).is_err());
+    }
+
+    /// The byte limit must never reject a legitimately-encoded value: a valid
+    /// encoding can never need to read more bytes than the buffer it came from.
+    #[test]
+    fn limit_preserves_valid_roundtrip_for_large_payloads() {
+        // A genuinely large (but self-consistent) payload round-trips fine,
+        // because the limit equals the encoded length.
+        let big = Sample {
+            id: 9,
+            name: "n".repeat(100_000),
+            flags: vec![true; 50_000],
+        };
+        let bytes = big.serialize_to_vector().unwrap();
+        assert_eq!(Sample::deserialize_from_vector(&bytes).unwrap(), big);
+        assert_eq!(Sample::deserialize_from_owned_vector(bytes).unwrap(), big);
     }
 }
