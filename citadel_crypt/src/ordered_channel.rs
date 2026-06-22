@@ -73,12 +73,38 @@ impl<T> OrderedChannel<T> {
         if next_expected_message_id == id {
             // we send this packet, then scan sequentially for any other packets that may have been delivered until hitting discontinuity
             self.send_then_scan(&mut state, id, packet)
+        } else if Self::is_already_delivered(state.last_message_received, id) {
+            // The id is at or below the highest id already forwarded in order (a duplicate /
+            // retransmission / replay). The forward-only `scan_send` never revisits ids <= the last
+            // delivered one, so inserting it into the reorder map would retain it forever — an
+            // unbounded per-channel memory leak driven purely by duplicate inbound packets. Dropping
+            // it is behavior-preserving for the consumer: it already received this id in order.
+            log::trace!(target: "citadel", "[ORDERED CHANNEL] Dropping already-delivered/duplicate packet id {id} (last delivered: {:?})", state.last_message_received);
+            Ok(())
         } else {
             // we store. Since the next needed packet in order is not yet received, we store and return
             state.map.insert(id, packet);
             state.last_message_received_instant = Some(Instant::now());
             Ok(())
         }
+    }
+
+    /// Returns `true` if `id` has already been forwarded in order, i.e. it is at or below the
+    /// highest delivered id. Such ids can never be delivered again by the forward-only reorder scan,
+    /// so they must be dropped rather than buffered.
+    #[inline]
+    fn is_already_delivered(last_message_received: Option<u64>, id: u64) -> bool {
+        match last_message_received {
+            Some(last) => id <= last,
+            None => false,
+        }
+    }
+
+    /// Number of out-of-order packets currently held in the reorder buffer. Exposed for tests that
+    /// assert the buffer does not retain duplicates.
+    #[cfg(test)]
+    pub(crate) fn pending_reorder_count(&self) -> usize {
+        self.state.lock().map.len()
     }
 
     fn send_then_scan(
@@ -210,6 +236,51 @@ mod tests {
         }
 
         recv_handle.await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn duplicate_ids_are_not_buffered() -> Result<(), Box<dyn Error>> {
+        citadel_logging::setup_log();
+        let (tx, mut rx) = unbounded_channel::<SecBuffer>();
+        let ordered_channel = OrderedChannel::new(tx);
+
+        // Deliver 0, 1, 2 in order.
+        for id in 0..3u64 {
+            ordered_channel.on_packet_received(id, SecBuffer::from(&[id as u8] as &[u8]))?;
+        }
+        assert_eq!(ordered_channel.pending_reorder_count(), 0);
+
+        // Re-deliver already-forwarded ids (duplicates / retransmissions). These must be dropped, not
+        // retained in the reorder buffer (otherwise an attacker/lossy link can grow it without bound).
+        for id in [0u64, 1, 2, 0, 2] {
+            ordered_channel.on_packet_received(id, SecBuffer::from(&[0xFFu8] as &[u8]))?;
+        }
+        assert_eq!(
+            ordered_channel.pending_reorder_count(),
+            0,
+            "duplicate, already-delivered ids must not be buffered"
+        );
+
+        // A genuine future-but-out-of-order id is still buffered (gap at id 3).
+        ordered_channel.on_packet_received(5, SecBuffer::from(&[5u8] as &[u8]))?;
+        assert_eq!(ordered_channel.pending_reorder_count(), 1);
+        // Re-sending that buffered id is a no-op for the buffer size (overwrite, not growth).
+        ordered_channel.on_packet_received(5, SecBuffer::from(&[5u8] as &[u8]))?;
+        assert_eq!(ordered_channel.pending_reorder_count(), 1);
+
+        // Filling the gap drains the buffer and resumes in-order delivery.
+        ordered_channel.on_packet_received(3, SecBuffer::from(&[3u8] as &[u8]))?;
+        ordered_channel.on_packet_received(4, SecBuffer::from(&[4u8] as &[u8]))?;
+        assert_eq!(ordered_channel.pending_reorder_count(), 0);
+
+        // Exactly ids 0..=5 must have been delivered in order, each once.
+        let mut delivered = Vec::new();
+        while let Ok(value) = rx.try_recv() {
+            delivered.push(value.as_ref()[0]);
+        }
+        assert_eq!(delivered, vec![0, 1, 2, 3, 4, 5]);
 
         Ok(())
     }
