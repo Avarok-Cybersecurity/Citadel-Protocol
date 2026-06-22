@@ -563,6 +563,67 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
             None
         }
     }
+
+    /// Purges any pending `PostConnect` tracked-posting between `session_cid` and `peer_cid`
+    /// (both directions). Called when a P2P virtual connection is torn down.
+    ///
+    /// A forwarded `PostConnect` that the receiving peer's client-side CID tiebreaker drops
+    /// (the higher-CID side returns `Void` without responding) leaves its server-side posting
+    /// un-consumed; it then lingers (only the 1-hour timeout would clear it). If such a stale
+    /// posting survives into a subsequent *simultaneous* reconnect of the same pair,
+    /// [`Self::check_simultaneous_connect`] matches it and fires the simulate-accept path with a
+    /// dead ticket — the KEM never completes, `PeerChannelCreated` is never emitted, and the
+    /// reconnect wedges until the SDK's 60s `RemoteP2pConnectTimeout`. Clearing the pair's
+    /// postings on disconnect guarantees each reconnect starts from clean simultaneity state.
+    pub fn remove_pending_post_connect_between(&mut self, session_cid: u64, peer_cid: u64) {
+        let mut this = self.inner.write();
+        let mut stale: Vec<(u64, Ticket)> = Vec::new();
+        for owner in [session_cid, peer_cid] {
+            let other = if owner == session_cid {
+                peer_cid
+            } else {
+                session_cid
+            };
+            if let Some(postings) = this.observed_postings.get(&owner) {
+                for (ticket, posting) in postings.iter() {
+                    if let PeerSignal::PostConnect {
+                        peer_conn_type:
+                            PeerConnectionType::LocalGroupPeer {
+                                session_cid: a,
+                                peer_cid: b,
+                            },
+                        ..
+                    } = &posting.signal
+                    {
+                        if (*a == owner && *b == other) || (*a == other && *b == owner) {
+                            stale.push((owner, *ticket));
+                        }
+                    }
+                }
+            }
+        }
+
+        if stale.is_empty() {
+            return;
+        }
+
+        for (owner, ticket) in stale {
+            // Remove the posting first (ends the &mut borrow of observed_postings), then evict
+            // its delay-queue key so the timeout cannot fire for a now-dead posting.
+            let key = this
+                .observed_postings
+                .get_mut(&owner)
+                .and_then(|map| map.remove(&ticket))
+                .map(|posting| posting.key);
+            if let Some(key) = key {
+                let _ = this.delay_queue.remove(&key);
+                log::trace!(target: "citadel", "[peer-layer] purged stale PostConnect posting cid={owner} ticket={ticket} on P2P disconnect");
+            }
+        }
+
+        std::mem::drop(this);
+        self.waker.wake();
+    }
 }
 
 impl Stream for CitadelNodePeerLayerExecutor {
@@ -717,5 +778,116 @@ pub enum MailboxTransfer {
 impl From<Vec<PeerSignal>> for MailboxTransfer {
     fn from(signals: Vec<PeerSignal>) -> Self {
         MailboxTransfer::Signals(signals)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use citadel_crypt::ratchets::stacked::StackedRatchet;
+    use citadel_io::tokio;
+    use citadel_user::account_manager::AccountManager;
+    use citadel_user::backend::BackendType;
+
+    async fn make_peer_layer() -> CitadelNodePeerLayer<StackedRatchet> {
+        let acc = AccountManager::<StackedRatchet, StackedRatchet>::new(
+            BackendType::InMemory,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        CitadelNodePeerLayer::new(acc.get_persistence_handler().clone())
+    }
+
+    fn post_connect_signal(from: u64, to: u64, ticket: Ticket) -> PeerSignal {
+        PeerSignal::PostConnect {
+            peer_conn_type: PeerConnectionType::LocalGroupPeer {
+                session_cid: from,
+                peer_cid: to,
+            },
+            ticket_opt: Some(ticket),
+            invitee_response: None,
+            session_security_settings: Default::default(),
+            udp_mode: Default::default(),
+            session_password: None,
+        }
+    }
+
+    /// A pending `PostConnect` posting between a pair must be purged when that P2P connection is
+    /// torn down, so a subsequent *simultaneous* reconnect cannot match the stale posting in
+    /// `check_simultaneous_connect` — the reconnect-wedge root cause. Deterministic (no timing).
+    #[citadel_io::tokio::test]
+    async fn remove_pending_post_connect_between_purges_stale_posting() {
+        let peer_layer = make_peer_layer().await;
+        let (a, b) = (111u64, 222u64);
+        let ticket = Ticket(7);
+
+        let mut inner = peer_layer.inner.write().await;
+
+        // Seed a leaked PostConnect posting a -> b, exactly as a forwarded-then-dropped
+        // PostConnect leaves behind in the server's observed_postings.
+        {
+            let mut shared = inner.inner.write();
+            let key = shared
+                .delay_queue
+                .insert((a, ticket), std::time::Duration::from_secs(3600));
+            shared.observed_postings.entry(a).or_default().insert(
+                ticket,
+                TrackedPosting::new(post_connect_signal(a, b, ticket), key, |_| {}),
+            );
+        }
+
+        // Pre-condition: a simultaneous reconnect from b would match the stale posting.
+        assert_eq!(inner.check_simultaneous_connect(b, a), Some(ticket));
+
+        // Disconnect cleanup purges it (both the posting and its delay-queue key)...
+        inner.remove_pending_post_connect_between(a, b);
+
+        // ...so the stale match is gone.
+        assert_eq!(inner.check_simultaneous_connect(b, a), None);
+        assert!(inner
+            .inner
+            .read()
+            .observed_postings
+            .get(&a)
+            .map_or(true, |m| m.is_empty()));
+    }
+
+    /// Cleanup must not touch postings for an unrelated peer pair.
+    #[citadel_io::tokio::test]
+    async fn remove_pending_post_connect_between_leaves_other_pairs() {
+        let peer_layer = make_peer_layer().await;
+        let (a, b, c) = (111u64, 222u64, 333u64);
+        let ticket_ab = Ticket(7);
+        let ticket_ac = Ticket(9);
+
+        let mut inner = peer_layer.inner.write().await;
+        {
+            let mut shared = inner.inner.write();
+            let k1 = shared
+                .delay_queue
+                .insert((a, ticket_ab), std::time::Duration::from_secs(3600));
+            let k2 = shared
+                .delay_queue
+                .insert((a, ticket_ac), std::time::Duration::from_secs(3600));
+            let postings = shared.observed_postings.entry(a).or_default();
+            postings.insert(
+                ticket_ab,
+                TrackedPosting::new(post_connect_signal(a, b, ticket_ab), k1, |_| {}),
+            );
+            postings.insert(
+                ticket_ac,
+                TrackedPosting::new(post_connect_signal(a, c, ticket_ac), k2, |_| {}),
+            );
+        }
+
+        // Disconnect a<->b only.
+        inner.remove_pending_post_connect_between(a, b);
+
+        // a<->b purged, a<->c preserved.
+        assert_eq!(inner.check_simultaneous_connect(b, a), None);
+        assert_eq!(inner.check_simultaneous_connect(c, a), Some(ticket_ac));
     }
 }
