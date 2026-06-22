@@ -637,6 +637,36 @@ impl GroupReceiverConfig {
             return reject("last_payload_size exceeds max_payload_size");
         }
 
+        // Validate the *plaintext* wave layout. On reassembly, `on_packet_received` writes each
+        // decrypted wave into the plaintext slab (length == `plaintext_length`) at offset
+        // `wave_id * max_plaintext_wave_length`. If these fields are inconsistent with
+        // `plaintext_length`, that offset can run past the slab and panic on the slice — the
+        // ciphertext layout above is range-checked, but the plaintext layout previously was not.
+        // The sender always derives the fields such that
+        //   full_waves * max_plaintext_wave_length + partial_waves * last_plaintext_wave_length
+        //     == plaintext_length
+        // (with `last_plaintext_wave_length <= max_plaintext_wave_length`); enforce that here so a
+        // malicious/buggy peer cannot drive the slab index out of bounds.
+        if self.last_plaintext_wave_length > self.max_plaintext_wave_length {
+            return reject("last_plaintext_wave_length exceeds max_plaintext_wave_length");
+        }
+        let plaintext_coverage = (self.number_of_full_waves as u64)
+            .checked_mul(self.max_plaintext_wave_length as u64)
+            .and_then(|full| {
+                let partial = (self.number_of_partial_waves as u64)
+                    .checked_mul(self.last_plaintext_wave_length as u64)?;
+                full.checked_add(partial)
+            })
+            .ok_or_else(|| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::InvalidGroupReceiverConfig,
+                    "plaintext wave coverage overflow"
+                )
+            })?;
+        if plaintext_coverage != self.plaintext_length {
+            return reject("plaintext wave layout inconsistent with plaintext_length");
+        }
+
         // Estimate (with checked arithmetic) the total allocation GroupReceiver::new performs and
         // reject configs that would exceed the hard ceiling.
         let full_wave_cipher = (self.number_of_full_waves as u64)
@@ -889,6 +919,16 @@ impl GroupReceiver {
                                 plaintext,
                                 self.max_plaintext_wave_length,
                             );
+                        // Guard the slab insertion the same way the ciphertext insertion above is
+                        // guarded: if a config/peer desyncs the decrypted wave length from the
+                        // declared plaintext layout, reject the wave gracefully rather than panic on
+                        // an out-of-bounds slice. (`validate()` rejects inconsistent configs up
+                        // front; this is the in-place backstop, since `debug_assert!` is a no-op in
+                        // release builds.)
+                        if plaintext_insert_index.end > self.unified_plaintext_slab.len() {
+                            log::error!(target: "citadel", "Bad plaintext slab insertion index {plaintext_insert_index:?} for slab of len {}", self.unified_plaintext_slab.len());
+                            return GroupReceiverStatus::CORRUPT_WAVE;
+                        }
                         let dest_bytes =
                             &mut self.unified_plaintext_slab[plaintext_insert_index.clone()];
                         debug_assert_eq!(
@@ -1259,8 +1299,11 @@ mod group_config_validation_tests {
             number_of_full_waves,
             number_of_partial_waves,
             wave_count: number_of_full_waves + number_of_partial_waves,
+            // Plaintext layout must satisfy
+            //   full * max_plaintext_wave_length + partial * last_plaintext_wave_length
+            //     == plaintext_length  ==> 2*360 + 1*280 == 1000
             max_plaintext_wave_length: 360,
-            last_plaintext_wave_length: 200,
+            last_plaintext_wave_length: 280,
             packets_in_last_wave,
             header_size_bytes: 72,
             group_id: 0,
@@ -1322,6 +1365,34 @@ mod group_config_validation_tests {
             cfg.validate().is_err(),
             "allocation bomb config must be rejected"
         );
+    }
+
+    #[test]
+    fn rejects_inconsistent_plaintext_wave_layout() {
+        // full*max + partial*last must equal plaintext_length. Break the equality: an attacker who
+        // inflates `max_plaintext_wave_length` would otherwise drive the slab insertion index
+        // (wave_id * max_plaintext_wave_length) out of bounds during reassembly.
+        let mut cfg = valid_config();
+        cfg.max_plaintext_wave_length = u32::MAX;
+        assert!(
+            cfg.validate().is_err(),
+            "oversized max_plaintext_wave_length must be rejected"
+        );
+
+        // Coverage too small (waves do not cover the declared plaintext_length).
+        let mut cfg = valid_config();
+        cfg.last_plaintext_wave_length = 1;
+        assert!(
+            cfg.validate().is_err(),
+            "plaintext coverage shortfall must be rejected"
+        );
+    }
+
+    #[test]
+    fn rejects_last_plaintext_wave_exceeding_max() {
+        let mut cfg = valid_config();
+        cfg.last_plaintext_wave_length = cfg.max_plaintext_wave_length + 1;
+        assert!(cfg.validate().is_err());
     }
 
     #[test]
