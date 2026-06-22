@@ -852,7 +852,7 @@ mod tests {
             .read()
             .observed_postings
             .get(&a)
-            .map_or(true, |m| m.is_empty()));
+            .is_none_or(|m| m.is_empty()));
     }
 
     /// Cleanup must not touch postings for an unrelated peer pair.
