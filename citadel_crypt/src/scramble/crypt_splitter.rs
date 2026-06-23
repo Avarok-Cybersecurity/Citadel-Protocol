@@ -637,6 +637,36 @@ impl GroupReceiverConfig {
             return reject("last_payload_size exceeds max_payload_size");
         }
 
+        // Validate the *plaintext* wave layout. On reassembly, `on_packet_received` writes each
+        // decrypted wave into the plaintext slab (length == `plaintext_length`) at offset
+        // `wave_id * max_plaintext_wave_length`. If these fields are inconsistent with
+        // `plaintext_length`, that offset can run past the slab and panic on the slice — the
+        // ciphertext layout above is range-checked, but the plaintext layout previously was not.
+        // The sender always derives the fields such that
+        //   full_waves * max_plaintext_wave_length + partial_waves * last_plaintext_wave_length
+        //     == plaintext_length
+        // (with `last_plaintext_wave_length <= max_plaintext_wave_length`); enforce that here so a
+        // malicious/buggy peer cannot drive the slab index out of bounds.
+        if self.last_plaintext_wave_length > self.max_plaintext_wave_length {
+            return reject("last_plaintext_wave_length exceeds max_plaintext_wave_length");
+        }
+        let plaintext_coverage = (self.number_of_full_waves as u64)
+            .checked_mul(self.max_plaintext_wave_length as u64)
+            .and_then(|full| {
+                let partial = (self.number_of_partial_waves as u64)
+                    .checked_mul(self.last_plaintext_wave_length as u64)?;
+                full.checked_add(partial)
+            })
+            .ok_or_else(|| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::InvalidGroupReceiverConfig,
+                    "plaintext wave coverage overflow"
+                )
+            })?;
+        if plaintext_coverage != self.plaintext_length {
+            return reject("plaintext wave layout inconsistent with plaintext_length");
+        }
+
         // Estimate (with checked arithmetic) the total allocation GroupReceiver::new performs and
         // reject configs that would exceed the hard ceiling.
         let full_wave_cipher = (self.number_of_full_waves as u64)
@@ -883,12 +913,25 @@ impl GroupReceiver {
                     Ok(()) => {
                         let plaintext = &completed_wave.ciphertext_buffer[..];
 
+                        // `max_plaintext_wave_length` is a peer-supplied field that `validate()`
+                        // does NOT bound, so a malicious/buggy config can place this wave's window
+                        // past the pre-sized plaintext slab. Compute the window with checked
+                        // arithmetic and reject an out-of-range result as a corrupt wave instead of
+                        // panicking on the slab slice (DoS hardening — mirrors the `check_bounds`
+                        // guard already applied to the ciphertext-buffer write above).
                         let plaintext_insert_index =
-                            Self::get_plaintext_buffer_insertion_range_by_wave_id(
+                            match Self::get_plaintext_buffer_insertion_range_by_wave_id(
                                 wave_id,
-                                plaintext,
+                                plaintext.len(),
                                 self.max_plaintext_wave_length,
-                            );
+                                self.unified_plaintext_slab.len(),
+                            ) {
+                                Some(range) => range,
+                                None => {
+                                    log::error!(target: "citadel", "Plaintext slab insertion window for wave {wave_id} (len {}, stride {}) is out of bounds for slab of len {}", plaintext.len(), self.max_plaintext_wave_length, self.unified_plaintext_slab.len());
+                                    return GroupReceiverStatus::CORRUPT_WAVE;
+                                }
+                            };
                         let dest_bytes =
                             &mut self.unified_plaintext_slab[plaintext_insert_index.clone()];
                         debug_assert_eq!(
@@ -1013,15 +1056,23 @@ impl GroupReceiver {
         }
     }
 
+    /// Computes the destination window in the unified plaintext slab for a decrypted wave.
+    ///
+    /// Returns `None` (rather than risking an overflow/out-of-bounds slab slice) when the
+    /// peer-supplied `max_plaintext_wave_length` would place the window past `slab_len`. All
+    /// arithmetic is checked so a hostile config cannot wrap into a small, in-bounds-looking range.
     fn get_plaintext_buffer_insertion_range_by_wave_id(
         wave_id: u32,
-        plaintext: &[u8],
+        plaintext_length: usize,
         max_plaintext_wave_length: usize,
-    ) -> Range<usize> {
-        let plaintext_length = plaintext.len();
-        let start_idx = wave_id as usize * max_plaintext_wave_length;
-        let end_idx = start_idx + plaintext_length;
-        start_idx..end_idx
+        slab_len: usize,
+    ) -> Option<Range<usize>> {
+        let start_idx = (wave_id as usize).checked_mul(max_plaintext_wave_length)?;
+        let end_idx = start_idx.checked_add(plaintext_length)?;
+        if end_idx > slab_len {
+            return None;
+        }
+        Some(start_idx..end_idx)
     }
 
     /// Returns the number of waves expected to receive
@@ -1117,6 +1168,18 @@ impl<const N: usize> GroupSenderDevice<N> {
     /// Frees the RAM internally. Returns true if the entire group is complete
     #[allow(unused_results)]
     pub fn on_wave_tail_ack_received(&mut self, wave_id: u32) -> bool {
+        // `wave_id` is taken verbatim from a remote-peer-controlled WAVE_ACK header and is not
+        // otherwise validated by the caller. Reject out-of-range ids so a malformed/forged ack
+        // cannot (a) overflow the `max_packets_per_wave * wave_id` offset arithmetic — a panic in
+        // debug builds, a silent wrap in release — (b) trip the `get_packets_in_wave` debug_assert,
+        // or (c) inflate the `packets_received` accounting that drives group completion (which would
+        // either prematurely tear the transfer down or wedge it so it never completes). A legitimate
+        // ack always has `wave_id < wave_count`.
+        if wave_id >= self.receiver_config.wave_count {
+            log::warn!(target: "citadel", "Discarding WAVE_ACK for out-of-range wave_id {wave_id} (wave_count={})", self.receiver_config.wave_count);
+            return false;
+        }
+
         let offset = self.receiver_config.max_packets_per_wave * wave_id;
         let packets_in_this_wave = self.get_packets_in_wave(wave_id);
 
@@ -1259,8 +1322,11 @@ mod group_config_validation_tests {
             number_of_full_waves,
             number_of_partial_waves,
             wave_count: number_of_full_waves + number_of_partial_waves,
+            // Plaintext layout must satisfy
+            //   full * max_plaintext_wave_length + partial * last_plaintext_wave_length
+            //     == plaintext_length  ==> 2*360 + 1*280 == 1000
             max_plaintext_wave_length: 360,
-            last_plaintext_wave_length: 200,
+            last_plaintext_wave_length: 280,
             packets_in_last_wave,
             header_size_bytes: 72,
             group_id: 0,
@@ -1325,6 +1391,34 @@ mod group_config_validation_tests {
     }
 
     #[test]
+    fn rejects_inconsistent_plaintext_wave_layout() {
+        // full*max + partial*last must equal plaintext_length. Break the equality: an attacker who
+        // inflates `max_plaintext_wave_length` would otherwise drive the slab insertion index
+        // (wave_id * max_plaintext_wave_length) out of bounds during reassembly.
+        let mut cfg = valid_config();
+        cfg.max_plaintext_wave_length = u32::MAX;
+        assert!(
+            cfg.validate().is_err(),
+            "oversized max_plaintext_wave_length must be rejected"
+        );
+
+        // Coverage too small (waves do not cover the declared plaintext_length).
+        let mut cfg = valid_config();
+        cfg.last_plaintext_wave_length = 1;
+        assert!(
+            cfg.validate().is_err(),
+            "plaintext coverage shortfall must be rejected"
+        );
+    }
+
+    #[test]
+    fn rejects_last_plaintext_wave_exceeding_max() {
+        let mut cfg = valid_config();
+        cfg.last_plaintext_wave_length = cfg.max_plaintext_wave_length + 1;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
     fn rejects_huge_wave_count_even_with_tiny_buffers() {
         // wave_count huge but per-wave buffers tiny: still rejected via the per-wave overhead bound.
         let mut cfg = valid_config();
@@ -1338,5 +1432,122 @@ mod group_config_validation_tests {
         cfg.max_payload_size = 1;
         cfg.last_payload_size = 1;
         assert!(cfg.validate().is_err());
+    }
+
+    // --- plaintext-slab window bounds (DoS hardening for the wave-completion path) ---
+    use super::GroupReceiver;
+
+    #[test]
+    fn plaintext_window_in_bounds_is_accepted() {
+        // wave 1 of stride 360, writing 360 bytes into a 1000-byte slab → [360, 720): in bounds.
+        let range =
+            GroupReceiver::get_plaintext_buffer_insertion_range_by_wave_id(1, 360, 360, 1000);
+        assert_eq!(range, Some(360..720));
+    }
+
+    #[test]
+    fn plaintext_window_past_slab_is_rejected() {
+        // A hostile `max_plaintext_wave_length` pushes the window past the pre-sized slab.
+        // Previously this panicked on the slab slice; it must now be rejected (None).
+        assert_eq!(
+            GroupReceiver::get_plaintext_buffer_insertion_range_by_wave_id(
+                1,
+                10,
+                u32::MAX as usize,
+                1000
+            ),
+            None
+        );
+        // start in-bounds but end past the slab is also rejected.
+        assert_eq!(
+            GroupReceiver::get_plaintext_buffer_insertion_range_by_wave_id(0, 2000, 360, 1000),
+            None
+        );
+    }
+
+    #[test]
+    fn plaintext_window_overflow_is_rejected() {
+        // wave_id * stride must not wrap into a small, in-bounds-looking start index.
+        assert_eq!(
+            GroupReceiver::get_plaintext_buffer_insertion_range_by_wave_id(
+                u32::MAX,
+                0,
+                usize::MAX,
+                usize::MAX
+            ),
+            None
+        );
+    }
+}
+
+#[cfg(test)]
+mod sender_wave_ack_tests {
+    use super::{GroupReceiverConfig, GroupSenderDevice};
+    use citadel_types::proto::ObjectId;
+    use std::collections::HashMap;
+
+    /// Internally-consistent config: wave_count == full + partial == 3.
+    fn valid_config() -> GroupReceiverConfig {
+        let number_of_full_waves = 2u32;
+        let number_of_partial_waves = 1u32;
+        let max_packets_per_wave = 4u32;
+        let packets_in_last_wave = 3u32;
+        GroupReceiverConfig {
+            packets_needed: number_of_full_waves * max_packets_per_wave + packets_in_last_wave,
+            max_packets_per_wave,
+            plaintext_length: 1000,
+            max_payload_size: 100,
+            last_payload_size: 50,
+            number_of_full_waves,
+            number_of_partial_waves,
+            wave_count: number_of_full_waves + number_of_partial_waves,
+            max_plaintext_wave_length: 360,
+            last_plaintext_wave_length: 200,
+            packets_in_last_wave,
+            header_size_bytes: 72,
+            group_id: 0,
+            object_id: ObjectId::from(0u128),
+            transfer_type: None,
+            empty_transfer: false,
+        }
+    }
+
+    fn empty_sender() -> GroupSenderDevice<0> {
+        GroupSenderDevice::<0>::new(valid_config(), HashMap::new())
+    }
+
+    // An out-of-range `wave_id` is rejected without panicking, without overflowing the
+    // `max_packets_per_wave * wave_id` offset arithmetic, and without corrupting the
+    // `packets_received` accounting. Before the bounds check this would overflow-panic in
+    // debug builds and double-count in release.
+    #[test]
+    fn out_of_range_wave_ack_is_ignored() {
+        let cfg = valid_config();
+        for bad_wave_id in [cfg.wave_count, cfg.wave_count + 1, u32::MAX] {
+            let mut sender = empty_sender();
+            assert!(
+                !sender.on_wave_tail_ack_received(bad_wave_id),
+                "out-of-range wave_id {bad_wave_id} must not report group completion"
+            );
+            assert_eq!(
+                sender.get_packets_received(),
+                0,
+                "out-of-range wave_id {bad_wave_id} must not advance the received counter"
+            );
+        }
+    }
+
+    // A legitimate (in-range) ack is still accepted and advances accounting as before.
+    #[test]
+    fn in_range_wave_ack_still_accounts() {
+        let cfg = valid_config();
+        let mut sender = empty_sender();
+        // ack the (in-range) final wave: 3 packets, not the whole group, so not complete yet.
+        let complete = sender.on_wave_tail_ack_received(cfg.wave_count - 1);
+        assert!(!complete);
+        assert_eq!(
+            sender.get_packets_received(),
+            cfg.packets_in_last_wave as usize
+        );
     }
 }

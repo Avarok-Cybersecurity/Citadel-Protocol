@@ -1511,6 +1511,17 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     session_cid,
                     peer_cid: target_cid,
                 } => {
+                    // Purge any stale pending PostConnect posting between this pair so a subsequent
+                    // *simultaneous* reconnect cannot match leftover state in
+                    // `check_simultaneous_connect` (which would mis-fire the simulate-accept path
+                    // and wedge the handshake -> no PeerChannelCreated -> RemoteP2pConnectTimeout).
+                    {
+                        let peer_layer = session.hypernode_peer_layer.inner.clone();
+                        peer_layer
+                            .write()
+                            .await
+                            .remove_pending_post_connect_between(session_cid, target_cid);
+                    }
                     let mut state_container = inner_mut_state!(session.state_container);
                     state_container.remove_udp_channel(target_cid);
                     // Mark vconn inactive but do NOT remove from HashMap.

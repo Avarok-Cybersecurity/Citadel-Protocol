@@ -142,6 +142,10 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
             })
             .await
             .map_err(|_| {
+                // The downstream channel is gone, so this request can never be answered. Drop the
+                // response slot we just registered; otherwise every send() against a dead channel
+                // would orphan a oneshot Sender in `map`, growing it without bound (resource leak).
+                self.inner.map.lock().remove(&id);
                 TrackedCallbackError::channel_send("tracked callback channel send failed")
             })?;
 
@@ -261,6 +265,29 @@ mod tests {
         let client = citadel_io::tokio::spawn(client);
 
         let (_, _) = citadel_io::tokio::join!(server, client);
+    }
+
+    #[tokio::test]
+    async fn send_on_dead_channel_does_not_leak_slot() {
+        // Regression: `send()` registers a response slot in `map` *before* pushing onto the
+        // mpsc channel. If that push fails (receiver dropped), the early return must still
+        // remove the slot, otherwise a dead channel accumulates orphaned oneshot senders.
+        citadel_logging::setup_log();
+        let (tx, rx) = TrackedCallbackChannel::<u32, u64>::new(10);
+        // Drop the receiver so every subsequent send fails at the mpsc layer.
+        drop(rx);
+
+        for x in 0..16 {
+            assert!(
+                tx.send(x).await.is_err(),
+                "send must fail once the receiver is gone"
+            );
+        }
+
+        assert!(
+            tx.inner.map.lock().is_empty(),
+            "failed sends must not orphan response slots in the tracking map"
+        );
     }
 
     #[test]
