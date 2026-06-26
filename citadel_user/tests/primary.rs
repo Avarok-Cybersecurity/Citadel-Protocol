@@ -627,6 +627,127 @@ mod tests {
         .await
     }
 
+    // Regression test for the CID-0 "local-only account" clobber bug.
+    //
+    // `AccountManager::new` -> `setup_local_only_account` runs on every startup,
+    // *after* the backend has loaded persisted accounts. It used to
+    // unconditionally re-create the CID-0 CNAC and `save_cnac` it, overwriting
+    // the just-loaded CID-0 `byte_map` with an empty one — silently wiping any
+    // data stored under CID 0 (the local node's global KV store) on every
+    // restart. `test_byte_map_local` only exercises a single session, so it
+    // could not catch this; this test forces a real reload.
+    //
+    // Each `acc_mgr` call opens the same backend afresh (new in-memory cache +
+    // a load from disk), so session 2 is a genuine restart. InMemory is skipped
+    // because each open is a brand-new store by design.
+    #[tokio::test]
+    async fn test_local_only_account_byte_map_persists_across_reload() -> Result<(), AccountError> {
+        citadel_logging::setup_log();
+
+        let value = Vec::from("local-only-persisted");
+        let sibling = Vec::from("sibling-value");
+        // A key unique to this test. CID 0 is a shared namespace (other tests use
+        // it too, e.g. `test_byte_map_local`'s "thekey"), so a distinct key keeps
+        // this test's data isolated even when the suite runs concurrently against
+        // a shared backend.
+        let key = "reload_test_local_only";
+
+        for backend in server_backends() {
+            if matches!(backend, BackendType::InMemory) {
+                continue;
+            }
+            log::info!(target: "citadel", "Reload test on backend: {backend:?}");
+
+            // Cleanup, here and at the end, removes ONLY this test's own key via
+            // `remove_byte_map_values_by_key` — never `purge()`, which would wipe
+            // the entire (possibly shared) backend and clobber other tests. Doing
+            // it up front also clears anything an earlier aborted run left behind,
+            // so the Session 1 "first write returns None" assertion is reliable.
+            // Best-effort: the result is dropped without `?` so a cleanup error
+            // never fails the test on its own.
+            {
+                let pers = acc_mgr(backend.clone())
+                    .await
+                    .get_persistence_handler()
+                    .clone();
+                let _ = pers.remove_byte_map_values_by_key(0, 0, key).await;
+            }
+
+            // Session 1: write two sub_keys under CID 0.
+            let (s1_one, s1_two) = {
+                let pers = acc_mgr(backend.clone())
+                    .await
+                    .get_persistence_handler()
+                    .clone();
+                (
+                    pers.store_byte_map_value(0, 0, key, "sub_one", value.clone())
+                        .await?,
+                    pers.store_byte_map_value(0, 0, key, "sub_two", sibling.clone())
+                        .await?,
+                )
+            };
+
+            // Session 2: reopen the backend (a genuine restart that runs
+            // setup_local_only_account), read the persisted values, then remove
+            // one — that mutation must itself persist into session 3.
+            let (s2_one, s2_key_count, s2_removed) = {
+                let pers = acc_mgr(backend.clone())
+                    .await
+                    .get_persistence_handler()
+                    .clone();
+                (
+                    pers.get_byte_map_value(0, 0, key, "sub_one").await?,
+                    pers.get_byte_map_values_by_key(0, 0, key).await?.len(),
+                    pers.remove_byte_map_value(0, 0, key, "sub_one").await?,
+                )
+            };
+
+            // Session 3: the removal must have persisted and the sibling survived.
+            let pers3 = acc_mgr(backend.clone())
+                .await
+                .get_persistence_handler()
+                .clone();
+            let s3_one = pers3.get_byte_map_value(0, 0, key, "sub_one").await?;
+            let s3_two = pers3.get_byte_map_value(0, 0, key, "sub_two").await?;
+
+            // Targeted, best-effort cleanup of only this test's key, run before
+            // any assertion can panic (so a failing assert never leaves data
+            // behind). If an op above returned Err and skipped this, a later
+            // run's up-front cleanup covers it.
+            let _ = pers3.remove_byte_map_values_by_key(0, 0, key).await;
+
+            assert!(
+                s1_one.is_none() && s1_two.is_none(),
+                "CID-0 byte_map was not empty on first write for {backend:?}"
+            );
+            assert_eq!(
+                s2_one,
+                Some(value.clone()),
+                "CID-0 byte_map value was wiped on reload for {backend:?}"
+            );
+            assert_eq!(
+                s2_key_count, 2,
+                "CID-0 byte_map sub_keys were wiped on reload for {backend:?}"
+            );
+            assert_eq!(
+                s2_removed,
+                Some(value.clone()),
+                "remove did not return the stored CID-0 value for {backend:?}"
+            );
+            assert!(
+                s3_one.is_none(),
+                "removal of CID-0 byte_map value did not persist for {backend:?}"
+            );
+            assert_eq!(
+                s3_two,
+                Some(sibling.clone()),
+                "sibling CID-0 value lost after reload for {backend:?}"
+            );
+        }
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_byte_map2() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, _pers_se| async move {
