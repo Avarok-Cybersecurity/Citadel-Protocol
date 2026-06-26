@@ -1,0 +1,2 @@
+createSrcSidebar('[["citadel_sdk",["",[["builder",[],["mod.rs","node_builder.rs"]],["prefabs",[["client",[],["broadcast.rs","mod.rs","peer_connection.rs","single_connection.rs"]],["server",[],["accept_file_transfer_kernel.rs","client_connect_listener.rs","empty.rs","internal_service.rs","mod.rs"]],["shared",[],["internal_service.rs","mod.rs"]]],["mod.rs"]]],["backend_kv_store.rs","fs.rs","lib.rs","macros.rs","remote_ext.rs","responses.rs","test_common.rs"]]]]');
+//{"start":19,"fragment_lengths":[443]}

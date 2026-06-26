@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["internal_service"],"struct":["InternalServerCommunicator"]};
