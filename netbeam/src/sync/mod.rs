@@ -32,6 +32,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod group;
 pub mod operations;
 pub mod primitives;
 
