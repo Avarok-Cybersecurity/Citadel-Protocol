@@ -95,7 +95,7 @@ pub mod tests {
         }
 
         for proto in protocols {
-            log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", &proto, addr);
+            log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", proto, addr);
 
             let res = NativeIO::bind(proto.clone(), addr).await;
 
@@ -160,7 +160,7 @@ pub mod tests {
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
-            log::trace!(target: "citadel", "Testing proto {:?}", &proto);
+            log::trace!(target: "citadel", "Testing proto {:?}", proto);
             let cnt = &AtomicUsize::new(0);
 
             let res = NativeIO::bind(proto.clone(), addr).await;

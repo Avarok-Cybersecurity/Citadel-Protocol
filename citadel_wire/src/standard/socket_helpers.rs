@@ -189,7 +189,7 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(
 
     let addr = localhost_testing_addr_fix(addr);
 
-    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, &addr);
+    log::trace!(target: "citadel", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, addr);
     let domain = if addr.is_ipv4() {
         Domain::IPV4
     } else {
@@ -229,7 +229,7 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(
 
     let addr = localhost_testing_addr_fix(addr);
 
-    log::trace!(target: "citadel", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
+    log::trace!(target: "citadel", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, addr);
 
     let domain = if addr.is_ipv4() {
         Domain::IPV4
@@ -254,7 +254,7 @@ async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(
         .to_socket_addrs()?
         .next()
         .ok_or_else(|| anyhow::Error::msg("Bad socket addr"))?;
-    log::trace!(target: "citadel", "[Socket helper] Getting TCP connect (reuse={}) socket to {:?} ...", reuse, &addr);
+    log::trace!(target: "citadel", "[Socket helper] Getting TCP connect (reuse={}) socket to {:?} ...", reuse, addr);
     //return Ok(citadel_io::TcpStream::connect(addr).await?)
     let domain = if addr.is_ipv4() {
         Domain::IPV4
@@ -329,7 +329,7 @@ mod tests {
         let server = citadel_io::tokio::task::spawn(async move {
             log::trace!(target: "citadel", "Starting server @ {addr:?}");
             let (mut conn, addr) = server.accept().await.unwrap();
-            log::trace!(target: "citadel", "RECV {:?} from {:?}", &conn, addr);
+            log::trace!(target: "citadel", "RECV {:?} from {:?}", conn, addr);
             let buf = &mut [0u8; 3];
             conn.read_exact(buf as &mut [u8]).await.unwrap();
             assert_eq!(buf, &[1, 2, 3]);

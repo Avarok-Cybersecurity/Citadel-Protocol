@@ -128,7 +128,7 @@ impl Display for TargettedSocketAddr {
         writeln!(
             f,
             "(Original, Natted): {:?} -> {:?}",
-            &self.send_address, &self.receive_address
+            self.send_address, self.receive_address
         )
     }
 }

@@ -225,7 +225,7 @@ mod native_p2p {
             .ok_or_else(|| generic_error("P2P Stream did not have QUIC connection loaded"))?;
         let udp_conn = QuicUdpSocketConnector::new(quic_conn, local_bind_addr);
 
-        log::trace!(target: "citadel", "[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), &remote_peer);
+        log::trace!(target: "citadel", "[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), remote_peer);
         let (sink, stream) = misc::safe_split_stream(p2p_stream);
         let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
         let p2p_primary_stream_tx = OutboundPrimaryStreamSender::from(p2p_primary_stream_tx);

@@ -610,11 +610,11 @@ mod tests {
         if let Err(err) = &res {
             match err {
                 futures::future::Either::Left(left) => {
-                    log::warn!(target: "citadel", "ERR-left: {:?}", &left.0);
+                    log::warn!(target: "citadel", "ERR-left: {:?}", left.0);
                 }
 
                 futures::future::Either::Right(right) => {
-                    log::warn!(target: "citadel", "ERR-right: {:?}", &right.0);
+                    log::warn!(target: "citadel", "ERR-right: {:?}", right.0);
                 }
             }
         }

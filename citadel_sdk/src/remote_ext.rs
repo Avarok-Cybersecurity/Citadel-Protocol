@@ -505,7 +505,6 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                         response: Some(PeerResponse::RegisteredCids(peer_info, is_onlines)),
                         limit: _,
                     },
-                ticket: _,
                 ..
             }) = status.into_result()?
             {
@@ -555,7 +554,6 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                         v_conn_type: _,
                         response: Some(PeerResponse::RegisteredCids(peer_info, is_onlines)),
                     },
-                ticket: _,
                 ..
             }) = status.into_result()?
             {
@@ -976,7 +974,6 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                         ticket_opt: _,
                         invitee_response: Some(resp),
                     },
-                ticket: _,
                 ..
             }) = status.into_result()?
             {
@@ -1013,7 +1010,6 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             while let Some(result) = subscription.next().await {
                 if let NodeResult::PeerEvent(PeerEvent {
                     event: PeerSignal::DeregistrationSuccess { .. },
-                    ticket: _,
                     ..
                 }) = result.into_result()?
                 {
@@ -1081,7 +1077,6 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                                 disconnect_response: Some(_),
                                 ..
                             },
-                        ticket: _,
                         ..
                     }) = event.into_result()?
                     {

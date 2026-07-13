@@ -349,7 +349,6 @@ where
             match event.into_result()? {
                 NodeResult::PeerEvent(PeerEvent {
                     event: ref ps @ PeerSignal::PostRegister { .. },
-                    ticket: _,
                     ..
                 }) => {
                     shared
@@ -417,7 +416,6 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for BroadcastKernel<'_, F, Fut, R> {
     async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         if let NodeResult::PeerEvent(PeerEvent {
             event: ps @ PeerSignal::PostRegister { .. },
-            ticket: _,
             ..
         }) = &message
         {

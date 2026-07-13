@@ -416,7 +416,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         adjacent_username: T,
     ) -> Result<(), AccountError> {
         let adjacent_username = adjacent_username.into();
-        log::trace!(target: "citadel", "Registering {} ({}) to {} (local/endpoints)", &adjacent_username, peer_cid, session_cid);
+        log::trace!(target: "citadel", "Registering {} ({}) to {} (local/endpoints)", adjacent_username, peer_cid, session_cid);
         self.persistence_handler
             .register_p2p_as_client(session_cid, peer_cid, adjacent_username)
             .await

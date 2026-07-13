@@ -799,7 +799,7 @@ mod tests {
 
             let config = scramble_transmitter.get_receiver_config();
             let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
-            log::trace!(target: "citadel", "{:?}", &config);
+            log::trace!(target: "citadel", "{:?}", config);
 
             while let Some(packet) = scramble_transmitter.get_next_packet() {
                 let _result = receiver.on_packet_received(

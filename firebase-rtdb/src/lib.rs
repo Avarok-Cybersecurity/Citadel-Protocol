@@ -322,7 +322,7 @@ impl FirebaseRTDB {
             .await
             .map_err(|e| RtdbError::rtdb(e.to_string()))?;
 
-        log::trace!(target: "citadel", "RESP RENEW: {:?}", &resp);
+        log::trace!(target: "citadel", "RESP RENEW: {:?}", resp);
         // update internal value using the new response
         let expire_time = Instant::now()
             + Duration::from_secs(
@@ -390,7 +390,7 @@ impl Node<'_> {
     pub fn child<T: AsRef<str>>(&mut self, child: T) -> &mut Self {
         self.string_builder += child.as_ref();
         self.string_builder += "/";
-        log::trace!(target: "citadel", "Builder: {:?}", &self.string_builder);
+        log::trace!(target: "citadel", "Builder: {:?}", self.string_builder);
         self
     }
 
@@ -401,7 +401,7 @@ impl Node<'_> {
     pub fn final_node<T: AsRef<str>>(&mut self, node: T) -> &Self {
         self.string_builder += node.as_ref();
         self.string_builder += ".json";
-        log::trace!(target: "citadel", "Builder: {:?}", &self.string_builder);
+        log::trace!(target: "citadel", "Builder: {:?}", self.string_builder);
         self
     }
 

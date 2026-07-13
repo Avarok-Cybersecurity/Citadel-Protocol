@@ -1127,7 +1127,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
         let left_signal = match peer_layer.remove_peers_from_message_group(key, peers).await {
             Ok((peers_removed, peers_remaining)) => {
-                log::trace!(target: "citadel", "Peers removed: {:?}", &peers_removed);
+                log::trace!(target: "citadel", "Peers removed: {:?}", peers_removed);
                 // We only notify the members when kicking, not leaving
                 if mode == GroupMemberAlterMode::Kick {
                     // notify all the peers removed

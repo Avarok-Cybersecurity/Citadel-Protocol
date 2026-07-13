@@ -178,7 +178,7 @@ where
         loop {
             log::trace!(target: "citadel", "{local_node_type:?} awaiting ...");
             let received_remote_state = conn.recv_serialized::<State>().await?;
-            log::trace!(target: "citadel", "{:?} RECV'd {:?}", local_node_type, &received_remote_state);
+            log::trace!(target: "citadel", "{:?} RECV'd {:?}", local_node_type, received_remote_state);
             let mut lock = local_state_ref.lock().await;
             let local_state_info = lock.ret_value.as_ref().map(|r| r.is_ok());
             let adjacent_success = received_remote_state.implies_remote_success();

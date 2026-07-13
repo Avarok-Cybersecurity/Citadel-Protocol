@@ -504,7 +504,7 @@ mod tests {
             start_tx.send(()).unwrap();
             let (conn, _tx, mut rx) = server.next_connection().await.unwrap();
             let addr = conn.remote_address();
-            log::trace!(target: "citadel", "RECV {:?} from {:?}", &conn, addr);
+            log::trace!(target: "citadel", "RECV {:?} from {:?}", conn, addr);
             let buf = &mut [0u8; 3];
             rx.read(buf as &mut [u8]).await.unwrap();
             assert_eq!(buf, &[1, 2, 3]);

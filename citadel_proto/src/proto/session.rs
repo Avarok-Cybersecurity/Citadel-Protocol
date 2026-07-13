@@ -1445,7 +1445,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
             let mut state_container = inner_mut_state!(this.state_container);
 
-            log::trace!(target: "citadel", "Transmit file name: {}", &file_name);
+            log::trace!(target: "citadel", "Transmit file name: {}", file_name);
             // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
             // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
             let (
@@ -1846,7 +1846,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                     }
                                 }
                             } else {
-                                log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", &file_key);
+                                log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", file_key);
                             }
 
                             if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {

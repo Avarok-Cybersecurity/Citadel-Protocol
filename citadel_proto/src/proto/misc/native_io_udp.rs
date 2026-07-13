@@ -176,7 +176,7 @@ async fn listen_udp_port<R: Ratchet, S: crate::proto::misc::udp_internal_interfa
     while let Some(res) = stream.next().await {
         match res {
             Ok((packet, remote_peer)) => {
-                log::trace!(target: "citadel", "Packet received on port {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
+                log::trace!(target: "citadel", "Packet received on port {} has {} bytes (src: {:?})", local_port, packet.len(), remote_peer);
                 let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
                 this.process_inbound_packet_udp(packet, &peer_session_accessor)?;
             }
@@ -214,7 +214,7 @@ async fn udp_outbound_sender<R: Ratchet, S: futures::SinkExt<bytes::Bytes> + Unp
                 SecurityLevel::Standard,
             )
         })?;
-        log::trace!(target: "citadel", "About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
+        log::trace!(target: "citadel", "About to send packet w/len {} | Dest: {:?}", packet.len(), send_addr);
         sink.send(packet.freeze())
             .await
             .map_err(|_| error!(ErrorCode::UdpSinkRecvFailed))?;

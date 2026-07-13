@@ -467,7 +467,7 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
     ) -> Option<Ticket> {
         log::trace!(target: "citadel", "Checking simultaneous register between {session_cid} and {peer_cid}");
 
-        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect { peer_conn_type: conn, ticket_opt: _, invitee_response: _, session_security_settings: _, udp_mode: _, .. } = &posting.signal {
+        self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect { peer_conn_type: conn, .. } = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={conn:?} ~ {session_cid:?}");
             if let PeerConnectionType::LocalGroupPeer { session_cid: _, peer_cid: b } = conn {
                 *b == session_cid

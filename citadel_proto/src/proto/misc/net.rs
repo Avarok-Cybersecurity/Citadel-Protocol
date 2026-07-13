@@ -535,7 +535,7 @@ impl QuicListener {
                 acceptor_stream
                     .try_for_each_concurrent(None, |(conn, tx, rx)| async move {
                         let addr = conn.remote_address();
-                        log::trace!(target: "citadel", "RECV {:?} from {:?}", &conn, addr);
+                        log::trace!(target: "citadel", "RECV {:?} from {:?}", conn, addr);
                         send.send(Ok((conn, tx, rx, addr, endpoint.clone())))
                             .await
                             .map_err(generic_error)

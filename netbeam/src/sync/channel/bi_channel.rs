@@ -267,7 +267,7 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
                 // wait for halt verified packet
                 loop {
                     let packet = chan.recv_serialized::<ChannelPacket<T>>().await?;
-                    log::trace!(target: "citadel", "[Drop RECV] on {:?} recv {:?}", chan.node_type(), &packet);
+                    log::trace!(target: "citadel", "[Drop RECV] on {:?} recv {:?}", chan.node_type(), packet);
 
                     if let ChannelPacket::<T>::HaltVerified = packet {
                         break
