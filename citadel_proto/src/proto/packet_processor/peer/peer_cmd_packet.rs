@@ -260,7 +260,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 }
 
                                 Err(err) => {
-                                    log::error!(target: "citadel", "Unable to register at endpoints: {:?}", &err);
+                                    log::error!(target: "citadel", "Unable to register at endpoints: {:?}", err);
                                     to_kernel.unbounded_send(NodeResult::PeerEvent(PeerEvent {
                                         event: PeerSignal::SignalError {
                                             ticket,
@@ -607,7 +607,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             .generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,
                                             );
-                                        log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &bob_predicted_socket_addr, needs_turn);
+                                        log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", bob_predicted_socket_addr, needs_turn);
                                         let udp_rx_opt = kem_state.udp_channel_sender.rx.take();
                                         let local_is_file_transfer_compat = session
                                             .account_manager
@@ -825,7 +825,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             .get_backend_type()
                                             .is_filesystem_backend();
 
-                                        log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
+                                        log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", alice_predicted_socket_addr, needs_turn);
 
                                         let p2p_connection_id = kem.p2p_connection_id;
                                         let channel = match state_container

@@ -259,7 +259,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                 {
                     let message = String::from_utf8(payload.message.to_vec())
                         .unwrap_or_else(|_| "Invalid UTF-8 message".to_string());
-                    log::error!(target: "citadel", "The server refused to login the user. Reason: {}", &message);
+                    log::error!(target: "citadel", "The server refused to login the user. Reason: {}", message);
                     let cid = ratchet.get_cid();
                     state_container.connect_state.on_fail();
                     drop(state_container);
@@ -348,7 +348,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection (Client)"));
                             }
 
-                            log::trace!(target: "citadel", "The login to the server was a success. Welcome Message: {}", &message);
+                            log::trace!(target: "citadel", "The login to the server was a success. Welcome Message: {}", message);
 
                             let post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;

@@ -91,7 +91,10 @@ exceptions = [
     # attohttpc
     { allow = ["MPL-2.0"], name = "attohttpc", version = "*" },
     # this is for testing only, which is not part of the SDK
-    { allow = ["MPL-2.0", "CDLA-Permissive-2.0"], name = "webpki-roots", version = "*" }
+    { allow = ["MPL-2.0", "CDLA-Permissive-2.0"], name = "webpki-roots", version = "*" },
+    # transitive via quinn-proto -> fastbloom. Zlib is a permissive, OSI-approved,
+    # FSF-Free license (BSD-like: no attribution or copyleft obligations)
+    { allow = ["Zlib"], name = "foldhash", version = "*" }
 ]
 
 # Some crates don't have (easily) machine readable licensing information,

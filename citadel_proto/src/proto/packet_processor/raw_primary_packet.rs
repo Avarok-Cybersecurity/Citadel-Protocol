@@ -68,7 +68,7 @@ pub async fn process_raw_packet<R: Ratchet, T: PlatformOps>(
         return Ok(PrimaryProcessorResult::Void);
     }
 
-    log::trace!(target: "citadel", "RECV Raw packet: {:?}", &packet.parse().unwrap().0);
+    log::trace!(target: "citadel", "RECV Raw packet: {:?}", packet.parse().unwrap().0);
     let (header, _payload) = return_if_none!(packet.parse(), "Unable to parse packet");
 
     let target_cid = header.target_cid.get();

@@ -52,7 +52,7 @@ pub async fn c2s_connect(
             external_addr,
             is_self_signed,
         } => {
-            log::trace!(target: "citadel", "Host claims OrderedReliableSecure (TLS) CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", &domain, external_addr, is_self_signed);
+            log::trace!(target: "citadel", "Host claims OrderedReliableSecure (TLS) CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", domain, external_addr, is_self_signed);
 
             // Only fall back to the accept-any-cert connector when the server advertises self-signed
             // AND the local client policy permits it. Otherwise an active attacker could flip
@@ -85,7 +85,7 @@ pub async fn c2s_connect(
             external_addr,
             is_self_signed,
         } => {
-            log::trace!(target: "citadel", "Host claims P2P (QUIC) CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", &domain, external_addr, is_self_signed);
+            log::trace!(target: "citadel", "Host claims P2P (QUIC) CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", domain, external_addr, is_self_signed);
             let signal = QuicRedirectSignal {
                 domain,
                 external_addr,

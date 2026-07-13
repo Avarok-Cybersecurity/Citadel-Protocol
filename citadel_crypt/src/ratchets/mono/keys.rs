@@ -83,7 +83,7 @@ impl std::fmt::Debug for FcmKeys {
         write!(
             f,
             "api key: {} || client ID: : {}",
-            &self.api_key, &self.client_id
+            self.api_key, self.client_id
         )
     }
 }

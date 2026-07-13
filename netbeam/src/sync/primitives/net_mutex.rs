@@ -306,7 +306,7 @@ async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(
 
     loop {
         let packet = conn.recv_serialized::<UpdatePacket>().await?;
-        log::trace!(target: "citadel", "[NetMutex] [Drop Code] RECV {:?} on {:?}", &packet, conn.node_type());
+        log::trace!(target: "citadel", "[NetMutex] [Drop Code] RECV {:?} on {:?}", packet, conn.node_type());
         match packet {
             UpdatePacket::ReleasedVerified => {
                 log::trace!(target: "citadel", "[NetMutex] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock. Adjacent trying to acquire? {adjacent_trying_to_acquire}", conn.node_type());
@@ -384,7 +384,7 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
         let (value, _bg_alerter) = &mut **owned_local_lock.deref_mut();
 
         let packet = conn.recv_serialized().await?;
-        log::trace!(target: "citadel", "{:?}/active-channel || obtained packet {:?}", mutex.node_type(), &packet);
+        log::trace!(target: "citadel", "{:?}/active-channel || obtained packet {:?}", mutex.node_type(), packet);
 
         // the adjacent side will return one of two packets. In the first case, we wait until it drops the adjacent lock, in which case,
         // we get a Released packet. The side that gets this will automatically be allowed to acquire the mutex lock
@@ -465,7 +465,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
 
     loop {
         let next_packet = channel.recv_serialized().await?;
-        log::trace!(target: "citadel", "[YIELD LOCK] {:?} received packet: {:?}", channel.node_type(), &next_packet);
+        log::trace!(target: "citadel", "[YIELD LOCK] {:?} received packet: {:?}", channel.node_type(), next_packet);
         match next_packet {
             UpdatePacket::Released(new_value, _) => {
                 lock.deref_mut().0 = bincode::deserialize(&new_value)?;
@@ -615,7 +615,7 @@ mod tests {
             for idx in 1..count {
                 log::trace!(target: "citadel", "Server obtaining lock {idx}");
                 let mut lock = mutex.lock().await.unwrap();
-                log::trace!(target: "citadel", "****Server obtained lock {} w/val {:?}", idx, &*lock);
+                log::trace!(target: "citadel", "****Server obtained lock {} w/val {:?}", idx, *lock);
                 assert_eq!(idx + init_value, *lock);
 
                 *lock += 1;

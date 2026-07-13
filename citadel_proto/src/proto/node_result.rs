@@ -275,7 +275,6 @@ impl<R: Ratchet> NodeResult<R> {
                         error: err,
                         peer_connection_type: _,
                     },
-                ticket: _,
                 ..
             }) => Err(NetworkError::generic(err)),
             res => Ok(res),

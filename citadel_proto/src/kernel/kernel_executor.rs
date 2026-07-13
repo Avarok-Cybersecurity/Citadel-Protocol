@@ -204,7 +204,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
                     message => {
                         callback_handler.on_message_received(message, |message| async move {
                             if let Err(err) = kernel_ref.on_node_event_received(message).await {
-                                log::error!(target: "citadel", "Kernel threw an error: {:?}. Will end", &err);
+                                log::error!(target: "citadel", "Kernel threw an error: {:?}. Will end", err);
                                 // calling this will cause server_to_kernel_rx to receive a shutdown message
                                 citadel_server_remote.clone().shutdown().await?;
                                 Err(err)

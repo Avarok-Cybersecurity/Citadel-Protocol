@@ -239,7 +239,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             let res = if let Some(primary_stream_listener) = primary_stream_listener {
                 citadel_io::tokio::select! {
                     res0 = outbound_kernel_request_handler => {
-                        log::trace!(target: "citadel", "OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
+                        log::trace!(target: "citadel", "OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", res0);
                         res0
                     }
 
@@ -249,7 +249,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             } else {
                 citadel_io::tokio::select! {
                     res0 = outbound_kernel_request_handler => {
-                        log::trace!(target: "citadel", "OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
+                        log::trace!(target: "citadel", "OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", res0);
                         res0
                     }
 

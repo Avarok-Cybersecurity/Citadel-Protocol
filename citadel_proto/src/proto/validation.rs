@@ -450,7 +450,7 @@ pub(crate) mod aead {
             header_bytes,
             &mut payload,
         ) {
-            log::error!(target: "citadel", "AES-GCM stage failed: {:?}. Supplied Ratchet Version: {} | Expected Ratchet Version: {} | Header CID: {} | Target CID: {}\nPacket: {:?}\nPayload len: {}", err, ratchet.version(), header.entropy_bank_version.get(), header.session_cid.get(), header.target_cid.get(), &header, payload.len());
+            log::error!(target: "citadel", "AES-GCM stage failed: {:?}. Supplied Ratchet Version: {} | Expected Ratchet Version: {} | Header CID: {} | Target CID: {}\nPacket: {:?}\nPayload len: {}", err, ratchet.version(), header.entropy_bank_version.get(), header.session_cid.get(), header.target_cid.get(), header, payload.len());
             return None;
         }
 

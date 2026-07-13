@@ -307,7 +307,7 @@ impl ProposedCredentials {
                     }
 
                     ArgonStatus::VerificationFailed(Some(err)) => {
-                        log::error!(target: "citadel", "Password verification failed: {}", &err);
+                        log::error!(target: "citadel", "Password verification failed: {}", err);
                         Err(AccountError::generic(err))
                     }
 

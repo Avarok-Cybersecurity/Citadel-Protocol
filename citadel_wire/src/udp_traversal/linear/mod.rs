@@ -142,7 +142,7 @@ impl SingleUDPHolePuncher {
                 let unique_id = self.unique_id;
                 let hole_punched_addr =
                     TargettedSocketAddr::new(peer_external_addr, natted_socket, unique_id);
-                log::trace!(target: "citadel", "[UPnP] {}", &hole_punched_addr);
+                log::trace!(target: "citadel", "[UPnP] {}", hole_punched_addr);
 
                 Ok(HolePunchedUdpSocket {
                     addr: hole_punched_addr,

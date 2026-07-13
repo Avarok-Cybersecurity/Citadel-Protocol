@@ -126,7 +126,7 @@ impl Method3 {
         id: HolePunchID,
     ) -> Option<TargettedSocketAddr> {
         let lock = self.observed_addrs_on_syn.lock();
-        log::trace!(target: "citadel", "Recv'd SYNS: {:?}", &*lock);
+        log::trace!(target: "citadel", "Recv'd SYNS: {:?}", *lock);
         lock.get(&id).copied()
     }
 
@@ -311,7 +311,7 @@ impl Method3 {
         loop {
             match socket.recv_from(buf).await {
                 Ok((len, peer_external_addr)) => {
-                    log::trace!(target: "citadel", "[UDP Hole-punch] RECV packet from {:?} | {:?}", &peer_external_addr, &buf[..len]);
+                    log::trace!(target: "citadel", "[UDP Hole-punch] RECV packet from {:?} | {:?}", peer_external_addr, &buf[..len]);
                     let packet = match encryptor.decrypt_packet(&buf[..len]) {
                         Some(plaintext) => plaintext,
                         _ => {
@@ -416,7 +416,7 @@ impl Method3 {
                                 peer_external_addr,
                                 adjacent_unique_id,
                             );
-                            log::trace!(target: "citadel", "***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
+                            log::trace!(target: "citadel", "***UDP Hole-punch to {:?} success!***", hole_punched_addr);
                             socket.stop_outgoing_traffic().await;
 
                             return Ok(hole_punched_addr);
