@@ -286,6 +286,12 @@ pub mod kyber_module {
         match kem_alg {
             KemAlgorithm::MlKem => kyber_pke::encrypt(local_pk, plaintext, nonce)
                 .map_err(|err| Error::generic(format!("{err:?}"))),
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => crate::libcrux_kem::encrypt_pke(
+                kem_alg,
+                local_pk.as_ref(),
+                plaintext.as_ref(),
+                nonce.as_ref(),
+            ),
         }
     }
 
@@ -297,6 +303,9 @@ pub mod kyber_module {
         match kem_alg {
             KemAlgorithm::MlKem => kyber_pke::decrypt(local_sk, ciphertext)
                 .map_err(|err| Error::generic(format!("{err:?}"))),
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
+                crate::libcrux_kem::decrypt_pke(kem_alg, local_sk.as_ref(), ciphertext.as_ref())
+            }
         }
     }
 

@@ -351,9 +351,29 @@ pub struct CryptoParameters {
 const _: () = _compile_time_check();
 #[allow(clippy::assertions_on_constants)]
 const fn _compile_time_check() {
+    // `CryptoParameters` packs into a single byte, but each field gets its own
+    // bit range (see the `packed_field` attributes above), so the limit is
+    // per-field capacity and NOT the sum of the variant counts:
+    //
+    //   encryption_algorithm  bits 0..=3  -> 4 bits -> 16 values
+    //   kem_algorithm         bits 4..=5  -> 2 bits ->  4 values
+    //   sig_algorithm         bits 6..=7  -> 2 bits ->  4 values
+    //
+    // The previous guard asserted `sum(COUNT) <= 8`, which happened to hold at
+    // 4 + 1 + 3 = 8 and therefore rejected the addition of ANY new algorithm to
+    // ANY of the three fields, even where that field had spare bits. These
+    // assertions encode the actual wire layout instead.
     assert!(
-        EncryptionAlgorithm::COUNT + KemAlgorithm::COUNT + SigAlgorithm::COUNT <= 8,
-        "Too many algorithms to fit inside 8 bits"
+        EncryptionAlgorithm::COUNT <= 16,
+        "EncryptionAlgorithm exceeds its 4-bit field (bits 0..=3)"
+    );
+    assert!(
+        KemAlgorithm::COUNT <= 4,
+        "KemAlgorithm exceeds its 2-bit field (bits 4..=5)"
+    );
+    assert!(
+        SigAlgorithm::COUNT <= 4,
+        "SigAlgorithm exceeds its 2-bit field (bits 6..=7)"
     );
 }
 
@@ -469,9 +489,27 @@ impl TryFrom<u8> for SecrecyMode {
 #[cfg_attr(feature = "typescript", ts(export))]
 #[repr(u8)]
 pub enum KemAlgorithm {
+    /// Kyber768-90s via `kyber-pke` (AES-256-CTR + SHA-2 internals). The
+    /// original scheme; wire-format unchanged and still the default, so
+    /// existing peers negotiate this and observe no difference.
     #[strum(ascii_case_insensitive)]
     #[default]
     MlKem = 0,
+    /// ML-KEM-768 (FIPS 203) via `libcrux-ml-kem`: SHAKE internals, formally
+    /// verified in F* via hax, with runtime-detected AVX2/NEON backends.
+    #[strum(ascii_case_insensitive)]
+    MlKem768Fips203 = 1,
+    /// ML-KEM-1024 (FIPS 203) via `libcrux-ml-kem`. Category 5 parameter set.
+    #[strum(ascii_case_insensitive)]
+    MlKem1024Fips203 = 2,
+}
+
+impl KemAlgorithm {
+    /// True when the variant is served by the `libcrux-ml-kem` backend rather
+    /// than `kyber-pke`.
+    pub const fn is_libcrux(&self) -> bool {
+        matches!(self, Self::MlKem768Fips203 | Self::MlKem1024Fips203)
+    }
 }
 
 impl KemAlgorithm {

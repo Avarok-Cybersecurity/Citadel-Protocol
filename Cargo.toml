@@ -74,6 +74,14 @@ sha3 = { version = "0.10", default-features = false }
 # turns on x86 runtime SIMD feature detection.
 blake3 = { version = "1.5", default-features = false }
 kyber-pke = { version = "0.5.0", default-features = false }
+# FIPS 203 ML-KEM (SHAKE internals), formally verified in F* via hax, with
+# runtime-detected AVX2/NEON backends. Backs the MlKem*Fips203 KemAlgorithm
+# variants; `MlKem = 0` still routes to kyber-pke and is byte-unchanged.
+libcrux-ml-kem = { version = "0.0.10", default-features = false, features = [
+    "mlkem768",
+    "mlkem1024",
+    "alloc",
+] }
 packed_struct = { version = "0.10.1" }
 getrandom = { version = "0.3.3", default-features = false }
 serde-big-array = { default-features = false, version = "0.5.0" }

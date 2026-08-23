@@ -84,6 +84,8 @@ pub mod encryption;
 
 pub mod constructor_opts;
 
+pub mod libcrux_kem;
+
 pub mod wire;
 
 pub const fn build_tag() -> &'static str {
@@ -946,6 +948,7 @@ impl PostQuantumMeta {
                     kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
                 (pk_alice.public.to_vec(), pk_alice.secret.to_vec())
             }
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => crate::libcrux_kem::keypair(kem_alg)?,
         };
 
         let ciphertext = None;
@@ -1000,6 +1003,7 @@ impl PostQuantumMeta {
                     kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
                 (pk_bob.public.to_vec(), pk_bob.secret.to_vec())
             }
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => crate::libcrux_kem::keypair(kem_scheme)?,
         };
 
         let (ciphertext, shared_secret) = match kem_scheme {
@@ -1009,6 +1013,9 @@ impl PostQuantumMeta {
                         |_err| citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed),
                     )?;
                 (ciphertext.to_vec(), shared_secret.to_vec())
+            }
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
+                crate::libcrux_kem::encapsulate(kem_scheme, pk_alice.as_ref())?
             }
         };
 
@@ -1106,6 +1113,11 @@ impl PostQuantumMeta {
             KemAlgorithm::MlKem => kyber_pke::decapsulate(&bob_ciphertext, secret_key)
                 .map_err(|err| Error::generic(err.to_string()))?
                 .to_vec(),
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => crate::libcrux_kem::decapsulate(
+                self.kex().kem_alg,
+                bob_ciphertext.as_ref(),
+                secret_key.as_ref(),
+            )?,
         };
 
         self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.into()));
