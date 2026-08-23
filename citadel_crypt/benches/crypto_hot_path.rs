@@ -69,14 +69,18 @@ fn bench_validate(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(MSG_LEN as u64));
     for (name, enc) in ALGOS {
         let (alice, bob) = make_ratchets(*enc, sec);
-        let mut protected = plaintext_packet();
-        alice
-            .protect_message_packet(Some(sec), HEADER_LEN, &mut protected)
-            .unwrap();
         group.bench_function(*name, |b| {
             b.iter_batched(
                 || {
-                    let mut p = protected.clone();
+                    // Protect a FRESH packet per iteration. The anti-replay
+                    // container rejects a repeated PID, so a single
+                    // pre-protected packet can only be validated once; reusing
+                    // it panics on the second iteration. `iter_batched` does not
+                    // time the setup closure, so this still isolates validate.
+                    let mut p = plaintext_packet();
+                    alice
+                        .protect_message_packet(Some(sec), HEADER_LEN, &mut p)
+                        .unwrap();
                     let header = p.split_to(HEADER_LEN);
                     (header, p)
                 },
