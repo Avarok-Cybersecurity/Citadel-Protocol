@@ -60,7 +60,7 @@ pub fn process_udp_packet<R: Ratchet, T: PlatformOps>(
                 super::super::validation::aead::validate_custom(hr, &header, payload)
             {
                 let peer_cid = get_resp_target_cid_from_header(&header);
-                let payload = SecBuffer::from(payload.as_ref());
+                let payload = SecBuffer::from(payload);
                 if state_container.forward_data_to_unordered_channel(peer_cid, payload) {
                     log::trace!(target: "citadel", "Successfully sent data to unordered channel");
                     PrimaryProcessorResult::Void

@@ -446,3 +446,106 @@ unvalidatable change unsafe on the just-stabilized datapath. Recorded so they ca
   toolchain can't emit profiles; see [[pgo-local-llvm22-profile-mismatch]] equivalent note above).
 - **QUIC/UDP + nonce + mimalloc deltas** — the macro bench in CI (thermal-stable) + the docker NAT
   16/16 matrix for the transport change (consensus-neutral by construction, but confirm in CI).
+
+## UDP media transport — BEFORE (master baseline)
+
+Phase-0 of the audio/video plan: baseline the unreliable-datagram path before the P0 UDP hot-path
+work. Measured on a **clean `master` (788c813e) worktree** (this branch's citadel_proto UDP internals
+were mid-edit, so numbers from the working tree would be contaminated); only the new bench files +
+Cargo bench entries were copied in. Machine: **Apple M3 Max (12P+4E, 16 cores), macOS (Darwin 27)**,
+loopback, `localhost-testing` tracing cost included in the e2e arm. Commands:
+
+```
+cargo bench -p citadel_crypt --bench udp_media_vs_srtp -- --warm-up-time 1 --measurement-time 3
+cargo bench -p citadel_sdk --bench udp_media_stream --features localhost-testing,multi-threaded
+BENCH_MEDIA_RATE_PPS=5000 cargo bench -p citadel_sdk --bench udp_media_stream --features localhost-testing,multi-threaded
+```
+
+**Per-datagram crypto (`udp_media_vs_srtp`, 1000 B payload; Citadel = 64 B header AAD + Standard
+level, SRTP = webrtc-srtp 0.17 AEAD-AES-128-GCM, 12 B RTP header):**
+
+| op | citadel aes_gcm_256 | citadel chacha20 | srtp aead_aes_128_gcm |
+|---|---|---|---|
+| protect/encrypt | **1.907 µs** (500 MiB/s) | 2.296 µs (415 MiB/s) | 1.986 µs (480 MiB/s) |
+| validate/decrypt | **1.763 µs** (541 MiB/s) | 2.152 µs (443 MiB/s) | 2.002 µs (476 MiB/s) |
+
+Citadel's per-datagram crypto is already at parity-or-better vs SRTP (AES-256 + anti-replay PID +
+nonce trailer vs SRTP's AES-128) — the e2e gap below is therefore all datapath, not crypto.
+
+**End-to-end datagram stream (`udp_media_stream`, 20 000 × 1000 B fragments, one-way latency):**
+
+Unpaced (flood; latency = queue depth, not propagation):
+
+| arm | recv | loss% | pps | MB/s | p50 µs | p99 µs |
+|---|---|---|---|---|---|---|
+| citadel_udp (P2P UdpChannel) | 20000 | 0.00 | 67 477 | 67.5 | 152 323 | 297 005 |
+| quinn_datagram (bare) | 1 689 | 91.56 | 313 870 | 313.9 | 6 810 | 15 988 |
+| raw_udp (tokio UdpSocket) | 20000 | 0.00 | 162 925 | 162.9 | 395 | 870 |
+
+Paced at 5 000 pps (≈40 Mbit/s — media-realistic; all arms lossless):
+
+| arm | loss% | p50 µs | p99 µs |
+|---|---|---|---|
+| citadel_udp | 0.00 | 45.2 | 97.7 |
+| quinn_datagram | 0.00 | 45.3 | 149.2 |
+| raw_udp | 0.00 | 33.2 | 75.5 |
+
+Reading: at media rates Citadel's UDP channel adds only ~12 µs p50 over a bare socket and matches
+bare quinn. The flood ceiling (67 k pps ≈ 3.4× below plain quinn-less UDP, with 150 ms of queueing)
+is the target of the P0 work: `unbounded_send` never applies backpressure, so the per-packet
+lock+craft pump is the bottleneck and everything behind it queues. Quinn's unpaced 91.6% "loss" is
+its datagram send-buffer drop-oldest policy — the honest cost of flooding bare QUIC datagrams.
+
+Payload-budget facts discovered while benching (drove the 1150→1000 B default):
+- The live Citadel P2P QUIC connection reports a **1162 B max datagram** at spawn → **~1066 B max
+  UDP payload** at `SecurityLevel::Standard` (64 B HDP header + 32 B AEAD overhead). Bare quinn on
+  loopback reports 1242 B at connect, growing to 1328 B after PMTUD (`initial_mtu(1280)`).
+- **On master, an oversize UDP payload kills the whole outbound UDP task silently** (quinn
+  `SendDatagramError::TooLarge` propagates out of the pump): a 1150 B send wedged the receiver
+  forever when P2P selected QUIC, and worked when it selected the raw hole-punched socket. P0-i
+  (non-fatal per-packet TooLarge + `max_payload_len()`) fixes exactly this.
+- Pre-existing bug (not fixed here): `crypto_hot_path`'s `validate_message_packet` group panics with
+  "Anti-replay-attack: invalid" on any run reaching a 2nd iteration — the receiver's anti-replay
+  container rejects re-validating the same packet. `udp_media_vs_srtp` protects a fresh packet per
+  iteration (untimed setup) instead.
+
+Artifacts: `bench/udp_media_results.json` (unpaced master baseline). After P0/P1 land, re-run both
+benches and append the AFTER table here (same commands, same machine).
+
+### AFTER — feat/media-udp-transport (same machine, same commands, 2026-08-23)
+
+UDP hot-path changes measured: pre-sized seal (no realloc), one StateContainer borrow per
+≤32-packet batch (`UDP_OUTBOUND_DRAIN_BATCH`), bounded drop-oldest queue
+(`UDP_OUTBOUND_MAX_QUEUED = 512` + `dropped_datagrams()` counter), non-fatal per-packet
+`TooLarge`, zero-copy inbound (`SecBuffer::from(BytesMut)`), `UdpFramed`-free raw sink
+(`poll_send_to`), quinn datagram buffers 4 MiB recv / 2 MiB send.
+
+**Crypto (1000 B payload, unchanged as expected — the datapath, not the AEAD, was the target):**
+protect: citadel aes_gcm_256 1.917 µs, chacha20 2.328 µs, srtp aead_aes_128_gcm 2.000 µs;
+validate: citadel aes_gcm_256 1.820 µs. Citadel remains at parity-or-better vs SRTP while also
+carrying the 8 B anti-replay PID + nonce trailer.
+
+**End-to-end, paced 50 000 pps (≈400 Mbit/s, 60 000 × 1000 B) — the load point where the
+per-packet lock used to hurt:**
+
+| arm | loss% | p50 µs | p99 µs |
+|---|---|---|---|
+| citadel_udp BEFORE (master) | 0.00 | 39.5 | **387.8** |
+| citadel_udp AFTER | 0.00 | **36.8** | **103.0** |
+| quinn_datagram (bare) | 0.00 | 40.0 | 101.8 |
+| raw_udp (floor) | 0.00 | 18.6 | 28.8 |
+
+**→ 3.8× better p99 tail at 400 Mbit/s (387.8 → 103.0 µs), p50 −7%.** Citadel-with-PQ-E2E now
+matches bare quinn datagrams at this rate and beats it at 5 000 pps (45.6/99.8 vs 55.1/105.1 µs
+p50/p99; raw floor 31.6/57.4).
+
+**Unpaced flood (20 000-packet blast):** BEFORE buffered everything unboundedly (0% loss but
+p50 152 ms of queueing and unbounded memory). AFTER the bounded queue keeps the freshest 512 and
+drops the stale backlog (97.4% "loss" on a 20 k blast, p50 3.9 ms, counted via
+`OutboundUdpSender::dropped_datagrams()`). For real-time media, fresh-over-stale is the correct
+policy; applications that need every datagram must pace to the link (the media layer's SendQueue
++ pacing do this).
+
+Conditions: Apple M3 Max (12P+4E), loopback, `localhost-testing,multi-threaded` (tracing fields
+on), MTU 1280, 1000 B fragments, P2P QUIC datagram path. Artifacts:
+`bench/udp_media_results.json` (last run), scratchpad `after_unpaced.json`/`after_paced5k.json`.

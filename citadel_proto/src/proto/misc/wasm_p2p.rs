@@ -5,104 +5,11 @@
 //! is relayed through the Citadel server via `PeerSignal::WebRtcSignaling`.
 #![allow(unsafe_code)]
 
-use super::wasm_io::{IceServerConfig, WasmIO};
-use super::wasm_stream::{SendFuture, WasmDataChannelStream};
+use super::wasm_io::WasmIO;
+use super::wasm_p2p_established::on_datachannel_established;
+use super::wasm_p2p_signaling::{hole_punch_initiator, hole_punch_responder};
+use super::wasm_stream::SendFuture;
 use crate::proto::peer::peer_crypt::WebRtcSignalingPayload;
-
-// ── WebRTC hole punch helpers ────────────────────────────────────────
-
-/// Initiator: create offer, send it, wait for answer, open DataChannel.
-async fn hole_punch_initiator(
-    ice_servers: &[IceServerConfig],
-    send_signaling: &dyn Fn(WebRtcSignalingPayload) -> Result<(), crate::error::NetworkError>,
-    sig_rx: &mut citadel_io::tokio::sync::mpsc::UnboundedReceiver<WebRtcSignalingPayload>,
-) -> std::io::Result<(
-    web_sys::RtcDataChannel,
-    std::sync::Arc<web_sys::RtcPeerConnection>,
-)> {
-    use super::wasm_rtc;
-
-    let pc = wasm_rtc::create_peer_connection(ice_servers)?;
-    let dc = wasm_rtc::create_reliable_data_channel(&pc, "citadel");
-    let (offer_sdp, offer_candidates) = wasm_rtc::create_offer_with_candidates(&pc).await?;
-
-    send_signaling(WebRtcSignalingPayload::Offer {
-        sdp: offer_sdp,
-        ice_candidates: offer_candidates,
-    })
-    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-
-    let answer = sig_rx.recv().await.ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::ConnectionAborted,
-            "signaling channel closed",
-        )
-    })?;
-
-    match answer {
-        WebRtcSignalingPayload::Answer {
-            sdp,
-            ice_candidates,
-        } => {
-            wasm_rtc::apply_answer(&pc, &sdp, &ice_candidates).await?;
-        }
-        _ => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "expected Answer, got Offer",
-            ));
-        }
-    }
-
-    wasm_rtc::wait_for_datachannel_open(&dc).await?;
-    Ok((dc, std::sync::Arc::new(pc)))
-}
-
-/// Responder: wait for offer, create answer, send it, accept DataChannel.
-async fn hole_punch_responder(
-    ice_servers: &[IceServerConfig],
-    send_signaling: &dyn Fn(WebRtcSignalingPayload) -> Result<(), crate::error::NetworkError>,
-    sig_rx: &mut citadel_io::tokio::sync::mpsc::UnboundedReceiver<WebRtcSignalingPayload>,
-) -> std::io::Result<(
-    web_sys::RtcDataChannel,
-    std::sync::Arc<web_sys::RtcPeerConnection>,
-)> {
-    use super::wasm_rtc;
-
-    let offer = sig_rx.recv().await.ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::ConnectionAborted,
-            "signaling channel closed",
-        )
-    })?;
-
-    let (remote_sdp, remote_candidates) = match offer {
-        WebRtcSignalingPayload::Offer {
-            sdp,
-            ice_candidates,
-        } => (sdp, ice_candidates),
-        _ => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "expected Offer, got Answer",
-            ));
-        }
-    };
-
-    let pc = wasm_rtc::create_peer_connection(ice_servers)?;
-    let (answer_sdp, answer_candidates) =
-        wasm_rtc::accept_offer_with_candidates(&pc, &remote_sdp, &remote_candidates).await?;
-
-    send_signaling(WebRtcSignalingPayload::Answer {
-        sdp: answer_sdp,
-        ice_candidates: answer_candidates,
-    })
-    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-
-    let dc = wasm_rtc::wait_for_remote_datachannel(&pc).await?;
-    wasm_rtc::wait_for_datachannel_open(&dc).await?;
-    Ok((dc, std::sync::Arc::new(pc)))
-}
 
 // ── PlatformOps impl ────────────────────────────────────────────────
 
@@ -132,7 +39,6 @@ impl super::platform_ops::PlatformOps for WasmIO {
                 hole_punch_compat_stream,
                 endpoint_ratchet,
                 sync_instant,
-                udp_mode,
                 cancel_rx,
             );
 
@@ -174,9 +80,9 @@ impl super::platform_ops::PlatformOps for WasmIO {
                 };
 
             let result = if is_initiator {
-                hole_punch_initiator(&ice_servers, &send_signaling, &mut sig_rx).await
+                hole_punch_initiator(&ice_servers, &send_signaling, &mut sig_rx, udp_mode).await
             } else {
-                hole_punch_responder(&ice_servers, &send_signaling, &mut sig_rx).await
+                hole_punch_responder(&ice_servers, &send_signaling, &mut sig_rx, udp_mode).await
             };
 
             // Clean up signaling channel
@@ -186,12 +92,12 @@ impl super::platform_ops::PlatformOps for WasmIO {
             }
 
             match result {
-                Ok((dc, pc)) => {
+                Ok(channels) => {
                     on_datachannel_established::<R, Self>(
                         session,
-                        dc,
-                        pc,
+                        channels,
                         peer_cid,
+                        ticket,
                         is_initiator,
                         session_security_settings,
                         channel_signal,
@@ -205,6 +111,24 @@ impl super::platform_ops::PlatformOps for WasmIO {
                 }
             }
         })
+    }
+
+    fn spawn_udp_socket_loader<R: citadel_crypt::ratchets::Ratchet>(
+        session: crate::proto::session::CitadelSession<R, Self>,
+        v_target: crate::proto::state_container::VirtualTargetType,
+        udp_conn: super::udp_internal_interface::UdpSplittableTypes,
+        addr: citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr,
+        ticket: crate::proto::remote::Ticket,
+        tcp_conn_awaiter: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
+    ) {
+        super::udp_session_loader::spawn(
+            session,
+            v_target,
+            udp_conn,
+            addr,
+            ticket,
+            tcp_conn_awaiter,
+        );
     }
 
     fn setup_serverless_transport(
@@ -236,83 +160,4 @@ impl super::platform_ops::PlatformOps for WasmIO {
             (None, Some(cfg), crate::prelude::NodeType::Peer)
         }
     }
-}
-
-/// Register the established DataChannel as a P2P stream and start the pump.
-fn on_datachannel_established<
-    R: citadel_crypt::ratchets::Ratchet,
-    T: super::platform_ops::PlatformOps,
->(
-    session: crate::proto::session::CitadelSession<R, T>,
-    dc: web_sys::RtcDataChannel,
-    pc: std::sync::Arc<web_sys::RtcPeerConnection>,
-    peer_cid: u64,
-    is_initiator: bool,
-    session_security_settings: citadel_types::proto::SessionSecuritySettings,
-    channel_signal: crate::proto::node_result::NodeResult<R>,
-) -> Result<(), crate::error::NetworkError> {
-    let stream = super::wasm_stream::WasmStream::DataChannel(WasmDataChannelStream::new(dc, pc));
-    let (sink, source) = super::safe_split_stream(stream);
-    let (p2p_tx, p2p_rx) = crate::proto::outbound_sender::unbounded();
-    let p2p_tx = crate::proto::outbound_sender::OutboundPrimaryStreamSender::from(p2p_tx);
-    let p2p_rx = crate::proto::outbound_sender::OutboundPrimaryStreamReceiver::from(p2p_rx);
-
-    let direct_p2p_remote = crate::proto::peer::p2p_conn_handler::DirectP2PRemote {
-        stopper: None,
-        p2p_primary_stream: p2p_tx.clone(),
-        from_listener: !is_initiator,
-    };
-    let session_cid_val = session.session_cid.get().unwrap_or(0);
-
-    {
-        let mut state = inner_mut_state!(session.state_container);
-        state.insert_direct_p2p_connection(direct_p2p_remote, peer_cid, session_cid_val, None)?;
-    }
-
-    let header_obfuscator = crate::proto::packet::HeaderObfuscator::new(
-        !is_initiator,
-        session_security_settings.header_obfuscator_settings,
-    );
-    let p2p_handle = crate::proto::peer::p2p_conn_handler::P2PInboundHandle::new(
-        std::net::SocketAddr::from(([0, 0, 0, 0], 0)),
-        0,
-        session.session_cid.clone(),
-        session.kernel_tx.clone(),
-        p2p_tx,
-        peer_cid,
-    );
-    let writer = crate::proto::session::CitadelSession::<R, T>::outbound_stream(
-        p2p_rx,
-        sink,
-        header_obfuscator.clone(),
-    );
-    let reader = crate::proto::session::CitadelSession::execute_inbound_stream(
-        source,
-        session.clone(),
-        Some(p2p_handle),
-        header_obfuscator,
-    );
-
-    let sess = session.clone();
-    spawn!(async move {
-        let res = citadel_io::tokio::select! {
-            r0 = writer => r0,
-            r1 = reader => r1,
-        };
-        if let Err(err) = &res {
-            log::error!(target: "citadel", "[WebRTC P2P] stream ending: {err}");
-        }
-        let mut state = inner_mut_state!(sess.state_container);
-        if let Some(ratchet) = state
-            .active_virtual_connections
-            .get(&peer_cid)
-            .and_then(|v| v.get_endpoint_ratchet(None))
-        {
-            state.stale_p2p_ratchets.insert(peer_cid, ratchet);
-        }
-        state.active_virtual_connections.remove(&peer_cid);
-    });
-
-    session.send_to_kernel(channel_signal)?;
-    Ok(())
 }

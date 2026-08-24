@@ -252,13 +252,15 @@ pub(crate) mod group {
         // Pre-size the buffer to header + serialized payload + per-layer crypto overhead so the
         // in-place `protect_message_packet` never reallocates (and thus never copies the growing
         // packet). Falls back to the small base length if the size can't be computed up front.
-        let security_layers = processor.security_level.value() as usize + 1;
         let capacity = group_header
             .serialized_size()
-            .map(|payload_len| {
-                HDP_HEADER_BYTE_LEN
-                    + payload_len
-                    + security_layers * packet_sizes::MESSAGE_PACKET_PER_LAYER_OVERHEAD
+            .and_then(|payload_len| {
+                packet_sizes::protected_packet_capacity(
+                    &processor.ratchet,
+                    processor.security_level,
+                    payload_len,
+                )
+                .ok()
             })
             .unwrap_or(packet_sizes::GROUP_HEADER_BASE_LEN);
 
@@ -1761,20 +1763,23 @@ pub(crate) mod file {
 
 pub(crate) mod udp {
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::proto::packet::{packet_flags, HdpHeader};
+    use crate::proto::packet::{packet_flags, packet_sizes, HdpHeader};
     use bytes::BytesMut;
+    use citadel_crypt::misc::CryptError;
     use citadel_crypt::ratchets::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use zerocopy::{U32, U64};
 
-    /// Crafts a UDP packet for a given command auxiliary, payload, target CID, and security level
+    /// Crafts a UDP packet for a given command auxiliary, payload, target CID, and security level.
+    /// The buffer is pre-sized via `packet_sizes::protected_packet_capacity` so the in-place AEAD
+    /// seal never reallocates; an unsupported `security_level` is an error, not a panic.
     pub(crate) fn craft_udp_packet<R: Ratchet>(
         ratchet: &R,
         cmd_aux: u8,
         payload: BytesMut,
         target_cid: u64,
         security_level: SecurityLevel,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, CryptError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::UDP,
@@ -1790,15 +1795,15 @@ pub(crate) mod udp {
             target_cid: U64::new(target_cid),
         };
 
-        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + payload.len());
+        let capacity =
+            packet_sizes::protected_packet_capacity(ratchet, security_level, payload.len())?;
+        let mut packet = BytesMut::with_capacity(capacity);
         header.inscribe_into(&mut packet);
         packet.extend_from_slice(&payload[..]);
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
 
-        packet
+        Ok(packet)
     }
 }
 

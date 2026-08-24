@@ -288,6 +288,10 @@ fn make_client_endpoint(
 }
 
 /// only one side needs to set this transport config
+/// See `load_hole_punch_friendly_quic_transport_config`.
+const QUIC_DATAGRAM_RECV_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+const QUIC_DATAGRAM_SEND_BUFFER_BYTES: usize = 2 * 1024 * 1024;
+
 fn load_hole_punch_friendly_quic_transport_config<'a>(
     cfg: Either<&'a mut ServerConfig, &'a mut ClientConfig>,
 ) {
@@ -310,6 +314,12 @@ fn load_hole_punch_friendly_quic_transport_config<'a>(
     // depending on PMTU discovery. PMTUD is left at its default; this only raises the floor, it does
     // not probe upward, so it cannot break the most restrictive hole-punched path.
     transport_cfg.initial_mtu(1280);
+
+    // Unreliable-datagram buffers for the UDP subsystem (real-time media). quinn drops the oldest
+    // queued datagram when the send buffer overflows, which is the policy media wants; the receive
+    // buffer holds ~3.5 s of 8 Mbps video at ~1.2 KB datagrams before the oldest are shed.
+    transport_cfg.datagram_receive_buffer_size(Some(QUIC_DATAGRAM_RECV_BUFFER_BYTES));
+    transport_cfg.datagram_send_buffer_size(QUIC_DATAGRAM_SEND_BUFFER_BYTES);
 
     match cfg {
         Either::Left(cfg) => {

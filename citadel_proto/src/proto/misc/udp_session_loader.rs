@@ -1,9 +1,12 @@
-//! Native UDP session loader and helpers.
+//! Platform-independent UDP session loader.
 //!
-//! Called from `NativeIO`'s `PlatformOps::spawn_udp_socket_loader` impl.
+//! Called from every `PlatformOps::spawn_udp_socket_loader` impl (native QUIC/raw sockets and the
+//! WASM WebRTC DataChannel alike): registers the `UdpChannel` with the state container, hands it
+//! to the application, and spawns the inbound listener + outbound sealer tasks.
 
-use super::native_io::NativeIO;
+use super::platform_ops::PlatformOps;
 use super::udp_internal_interface::UdpSplittableTypes;
+use super::udp_session_tasks::{listen_udp_port, udp_outbound_sender};
 use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::outbound_sender::{unbounded, OutboundUdpSender};
@@ -14,9 +17,11 @@ use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
-pub(super) fn spawn<R: Ratchet>(
-    this: CitadelSession<R, NativeIO>,
+pub(crate) fn spawn<R: Ratchet, T: PlatformOps>(
+    this: CitadelSession<R, T>,
     v_target: VirtualTargetType,
     udp_conn: UdpSplittableTypes,
     addr: TargettedSocketAddr,
@@ -34,8 +39,12 @@ pub(super) fn spawn<R: Ratchet>(
             let hole_punched_socket = addr.receive_address;
             let hole_punched_addr_ip = hole_punched_socket.ip();
 
-            let local_bind_addr = udp_conn.local_addr().unwrap();
+            let local_bind_addr = udp_conn
+                .local_addr()
+                .map_err(|err| NetworkError::generic(err.to_string()))?;
             let needs_manual_ka = udp_conn.needs_manual_ka();
+            let max_datagram_len = udp_conn.max_datagram_len()?;
+            let dropped = Arc::new(AtomicU64::new(0));
 
             let (outbound_sender_tx, outbound_sender_rx) = unbounded();
             let udp_sender = OutboundUdpSender::new(
@@ -43,6 +52,9 @@ pub(super) fn spawn<R: Ratchet>(
                 local_bind_addr,
                 hole_punched_socket,
                 needs_manual_ka,
+                crate::constants::UDP_STREAM_SECURITY_LEVEL,
+                max_datagram_len,
+                dropped.clone(),
             );
             let (stopper_tx, stopper_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
 
@@ -137,7 +149,8 @@ pub(super) fn spawn<R: Ratchet>(
                 accessor.clone(),
             );
             log::trace!(target: "citadel", "Server established UDP Port {local_bind_addr}");
-            let udp_sender_future = udp_outbound_sender(outbound_sender_rx, addr, writer, accessor);
+            let udp_sender_future =
+                udp_outbound_sender(outbound_sender_rx, addr, writer, accessor, dropped);
             (listener, udp_sender_future, stopper_rx)
         };
 
@@ -161,65 +174,4 @@ pub(super) fn spawn<R: Ratchet>(
     };
 
     spawn!(wrapped_task);
-}
-
-async fn listen_udp_port<R: Ratchet, S: crate::proto::misc::udp_internal_interface::UdpStream>(
-    this: CitadelSession<R, NativeIO>,
-    _hole_punched_addr_ip: std::net::IpAddr,
-    local_port: u16,
-    mut stream: S,
-    peer_session_accessor: EndpointCryptoAccessor<R>,
-) -> Result<(), NetworkError> {
-    use crate::proto::packet::HdpPacket;
-    use futures::StreamExt;
-
-    while let Some(res) = stream.next().await {
-        match res {
-            Ok((packet, remote_peer)) => {
-                log::trace!(target: "citadel", "Packet received on port {} has {} bytes (src: {:?})", local_port, packet.len(), remote_peer);
-                let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                this.process_inbound_packet_udp(packet, &peer_session_accessor)?;
-            }
-            Err(err) => {
-                log::warn!(target: "citadel", "UDP Stream error: {err:#?}");
-                break;
-            }
-        }
-    }
-
-    log::trace!(target: "citadel", "Ending UDP Port listener on {local_port}");
-    Ok(())
-}
-
-async fn udp_outbound_sender<R: Ratchet, S: futures::SinkExt<bytes::Bytes> + Unpin>(
-    receiver: crate::proto::outbound_sender::UnboundedReceiver<(u8, bytes::BytesMut)>,
-    hole_punched_addr: TargettedSocketAddr,
-    mut sink: S,
-    peer_session_accessor: EndpointCryptoAccessor<R>,
-) -> Result<(), NetworkError> {
-    use citadel_types::crypto::SecurityLevel;
-    use futures::StreamExt;
-
-    let mut receiver = citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
-    let target_cid = peer_session_accessor.get_target_cid();
-
-    while let Some((cmd_aux, packet)) = receiver.next().await {
-        let send_addr = hole_punched_addr.send_address;
-        let packet = peer_session_accessor.borrow_hr(None, |hr, _| {
-            crate::proto::packet_crafter::udp::craft_udp_packet(
-                hr,
-                cmd_aux,
-                packet,
-                target_cid,
-                SecurityLevel::Standard,
-            )
-        })?;
-        log::trace!(target: "citadel", "About to send packet w/len {} | Dest: {:?}", packet.len(), send_addr);
-        sink.send(packet.freeze())
-            .await
-            .map_err(|_| error!(ErrorCode::UdpSinkRecvFailed))?;
-    }
-
-    log::trace!(target: "citadel", "Outbound wave sender ending");
-    Ok(())
 }

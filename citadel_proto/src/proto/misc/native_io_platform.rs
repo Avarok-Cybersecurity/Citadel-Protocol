@@ -2,7 +2,7 @@
 //!
 //! Provides real NAT traversal, file I/O, and UDP session management
 //! on native (non-WASM) targets. UDP socket loading is delegated to
-//! [`native_io_udp`](super::native_io_udp).
+//! [`udp_session_loader`](super::udp_session_loader).
 #![allow(clippy::manual_async_fn)]
 
 use std::net::SocketAddr;
@@ -203,7 +203,14 @@ impl PlatformOps for NativeIO {
         ticket: Ticket,
         tcp_conn_awaiter: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
     ) {
-        super::native_io_udp::spawn(session, v_target, udp_conn, addr, ticket, tcp_conn_awaiter);
+        super::udp_session_loader::spawn(
+            session,
+            v_target,
+            udp_conn,
+            addr,
+            ticket,
+            tcp_conn_awaiter,
+        );
     }
 }
 
