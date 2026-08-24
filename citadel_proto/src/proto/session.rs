@@ -217,6 +217,12 @@ impl<R: Ratchet, T: PlatformOps> Deref for CitadelSession<R, T> {
 pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) session_cid: DualRwLock<Option<u64>>,
     pub(super) kernel_ticket: DualCell<Ticket>,
+    /// Ticket of an application-initiated C2S disconnect (STAGE0 sent, FINAL not yet processed).
+    /// If the session ends for ANY reason while this is set, the D/C signal must resolve the
+    /// caller's `disconnect()` future with this ticket (and as a success — the session is gone,
+    /// which is what the caller asked for). Without it, a lost FINAL leaves `disconnect().await`
+    /// waiting on a ticket that never arrives (CI reconnect-wedge: `reconnection_p2p_one_c2s`).
+    pub(super) pending_c2s_disconnect_ticket: DualRwLock<Option<Ticket>>,
     pub(super) remote_peer: SocketAddr,
     // Sends results directly to the kernel
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
@@ -452,6 +458,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             session_cid: DualRwLock::from(session_cid),
             time_tracker,
             kernel_ticket: kernel_ticket.into(),
+            pending_c2s_disconnect_ticket: DualRwLock::from(None),
             remote_peer,
             kernel_tx: kernel_tx.clone(),
             session_manager,
@@ -2323,6 +2330,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             log::error!(target: "citadel", "Must be connected to HyperLAN in order to start disconnect")
         }
 
+        // Record the pending disconnect BEFORE sending STAGE0: if the session dies before the
+        // FINAL ack arrives (lost FINAL / socket race), the D/C signal resolves the caller's
+        // `disconnect()` future with this ticket instead of leaving it waiting forever.
+        session.pending_c2s_disconnect_ticket.set(Some(ticket));
+
         let accessor = EndpointCryptoAccessor::C2S(session.state_container.clone());
         accessor
             .borrow_hr(None, |hr, state_container| {
@@ -2530,8 +2542,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
                 cid: session_cid,
                 connection_id: session_ticket,
             });
+            // An application-initiated disconnect must resolve with ITS ticket even when the
+            // session ends abruptly (lost FINAL): the caller's `disconnect()` future is keyed by
+            // that ticket, and from its perspective the outcome is success — the session is gone.
+            let pending_dc = self.pending_c2s_disconnect_ticket.take();
+            let (ticket, disconnect_success) = match (ticket, pending_dc) {
+                (Some(explicit), _) => (explicit, disconnect_success),
+                (None, Some(pending)) => (pending, true),
+                (None, None) => (session_ticket, disconnect_success),
+            };
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
-                ticket: ticket.unwrap_or(session_ticket),
+                ticket,
                 cid_opt: Some(session_cid),
                 success: disconnect_success,
                 conn_type,

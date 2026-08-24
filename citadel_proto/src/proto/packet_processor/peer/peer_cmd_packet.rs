@@ -1414,8 +1414,11 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     session_cid,
                     peer_cid: target_cid,
                 } => {
-                    // TODO: Change timeouts. Create a better timeout system, in general
-                    const TIMEOUT: Duration = Duration::from_secs(60 * 60);
+                    // Server-side pending-connect TTL. The SDK's `connect_to_peer` gives up
+                    // after 60s (RemoteP2pConnectTimeout, remote_ext.rs), so a posting older
+                    // than that can only ever mis-route a future handshake; expire it just
+                    // after the client's own deadline.
+                    const TIMEOUT: Duration = Duration::from_secs(65);
                     if let Some(peer_response) = peer_response {
                         super::server::post_connect::handle_response_phase_post_connect(
                             peer_conn_type,
@@ -1437,6 +1440,12 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                         let sess_mgr = session.session_manager.clone();
                         let peer_layer_arc = session.hypernode_peer_layer.inner.clone();
                         let mut peer_layer = peer_layer_arc.write().await;
+                        // Self-supersede: any pending PostConnect this sender still has for the
+                        // pair is provably dead (its stream is ordered; a still-live attempt
+                        // could not be followed by this new initiation). Clearing it here keeps
+                        // a leaked posting from ever mis-firing `check_simultaneous_connect`
+                        // for either side, without relying on a Disconnect to arrive.
+                        peer_layer.remove_pending_post_connect_owned_by(session_cid, target_cid);
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_connect(session_cid, target_cid)
                         {
@@ -1511,16 +1520,23 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     session_cid,
                     peer_cid: target_cid,
                 } => {
-                    // Purge any stale pending PostConnect posting between this pair so a subsequent
-                    // *simultaneous* reconnect cannot match leftover state in
+                    // Purge the SENDER'S stale pending PostConnect postings for this pair so a
+                    // subsequent *simultaneous* reconnect cannot match leftover state in
                     // `check_simultaneous_connect` (which would mis-fire the simulate-accept path
                     // and wedge the handshake -> no PeerChannelCreated -> RemoteP2pConnectTimeout).
+                    //
+                    // Owner-scoped on purpose: this signal may be a LATE cleanup Disconnect (e.g.
+                    // the queued channel-drop signal) arriving after the PEER already posted its
+                    // next reconnect attempt. The sender's ordered stream proves only the
+                    // sender's own postings stale; purging the peer's fresh posting here deleted
+                    // the routing anchor for the new handshake and wedged reconnects under
+                    // release-mode timing (RemoteP2pConnectTimeout after 60s).
                     {
                         let peer_layer = session.hypernode_peer_layer.inner.clone();
                         peer_layer
                             .write()
                             .await
-                            .remove_pending_post_connect_between(session_cid, target_cid);
+                            .remove_pending_post_connect_owned_by(session_cid, target_cid);
                     }
                     let mut state_container = inner_mut_state!(session.state_container);
                     state_container.remove_udp_channel(target_cid);
