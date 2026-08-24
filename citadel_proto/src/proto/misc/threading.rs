@@ -54,10 +54,17 @@ pub(crate) async fn run_server_with_kernel(
     {
         let _ = rt;
         let localset = localset.unwrap();
-        let server_future = localset.run_until(server);
-        citadel_io::tokio::select! {
-            ret0 = kernel => ret0,
-            ret1 = server_future => ret1
-        }
+        // Run the kernel INSIDE the LocalSet as well: user kernel code (and the SDK layers it
+        // calls, e.g. citadel_sdk::media) must be able to `spawn_local`. Running only the server
+        // inside made any spawn from a kernel closure panic with
+        // "`spawn_local` called from outside of a `task::LocalSet`" (single-threaded and wasm).
+        localset
+            .run_until(async move {
+                citadel_io::tokio::select! {
+                    ret0 = kernel => ret0,
+                    ret1 = server => ret1
+                }
+            })
+            .await
     }
 }

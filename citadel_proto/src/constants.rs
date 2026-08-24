@@ -64,6 +64,22 @@ pub const DO_DEREGISTER_EXPIRE_TIME_NS: i64 = KEEP_ALIVE_TIMEOUT_NS;
 
 /// The frequency at which KEEP_ALIVES need to be sent through the system
 pub const FIREWALL_KEEP_ALIVE_UDP: std::time::Duration = std::time::Duration::from_secs(60);
+/// The AEAD security level every UDP stream packet is sealed at unless the application calls
+/// `OutboundUdpSender::set_security_level`. UDP is the low-latency, unreliable channel: a single
+/// layer keeps per-datagram overhead at one `MESSAGE_PACKET_PER_LAYER_OVERHEAD` and maximises
+/// the payload budget (each extra layer costs 32 bytes of a ~1.2 KB datagram).
+pub const UDP_STREAM_SECURITY_LEVEL: citadel_types::crypto::SecurityLevel =
+    citadel_types::crypto::SecurityLevel::Standard;
+/// Maximum number of queued UDP payloads sealed under one crypto-state borrow and handed to the
+/// transport sink before a flush. Bounds per-wake latency while amortising the StateContainer
+/// lock across a burst (e.g. the fragments of one media frame).
+pub const UDP_OUTBOUND_DRAIN_BATCH: usize = 32;
+/// Maximum number of datagrams allowed to queue behind a stalled UDP sink before the oldest are
+/// dropped. Real-time media wants fresh data to win over stale data; ~512 x 1.2 KB = ~600 KB.
+pub const UDP_OUTBOUND_MAX_QUEUED: usize = 512;
+/// Conservative per-datagram ceiling for the raw (hole-punched) UDP socket path: the IPv6
+/// minimum MTU (1280) minus the IPv6 (40) and UDP (8) headers, so it is never fragmented on path.
+pub const RAW_UDP_SAFE_DATAGRAM_LEN: usize = 1280 - 40 - 8;
 /// How many bytes are stored
 pub const CODEC_BUFFER_CAPACITY: usize = u16::MAX as usize;
 /// The minimum number of bytes allocated in the codec

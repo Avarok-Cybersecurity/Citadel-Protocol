@@ -285,6 +285,11 @@ jobs:
         id: deps-retry-5
         uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
+      - name: Cache media test fixtures
+        uses: actions/cache@v4
+        with:
+          path: target/media_fixtures
+          key: media-fixtures-b3726eac-be112703
       - name: Single-threaded testing
         run: cargo nextest run --package citadel_sdk --features=localhost-testing
         if: ${{ !startsWith(matrix.os, 'windows') }}
@@ -489,6 +494,8 @@ jobs:
         run: cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
       - name: Check citadel_sdk for wasm32
         run: cargo check --package citadel_sdk --target wasm32-unknown-unknown
+      - name: Check citadel_media for wasm32
+        run: cargo check --package citadel_media --target wasm32-unknown-unknown
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -498,6 +505,9 @@ jobs:
       - name: Run WASM integration tests
         working-directory: citadel_sdk
         run: wasm-pack test --node --release -- --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
+      - name: Run citadel_media WASM tests
+        working-directory: citadel_media
+        run: wasm-pack test --node --release -- --test wasm_media
 
   typescript_types:
     name: TypeScript Types

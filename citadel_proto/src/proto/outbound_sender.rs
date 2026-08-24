@@ -34,15 +34,13 @@
 //! - **OutboundUdpSender**: UDP datagram handling with keep-alive
 
 use crate::error::NetworkError;
-use crate::proto::packet::packet_flags;
+pub use crate::proto::outbound_udp_sender::{OutboundUdpSender, UdpQueueItem};
 use bytes::{Bytes, BytesMut};
 pub use citadel_io::tokio::sync::mpsc::{
     error::SendError, Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
 };
 use futures::task::{Context, Poll};
 use futures::Sink;
-use std::fmt::Formatter;
-use std::net::SocketAddr;
 use std::pin::Pin;
 
 pub struct UnboundedSender<T>(pub(crate) UnboundedSenderInner<T>);
@@ -148,90 +146,6 @@ pub struct OutboundPrimaryStreamReceiver(
 impl From<UnboundedReceiver<OutboundPacket>> for OutboundPrimaryStreamReceiver {
     fn from(inner: UnboundedReceiver<OutboundPacket>) -> Self {
         Self(citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(inner))
-    }
-}
-
-/// For keeping the firewall open
-pub const KEEP_ALIVE: &[u8; 2] = b"KA";
-
-#[derive(Clone)]
-pub struct OutboundUdpSender {
-    sender: UnboundedSender<(u8, BytesMut)>,
-    local_addr: SocketAddr,
-    remote_addr: SocketAddr,
-    pub(crate) needs_manual_ka: bool,
-}
-
-impl OutboundUdpSender {
-    pub fn new(
-        sender: UnboundedSender<(u8, BytesMut)>,
-        local_addr: SocketAddr,
-        remote_addr: SocketAddr,
-        needs_manual_ka: bool,
-    ) -> Self {
-        Self {
-            sender,
-            local_addr,
-            remote_addr,
-            needs_manual_ka,
-        }
-    }
-
-    pub fn unbounded_send<T: Into<BytesMut>>(&self, packet: T) -> Result<(), NetworkError> {
-        self.sender
-            .unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet.into()))
-            .map_err(|err| NetworkError::generic(err.to_string()))
-    }
-
-    pub fn send_keep_alive(&self) -> bool {
-        self.sender
-            .unbounded_send((
-                packet_flags::cmd::aux::udp::KEEP_ALIVE,
-                BytesMut::from(&KEEP_ALIVE[..]),
-            ))
-            .is_ok()
-    }
-
-    pub fn local_addr(&self) -> SocketAddr {
-        self.local_addr
-    }
-
-    pub fn remote_addr(&self) -> SocketAddr {
-        self.remote_addr
-    }
-}
-
-impl Sink<BytesMut> for OutboundUdpSender {
-    type Error = NetworkError;
-
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.sender)
-            .poll_ready(cx)
-            .map_err(|err| NetworkError::generic(err.to_string()))
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, item: BytesMut) -> Result<(), Self::Error> {
-        Pin::new(&mut self.sender)
-            .start_send((packet_flags::cmd::aux::udp::STREAM, item))
-            .map_err(|err| NetworkError::generic(err.to_string()))
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.sender)
-            .poll_flush(cx)
-            .map_err(|err| NetworkError::generic(err.to_string()))
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.sender)
-            .poll_close(cx)
-            .map_err(|err| NetworkError::generic(err.to_string()))
-    }
-}
-
-impl std::fmt::Debug for OutboundUdpSender {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UDP Sender")
     }
 }
 

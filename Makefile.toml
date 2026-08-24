@@ -101,7 +101,7 @@ dependencies = ["install-llvm-tools"]
 command = "cargo"
 description = "Used to generate coverage information. Add --html (local) or --lcov (pipeline) for an exportable report"
 env = { "SKIP_EXT_BACKENDS" = "true" }
-args = ["llvm-cov", "nextest", "--features=filesystem,localhost-testing,multi-threaded", "-p", "citadel_sdk", "-p", "citadel_user", "-p", "citadel_crypt", "-p", "citadel_pqcrypto", "-p", "citadel_wire", "-p", "netbeam", "-p", "async_ip", "-p", "citadel_treekem", "-p", "citadel_types", "-p", "citadel_io", "--ignore-filename-regex=\"firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/standard/upnp_handler.rs\"", "${@}"]
+args = ["llvm-cov", "nextest", "--features=filesystem,localhost-testing,multi-threaded", "-p", "citadel_sdk", "-p", "citadel_user", "-p", "citadel_crypt", "-p", "citadel_pqcrypto", "-p", "citadel_wire", "-p", "netbeam", "-p", "async_ip", "-p", "citadel_treekem", "-p", "citadel_types", "-p", "citadel_io", "-p", "citadel_media", "--ignore-filename-regex=\"firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/standard/upnp_handler.rs\"", "${@}"]
 dependencies = ["install-nextest", "install-llvm-cov"]
 
 [tasks.ratchet-stability-test]
@@ -354,6 +354,10 @@ cd ..
 echo "--- citadel_sdk WASM tests ---"
 cd citadel_sdk
 wasm-pack test --node --release -- --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
+cd ..
+echo "--- citadel_media WASM tests ---"
+cd citadel_media
+wasm-pack test --node --release -- --test wasm_media
 '''
 
 [tasks.test-wasm-integration]

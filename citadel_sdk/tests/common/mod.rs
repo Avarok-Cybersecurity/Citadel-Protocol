@@ -6,6 +6,11 @@
 
 #![allow(dead_code)]
 
+#[cfg(not(target_family = "wasm"))]
+pub mod fixtures;
+#[cfg(not(target_family = "wasm"))]
+pub mod media;
+
 use citadel_io::tokio::sync::{Mutex, Semaphore};
 use citadel_sdk::async_trait;
 use citadel_sdk::prelude::*;

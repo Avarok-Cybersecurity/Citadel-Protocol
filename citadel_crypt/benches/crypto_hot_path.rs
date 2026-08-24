@@ -7,49 +7,21 @@
 //!
 //! Run: `cargo bench -p citadel_crypt --bench crypto_hot_path`
 
+#[path = "common/mod.rs"]
+mod common;
+
 use bytes::{BufMut, BytesMut};
-use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
-use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::par_scramble_encrypt_group;
-use citadel_pqcrypto::constructor_opts::ConstructorOpts;
-use citadel_types::crypto::{CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
+use citadel_types::crypto::{EncryptionAlgorithm, SecurityLevel};
 use citadel_types::proto::{ObjectId, TransferType};
+use common::make_ratchets;
 use criterion::{
     black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput,
 };
 
 const HEADER_LEN: usize = 50;
 const MSG_LEN: usize = 256;
-
-fn psks() -> Vec<Vec<u8>> {
-    vec![b"Hello".to_vec(), b"World".to_vec()]
-}
-
-/// Build a connected (alice, bob) ratchet pair for `enc`/MlKem at `sec`.
-fn make_ratchets(enc: EncryptionAlgorithm, sec: SecurityLevel) -> (StackedRatchet, StackedRatchet) {
-    let params: CryptoParameters = (KemAlgorithm::MlKem + enc).into();
-    let params = Some(params);
-    let psks = psks();
-
-    let mut alice = <StackedRatchet as Ratchet>::Constructor::new_alice(
-        ConstructorOpts::new_vec_init(params, sec),
-        99,
-        0,
-    )
-    .unwrap();
-    let transfer = alice.stage0_alice().unwrap();
-    let mut bob = <StackedRatchet as Ratchet>::Constructor::new_bob(
-        99,
-        ConstructorOpts::new_vec_init(params, sec),
-        transfer,
-        &psks,
-    )
-    .unwrap();
-    let transfer = bob.stage0_bob().unwrap();
-    alice.stage1_alice(transfer, &psks).unwrap();
-    (alice.finish().unwrap(), bob.finish().unwrap())
-}
 
 /// `[header | plaintext]` with generous capacity so the in-place AEAD seal never reallocates
 /// (we want to measure crypto, not allocator).

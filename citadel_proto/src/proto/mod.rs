@@ -12,7 +12,6 @@
 //! - **State Management**: Tracks connection and operation states
 //!
 //! ## Module Structure
-//! - `codec`: Custom BytesCodec implementation
 //! - `node`: Core HyperNode implementation
 //! - `packet`: Fundamental packet types and processing
 //! - `peer`: Peer-to-peer communication layer
@@ -40,8 +39,6 @@ use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
 
-/// For the custom BytesCodec that doesn't overflow
-pub(crate) mod codec;
 /// Tracks disconnect signals to ensure at most 1 per session/peer
 pub(crate) mod disconnect_tracker;
 pub(crate) mod endpoint_crypto_accessor;
@@ -52,6 +49,7 @@ pub mod node_request;
 pub mod node_result;
 /// A cloneable handle for sending data through UDP ports
 pub(crate) mod outbound_sender;
+pub(crate) mod outbound_udp_sender;
 /// The fundamental packet types
 pub(crate) mod packet;
 /// For creating specific packet types
@@ -71,6 +69,7 @@ pub(crate) mod state_container;
 pub(crate) mod state_subcontainers;
 /// ~!
 pub(crate) mod transfer_stats;
+mod udp_packet_tests;
 /// Packet validations. This is not the same as encryption
 pub(crate) mod validation;
 

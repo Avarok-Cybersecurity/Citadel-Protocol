@@ -1080,4 +1080,29 @@ pub enum ErrorCode {
     /// The group's CGKA state is not present (not yet bootstrapped, or unknown group).
     #[form = "Group CGKA state is not initialized"]
     ProtoGroupCgkaNoState = 325,
+
+    // --- citadel_proto: UDP datapath ---
+    /// A UDP payload exceeds the transport's per-datagram budget (len, max).
+    #[form = "UDP datagram payload of {} bytes exceeds the {} byte budget"]
+    UdpDatagramTooLarge = 326,
+    /// The UDP transport could not report a datagram size limit.
+    #[form = "UDP transport does not support datagrams: {}"]
+    UdpDatagramsUnsupported = 327,
+
+    // --- citadel_sdk / citadel_media: media transport ---
+    /// A media transport config failed validation (reason).
+    #[form = "Invalid media config: {}"]
+    MediaConfigInvalid = 328,
+    /// No UDP channel became available for media within the wait budget.
+    #[form = "Media UDP channel unavailable: {}"]
+    MediaUdpUnavailable = 329,
+    /// A media control message could not be decoded (reason).
+    #[form = "Media control message decode failed: {}"]
+    MediaControlDecode = 330,
+    /// The media transport closed (reason).
+    #[form = "Media transport closed: {}"]
+    MediaTransportClosed = 331,
+    /// The media layer rejected a frame (reason).
+    #[form = "Media frame rejected: {}"]
+    MediaFrameRejected = 332,
 }
