@@ -24,7 +24,7 @@
 //! - `multi-threaded`: Uses a multi-threaded (Send) executor for the inner protocol
 //! - `redis`: Enables the use of Redis for the backend
 //! - `sql`: Enables the use of sql for the backend
-//! - `webrtc`: enables *limited* interoperability with webrtc via the [`UdpChannel`] (see: [UdpChannel::into_webrtc_compat](crate::prelude::UdpChannel::into_webrtc_compat))
+//! - `webrtc`: enables *limited* interoperability with webrtc via the [`UdpChannel`] (see: `UdpChannel::into_webrtc_compat`, available with the feature enabled)
 //!
 //!
 //! # Post-quantum key encapsulation mechanisms
