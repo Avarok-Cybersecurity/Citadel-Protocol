@@ -15,7 +15,8 @@ use std::sync::atomic::Ordering;
 #[derive(Debug)]
 pub(crate) enum ProposeError {
     /// The op's precondition failed against the linearized record.
-    Denied(OpDenied, Option<LockRecord>),
+    /// Boxed: keeps the `Err` variant small (clippy::result_large_err, LockRecord ~160B).
+    Denied(OpDenied, Option<Box<LockRecord>>),
     /// No majority reachable before the deadline.
     QuorumUnavailable,
 }
@@ -41,7 +42,7 @@ impl Engine {
                 }
                 RoundAttempt::Denied(denied, rec) => {
                     log::trace!(target: "citadel", "[GroupLock] {:?} denied {op:?} -> {denied:?}", self.me());
-                    return Err(ProposeError::Denied(denied, rec));
+                    return Err(ProposeError::Denied(denied, rec.map(Box::new)));
                 }
                 RoundAttempt::Retry => {
                     if self.now_ms() >= deadline_ms {

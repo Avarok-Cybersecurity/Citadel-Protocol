@@ -1424,7 +1424,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         transfer_type: TransferType,
         local_encryption_level: Option<SecurityLevel>,
         virtual_object_metadata: Option<VirtualObjectMetadata>,
-        post_close_hook: impl for<'a> FnOnce(PathBuf) + Send + 'static,
+        post_close_hook: impl FnOnce(PathBuf) + Send + 'static,
     ) -> Result<(), NetworkError> {
         let source_path = source
             .path()
