@@ -1520,24 +1520,18 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     session_cid,
                     peer_cid: target_cid,
                 } => {
-                    // Purge the SENDER'S stale pending PostConnect postings for this pair so a
-                    // subsequent *simultaneous* reconnect cannot match leftover state in
-                    // `check_simultaneous_connect` (which would mis-fire the simulate-accept path
-                    // and wedge the handshake -> no PeerChannelCreated -> RemoteP2pConnectTimeout).
-                    //
-                    // Owner-scoped on purpose: this signal may be a LATE cleanup Disconnect (e.g.
-                    // the queued channel-drop signal) arriving after the PEER already posted its
-                    // next reconnect attempt. The sender's ordered stream proves only the
-                    // sender's own postings stale; purging the peer's fresh posting here deleted
-                    // the routing anchor for the new handshake and wedged reconnects under
-                    // release-mode timing (RemoteP2pConnectTimeout after 60s).
-                    {
-                        let peer_layer = session.hypernode_peer_layer.inner.clone();
-                        peer_layer
-                            .write()
-                            .await
-                            .remove_pending_post_connect_owned_by(session_cid, target_cid);
-                    }
+                    // NOTE (CI reconnect-wedge): this arm must NOT purge pending PostConnect
+                    // postings. Disconnect signals include asynchronous channel-drop cleanup whose
+                    // wire order relative to a client's next connect request is NOT guaranteed
+                    // (drop-signals ride `try_send` into the request queue) — a late straggler
+                    // purging here deleted the routing anchor of an in-flight reconnect handshake
+                    // (observed live: [peer-layer purge of a fresh posting] followed by the
+                    // simulate-accept failing with "Tracked posting does not exist"). Stale-posting
+                    // hygiene is handled where no ordering assumptions are needed:
+                    //  - establishment supersede (route_signal_response_primary consumes the
+                    //    accept and atomically purges the pair's leftover postings), and
+                    //  - sender self-supersede on each new PostConnect initiation, and
+                    //  - the 65s posting TTL.
                     let mut state_container = inner_mut_state!(session.state_container);
                     state_container.remove_udp_channel(target_cid);
                     // Mark vconn inactive but do NOT remove from HashMap.

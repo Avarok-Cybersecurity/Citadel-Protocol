@@ -1105,4 +1105,9 @@ pub enum ErrorCode {
     /// The media layer rejected a frame (reason).
     #[form = "Media frame rejected: {}"]
     MediaFrameRejected = 332,
+
+    // --- citadel_sdk: peer connect ---
+    /// The server reported it could not route a P2P signal for this connect attempt (reason).
+    #[form = "P2P signal routing failed: {}"]
+    RemoteP2pSignalRoutingFailed = 333,
 }

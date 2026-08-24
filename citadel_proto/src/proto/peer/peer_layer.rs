@@ -540,6 +540,33 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         }
     }
 
+    /// Consumes the tracked posting like [`Self::remove_tracked_posting_inner`], and — when the
+    /// consumed posting is a `PostConnect` — atomically purges EVERY remaining pending
+    /// `PostConnect` posting between the pair (both owners), in the same lock window.
+    ///
+    /// Rationale (CI reconnect-wedge root cause, part 2): consuming a `PostConnect` response IS
+    /// the establishment commitment for the pair. Any other pending `PostConnect` between the
+    /// two peers at that instant is the same logical attempt's companion (a double-forwarded
+    /// simultaneous init, or a tiebreaker-voided request) and can never complete — but if left
+    /// behind, a later `check_simultaneous_connect` will match it and simulate-accept against a
+    /// ticket nobody awaits, wedging the NEXT reconnect. Purging here, synchronously with the
+    /// forge, requires no assumptions about client signal ordering — unlike the removed
+    /// Disconnect-arm purge, which raced late channel-drop cleanup signals against fresh
+    /// reconnect postings (client request queues do not guarantee cross-request wire order).
+    pub fn remove_tracked_posting_and_supersede_connect(
+        &mut self,
+        session_cid: u64,
+        ticket: Ticket,
+        peer_cid: u64,
+    ) -> Option<PeerSignal> {
+        let consumed = self.remove_tracked_posting_inner(session_cid, ticket)?;
+        if matches!(consumed, PeerSignal::PostConnect { .. }) {
+            self.remove_pending_post_connect_owned_by(session_cid, peer_cid);
+            self.remove_pending_post_connect_owned_by(peer_cid, session_cid);
+        }
+        Some(consumed)
+    }
+
     pub fn remove_tracked_posting_inner(
         &mut self,
         session_cid: u64,
@@ -824,44 +851,45 @@ mod tests {
         }
     }
 
-    /// The sender's own pending `PostConnect` posting must be purged when it tears the P2P
-    /// connection down, so a subsequent *simultaneous* reconnect cannot match the stale posting
+    /// Consuming a `PostConnect` response (the establishment commitment) must atomically purge
+    /// the pair's leftover pending postings — the double-forwarded/tiebreaker-voided companions
+    /// of the same attempt — so a subsequent *simultaneous* reconnect cannot match stale state
     /// in `check_simultaneous_connect`. Deterministic (no timing).
     #[citadel_io::tokio::test]
-    async fn disconnect_purges_senders_own_stale_posting() {
+    async fn establishment_supersedes_pair_leftover_postings() {
         let peer_layer = make_peer_layer().await;
         let (a, b) = (111u64, 222u64);
-        let ticket = Ticket(7);
+        let (ticket_a, ticket_b) = (Ticket(7), Ticket(8));
 
         let mut inner = peer_layer.inner.write().await;
 
-        // Seed a leaked PostConnect posting a -> b, exactly as a forwarded-then-dropped
-        // PostConnect leaves behind in the server's observed_postings.
+        // Both inits double-forwarded: postings for a->b AND b->a are pending.
         {
             let mut shared = inner.inner.write();
-            let key = shared
+            let key_a = shared
                 .delay_queue
-                .insert((a, ticket), std::time::Duration::from_secs(3600));
+                .insert((a, ticket_a), std::time::Duration::from_secs(65));
             shared.observed_postings.entry(a).or_default().insert(
-                ticket,
-                TrackedPosting::new(post_connect_signal(a, b, ticket), key, |_| {}),
+                ticket_a,
+                TrackedPosting::new(post_connect_signal(a, b, ticket_a), key_a, |_| {}),
+            );
+            let key_b = shared
+                .delay_queue
+                .insert((b, ticket_b), std::time::Duration::from_secs(65));
+            shared.observed_postings.entry(b).or_default().insert(
+                ticket_b,
+                TrackedPosting::new(post_connect_signal(b, a, ticket_b), key_b, |_| {}),
             );
         }
 
-        // Pre-condition: a simultaneous reconnect from b would match the stale posting.
-        assert_eq!(inner.check_simultaneous_connect(b, a), Some(ticket));
-
-        // Disconnect cleanup purges it (both the posting and its delay-queue key)...
-        inner.remove_pending_post_connect_owned_by(a, b);
-
-        // ...so the stale match is gone.
-        assert_eq!(inner.check_simultaneous_connect(b, a), None);
+        // b's accept of a's request consumes a's posting = establishment...
         assert!(inner
-            .inner
-            .read()
-            .observed_postings
-            .get(&a)
-            .is_none_or(|m| m.is_empty()));
+            .remove_tracked_posting_and_supersede_connect(a, ticket_a, b)
+            .is_some());
+
+        // ...and the voided companion (b's own init) is gone with it, atomically.
+        assert_eq!(inner.check_simultaneous_connect(a, b), None);
+        assert_eq!(inner.check_simultaneous_connect(b, a), None);
     }
 
     /// Cleanup must not touch postings for an unrelated peer pair.
@@ -925,13 +953,14 @@ mod tests {
             );
         }
 
-        // A late cleanup Disconnect from a (queued channel-drop signal) is processed now.
-        inner.remove_pending_post_connect_owned_by(a, b);
-
-        // b's fresh posting must survive: a's stream order proves nothing about b's postings.
+        // A late cleanup Disconnect from a (queued channel-drop signal) is processed now. The
+        // Disconnect arm performs NO posting purge (client request queues do not guarantee wire
+        // order, so a straggler could otherwise delete an in-flight reconnect's posting): b's
+        // fresh posting must survive untouched.
         assert_eq!(inner.check_simultaneous_connect(a, b), Some(ticket_b));
 
-        // b's own next initiation supersedes it (self-supersede path).
+        // b's own next initiation supersedes it (self-supersede path — safe because it runs
+        // synchronously in b's own init processing).
         inner.remove_pending_post_connect_owned_by(b, a);
         assert_eq!(inner.check_simultaneous_connect(a, b), None);
     }

@@ -1522,7 +1522,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 .inner
                 .write()
                 .await
-                .remove_tracked_posting_inner(target_cid, ticket)
+                .remove_tracked_posting_and_supersede_connect(target_cid, ticket, session_cid)
         };
         if let Some(tracked_posting) = tracked_posting {
             // since the posting was valid, we just need to forward the signal to `session_cid`
