@@ -948,7 +948,9 @@ impl PostQuantumMeta {
                     kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
                 (pk_alice.public.to_vec(), pk_alice.secret.to_vec())
             }
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => crate::libcrux_kem::keypair(kem_alg)?,
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
+                crate::libcrux_kem::keypair(kem_alg)?
+            }
         };
 
         let ciphertext = None;
@@ -1003,7 +1005,9 @@ impl PostQuantumMeta {
                     kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
                 (pk_bob.public.to_vec(), pk_bob.secret.to_vec())
             }
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => crate::libcrux_kem::keypair(kem_scheme)?,
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
+                crate::libcrux_kem::keypair(kem_scheme)?
+            }
         };
 
         let (ciphertext, shared_secret) = match kem_scheme {
@@ -1113,11 +1117,13 @@ impl PostQuantumMeta {
             KemAlgorithm::MlKem => kyber_pke::decapsulate(&bob_ciphertext, secret_key)
                 .map_err(|err| Error::generic(err.to_string()))?
                 .to_vec(),
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => crate::libcrux_kem::decapsulate(
-                self.kex().kem_alg,
-                bob_ciphertext.as_ref(),
-                secret_key.as_ref(),
-            )?,
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
+                crate::libcrux_kem::decapsulate(
+                    self.kex().kem_alg,
+                    bob_ciphertext.as_ref(),
+                    secret_key.as_ref(),
+                )?
+            }
         };
 
         self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.into()));

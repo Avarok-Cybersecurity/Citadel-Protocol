@@ -79,11 +79,17 @@ pub fn keypair_from_seed(alg: KemAlgorithm, seed: &[u8; 64]) -> Result<(Vec<u8>,
     match alg {
         KemAlgorithm::MlKem768Fips203 => {
             let kp = mlkem768::generate_key_pair(*seed);
-            Ok((kp.public_key().as_slice().to_vec(), kp.private_key().as_slice().to_vec()))
+            Ok((
+                kp.public_key().as_slice().to_vec(),
+                kp.private_key().as_slice().to_vec(),
+            ))
         }
         KemAlgorithm::MlKem1024Fips203 => {
             let kp = mlkem1024::generate_key_pair(*seed);
-            Ok((kp.public_key().as_slice().to_vec(), kp.private_key().as_slice().to_vec()))
+            Ok((
+                kp.public_key().as_slice().to_vec(),
+                kp.private_key().as_slice().to_vec(),
+            ))
         }
         other => Err(unsupported(other)),
     }
