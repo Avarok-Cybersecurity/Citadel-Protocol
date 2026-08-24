@@ -437,31 +437,26 @@ mod native_p2p {
 
                 state_container.active_virtual_connections.remove(&peer_cid);
 
-                // Only clean up kem_state and outgoing attempts if they
-                // belong to the old connection. A new connect_to_peer() may
-                // have already inserted a fresh outgoing attempt before the
-                // Accept handler creates a kem_state. If no kem_state exists,
-                // we can't determine ownership — leave everything alone.
-                // The next connect_to_peer() will overwrite stale entries.
+                // Only clean up the kem_state if it belongs to the old
+                // connection. A new connect_to_peer() may have already
+                // inserted fresh state for the next attempt.
                 let kem_belongs_to_old = state_container
                     .peer_kem_states
                     .get(&peer_cid)
                     .map(|kem| kem.p2p_connection_id == cleanup_connection_id);
-                match kem_belongs_to_old {
-                    Some(true) => {
-                        state_container.peer_kem_states.remove(&peer_cid);
-                        state_container
-                            .outgoing_peer_connect_attempts
-                            .remove(&peer_cid);
-                    }
-                    Some(false) => {
-                        // New kem_state exists — don't touch anything
-                    }
-                    None => {
-                        // No kem_state — can't determine ownership of outgoing
-                        // attempt. Leave it; next connect_to_peer() overwrites.
-                    }
+                if kem_belongs_to_old == Some(true) {
+                    state_container.peer_kem_states.remove(&peer_cid);
                 }
+                // Never remove `outgoing_peer_connect_attempts` here: the KEM
+                // stage arms CONSUME the entry when the channel is created, so
+                // the old attempt's entry is already gone by teardown time —
+                // any entry present now belongs to the NEXT attempt (inserted
+                // at its connect dispatch). Removing it made that attempt's
+                // PeerChannelCreated fall back to the raw exchange ticket,
+                // orphaning the caller's connect_to_peer subscription
+                // (observed live: both peers' channels emitted under the same
+                // first_ticket during a simultaneous reconnect, and the
+                // second initiator's connect never resolved).
             } else {
                 log::trace!(target: "citadel", "[P2P-stream] Skipping cleanup for peer {peer_cid} — connection replaced by newer instance");
             }
