@@ -55,3 +55,11 @@ All phases complete. Highlights:
 - EOS redesigned to carry frames_sent (reliable-lane EOS was outracing in-flight UDP frames)
 - Fixtures pinned by sha256 (sample-3s.wav, vp80-05-sharpness-1428.ivf)
 Remaining risk: docker wasm browser test result pending at write time (see final report).
+
+## 2026-08-24 — KEM PR merge + CI flakiness (in progress)
+- [x] Root-cause reconnect wedge (3 stacked races) + permanent fixes (PR #276)
+- [x] h2 RUSTSEC-2026-0258 (igd-next + hyper 1.x)
+- [x] netbeam Stolen flake (real replay bug)
+- [x] 60/60 release validation, workspace 575/575, deny green
+- [ ] PR #276 CI green -> squash-merge
+- [ ] Update PR #273 branch -> CI green -> squash-merge (the KEM PR)
