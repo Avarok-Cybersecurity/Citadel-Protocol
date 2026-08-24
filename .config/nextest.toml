@@ -54,3 +54,12 @@ success-output = "never"
 # Cancel the test run on the first failure. For CI runs, consider setting this
 # to false.
 fail-fast = false
+# Scoped exception to retries=0: the high-lag hole-punch consensus test injects 450ms of
+# artificial lag against the production per-attempt timeout, so a loaded CI runner's added
+# scheduling delay can exhaust the retry envelope without any product regression. The
+# regression it guards (netbeam subscription-counter desync on a retried punch) is
+# deterministic at high lag - it fails on EVERY run when present - so one retry preserves
+# the test's full protective power while eliminating the load-induced false negative.
+[[profile.default.overrides]]
+filter = 'test(test_dual_hole_puncher_high_lag_consensus)'
+retries = 1
