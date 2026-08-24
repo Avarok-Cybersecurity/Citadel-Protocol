@@ -69,7 +69,8 @@ chacha20poly1305 = { workspace = true, features = [
     "heapless",
     "alloc",
 ] } # ChaCha20-Poly1305
-kyber-pke = { workspace = true, features = ["90s"] } # Post-quantum key exchange
+kyber-pke = { workspace = true, features = ["90s"] }
+libcrux-ml-kem = { workspace = true } # Post-quantum key exchange
 # Direct handle to the Kyber impl kyber-pke wraps, for DETERMINISTIC keygen (`derive(seed)`) used by the
 # TreeKEM ratchet tree. Features mirror kyber-pke's (hazmat + 90s + the default kyber768) so derived keys
 # are byte-compatible with kem_keypair()/encapsulate()/decapsulate().
