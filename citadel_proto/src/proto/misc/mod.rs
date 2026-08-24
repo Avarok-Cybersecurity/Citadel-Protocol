@@ -57,8 +57,6 @@ pub mod native_io;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod native_io_platform;
 #[cfg(not(target_family = "wasm"))]
-pub(crate) mod native_io_udp;
-#[cfg(not(target_family = "wasm"))]
 pub mod native_upgrade;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_websocket;
@@ -67,6 +65,8 @@ pub mod net;
 pub(crate) mod platform_ops;
 pub(crate) mod threading;
 pub mod udp_internal_interface;
+pub(crate) mod udp_session_loader;
+pub(crate) mod udp_session_tasks;
 // StateContainer lock-contention profiling. Compiled only under the opt-in `lock-profiling` feature;
 // the `inner_state!`/`inner_mut_state!` macros feed it. Diagnostics/benches only.
 #[cfg(feature = "lock-profiling")]
@@ -82,6 +82,10 @@ pub mod signaling_firebase;
 pub mod wasm_io;
 #[cfg(target_family = "wasm")]
 pub(crate) mod wasm_p2p;
+#[cfg(target_family = "wasm")]
+pub(crate) mod wasm_p2p_established;
+#[cfg(target_family = "wasm")]
+pub(crate) mod wasm_p2p_signaling;
 #[cfg(target_family = "wasm")]
 pub(crate) mod wasm_rtc;
 #[cfg(target_family = "wasm")]

@@ -1,0 +1,9 @@
+{
+  "frag_bytes": 1000,
+  "rate_pps": 50000,
+  "arms": [
+    {"name": "citadel_udp", "sent": 60000, "received": 60000, "loss_pct": 0.000, "reorder_pct": 0.000, "pps": 50007.4, "mbps": 50.007, "p50_us": 36.83, "p99_us": 103.04},
+    {"name": "quinn_datagram", "sent": 60000, "received": 60000, "loss_pct": 0.000, "reorder_pct": 0.000, "pps": 50001.8, "mbps": 50.002, "p50_us": 40.04, "p99_us": 101.83},
+    {"name": "raw_udp", "sent": 60000, "received": 60000, "loss_pct": 0.000, "reorder_pct": 0.000, "pps": 50001.2, "mbps": 50.001, "p50_us": 18.58, "p99_us": 28.83}
+  ]
+}

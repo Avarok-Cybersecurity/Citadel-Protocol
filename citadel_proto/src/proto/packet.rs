@@ -177,6 +177,24 @@ pub(crate) mod packet_sizes {
     /// `protect_message_packet` never reallocates. (The Kyber-hybrid AEAD expands more and may
     /// trigger one realloc — acceptable, as that path is dominated by PKE/signature cost.)
     pub(crate) const MESSAGE_PACKET_PER_LAYER_OVERHEAD: usize = 8 + 16 + 8;
+
+    /// Single source of truth for the buffer capacity an in-place-protected packet needs so that
+    /// `protect_message_packet` never reallocates: header + payload + one
+    /// [`MESSAGE_PACKET_PER_LAYER_OVERHEAD`] per AEAD layer the ratchet will apply at `level`.
+    /// Fails if `level` exceeds what the ratchet supports.
+    pub(crate) fn protected_packet_capacity<R: citadel_crypt::ratchets::Ratchet>(
+        ratchet: &R,
+        level: citadel_types::crypto::SecurityLevel,
+        payload_len: usize,
+    ) -> Result<usize, citadel_crypt::misc::CryptError> {
+        let layers = ratchet.verify_level(Some(level))? + 1;
+        Ok(HDP_HEADER_BYTE_LEN + payload_len + layers * MESSAGE_PACKET_PER_LAYER_OVERHEAD)
+    }
+
+    /// Per-layer wire overhead summed over the layers that `level` implies.
+    pub(crate) const fn protection_overhead(layers: usize) -> usize {
+        layers * MESSAGE_PACKET_PER_LAYER_OVERHEAD
+    }
 }
 
 #[derive(Debug, FromZeroes, AsBytes, FromBytes, Unaligned, Clone)]

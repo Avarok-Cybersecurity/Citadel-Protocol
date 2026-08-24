@@ -268,6 +268,18 @@ lazy_static::lazy_static! {
     };
 }
 
+/// Releases a split UDP channel without racing the peer: both sides rendezvous on the test
+/// barrier first, so the `DisconnectUDP` fired by dropping the receive half only ever tears down
+/// an idle subsystem. Use this instead of `std::mem::forget` in barrier-synchronised tests.
+#[cfg(feature = "localhost-testing")]
+pub async fn finish_udp_channel<R: Ratchet>(
+    tx: citadel_proto::prelude::OutboundUdpSender,
+    rx: citadel_proto::prelude::PeerChannelRecvHalf<R>,
+) {
+    wait_for_peers().await;
+    drop((tx, rx));
+}
+
 #[cfg_attr(
     feature = "localhost-testing",
     tracing::instrument(level = "trace", target = "citadel")

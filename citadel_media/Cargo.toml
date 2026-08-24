@@ -1,0 +1,20 @@
+[package]
+name = "citadel_media"
+version = "0.14.0"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+description = "Codec-agnostic media framing, reassembly and jitter buffering for the citadel protocol (pure, no I/O)"
+edition = "2021"
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["multimedia", "network-programming"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+bytes = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+wasm-bindgen-test = "0.3"

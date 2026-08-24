@@ -436,8 +436,15 @@ mod rtc_impl {
         async fn recv(&self, buf: &mut [u8]) -> Result<usize, webrtc_util::Error> {
             match self.recv_half.lock().await.receiver.next().await {
                 Some(input) => {
-                    buf.copy_from_slice(input.as_ref());
-                    Ok(input.len())
+                    let n = input.len().min(buf.len());
+                    buf[..n].copy_from_slice(&input.as_ref()[..n]);
+                    if n < input.len() {
+                        return Err(webrtc_util::Error::Other(format!(
+                            "datagram of {} bytes truncated to {n}-byte buffer",
+                            input.len()
+                        )));
+                    }
+                    Ok(n)
                 }
 
                 None => Err(webrtc_util::Error::Other(

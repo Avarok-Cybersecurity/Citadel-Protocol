@@ -53,6 +53,11 @@ wasm-bindgen-rayon = { version = "1.2", optional = true }
 sysinfo = { workspace = true }
 num_cpus = { workspace = true }
 
+# SRTP comparison arm of the `udp_media_vs_srtp` bench only (native; the bench is criterion/native).
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+rtp = "0.17"
+webrtc-srtp = { version = "0.17", default-features = false }
+
 [dev-dependencies]
 citadel_logging = { workspace = true }
 rstest = { workspace = true }
@@ -72,4 +77,9 @@ doctest = false
 
 [[bench]]
 name = "crypto_hot_path"
+harness = false
+
+# Citadel UDP media crypto (protect/validate, 64 B header + 1150 B payload) vs SRTP AEAD-AES-128-GCM.
+[[bench]]
+name = "udp_media_vs_srtp"
 harness = false

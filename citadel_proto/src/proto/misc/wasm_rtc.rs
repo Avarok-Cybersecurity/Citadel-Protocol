@@ -95,6 +95,24 @@ pub fn create_reliable_data_channel(pc: &RtcPeerConnection, label: &str) -> RtcD
     pc.create_data_channel_with_data_channel_dict(label, &init)
 }
 
+/// Label of the pre-negotiated unordered DataChannel that backs the UDP subsystem.
+pub const UDP_DATACHANNEL_LABEL: &str = "citadel-udp";
+/// Pre-negotiated SCTP stream id for the UDP DataChannel. Auto-assigned ids start at 0/1 (the
+/// reliable "citadel" channel), so a fixed high id never collides with them.
+pub const UDP_DATACHANNEL_ID: u16 = 101;
+
+/// Create the unordered, zero-retransmit, pre-negotiated DataChannel (datagram semantics).
+/// Both peers call this with the same id; no `ondatachannel` event fires for negotiated channels,
+/// so it sidesteps the single-shot `wait_for_remote_datachannel` handshake entirely.
+pub fn create_unreliable_data_channel(pc: &RtcPeerConnection) -> RtcDataChannel {
+    let init = RtcDataChannelInit::new();
+    init.set_ordered(false);
+    init.set_max_retransmits(0);
+    init.set_negotiated(true);
+    init.set_id(UDP_DATACHANNEL_ID);
+    pc.create_data_channel_with_data_channel_dict(UDP_DATACHANNEL_LABEL, &init)
+}
+
 /// Wait until ICE gathering is complete, collecting all candidates.
 async fn gather_ice_candidates(pc: &RtcPeerConnection) -> io::Result<Vec<IceCandidateData>> {
     let candidates = Arc::new(std::sync::Mutex::new(Vec::<IceCandidateData>::new()));

@@ -55,7 +55,26 @@ path = "examples/p2p/revfs_take.rs"
 name = "p2p_refvs_delete"
 path = "examples/p2p/revfs_delete.rs"
 
+[[example]]
+name = "media_audio_send"
+path = "examples/media/audio_send.rs"
+
+[[example]]
+name = "media_audio_recv"
+path = "examples/media/audio_recv.rs"
+
+[[example]]
+name = "media_video_send"
+path = "examples/media/video_send.rs"
+
+[[example]]
+name = "media_video_recv"
+path = "examples/media/video_recv.rs"
+
 [dependencies]
+
 citadel_sdk = { path = "../citadel_sdk" }
+citadel_media = { path = "../citadel_media" }
+bytes = "1"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"

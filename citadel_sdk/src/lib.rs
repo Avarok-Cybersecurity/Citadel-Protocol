@@ -260,6 +260,8 @@ pub mod backend_kv_store;
 mod builder;
 /// Convenience functions for interacting with the remote encrypted virtual filesystem (RE-VFS)
 pub mod fs;
+/// Real-time audio/video transport bound to a connection (see [`citadel_media`])
+pub mod media;
 /// The prefabs module contains pre-built kernels for common use cases.
 pub mod prefabs;
 /// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
@@ -277,6 +279,8 @@ pub mod net;
 pub(crate) mod macros;
 
 pub use citadel_logging as logging;
+/// Codec-agnostic media primitives used by [`media`]
+pub use citadel_media;
 /// Convenience for SDK users
 pub use citadel_proto::prelude::async_trait;
 pub use citadel_types as types;
