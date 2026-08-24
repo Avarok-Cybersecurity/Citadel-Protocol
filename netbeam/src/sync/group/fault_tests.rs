@@ -4,8 +4,8 @@
 
 use crate::sync::group::acceptor::EphemeralAcceptorStore;
 use crate::sync::group::error::GroupLockError;
-use crate::sync::group::integration_tests::{create_mutexes, members};
 use crate::sync::group::test_mesh::TestMesh;
+use crate::sync::group::test_util::{create_mutexes_with, fast_steal_config, members};
 use crate::sync::group::{LockId, NetGroupMutex};
 use citadel_io::tokio;
 use std::sync::Arc;
@@ -19,7 +19,14 @@ async fn killed_holder_is_stolen_with_recovery_flag() {
     citadel_logging::setup_log();
     let all = members(3);
     let mesh = TestMesh::new(&all);
-    let mutexes = create_mutexes::<u64>(&mesh, &all, LockId::from_name("crash"), 100).await;
+    let mutexes = create_mutexes_with::<u64>(
+        fast_steal_config,
+        &mesh,
+        &all,
+        LockId::from_name("crash"),
+        100,
+    )
+    .await;
 
     let mut dying_guard = mutexes[0].lock().await.unwrap();
     *dying_guard = 666; // uncommitted mutation: must never become visible
@@ -56,7 +63,14 @@ async fn partition_majority_steals_minority_fenced_after_heal() {
     citadel_logging::setup_log();
     let all = members(5);
     let mesh = TestMesh::new(&all);
-    let mutexes = create_mutexes::<u64>(&mesh, &all, LockId::from_name("split"), 1).await;
+    let mutexes = create_mutexes_with::<u64>(
+        fast_steal_config,
+        &mesh,
+        &all,
+        LockId::from_name("split"),
+        1,
+    )
+    .await;
 
     let mut stale_guard = mutexes[0].lock().await.unwrap();
     *stale_guard = 2; // will never commit
@@ -89,7 +103,9 @@ async fn survives_f_minority_voter_crashes_n5() {
     citadel_logging::setup_log();
     let all = members(5);
     let mesh = TestMesh::new(&all);
-    let mutexes = create_mutexes::<u64>(&mesh, &all, LockId::from_name("f2"), 0).await;
+    let mutexes =
+        create_mutexes_with::<u64>(fast_steal_config, &mesh, &all, LockId::from_name("f2"), 0)
+            .await;
 
     mesh.isolate(all[3]);
     mesh.isolate(all[4]);
@@ -171,7 +187,14 @@ async fn dead_waiter_is_evicted() {
     citadel_logging::setup_log();
     let all = members(3);
     let mesh = TestMesh::new(&all);
-    let mut mutexes = create_mutexes::<u64>(&mesh, &all, LockId::from_name("ghost"), 0).await;
+    let mut mutexes = create_mutexes_with::<u64>(
+        fast_steal_config,
+        &mesh,
+        &all,
+        LockId::from_name("ghost"),
+        0,
+    )
+    .await;
 
     let guard = mutexes[0].lock().await.unwrap();
 

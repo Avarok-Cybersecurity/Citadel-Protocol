@@ -48,6 +48,7 @@ pub mod ops;
 pub(crate) mod ops_grant;
 pub mod persist;
 pub mod proposer;
+pub(crate) mod proposer_read;
 pub mod record;
 pub mod rwlock;
 #[cfg(not(target_family = "wasm"))]
@@ -121,6 +122,10 @@ mod ops_tests_fault;
 #[cfg(test)]
 #[path = "ops_tests_replay.rs"]
 mod ops_tests_replay;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "test_util.rs"]
+mod test_util;
 
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "integration_tests.rs"]

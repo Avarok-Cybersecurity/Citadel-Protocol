@@ -210,7 +210,7 @@ fn release_commits_value_atomically_and_replays() {
     let (rec2, out) = apply(Some(&rec), &release).unwrap();
     assert_eq!(out, OpOutcome::Released);
     assert_eq!(rec2, rec);
-    // value-less replay is recognized via the last_released tombstone
+    // value-less replay is recognized via the per-member release tombstone
     let (rec3, out) = apply(
         Some(&rec),
         &Op::Release {
