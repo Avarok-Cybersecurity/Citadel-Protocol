@@ -21,8 +21,11 @@
 //! use citadel_sdk::prefabs::server::empty::EmptyKernel;
 //! use citadel_sdk::prefabs::server::internal_service::InternalServiceKernel;
 //! use citadel_io::tokio;
+//! use bytes::Bytes;
+//! use http_body_util::Full;
+//! use hyper::body::Incoming;
 //! use hyper::service::service_fn;
-//! use hyper::{Body, Request, Response};
+//! use hyper::{Request, Response};
 //! use std::convert::Infallible;
 //!
 //! # fn main() -> Result<(), NetworkError> {
@@ -40,8 +43,8 @@
 //!
 //! // Create a server with internal service support (e.g., HTTP server)
 //! let kernel = Box::new(InternalServiceKernel::<_, _, StackedRatchet>::new(|_comm| async move {
-//!     let service = service_fn(|_req: Request<Body>| async move {
-//!         Ok::<_, Infallible>(Response::new(Body::empty()))
+//!     let service = service_fn(|_req: Request<Incoming>| async move {
+//!         Ok::<_, Infallible>(Response::new(Full::new(Bytes::new())))
 //!     });
 //!     Ok(())
 //! }));

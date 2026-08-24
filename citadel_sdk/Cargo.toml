@@ -78,7 +78,9 @@ dirs2 = { workspace = true }
 rstest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 rand = { workspace = true }
-hyper = { workspace = true, features = ["client", "server"] }
+hyper = { workspace = true, features = ["client", "server", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 # Test-fixture download/cache (tests/common/fixtures.rs) and media test hashing. Test-tree only;

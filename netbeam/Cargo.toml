@@ -30,6 +30,13 @@ async-stream = { workspace = true }
 sync_wrapper = { workspace = true }
 log = { workspace = true }
 
+# `rand 0.8` pulls getrandom 0.2, whose wasm32-unknown-unknown support is gated
+# behind its "js" feature (the 0.3-series `getrandom_backend="wasm_js"` rustflag in
+# .cargo/config.toml does not cover 0.2). Same idiom citadel_io uses for 0.3:
+# declare the transitive dep here solely to enable the feature for wasm builds.
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom_02 = { package = "getrandom", version = "0.2", default-features = false, features = ["js"] }
+
 [dev-dependencies]
 async-recursion = { workspace = true }
 citadel_logging = { workspace = true }

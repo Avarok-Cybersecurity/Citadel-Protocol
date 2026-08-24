@@ -108,6 +108,9 @@ pub async fn process_disconnect<R: Ratchet, T: PlatformOps>(
 
         packet_flags::cmd::aux::do_disconnect::FINAL => {
             trace!(target: "citadel", "STAGE 1 DISCONNECT PACKET RECEIVED (ticket: {ticket})");
+            // The graceful path resolves the disconnect below with the explicit ticket; clear the
+            // pending marker so the session-end signal cannot re-report it.
+            session.pending_c2s_disconnect_ticket.set(None);
             session.kernel_ticket.set(ticket);
             session.state.set(SessionState::Disconnecting);
             log::warn!(target: "citadel", "[DC_SIGNAL:disconnect_packet] Explicit disconnect packet | ticket: {} | cid: {:?}",

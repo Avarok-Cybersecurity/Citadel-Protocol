@@ -2,82 +2,15 @@
 //! exercising contention, value propagation, reader batching, writer priority,
 //! downgrade, and try_* semantics.
 
-use crate::sync::group::acceptor::EphemeralAcceptorStore;
+use crate::sync::group::error::GroupLockError;
 use crate::sync::group::test_mesh::TestMesh;
-use crate::sync::group::{GroupLockConfig, LockId, MemberId, NetGroupMutex, NetGroupRwLock};
+use crate::sync::group::test_util::{create_mutexes, create_rwlocks, members};
+use crate::sync::group::LockId;
 use citadel_io::tokio;
 use futures::future::join_all;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-
-pub(crate) fn members(n: u64) -> Vec<MemberId> {
-    (1..=n).map(MemberId).collect()
-}
-
-pub(crate) fn test_config(all: &[MemberId], local: MemberId) -> GroupLockConfig {
-    GroupLockConfig::new(
-        all.to_vec(),
-        local,
-        all[0],                     // lowest member id owns the initial value
-        Duration::from_millis(600), // lease_duration
-        Duration::from_millis(150), // renew_interval
-        Duration::from_millis(250), // steal_grace
-        Duration::from_secs(15),    // acquire_timeout
-        Duration::from_millis(400), // round_timeout
-        Duration::from_millis(25),  // cas_backoff_base
-        Duration::from_millis(75),  // waiter_poll_interval
-    )
-    .unwrap()
-}
-
-pub(crate) async fn create_mutexes<T: crate::sync::primitives::NetObject>(
-    mesh: &TestMesh,
-    all: &[MemberId],
-    lock: LockId,
-    initial: T,
-) -> Vec<NetGroupMutex<T>> {
-    let futures = all.iter().map(|m| {
-        let cfg = test_config(all, *m);
-        let init = (*m == all[0]).then(|| initial.clone());
-        NetGroupMutex::<T>::create(
-            mesh.transport(*m),
-            lock,
-            cfg,
-            Arc::new(EphemeralAcceptorStore::default()),
-            init,
-        )
-    });
-    join_all(futures)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap()
-}
-
-pub(crate) async fn create_rwlocks<T: crate::sync::primitives::NetObject>(
-    mesh: &TestMesh,
-    all: &[MemberId],
-    lock: LockId,
-    initial: T,
-) -> Vec<NetGroupRwLock<T>> {
-    let futures = all.iter().map(|m| {
-        let cfg = test_config(all, *m);
-        let init = (*m == all[0]).then(|| initial.clone());
-        NetGroupRwLock::<T>::create(
-            mesh.transport(*m),
-            lock,
-            cfg,
-            Arc::new(EphemeralAcceptorStore::default()),
-            init,
-        )
-    });
-    join_all(futures)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap()
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn mutex_contended_counter_n3() {
@@ -95,16 +28,27 @@ async fn mutex_contended_counter_n3() {
         let max_fence_seen = max_fence_seen.clone();
         tokio::spawn(async move {
             for _ in 0..PER_MEMBER {
-                let mut guard = mutex.lock().await.unwrap();
-                // mutual exclusion: nobody else is in the critical section
-                assert!(!in_cs.swap(true, Ordering::SeqCst), "two holders at once!");
-                assert!(guard.recovered().is_none());
-                // fences strictly increase across grants
-                let prev = max_fence_seen.swap(guard.fence().0, Ordering::SeqCst);
-                assert!(guard.fence().0 > prev, "fence went backwards");
-                *guard += 1;
-                assert!(in_cs.swap(false, Ordering::SeqCst), "cs flag desynced");
-                guard.release().await.unwrap();
+                // A lease-based lock does not guarantee release() succeeds: under an
+                // extreme stall the lease lapses and a contender legitimately steals
+                // (release reports `Stolen`, and the increment provably did NOT
+                // commit). The correct client response — and what this loop does —
+                // is to re-acquire (the fresh guard re-reads the committed value)
+                // and redo the increment, counting only successful releases.
+                loop {
+                    let mut guard = mutex.lock().await.unwrap();
+                    // mutual exclusion: nobody else is in the critical section
+                    assert!(!in_cs.swap(true, Ordering::SeqCst), "two holders at once!");
+                    // fences strictly increase across grants
+                    let prev = max_fence_seen.swap(guard.fence().0, Ordering::SeqCst);
+                    assert!(guard.fence().0 > prev, "fence went backwards");
+                    *guard += 1;
+                    assert!(in_cs.swap(false, Ordering::SeqCst), "cs flag desynced");
+                    match guard.release().await {
+                        Ok(()) => break,
+                        Err(GroupLockError::Stolen { .. }) => continue,
+                        Err(other) => panic!("release failed: {other}"),
+                    }
+                }
             }
             mutex
         })

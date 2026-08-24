@@ -1,21 +1,22 @@
 //! CAS round driver: one [`Op`] as a CASPaxos round (Prepare/Promise → apply →
-//! Accept/Accepted) against a majority, with ballot retry; plus the `ReadHint` gather.
+//! Accept/Accepted) against a majority, with ballot retry. The `ReadHint` gather
+//! and the shared phase-budget/backoff helpers live in `proposer_read.rs`.
 
 use crate::sync::group::engine::Engine;
-use crate::sync::group::engine_util::{ms, PendingRound};
+use crate::sync::group::engine_util::PendingRound;
 use crate::sync::group::op_types::{Op, OpDenied, OpOutcome};
 use crate::sync::group::ops;
+use crate::sync::group::proposer_read::merge_accepted;
 use crate::sync::group::record::LockRecord;
 use crate::sync::group::wire::{Ballot, GroupMsg};
 use citadel_io::tokio::time::timeout;
-use rand::Rng;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 #[derive(Debug)]
 pub(crate) enum ProposeError {
     /// The op's precondition failed against the linearized record.
-    Denied(OpDenied, Option<LockRecord>),
+    /// Boxed: keeps the `Err` variant small (clippy::result_large_err, LockRecord ~160B).
+    Denied(OpDenied, Option<Box<LockRecord>>),
     /// No majority reachable before the deadline.
     QuorumUnavailable,
 }
@@ -41,7 +42,7 @@ impl Engine {
                 }
                 RoundAttempt::Denied(denied, rec) => {
                     log::trace!(target: "citadel", "[GroupLock] {:?} denied {op:?} -> {denied:?}", self.me());
-                    return Err(ProposeError::Denied(denied, rec));
+                    return Err(ProposeError::Denied(denied, rec.map(Box::new)));
                 }
                 RoundAttempt::Retry => {
                     if self.now_ms() >= deadline_ms {
@@ -137,12 +138,19 @@ impl Engine {
             record: record.clone(),
         };
         self.broadcast(req_id, &accept);
-        let mut acks = 0usize;
+        // Keep gathering after a nack until a majority acked (committed) or can no
+        // longer ack: bailing on the FIRST nack turns a round that in fact commits
+        // (remaining acks in flight) into an ambiguous, replayed retry.
+        let voters = self.cfg.members().len();
+        let (mut acks, mut nacks) = (0usize, 0usize);
         match self.local_vote(&accept) {
             Some(GroupMsg::Accepted { .. }) => acks += 1,
-            _ => return RoundAttempt::Retry,
+            _ => nacks += 1, // a higher ballot exists locally; remotes may still ack
         }
         while acks < majority {
+            if nacks > voters - majority {
+                return RoundAttempt::Retry; // majority impossible: NOT committed
+            }
             match timeout(phase_deadline, rx.recv()).await {
                 Ok(Some((_, GroupMsg::Accepted { ballot: b }))) if b == ballot => acks += 1,
                 Ok(Some((
@@ -153,7 +161,7 @@ impl Engine {
                     },
                 ))) if b == ballot => {
                     self.observe_ballot(promised);
-                    return RoundAttempt::Retry;
+                    nacks += 1;
                 }
                 Ok(Some(_)) => {}
                 Ok(None) | Err(_) => return RoundAttempt::Retry,
@@ -164,87 +172,6 @@ impl Engine {
             (Some(outcome), _) => RoundAttempt::Committed(record, outcome),
             (None, Some(denied)) => RoundAttempt::Denied(denied, Some(record)),
             (None, None) => unreachable!("apply produced neither outcome nor denial"),
-        }
-    }
-
-    /// Majority read of the highest accepted record (polling/observation hint).
-    pub(crate) async fn quorum_read(
-        &self,
-        deadline_ms: u64,
-    ) -> Result<Option<(Ballot, LockRecord)>, ProposeError> {
-        loop {
-            let req_id = self.next_req_id();
-            let mut pending = self.register_pending(req_id);
-            let result = self
-                .quorum_read_once(req_id, &mut pending, deadline_ms)
-                .await;
-            drop(pending);
-            match result {
-                Some(highest) => return Ok(highest),
-                None => {
-                    if self.now_ms() >= deadline_ms {
-                        return Err(ProposeError::QuorumUnavailable);
-                    }
-                    self.backoff().await;
-                }
-            }
-        }
-    }
-
-    async fn quorum_read_once(
-        &self,
-        req_id: u64,
-        pending: &mut PendingRound<'_>,
-        deadline_ms: u64,
-    ) -> Option<Option<(Ballot, LockRecord)>> {
-        let rx = &mut pending.rx;
-        let majority = self.cfg.majority();
-        self.broadcast(req_id, &GroupMsg::ReadHint);
-        let mut highest: Option<(Ballot, LockRecord)> = None;
-        let mut replies = 0usize;
-        if let Some(GroupMsg::ReadHintRsp { accepted }) = self.local_vote(&GroupMsg::ReadHint) {
-            replies += 1;
-            merge_accepted(&mut highest, accepted);
-        }
-        let phase_deadline = self.phase_deadline(deadline_ms);
-        while replies < majority {
-            match timeout(phase_deadline, rx.recv()).await {
-                Ok(Some((_, GroupMsg::ReadHintRsp { accepted }))) => {
-                    replies += 1;
-                    merge_accepted(&mut highest, accepted);
-                }
-                Ok(Some(_)) => {}
-                Ok(None) | Err(_) => return None,
-            }
-        }
-        Some(highest)
-    }
-
-    /// Per-phase gather budget: round timeout clipped to the op deadline.
-    fn phase_deadline(&self, deadline_ms: u64) -> Duration {
-        let remaining = deadline_ms.saturating_sub(self.now_ms());
-        self.cfg
-            .round_timeout()
-            .min(Duration::from_millis(remaining.max(1)))
-    }
-
-    /// Jittered dueling-proposer backoff: `cas_backoff_base` ±50%.
-    async fn backoff(&self) {
-        let base = ms(self.cfg.cas_backoff_base()).max(1);
-        let jittered =
-            rand::thread_rng().gen_range((base / 2).max(1)..=base.saturating_add(base / 2));
-        citadel_io::time::sleep(Duration::from_millis(jittered)).await;
-    }
-}
-
-fn merge_accepted(
-    into: &mut Option<(Ballot, LockRecord)>,
-    candidate: Option<(Ballot, LockRecord)>,
-) {
-    if let Some((b, rec)) = candidate {
-        match into {
-            Some((cur, _)) if *cur >= b => {}
-            _ => *into = Some((b, rec)),
         }
     }
 }

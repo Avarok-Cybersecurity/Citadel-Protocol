@@ -912,6 +912,19 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                         _ => {}
                     },
 
+                    // A routing failure for this ticket (e.g. the server could not deliver our
+                    // accept or request). Fail fast with the reason instead of waiting out the
+                    // full 60s watchdog — the caller can retry immediately.
+                    NodeResult::PeerEvent(PeerEvent {
+                        event: PeerSignal::SignalError { error, .. },
+                        ..
+                    }) => {
+                        return Err(citadel_io::error!(
+                            citadel_io::ErrorCode::RemoteP2pSignalRoutingFailed,
+                            error
+                        ))
+                    }
+
                     _ => {}
                 }
             }

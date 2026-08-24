@@ -10,10 +10,11 @@
 //!   travels over the ordered-reliable channel; the receiver demuxes by wire
 //!   message type.
 //!
-//! Entry point: [`MediaEndpoint::from_peer_connection`] /
-//! [`MediaEndpoint::from_c2s`], then [`MediaEndpoint::split`].
+//! Entry point: [`MediaEndpoint::from_peer_connection`](crate::media::MediaEndpoint::from_peer_connection) /
+//! [`MediaEndpoint::from_c2s`](crate::media::MediaEndpoint::from_c2s), then
+//! [`MediaEndpoint::split`](crate::media::MediaEndpoint::split).
 //!
-//! Dropping a [`MediaReceiver`] drops the UDP receive half it owns, which
+//! Dropping a [`MediaReceiver`](crate::media::MediaReceiver) drops the UDP receive half it owns, which
 //! signals `PeerSignal::DisconnectUDP` to the peer — keep it alive for the
 //! lifetime of the call.
 

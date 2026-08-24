@@ -145,7 +145,7 @@ impl GrantState {
     }
 
     /// Detached bounded retry for an ambiguous release. Fence-guarded, so replays
-    /// are idempotent (`last_released` tombstone) and steals deny it.
+    /// are idempotent (per-member release tombstone) and steals deny it.
     fn spawn_release_retry(&self, op: Op) {
         let engine = self.engine.clone();
         let retry_window = self
