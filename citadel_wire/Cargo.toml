@@ -52,7 +52,7 @@ socket2 = { workspace = true, features = ["all"] }
 quinn = { workspace = true, features = ["rustls"] }
 openssl = { workspace = true }
 rustls-native-certs = { workspace = true }
-igd = { workspace = true, features = ["aio"] }
+igd-next = { workspace = true, features = ["aio_tokio"] }
 stun = { workspace = true }
 rcgen = { workspace = true, features = ["pem", "crypto", "ring"] }
 tokio-rustls = { workspace = true }

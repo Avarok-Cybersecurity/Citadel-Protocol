@@ -36,7 +36,7 @@ use citadel_io::time::Duration;
 use citadel_io::tokio::net::UdpSocket;
 use citadel_io::tokio::sync::mpsc::UnboundedSender;
 use either::Either;
-use igd::PortMappingProtocol;
+use igd_next::PortMappingProtocol;
 
 use crate::error::FirewallError;
 use crate::udp_traversal::hole_punched_socket::{HolePunchedUdpSocket, TargettedSocketAddr};

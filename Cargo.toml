@@ -116,7 +116,7 @@ tracing = { version = "0.1.37", default-features = false }
 lazy_static = { default-features = false, version = "1.4.0" }
 socket2 = { version = "0.6.0", default-features = false }
 rustls-native-certs = { version = "0.8.0", default-features = false }
-igd = { version = "^0.12.0", default-features = false }
+igd-next = { version = "0.17.1", default-features = false }
 quinn = { version = "0.11.5", default-features = false }
 stun = { default-features = false, version = "0.5.0" }
 rcgen = { default-features = false, version = "0.14.3" }
@@ -147,7 +147,9 @@ either = { default-features = false, version = "1.8.0" }
 once_cell = { default-features = false, version = "1.17.0" }
 webrtc-util = { version = "0.11.0" }
 embed-doc-image = { version = "0.1.4" }
-hyper = { version = "0.14.25" }
+hyper = { version = "1.11.0", default-features = false }
+hyper-util = { version = "0.1.20", default-features = false }
+http-body-util = { version = "0.1.5", default-features = false }
 sha256 = { version = "1.5.0" }
 tokio-openssl = { version = "0.6.3" }
 tokio-tungstenite = { version = "0.28", default-features = false }

@@ -17,7 +17,7 @@
 //!
 //! ```rust
 //! use citadel_wire::upnp_handler::UPnPHandler;
-//! use igd::PortMappingProtocol;
+//! use igd_next::PortMappingProtocol;
 //! use std::time::Duration;
 //!
 //! async fn setup_port_forwarding() -> Result<(), citadel_wire::error::FirewallError> {
@@ -56,15 +56,16 @@
 
 use crate::error::FirewallError;
 use citadel_io::time::Duration;
-use igd::aio::Gateway;
-use igd::{PortMappingProtocol, SearchOptions};
+use igd_next::aio::tokio::Tokio;
+use igd_next::aio::Gateway;
+use igd_next::{PortMappingProtocol, SearchOptions};
 use std::fmt::Formatter;
-use std::net::{IpAddr, Ipv4Addr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
 pub struct UPnPHandler {
     local_ip_address: Ipv4Addr,
-    gateway: Gateway,
+    gateway: Gateway<Tokio>,
 }
 
 impl UPnPHandler {
@@ -90,7 +91,7 @@ impl UPnPHandler {
         let local_ip_address = Ipv4Addr::from_str(local_ip_address.to_string().as_str())
             .map_err(|_| FirewallError::firewall_local_ip_fail())?;
 
-        igd::aio::search_gateway(options)
+        igd_next::aio::tokio::search_gateway(options)
             .await
             .map_err(|err| FirewallError::firewall_upnp(err.to_string()))
             .map(|gateway| Self {
@@ -100,13 +101,20 @@ impl UPnPHandler {
     }
 
     pub async fn get_external_ip(&self) -> Result<Ipv4Addr, FirewallError> {
-        self.gateway
+        match self
+            .gateway
             .get_external_ip()
             .await
-            .map_err(|err| FirewallError::firewall_upnp(err.to_string()))
+            .map_err(|err| FirewallError::firewall_upnp(err.to_string()))?
+        {
+            IpAddr::V4(addr) => Ok(addr),
+            IpAddr::V6(addr) => Err(FirewallError::firewall_upnp(format!(
+                "gateway returned unsupported IPv6 external address {addr}"
+            ))),
+        }
     }
 
-    pub fn get_default_gateway(&self) -> &SocketAddrV4 {
+    pub fn get_default_gateway(&self) -> &SocketAddr {
         &self.gateway.addr
     }
 
@@ -129,7 +137,7 @@ impl UPnPHandler {
             .add_port(
                 protocol,
                 external_port,
-                SocketAddrV4::new(self.local_ip_address, local_port),
+                SocketAddr::new(IpAddr::V4(self.local_ip_address), local_port),
                 lease_duration.unwrap_or(0),
                 firewall_rule_name.as_ref(),
             )
@@ -150,7 +158,7 @@ impl UPnPHandler {
         self.gateway
             .add_any_port(
                 protocol,
-                SocketAddrV4::new(self.local_ip_address, local_port),
+                SocketAddr::new(IpAddr::V4(self.local_ip_address), local_port),
                 lease_duration.unwrap_or(0),
                 firewall_rule_name.as_ref(),
             )

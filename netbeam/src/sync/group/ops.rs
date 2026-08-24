@@ -129,8 +129,9 @@ pub fn apply(current: Option<&LockRecord>, op: &Op) -> Result<(LockRecord, OpOut
             new_value,
         } => {
             if rec.holder(*member, *nonce).is_none() {
-                // idempotent replay of a committed release (tombstone or value fence)
-                if rec.last_released == Some((*member, *nonce, *expect_fence))
+                // idempotent replay of a committed release (per-member tombstone —
+                // survives other members' interleaved releases — or value fence)
+                if rec.was_released(*member, *nonce, *expect_fence)
                     || (new_value.is_some() && rec.value_version == *expect_fence)
                 {
                     return Ok((rec, OpOutcome::Released));
@@ -145,7 +146,7 @@ pub fn apply(current: Option<&LockRecord>, op: &Op) -> Result<(LockRecord, OpOut
                 rec.value = v.clone();
                 rec.value_version = *expect_fence;
             }
-            rec.last_released = Some((*member, *nonce, *expect_fence));
+            rec.note_release(*member, *nonce, *expect_fence);
             Ok((rec, OpOutcome::Released))
         }
 

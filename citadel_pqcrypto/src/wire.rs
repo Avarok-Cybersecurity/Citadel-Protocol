@@ -107,7 +107,8 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
             buf.extend_from_slice(zeroed_buffer.as_slice()).unwrap();
         }
 
-        for chunk in buf.as_mut().chunks_exact_mut(BLOCK_SIZE) {
+        // The buffer was padded to a BLOCK_SIZE multiple above, so the remainder is empty.
+        for chunk in buf.as_mut().as_chunks_mut::<BLOCK_SIZE>().0 {
             self.swap_in_place(chunk, false)?
         }
 

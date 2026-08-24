@@ -3,9 +3,9 @@
 //! members come back from bytes — the last committed value must survive, and a lone
 //! returning member must be able to peek it offline before any quorum forms.
 
-use crate::sync::group::integration_tests::{members, test_config};
 use crate::sync::group::persist::{peek_value, SnapshotAcceptorStore};
 use crate::sync::group::test_mesh::TestMesh;
+use crate::sync::group::test_util::{members, test_config};
 use crate::sync::group::{LockId, MemberId, NetGroupMutex};
 use citadel_io::tokio;
 use futures::future::join_all;

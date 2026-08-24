@@ -62,9 +62,15 @@ pub struct LockRecord {
     /// Fence of the write grant that committed `value` (0 = initial value).
     pub value_version: Fence,
     pub poisoned: Option<PoisonInfo>,
-    /// Tombstone of the last voluntary release `(member, nonce, fence)` — makes a
-    /// replayed `Release` after an ambiguous committed round idempotent.
-    pub last_released: Option<(MemberId, u64, Fence)>,
+    /// Per-member tombstone of the most recent voluntary release
+    /// `(member, nonce, fence)` — makes a replayed `Release` after an ambiguous
+    /// committed round idempotent. One slot PER MEMBER (not one global slot):
+    /// other members' releases can commit between a release's committed round and
+    /// its replay (dueling-proposer retry), and a single shared slot would then
+    /// misreport the replay as `NotHolder`/`Stolen`. Bounded by the membership
+    /// size, since a member's next release cannot commit while its previous
+    /// release proposal is still in flight.
+    pub released: Vec<(MemberId, u64, Fence)>,
     pub holders: Holders,
     /// FIFO queue; arrival order == CAS serialization order.
     pub queue: Vec<WaitEntry>,
@@ -77,7 +83,7 @@ impl LockRecord {
             value,
             value_version: Fence(0),
             poisoned: None,
-            last_released: None,
+            released: Vec::new(),
             holders: Holders::None,
             queue: Vec::new(),
         }
@@ -153,6 +159,19 @@ impl LockRecord {
                 Some((h, LockKind::Read))
             }
         }
+    }
+
+    /// `true` iff `(member, nonce, fence)` matches that member's release tombstone
+    /// (i.e. this exact release already committed and is being replayed).
+    pub(crate) fn was_released(&self, member: MemberId, nonce: u64, fence: Fence) -> bool {
+        self.released.contains(&(member, nonce, fence))
+    }
+
+    /// Records `(member, nonce, fence)` as that member's most recent committed
+    /// release, replacing the member's previous tombstone.
+    pub(crate) fn note_release(&mut self, member: MemberId, nonce: u64, fence: Fence) {
+        self.released.retain(|(m, _, _)| *m != member);
+        self.released.push((member, nonce, fence));
     }
 
     pub fn wait_entry(&self, member: MemberId, nonce: u64) -> Option<(usize, &WaitEntry)> {
