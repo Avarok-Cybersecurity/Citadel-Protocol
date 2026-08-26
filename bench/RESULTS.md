@@ -504,10 +504,11 @@ Payload-budget facts discovered while benching (drove the 1150→1000 B default)
   `SendDatagramError::TooLarge` propagates out of the pump): a 1150 B send wedged the receiver
   forever when P2P selected QUIC, and worked when it selected the raw hole-punched socket. P0-i
   (non-fatal per-packet TooLarge + `max_payload_len()`) fixes exactly this.
-- Pre-existing bug (not fixed here): `crypto_hot_path`'s `validate_message_packet` group panics with
-  "Anti-replay-attack: invalid" on any run reaching a 2nd iteration — the receiver's anti-replay
-  container rejects re-validating the same packet. `udp_media_vs_srtp` protects a fresh packet per
-  iteration (untimed setup) instead.
+- Fixed in #274 (was a pre-existing bug): `crypto_hot_path`'s `validate_message_packet` group
+  panicked with "Anti-replay-attack: invalid" on any run reaching a 2nd iteration — the receiver's
+  anti-replay container rejects re-validating the same packet. It now protects a fresh packet per
+  iteration inside an untimed `iter_batched` setup closure, matching the approach
+  `udp_media_vs_srtp` already used.
 
 Artifacts: `bench/udp_media_results.json` (unpaced master baseline). After P0/P1 land, re-run both
 benches and append the AFTER table here (same commands, same machine).
