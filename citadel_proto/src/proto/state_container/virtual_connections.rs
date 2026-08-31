@@ -291,6 +291,9 @@ impl<R: Ratchet> StateContainerInner<R> {
             endpoint_container,
             adjacent_nat_type,
             p2p_connection_id,
+            // Client side: this node never runs the server's peer teardown, so
+            // there is no incarnation question to answer here.
+            peer_session_init_time: None,
         };
 
         // Guard: when both peers call connect_to_peer() simultaneously, two independent
@@ -323,12 +326,17 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     /// Note: the `endpoint_crypto` container needs to be Some in order for transfer to occur between peers w/o encryption/decryption at the center point
     /// GROUP packets and PEER_CMD::CHANNEL packets bypass the central node's encryption/decryption phase
+    /// `peer_session_init_time` identifies WHICH incarnation of `target_cid`'s
+    /// session this vConn was forged with -- see the field. The server holds
+    /// both sessions at the moment it forges the pair, so it is the only place
+    /// that can answer it.
     pub fn insert_new_virtual_connection_as_server(
         &mut self,
         target_cid: u64,
         connection_type: VirtualConnectionType,
         target_udp_sender: Option<OutboundUdpSender>,
         target_tcp_sender: OutboundPrimaryStreamSender,
+        peer_session_init_time: Instant,
     ) {
         let val = VirtualConnection {
             last_delivered_message_timestamp: DualRwLock::from(None),
@@ -338,6 +346,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             is_active: Arc::new(AtomicBool::new(true)),
             adjacent_nat_type: None, // Server doesn't have direct NAT info for clients
             p2p_connection_id: Ticket(0), // Server doesn't track P2P connection IDs
+            peer_session_init_time: Some(peer_session_init_time),
         };
         if self
             .active_virtual_connections

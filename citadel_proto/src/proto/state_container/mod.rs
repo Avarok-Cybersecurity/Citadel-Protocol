@@ -330,6 +330,21 @@ pub struct VirtualConnection<R: Ratchet> {
     /// Used to build `DisconnectToken` for stale-signal rejection.
     /// `Ticket(0)` for C2S connections.
     pub p2p_connection_id: Ticket,
+    /// WHICH INCARNATION of the peer's session this vConn was forged with.
+    ///
+    /// `active_virtual_connections` is keyed by CID alone, and a CID outlives
+    /// any one session: a cell-tower change or a WiFi/cellular switch leaves a
+    /// lingering session while a replacement takes the same CID. When the
+    /// lingering one finally shuts down, its teardown reaches into the PEER's
+    /// state container and removes the vConn back to itself -- keyed only by
+    /// that CID, so it cannot tell its own vConn from the replacement's, and
+    /// deletes whichever is there.
+    ///
+    /// Recording the peer session's `init_time` at the moment the vConn is
+    /// forged makes that answerable. `None` on the client side, which never
+    /// performs this teardown; `Some` on the server, which does and which holds
+    /// both sessions when it forges the pair.
+    pub peer_session_init_time: Option<Instant>,
 }
 
 impl<R: Ratchet> VirtualConnection<R> {

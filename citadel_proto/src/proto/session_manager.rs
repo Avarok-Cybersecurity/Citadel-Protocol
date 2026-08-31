@@ -637,12 +637,52 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                 if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
                                     let peer_sess = &peer_sess.1;
                                     let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
-                                    // Stop peer's UDP task before removing vconn
-                                    peer_state_container.remove_udp_channel(session_cid);
-                                    // NOTE: Do NOT remove peer_kem_states here — a new
-                                    // reconnection may have already inserted fresh KEM state.
-                                    if peer_state_container.active_virtual_connections.remove(&session_cid).is_none() {
-                                        log::warn!(target: "citadel", "While dropping session {session_cid}, attempted to remove vConn to {peer_cid}, but peer did not have the vConn listed. Report to developers");
+                                    // Remove the peer's vConn back to us ONLY if it is
+                                    // the one WE forged.
+                                    //
+                                    // `active_virtual_connections` is keyed by CID, and a
+                                    // CID outlives any one session: a cell-tower change or
+                                    // a WiFi/cellular switch leaves this session lingering
+                                    // while a replacement takes the same CID and
+                                    // re-establishes P2P. Removing by CID alone deleted
+                                    // whichever vConn was there -- including the
+                                    // replacement's, which the peer had just started using.
+                                    //
+                                    // The same hazard was already recognised for
+                                    // `peer_kem_states` on the very next line ("a new
+                                    // reconnection may have already inserted fresh KEM
+                                    // state") and fixed there only.
+                                    //
+                                    // Skipping the removal WHOLESALE whenever a replacement
+                                    // exists is not the fix -- that was tried, and it left
+                                    // genuinely dead vConns behind for the peer to use,
+                                    // which surfaces as an AEAD failure with a stale ratchet
+                                    // version. The vConn itself records which incarnation
+                                    // forged it, so this compares rather than guesses.
+                                    let forged_by_us = peer_state_container
+                                        .active_virtual_connections
+                                        .get(&session_cid)
+                                        .map(|vconn| match vconn.peer_session_init_time {
+                                            // Unstamped: a client-side vConn, or one forged
+                                            // before this field existed. Removing is the
+                                            // pre-existing behaviour and stays the default —
+                                            // this guard exists to spare a REPLACEMENT, and
+                                            // an unstamped vConn is not evidence of one.
+                                            None => true,
+                                            Some(forged_with) => forged_with == sess.init_time,
+                                        })
+                                        .unwrap_or(false);
+
+                                    if forged_by_us {
+                                        // Stop peer's UDP task before removing vconn
+                                        peer_state_container.remove_udp_channel(session_cid);
+                                        // NOTE: Do NOT remove peer_kem_states here — a new
+                                        // reconnection may have already inserted fresh KEM state.
+                                        if peer_state_container.active_virtual_connections.remove(&session_cid).is_none() {
+                                            log::warn!(target: "citadel", "While dropping session {session_cid}, attempted to remove vConn to {peer_cid}, but peer did not have the vConn listed. Report to developers");
+                                        }
+                                    } else {
+                                        log::info!(target: "citadel", "Leaving peer {peer_cid}'s vConn to {session_cid} intact: it was forged by a newer incarnation of that session, not by this one");
                                     }
                                 }
                             }
