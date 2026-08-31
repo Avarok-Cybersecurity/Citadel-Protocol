@@ -191,10 +191,16 @@ async fn driver_inner(
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
     let internal_bind_addr_optimal = local_initial_socket.local_addr()?;
     let mut sockets = vec![local_initial_socket];
-    let mut internal_addresses = vec![internal_bind_addr_optimal];
+    let mut internal_addresses = vec![routable_candidate(
+        internal_bind_addr_optimal,
+        local_nat_type,
+    )];
     if internal_bind_addr_optimal.is_ipv6() {
         let additional_socket = crate::socket_helpers::get_udp_socket("0.0.0.0:0")?;
-        internal_addresses.push(additional_socket.local_addr()?);
+        internal_addresses.push(routable_candidate(
+            additional_socket.local_addr()?,
+            local_nat_type,
+        ));
         sockets.push(additional_socket);
     }
 
@@ -295,6 +301,37 @@ async fn probe_reflexive_addrs(
 /// Suppose A binds to ipv6 addr, and B binds to ipv4 addr, then B cannot send packets to
 /// A. Only A can send to B via ipv4-mapped-v6 addrs. In order for B to send packets back to A,
 /// B will need the ipv4 address of A.
+/// Replaces a wildcard bind address with one a peer can actually reach.
+///
+/// `get_optimal_bind_socket` binds `[::]:0` or `0.0.0.0:0`, so `local_addr()`
+/// returns that wildcard with a real ephemeral port. Those values are advertised
+/// as `internal_bind_addrs` — candidates the peer is asked to punch to — and a
+/// peer cannot connect to `0.0.0.0` or `[::]`. Observed in CI as
+/// `[Hole-punch/Err] invalid remote address: 0.0.0.0:54960` and the `[::]`
+/// equivalent, in whichever family the branch above chose.
+///
+/// Substitution rather than removal, and the position is kept: `HolePunchConfig`
+/// asserts `peer_internal_addrs.len() == local_sockets.len()`, so dropping an
+/// entry desynchronises the peer into an assertion failure — and each internal
+/// address also carries the reflexive candidates in its band-set, so a dropped
+/// entry would take good STUN-derived addresses with it.
+///
+/// Falls back to the wildcard unchanged when no internal IP is known, which is
+/// the previous behaviour.
+fn routable_candidate(addr: SocketAddr, local_nat_type: &NatType) -> SocketAddr {
+    if !addr.ip().is_unspecified() {
+        return addr;
+    }
+    match local_nat_type.ip_info.as_ref().map(|info| info.internal_ip) {
+        // Only substitute within the same address family; the socket is bound to
+        // that family's wildcard and the peer pairs candidates positionally.
+        Some(internal_ip) if internal_ip.is_ipv4() == addr.is_ipv4() => {
+            SocketAddr::new(internal_ip, addr.port())
+        }
+        _ => addr,
+    }
+}
+
 pub fn get_optimal_bind_socket(
     local_nat_info: &NatType,
     peer_nat_info: &NatType,
@@ -495,5 +532,77 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod routable_candidate_tests {
+    use super::routable_candidate;
+    use crate::standard::nat_identification::NatType;
+    use async_ip::IpAddressInfo;
+    use std::net::{IpAddr, SocketAddr};
+    use std::str::FromStr;
+
+    fn nat_with(internal_ip: Option<&str>) -> NatType {
+        NatType {
+            ip_info: internal_ip.map(|ip| IpAddressInfo {
+                internal_ip: IpAddr::from_str(ip).unwrap(),
+                external_ipv6: None,
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// The defect: a socket bound to a wildcard advertises that wildcard, and a
+    /// peer cannot punch to `0.0.0.0`.
+    #[test]
+    fn a_wildcard_is_replaced_by_the_internal_ip_keeping_the_port() {
+        let advertised = routable_candidate(
+            SocketAddr::from_str("0.0.0.0:54960").unwrap(),
+            &nat_with(Some("10.1.0.156")),
+        );
+        assert_eq!(
+            advertised,
+            SocketAddr::from_str("10.1.0.156:54960").unwrap(),
+            "the peer was handed an address it cannot connect to"
+        );
+    }
+
+    #[test]
+    fn an_ipv6_wildcard_is_replaced_by_an_ipv6_internal_ip() {
+        let advertised = routable_candidate(
+            SocketAddr::from_str("[::]:34464").unwrap(),
+            &nat_with(Some("fd00::1")),
+        );
+        assert_eq!(advertised, SocketAddr::from_str("[fd00::1]:34464").unwrap());
+    }
+
+    /// Candidates are paired positionally with sockets bound to a specific
+    /// family, so substituting across families would advertise an address the
+    /// local socket cannot even send from.
+    #[test]
+    fn a_family_mismatch_is_left_alone() {
+        let wildcard = SocketAddr::from_str("[::]:34464").unwrap();
+        assert_eq!(
+            routable_candidate(wildcard, &nat_with(Some("10.1.0.156"))),
+            wildcard,
+            "an IPv4 internal address was substituted into an IPv6 candidate"
+        );
+    }
+
+    /// Previous behaviour when nothing better is known.
+    #[test]
+    fn without_ip_info_the_address_is_unchanged() {
+        let wildcard = SocketAddr::from_str("0.0.0.0:54960").unwrap();
+        assert_eq!(routable_candidate(wildcard, &nat_with(None)), wildcard);
+    }
+
+    #[test]
+    fn a_routable_address_is_never_touched() {
+        let real = SocketAddr::from_str("192.168.1.7:9000").unwrap();
+        assert_eq!(
+            routable_candidate(real, &nat_with(Some("10.1.0.156"))),
+            real
+        );
     }
 }
