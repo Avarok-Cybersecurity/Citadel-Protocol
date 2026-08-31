@@ -261,7 +261,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             _ = timeout => {
                 citadel_logging::warn!(target: "citadel", "Session attempt for {cid} failed to disconnect within the timeout. Force clearing");
                 let mut this = inner_mut!(self);
-                this.sessions.remove(&cid);
+                // STOP it, do not merely forget it. Removing the map entry left
+                // the session's task running: a zombie that still holds peer
+                // vconns and whose own teardown fires later, by which time the
+                // replacement session owns that CID -- and that teardown is
+                // keyed only by CID.
+                if let Some((stopper, _zombie)) = this.sessions.remove(&cid) {
+                    // Err means nothing is subscribed, i.e. it has already shut
+                    // down. That is the good outcome, not a failure.
+                    if stopper.send(()).is_err() {
+                        citadel_logging::trace!(target: "citadel", "Force-cleared session {cid} had already stopped");
+                    }
+                }
                 this.provisional_connections.retain(|_, sess| sess.2.session_cid.get().unwrap_or(0) != cid);
                 this.provisional_cid_reservations.remove(&cid);
                 true
