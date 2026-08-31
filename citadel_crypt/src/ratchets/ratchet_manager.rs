@@ -716,6 +716,10 @@ where
 
         let cid = self.cid;
         let time_since_last_packet = self.last_received_message.clone();
+        // Cloned out before `self` moves into `task`, so the exit path below can
+        // still reach the waiters. See `combined`.
+        let listener_on_exit = self.local_listener.clone();
+        let notifier_on_exit = rekey_done_notifier_tx.clone();
 
         let task = async move {
             let _drop_wrapper = DropWrapper {
@@ -808,6 +812,33 @@ where
                     log::warn!(target: "citadel", "Client {cid} rekey process shutting down");
                 }
             }
+
+            // Whichever branch won, this process is over: nothing will drive a
+            // rekey to completion again. A caller parked in trigger_rekey's
+            // wait loop is waiting for exactly two things -- a listener
+            // notification, or `latest_usable_version` advancing -- and neither
+            // can now happen. That loop treats a wait timeout as "the rekey
+            // might still complete" and goes round again, so without this it
+            // waits forever.
+            //
+            // That is the wedge behind the reconnection-suite timeouts: the C2S
+            // disconnect these tests perform tears the session down mid-rekey,
+            // shutdown() ends this task, and the triggering side hangs until the
+            // outer 240s test budget fires -- 150x a normal rekey, which is why
+            // it reads as a hang and not as slowness.
+            //
+            // Dropping the sender resolves the caller's oneshot with Err, which
+            // its existing "sender dropped" arm turns into a prompt
+            // RekeyListenerDropped (after re-checking the version, in case the
+            // rekey did land first). The rekey() error path a few lines up
+            // already does this -- "Drop any pending listener so waiters don't
+            // block indefinitely" -- it just was never done on this exit.
+            if listener_on_exit.lock().take().is_some() {
+                log::warn!(target: "citadel", "Client {cid} rekey process ended with a caller still waiting; waking it");
+            }
+            // Same reasoning for the messenger layer, which parks on this
+            // channel while messages sit queued.
+            let _ = notifier_on_exit.send(None);
         };
 
         drop(citadel_io::spawn(combined));
@@ -2009,6 +2040,77 @@ pub(crate) mod tests {
         log::info!(
             target: "citadel",
             "Test completed with {final_version} successful rekeys out of {ROUNDS} attempts (min_delay: {min_delay}ms)"
+        );
+    }
+
+    /// A caller waiting on a rekey must be woken when the rekey process ends,
+    /// rather than waiting for a completion that can no longer arrive.
+    ///
+    /// This is the shape of the reconnection-suite timeouts. Those tests
+    /// disconnect one side's C2S link, which tears the session down while a
+    /// rekey is in flight; shutdown() ends the rekey process, and the triggering
+    /// side sits in trigger_rekey's wait loop -- which treats a wait timeout as
+    /// "the rekey might still complete" and loops again -- until the outer 240s
+    /// test budget fires. Here the peer is shut down first so no BobToAlice can
+    /// ever arrive, which parks Alice in exactly that loop deterministically.
+    ///
+    /// The assertion is that the call *returns*, not that it succeeds: an error
+    /// is the correct outcome, and an Ok would be fine too if the rekey happened
+    /// to land first. Waiting forever is the defect.
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(60))]
+    #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
+    #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
+    async fn a_shutdown_wakes_a_caller_waiting_on_the_rekey() {
+        citadel_logging::setup_log();
+
+        // Only Alice gets a manager. The peer end of her sink is held here and
+        // never read: her AliceToBob is delivered and simply never answered.
+        //
+        // Two cheaper setups were tried first and both produced a test that
+        // passed with the fix removed -- i.e. measured nothing. Shutting a real
+        // Bob down and triggering immediately let Bob answer normally, because
+        // shutdown() only signals and his task keeps serving rekeys until it has
+        // seen ~2s of quiet. Waiting that quiet out instead killed Bob's
+        // receiver, so Alice's *send* failed and she returned an error without
+        // ever reaching the wait loop. Parking her needs a send that succeeds
+        // into silence.
+        let (alice_container, _bob_container) = setup_endpoint_containers::<StackedRatchet>(
+            SecurityLevel::Standard,
+            EncryptionAlgorithm::AES_GCM_256,
+            KemAlgorithm::MlKem,
+        );
+        let (tx_alice, peer_inbox) = futures::channel::mpsc::unbounded();
+        let (peer_sink, rx_alice) = futures::channel::mpsc::unbounded();
+        let alice_manager: TestRatchetManager<StackedRatchet, ()> = RatchetManager::new(
+            Box::new(tx_alice)
+                as Box<dyn RatchetManagerSink<(), Error = futures::channel::mpsc::SendError>>,
+            Box::new(rx_alice) as Box<dyn RatchetManagerStream<()>>,
+            alice_container,
+            TEST_PSKS,
+        );
+
+        let alice = alice_manager.clone();
+        let waiting = citadel_io::tokio::spawn(async move { alice.trigger_rekey(true).await });
+
+        // Let Alice reach the wait loop before the process under test goes away.
+        citadel_io::time::sleep(Duration::from_secs(1)).await;
+        let _ = alice_manager.shutdown();
+
+        // shutdown_rx_task deliberately lingers for packets still in transit, so
+        // allow well past that -- but far below the point where this would be
+        // indistinguishable from the hang it is testing for.
+        let outcome = citadel_io::time::timeout(Duration::from_secs(30), waiting).await;
+
+        // Held until after the wait: dropping either would break Alice's send or
+        // end her inbound stream, and she would leave the wait loop for a reason
+        // that has nothing to do with what this test is about.
+        drop((peer_inbox, peer_sink));
+
+        assert!(
+            outcome.is_ok(),
+            "trigger_rekey never returned after the rekey process shut down: the \
+             caller is parked on a notification that can no longer be sent"
         );
     }
 
