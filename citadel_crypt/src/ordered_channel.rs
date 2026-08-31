@@ -35,8 +35,9 @@ use std::collections::HashMap;
 /// instead of serializing every vconn's messages on one write lock (the multi-vconn convoy).
 struct OrderedChannelState<T> {
     map: HashMap<u64, T>,
+    /// Ids that will never arrive here, so the scan must step over them.
+    skipped: std::collections::HashSet<u64>,
     last_message_received: Option<u64>,
-    #[allow(dead_code)]
     last_message_received_instant: Option<Instant>,
 }
 
@@ -52,6 +53,7 @@ impl<T> OrderedChannel<T> {
             sink,
             state: citadel_io::Mutex::new(OrderedChannelState {
                 map: HashMap::new(),
+                skipped: std::collections::HashSet::new(),
                 last_message_received: None,
                 last_message_received_instant: None,
             }),
@@ -65,6 +67,7 @@ impl<T> OrderedChannel<T> {
         packet: T,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
         let mut state = self.state.lock();
+
         let next_expected_message_id = state
             .last_message_received
             .map(|r| r.wrapping_add(1))
@@ -86,6 +89,38 @@ impl<T> OrderedChannel<T> {
             state.map.insert(id, packet);
             state.last_message_received_instant = Some(Instant::now());
             Ok(())
+        }
+    }
+
+    /// Declares that `id` will never arrive as a message on this channel.
+    ///
+    /// The sequence ids are the endpoint's group ids, and object transfers draw
+    /// from the SAME counter as messages (session.rs reserves group ids for a
+    /// file exactly as it takes one for a message). Those groups are handled by
+    /// the transfer path and never reach this channel, so without this the very
+    /// next message waits for an id that does not exist -- and so does every
+    /// message after it, for the life of the connection.
+    ///
+    /// Idempotent, and safe to call for an id already delivered or already
+    /// skipped.
+    pub fn skip(&self, id: u64) {
+        let mut state = self.state.lock();
+        if Self::is_already_delivered(state.last_message_received, id) {
+            return;
+        }
+        let _ = state.skipped.insert(id);
+        let next_expected = state
+            .last_message_received
+            .map(|r| r.wrapping_add(1))
+            .unwrap_or(0);
+        if next_expected == id {
+            // Step over it now and release anything queued behind it.
+            let _ = state.skipped.remove(&id);
+            state.last_message_received = Some(id);
+            state.last_message_received_instant = Some(Instant::now());
+            if let Err(err) = self.scan_send(&mut state, id) {
+                log::warn!(target: "citadel", "[ORDERED CHANNEL] Consumer gone while draining past skipped id {id}: {err}");
+            }
         }
     }
 
@@ -128,7 +163,18 @@ impl<T> OrderedChannel<T> {
         last_arrived_id: u64,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
         let mut cur_scan_id = last_arrived_id.wrapping_add(1);
-        while let Some(next) = state.map.remove(&cur_scan_id) {
+        loop {
+            // An id declared non-message by `skip` is stepped over rather than
+            // waited for; nothing is delivered for it.
+            if state.skipped.remove(&cur_scan_id) {
+                state.last_message_received = Some(cur_scan_id);
+                state.last_message_received_instant = Some(Instant::now());
+                cur_scan_id = cur_scan_id.wrapping_add(1);
+                continue;
+            }
+            let Some(next) = state.map.remove(&cur_scan_id) else {
+                break;
+            };
             self.send_unconditional(state, cur_scan_id, next)?;
             cur_scan_id = cur_scan_id.wrapping_add(1);
         }
@@ -146,6 +192,81 @@ impl<T> OrderedChannel<T> {
         state.last_message_received = Some(new_id);
         state.last_message_received_instant = Some(Instant::now());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod skipped_group_tests {
+    use super::OrderedChannel;
+    use citadel_io::tokio;
+
+    /// A group id consumed by an object transfer must not stall the channel.
+    ///
+    /// Object transfers and messages draw group ids from the same per-endpoint
+    /// counter, and this channel is sequenced by that id. Before `skip`, the
+    /// first message after any file transfer waited for an id that would never
+    /// arrive, and so did every message after it -- for the life of the
+    /// connection, while the sender's send kept reporting success.
+    #[tokio::test]
+    async fn a_skipped_id_does_not_hold_up_later_messages() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<u64>();
+        let channel = OrderedChannel::new(tx);
+
+        channel.on_packet_received(0, 0).unwrap();
+        assert_eq!(rx.recv().await, Some(0));
+
+        // id 1 goes to the transfer path and never arrives here.
+        channel.skip(1);
+        channel.on_packet_received(2, 2).unwrap();
+
+        assert_eq!(
+            rx.recv().await,
+            Some(2),
+            "the message after a transfer never arrived -- the channel is stalled on the skipped id"
+        );
+    }
+
+    /// The skip may arrive after the messages queued behind it.
+    #[tokio::test]
+    async fn a_late_skip_releases_what_was_already_buffered() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<u64>();
+        let channel = OrderedChannel::new(tx);
+
+        channel.on_packet_received(0, 0).unwrap();
+        assert_eq!(rx.recv().await, Some(0));
+
+        channel.on_packet_received(2, 2).unwrap();
+        channel.on_packet_received(3, 3).unwrap();
+        assert!(
+            rx.try_recv().is_err(),
+            "both must wait while id 1 is still expected"
+        );
+
+        channel.skip(1);
+
+        assert_eq!(
+            rx.recv().await,
+            Some(2),
+            "buffered messages were not released by the skip"
+        );
+        assert_eq!(rx.recv().await, Some(3));
+    }
+
+    /// Ordinary ordering is untouched: a real gap still waits.
+    #[tokio::test]
+    async fn an_unskipped_gap_still_preserves_order() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<u64>();
+        let channel = OrderedChannel::new(tx);
+
+        channel.on_packet_received(0, 0).unwrap();
+        assert_eq!(rx.recv().await, Some(0));
+
+        channel.on_packet_received(2, 2).unwrap();
+        assert!(rx.try_recv().is_err(), "id 2 must wait for id 1");
+
+        channel.on_packet_received(1, 1).unwrap();
+        assert_eq!(rx.recv().await, Some(1), "in-order delivery broken");
+        assert_eq!(rx.recv().await, Some(2));
     }
 }
 

@@ -228,6 +228,26 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                 }
 
                                 GroupHeader::Standard(group_receiver_config, virtual_target) => {
+                                    // This group id is being consumed by an
+                                    // object transfer, so it will never reach
+                                    // the ordered channel as a message. Say so,
+                                    // or every later message on this vconn
+                                    // head-of-line blocks behind an id that
+                                    // does not exist -- silently, with the
+                                    // sender's send still reporting success.
+                                    {
+                                        let resp_target_cid =
+                                            if let Some((original_session_cid, _)) = proxy_cid_info
+                                            {
+                                                original_session_cid
+                                            } else {
+                                                0
+                                            };
+                                        state_container.skip_non_message_group(
+                                            resp_target_cid,
+                                            header.group.get(),
+                                        );
+                                    }
                                     // Mutating (file header) branch: escalate read → write.
                                     drop(state_container);
                                     let mut state_container =
