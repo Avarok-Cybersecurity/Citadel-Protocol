@@ -182,6 +182,19 @@ impl GroupCgkaState {
     }
 
     /// Joiner: bootstrap the group state from a received `Welcome`.
+    /// Whether this state is a joiner that has published its KeyPackage and is
+    /// still waiting for its Welcome.
+    ///
+    /// The distinction is already modelled by `group: None` — this names it, so
+    /// callers stop asking `contains_key` and getting "member" and "join in
+    /// flight" as the same answer. `cgka_joiner_publish_key_package` did
+    /// exactly that, and a join whose KeyPackage the server failed to relay was
+    /// therefore wedged for ever: every retry short-circuited on the pending
+    /// entry left behind by the attempt that never completed.
+    pub fn is_pending_join(&self) -> bool {
+        self.group.is_none()
+    }
+
     pub fn join(&mut self, welcome_bytes: &[u8]) -> Result<(), NetworkError> {
         let welcome =
             Welcome::deserialize_from_vector(welcome_bytes).map_err(|_| ser_err("welcome"))?;
@@ -292,6 +305,33 @@ mod tests {
 
         // Removing an unknown cid is a no-op.
         assert!(owner.remove_member_by_cid(999).unwrap().is_none());
+    }
+
+    /// The predicate the retry guard depends on: a joiner is "pending" from the
+    /// moment it publishes until its Welcome lands, and a member never is.
+    #[test]
+    fn a_joiner_is_pending_until_its_welcome_arrives() {
+        let mut owner = GroupCgkaState::new_owner(1, GroupHierarchyMode::Flat).unwrap();
+        let (mut b, kp_b) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();
+
+        assert!(
+            b.is_pending_join(),
+            "a joiner that has only published its KeyPackage must read as pending, \
+             or a wedged join can never be retried"
+        );
+
+        let (welcome_b, _commit_b, _e, _a) = owner.add_member(&kp_b).unwrap();
+        b.join(&welcome_b).unwrap();
+
+        assert!(
+            !b.is_pending_join(),
+            "a member still reads as pending, so a retry would republish a KeyPackage \
+             for a group it is already in"
+        );
+        assert!(
+            !owner.is_pending_join(),
+            "the owner founds the group outright and is never pending"
+        );
     }
 
     #[test]
