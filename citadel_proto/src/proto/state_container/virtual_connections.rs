@@ -168,10 +168,12 @@ impl<R: Ratchet> StateContainerInner<R> {
         let task_rekey_finished_listener = async move {
             while let Some(rekey_finished) = rekey_rx.recv().await {
                 let mut lock = triggered_rekeys.lock();
-                if let Some(entry) = lock.iter().find(|r| r.0.target_cid == target_cid) {
-                    let ticket = *entry.1;
-                    let to_remove = *entry.0;
-                    lock.remove(&to_remove);
+                // An exact lookup, not a scan. The scan matched on target_cid
+                // and took whichever entry hash order produced, so with more
+                // than one entry for a CID -- which a leaked failure made
+                // ordinary -- a success could be reported against the wrong
+                // ticket.
+                if let Some(ticket) = lock.remove(&target_cid) {
                     let result = NodeResult::ReKeyResult(ReKeyResult {
                         ticket,
                         status: ReKeyReturnType::Success {

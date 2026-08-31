@@ -130,8 +130,8 @@ pub(crate) mod includes {
     // them via `use super::includes::*;`.
     pub(crate) use super::{
         EndpointChannelContainer, FileKey, GroupKey, GroupReceiverContainer, InboundFileTransfer,
-        P2PDisconnectSignal, ReKeyIndex, StateContainer, StateContainerInner,
-        UnorderedChannelContainer, VirtualConnection,
+        P2PDisconnectSignal, StateContainer, StateContainerInner, UnorderedChannelContainer,
+        VirtualConnection,
     };
 }
 
@@ -212,7 +212,16 @@ pub struct StateContainerInner<R: Ratchet> {
     pub(super) group_cgka: HashMap<MessageGroupKey, crate::proto::peer::group_cgka::GroupCgkaState>,
     pub(super) transfer_stats: TransferStats,
     pub(super) udp_mode: UdpMode,
-    triggered_rekeys: Arc<Mutex<HashMap<ReKeyIndex, Ticket>>>,
+    /// The rekey each target CID currently has in flight, by the ticket that
+    /// asked for it.
+    ///
+    /// Keyed by `target_cid` alone, because that is the only thing the
+    /// completion listener can match on — a rekey completion carries no ticket.
+    /// It used to be keyed by `(target_cid, ticket)`, which made the listener
+    /// pick an ARBITRARY entry for the CID out of hash order, and made the
+    /// duplicate check in `initiate_rekey` unable to fire at all: a `Ticket` is
+    /// unique per request, so `insert` never returned `Some`.
+    triggered_rekeys: Arc<Mutex<HashMap<u64, Ticket>>>,
     session_passwords: HashMap<u64, PreSharedKey>,
     is_server: bool,
 }
@@ -223,12 +232,6 @@ pub(crate) struct GroupKey {
     target_cid: u64,
     group_id: u64,
     object_id: ObjectId,
-}
-
-#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
-pub(crate) struct ReKeyIndex {
-    target_cid: u64,
-    ticket: Ticket,
 }
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]

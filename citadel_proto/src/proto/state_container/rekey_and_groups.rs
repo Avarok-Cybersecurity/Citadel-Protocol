@@ -49,18 +49,39 @@ impl<R: Ratchet> StateContainerInner<R> {
             return return_already_in_progress(&self.kernel_tx, ticket, session_cid);
         }
 
-        // Insert into map
-        let index = ReKeyIndex { ticket, target_cid };
-
-        if self.triggered_rekeys.lock().insert(index, ticket).is_some() {
+        // Claim this target CID for the duration of the rekey.
+        //
+        // Keyed by target_cid alone. It used to be keyed by (target_cid,
+        // ticket), which made this check dead: a Ticket is unique per request,
+        // so `insert` never returned `Some` and the AlreadyInProgress branch
+        // was unreachable.
+        if self
+            .triggered_rekeys
+            .lock()
+            .insert(target_cid, ticket)
+            .is_some()
+        {
             return return_already_in_progress(&self.kernel_tx, ticket, session_cid);
         }
 
         let to_kernel = self.kernel_tx.clone();
+        let triggered_rekeys = self.triggered_rekeys.clone();
 
         let ratchet_manager = v_conn.ratchet_manager.clone();
         let task = async move {
             if let Err(err) = ratchet_manager.trigger_rekey(true).await {
+                // Release the claim on the FAILURE path too.
+                //
+                // It was only ever released by the completion listener, which
+                // runs on success. So one transient failure left an entry that
+                // never went away -- and the listener, matching on target_cid,
+                // then consumed it when a LATER rekey succeeded, reporting that
+                // success against the failed rekey's ticket. The ticket
+                // actually waiting heard nothing, and the SDK's `rekey()` hung
+                // on it. With the map keyed by target_cid this would instead
+                // wedge the CID permanently in AlreadyInProgress, which is why
+                // the two halves of this fix belong together.
+                triggered_rekeys.lock().remove(&target_cid);
                 if let Err(err) = to_kernel.unbounded_send(NodeResult::ReKeyResult(ReKeyResult {
                     ticket,
                     status: ReKeyReturnType::Failure { err },
