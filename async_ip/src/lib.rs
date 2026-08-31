@@ -126,7 +126,7 @@ pub async fn get_all_multi_concurrent_from(
     let (res0, res2) = citadel_io::tokio::join!(internal_ip_future, external_ipv6_future);
     let internal_ip =
         res0.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::IpInternalUnobtainable))?;
-    let external_ipv6 = res2.ok().map(|r| r.0);
+    let external_ipv6 = res2.ok().map(|r| r.0).and_then(only_ipv6);
 
     Ok(IpAddressInfo {
         internal_ip,
@@ -137,6 +137,17 @@ pub async fn get_all_multi_concurrent_from(
 /// Returns all possible IPs for this node
 pub async fn get_all(client: Option<reqwest::Client>) -> Result<IpAddressInfo, IpRetrieveError> {
     get_all_from(client, URL_V6).await
+}
+
+/// The "v6" endpoints answer over whatever transport reaches them, so on a host
+/// with no IPv6 they reply over IPv4 with an IPv4 address. Storing that as
+/// `external_ipv6` is not merely untidy: `citadel_wire`'s
+/// `get_optimal_bind_socket` treats `external_ipv6.is_some()` on both peers as
+/// "both nodes have an external IPv6 address" and binds `[::]:0`. The hole
+/// puncher then advertises an IPv6 candidate on a host that has no IPv6
+/// internal address to offer, and the peer cannot reach it.
+fn only_ipv6(ip: IpAddr) -> Option<IpAddr> {
+    ip.is_ipv6().then_some(ip)
 }
 
 /// Gets IP info concurrently using custom multiple internal sources
@@ -150,7 +161,7 @@ pub async fn get_all_from(
     let (res0, res2) = citadel_io::tokio::join!(internal_ip_future, external_ipv6_future);
     let internal_ip =
         res0.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::IpInternalUnobtainable))?;
-    let external_ipv6 = res2.ok();
+    let external_ipv6 = res2.ok().and_then(only_ipv6);
 
     Ok(IpAddressInfo {
         internal_ip,
@@ -298,5 +309,38 @@ mod tests {
         // Trimming must not turn a multi-token body into a valid parse.
         assert!(parse_ip_response("1.2.3.4 5.6.7.8").is_err());
         assert!(parse_ip_response("<html>error</html>").is_err());
+    }
+}
+
+#[cfg(test)]
+mod external_ipv6_family_tests {
+    use super::only_ipv6;
+    use std::net::IpAddr;
+    use std::str::FromStr;
+
+    /// The defect: a "v6" endpoint reached over IPv4 answers with an IPv4
+    /// address, and storing it as `external_ipv6` makes
+    /// `get_optimal_bind_socket` bind `[::]:0` on a host with no IPv6. The hole
+    /// puncher then advertises an IPv6 candidate it has no IPv6 internal
+    /// address to substitute for, and the peer cannot reach it. Observed in CI
+    /// as `invalid remote address: [::]:47790` on a runner whose only internal
+    /// address was `10.1.1.120`.
+    #[test]
+    fn an_ipv4_answer_is_not_an_external_ipv6_address() {
+        assert_eq!(
+            only_ipv6(IpAddr::from_str("172.208.127.86").unwrap()),
+            None,
+            "an IPv4 address was accepted as the external IPv6 address"
+        );
+    }
+
+    #[test]
+    fn a_real_ipv6_answer_is_kept() {
+        let v6 = IpAddr::from_str("2001:db8::1").unwrap();
+        assert_eq!(
+            only_ipv6(v6),
+            Some(v6),
+            "a genuine IPv6 address was discarded"
+        );
     }
 }
