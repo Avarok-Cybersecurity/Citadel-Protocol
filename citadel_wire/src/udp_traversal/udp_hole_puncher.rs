@@ -41,7 +41,7 @@ use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::subscription::Subscribable;
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -322,13 +322,39 @@ fn routable_candidate(addr: SocketAddr, local_nat_type: &NatType) -> SocketAddr 
     if !addr.ip().is_unspecified() {
         return addr;
     }
-    match local_nat_type.ip_info.as_ref().map(|info| info.internal_ip) {
-        // Only substitute within the same address family; the socket is bound to
-        // that family's wildcard and the peer pairs candidates positionally.
-        Some(internal_ip) if internal_ip.is_ipv4() == addr.is_ipv4() => {
+    let Some(internal_ip) = local_nat_type.ip_info.as_ref().map(|info| info.internal_ip) else {
+        return addr;
+    };
+    match (addr, internal_ip) {
+        // Same family: substitute directly.
+        (SocketAddr::V4(_), IpAddr::V4(_)) | (SocketAddr::V6(_), IpAddr::V6(_)) => {
             SocketAddr::new(internal_ip, addr.port())
         }
-        _ => addr,
+        // An IPv6 wildcard on a host whose only internal address is IPv4.
+        //
+        // This happens whenever `get_optimal_bind_socket` takes its `[::]:0`
+        // branch without the host having an IPv6 internal address to offer --
+        // which is the common case, because `external_ipv6` is populated from an
+        // endpoint that answers over whatever transport reaches it and so holds
+        // an IPv4 address on IPv4-only hosts.
+        //
+        // The `[::]` bind is dual-stack on purpose ("allows both conns from
+        // loopback and public internet"), so the socket IS reachable at the
+        // host's IPv4 address -- expressed to a v6 peer as the IPv4-mapped form.
+        // Advertising that is strictly better than advertising `[::]`, which no
+        // peer can connect to at all.
+        //
+        // Deliberately NOT done by changing which socket is bound: an earlier
+        // attempt filtered the bogus `external_ipv6` instead, which pushed such
+        // hosts onto the `0.0.0.0` branch and cost the dual-stack reach that
+        // `test_p2p_after_one_c2s_disconnect` depends on. This leaves the bind
+        // exactly as it was and corrects only what is advertised.
+        (SocketAddr::V6(v6), IpAddr::V4(v4)) => {
+            SocketAddr::new(IpAddr::V6(v4.to_ipv6_mapped()), v6.port())
+        }
+        // An IPv4 wildcard with only an IPv6 internal address: a v4 socket
+        // cannot be reached at a v6 address, so there is nothing better to say.
+        (SocketAddr::V4(_), IpAddr::V6(_)) => addr,
     }
 }
 
@@ -577,16 +603,32 @@ mod routable_candidate_tests {
         assert_eq!(advertised, SocketAddr::from_str("[fd00::1]:34464").unwrap());
     }
 
-    /// Candidates are paired positionally with sockets bound to a specific
-    /// family, so substituting across families would advertise an address the
-    /// local socket cannot even send from.
+    /// The case #280 left unsolved, and the one CI kept failing on.
+    ///
+    /// `[::]` is bound dual-stack on purpose, so the socket IS reachable at the
+    /// host's IPv4 address — expressed to a v6 peer as the IPv4-mapped form.
+    /// Advertising that beats advertising `[::]`, which nothing can connect to.
     #[test]
-    fn a_family_mismatch_is_left_alone() {
-        let wildcard = SocketAddr::from_str("[::]:34464").unwrap();
+    fn an_ipv6_wildcard_with_only_an_ipv4_internal_ip_advertises_the_mapped_form() {
+        let advertised = routable_candidate(
+            SocketAddr::from_str("[::]:47790").unwrap(),
+            &nat_with(Some("10.1.1.120")),
+        );
         assert_eq!(
-            routable_candidate(wildcard, &nat_with(Some("10.1.0.156"))),
+            advertised,
+            SocketAddr::from_str("[::ffff:10.1.1.120]:47790").unwrap(),
+            "the peer was handed [::], which it cannot connect to"
+        );
+    }
+
+    /// The reverse has no answer: a v4 socket cannot be reached at a v6 address.
+    #[test]
+    fn an_ipv4_wildcard_with_only_an_ipv6_internal_ip_is_left_alone() {
+        let wildcard = SocketAddr::from_str("0.0.0.0:34464").unwrap();
+        assert_eq!(
+            routable_candidate(wildcard, &nat_with(Some("fd00::1"))),
             wildcard,
-            "an IPv4 internal address was substituted into an IPv6 candidate"
+            "an IPv6 address was substituted into an IPv4 candidate"
         );
     }
 
