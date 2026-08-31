@@ -147,7 +147,14 @@ pub async fn get_all(client: Option<reqwest::Client>) -> Result<IpAddressInfo, I
 /// puncher then advertises an IPv6 candidate on a host that has no IPv6
 /// internal address to offer, and the peer cannot reach it.
 fn only_ipv6(ip: IpAddr) -> Option<IpAddr> {
-    ip.is_ipv6().then_some(ip)
+    match ip {
+        // An IPv4-mapped address (`::ffff:a.b.c.d`) answers `is_ipv6()` with
+        // true while representing no IPv6 connectivity at all, so a bare
+        // `is_ipv6()` check would let exactly the same failure through in a
+        // different costume.
+        IpAddr::V6(v6) if v6.to_ipv4_mapped().is_none() => Some(ip),
+        _ => None,
+    }
 }
 
 /// Gets IP info concurrently using custom multiple internal sources
@@ -341,6 +348,17 @@ mod external_ipv6_family_tests {
             only_ipv6(v6),
             Some(v6),
             "a genuine IPv6 address was discarded"
+        );
+    }
+
+    /// `is_ipv6()` is true for `::ffff:a.b.c.d`, which represents no IPv6
+    /// connectivity — the same defect wearing a different costume.
+    #[test]
+    fn an_ipv4_mapped_address_is_not_an_external_ipv6_address() {
+        assert_eq!(
+            only_ipv6(IpAddr::from_str("::ffff:172.208.127.86").unwrap()),
+            None,
+            "an IPv4-mapped address was accepted as the external IPv6 address"
         );
     }
 }
