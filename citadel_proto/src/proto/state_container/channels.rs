@@ -4,6 +4,20 @@
 use super::includes::*;
 
 impl<R: Ratchet> StateContainerInner<R> {
+    /// Declares a group id consumed by an object transfer, which will never
+    /// arrive at the ordered channel as a message.
+    ///
+    /// Object transfers and messages draw group ids from the same per-endpoint
+    /// counter, and the ordered channel is sequenced by that id. Without this,
+    /// the first message after any file transfer waits for an id that does not
+    /// exist -- and so does every message after it, for the life of the
+    /// connection, while the sender's send keeps reporting success.
+    pub fn skip_non_message_group(&self, target_cid: u64, group_id: u64) {
+        if let Ok(endpoint_container) = self.get_endpoint_container(target_cid) {
+            endpoint_container.to_ordered_local_channel.skip(group_id);
+        }
+    }
+
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
     /// (thus bypassing the unordered kernel)
     pub fn forward_data_to_ordered_channel(
