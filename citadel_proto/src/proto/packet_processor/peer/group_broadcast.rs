@@ -903,7 +903,12 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
         } => {
             if session.is_server {
                 // Relay verbatim to the owner; the relay never inspects `payload` (zero-trust).
-                let _ = session
+                //
+                // The result is no longer discarded. A failed relay here is the
+                // whole of the join: the owner never sees the KeyPackage, never
+                // sends a Welcome, and the joiner waits for ever. It used to
+                // leave no trace at all.
+                let relayed = session
                     .session_manager
                     .route_packet_to(key.cid, move |peer_hr| {
                         packet_crafter::peer_cmd::craft_group_message_packet(
@@ -919,6 +924,9 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                             security_level,
                         )
                     });
+                if let Err(err) = relayed {
+                    log::error!(target: "citadel", "Failed to relay KeyPackage for {key:?} from joiner {joiner_cid} to owner {}: {err:?}. The join will not complete until the joiner republishes.", key.cid);
+                }
                 Ok(PrimaryProcessorResult::Void)
             } else {
                 // Owner: add the joiner to the ratchet tree and emit its Welcome + the members' Commit.
@@ -942,7 +950,11 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
         } => {
             if session.is_server {
                 // Relay verbatim to the single joiner; the relay never inspects `payload`.
-                let _ = session
+                //
+                // A dropped Welcome is as terminal as a dropped KeyPackage: the
+                // owner has already added the joiner to its tree, so the group
+                // moves on with a member that can never decrypt anything.
+                let relayed = session
                     .session_manager
                     .route_packet_to(joiner_cid, move |peer_hr| {
                         packet_crafter::peer_cmd::craft_group_message_packet(
@@ -958,6 +970,9 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                             security_level,
                         )
                     });
+                if let Err(err) = relayed {
+                    log::error!(target: "citadel", "Failed to relay Welcome for {key:?} to joiner {joiner_cid}: {err:?}. That member is in the owner's tree but cannot decrypt until it republishes.");
+                }
                 Ok(PrimaryProcessorResult::Void)
             } else {
                 // Joiner: bootstrap the group state from the Welcome, then open the group channel.
@@ -982,7 +997,11 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 // Relay verbatim to the existing members (the fanout excludes the owner/sender). The
                 // brand-new joiner may also receive it; its Welcome already covers this epoch, so its
                 // coordinator gates the commit out.
-                let _ = session
+                // Neither the Err nor the `false` was looked at. A Commit that
+                // does not reach the existing members leaves them an epoch
+                // behind, unable to decrypt anything sent afterwards -- and the
+                // owner has no idea.
+                match session
                     .session_manager
                     .broadcast_signal_to_group(
                         session_cid,
@@ -997,7 +1016,15 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                         security_level,
                     )
                     .await
-                    .unwrap_or(false);
+                {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        log::error!(target: "citadel", "Commit for {key:?} epoch {epoch} was not broadcast to the group; members will fall behind an epoch and cannot decrypt subsequent messages");
+                    }
+                    Err(err) => {
+                        log::error!(target: "citadel", "Failed to broadcast Commit for {key:?} epoch {epoch}: {err:?}");
+                    }
+                }
                 Ok(PrimaryProcessorResult::Void)
             } else {
                 // Member: apply the commit (epoch-gated) to advance the ratchet tree.
@@ -1016,7 +1043,11 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
         } => {
             if session.is_server {
                 // Relay verbatim to the assigned member; the relay sees neither path nor node secret.
-                let _ = session
+                //
+                // A dropped assignment is silent by construction: the member
+                // simply never gains its command path, and nothing distinguishes
+                // that from a member who was never assigned one.
+                let relayed = session
                     .session_manager
                     .route_packet_to(target_cid, move |peer_hr| {
                         packet_crafter::peer_cmd::craft_group_message_packet(
@@ -1032,6 +1063,9 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                             security_level,
                         )
                     });
+                if let Err(err) = relayed {
+                    log::error!(target: "citadel", "Failed to relay HierarchyAssign for {key:?} to member {target_cid}: {err:?}. That member will have no command path.");
+                }
                 Ok(PrimaryProcessorResult::Void)
             } else {
                 // Member: take up the assigned hierarchy position (path + node secret).
@@ -1086,11 +1120,30 @@ fn cgka_joiner_publish_key_package<R: Ratchet, T: PlatformOps>(
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let kp_bytes = {
         let mut state = inner_mut_state!(session.state_container);
-        if state.group_cgka.contains_key(&key) {
-            // Already joining/among this group; nothing to publish.
-            return Ok(PrimaryProcessorResult::Void);
+        // "Already joining" and "already a member" are NOT the same answer.
+        //
+        // This asked `contains_key`, which conflates them. A joiner inserts its
+        // state and publishes its KeyPackage in one step, so if the server
+        // failed to relay that KeyPackage -- and it discarded relay errors --
+        // the entry stayed behind with no group ever formed. Every retry then
+        // hit this guard and returned Void: the join was wedged permanently,
+        // and silently, by a single dropped packet.
+        //
+        // `is_pending_join` is the distinction the state already modelled
+        // (`group: None` until the Welcome lands). A member still short-circuits;
+        // a stalled joiner republishes.
+        match state.group_cgka.get(&key) {
+            Some(cgka) if !cgka.is_pending_join() => {
+                // Already among this group; nothing to publish.
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            Some(_) => {
+                log::warn!(target: "citadel", "Republishing KeyPackage for {key:?}: a previous join for this group never received its Welcome");
+            }
+            None => {}
         }
         let (cgka, kp_bytes) = GroupCgkaState::new_joiner(joiner_cid, GroupHierarchyMode::Flat)?;
+        // Replaces any stalled pending state, along with its now-dead leaf secret.
         let _ = state.group_cgka.insert(key, cgka);
         kp_bytes
     };
