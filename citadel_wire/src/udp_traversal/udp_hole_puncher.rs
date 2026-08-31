@@ -380,12 +380,31 @@ pub fn get_optimal_bind_socket(
     let local_allows_ipv6 = local_nat_info.is_ipv6_compatible();
     let peer_allows_ipv6 = peer_nat_info.is_ipv6_compatible();
 
+    // Windows binds `[::]` as IPv6-ONLY.
+    //
+    // `socket_helpers::setup_base_socket` enables dual-stack with
+    // `set_only_v6(false)` on every platform EXCEPT Windows, where doing so
+    // "causes WSAEINVAL (error 10022) when Quinn creates QUIC endpoints". So on
+    // Windows a `[::]` socket cannot carry IPv4 traffic at all, and choosing
+    // that branch without a genuine IPv6 internal address to advertise leaves
+    // the peer with `[::]` and nothing usable — the punch then hangs rather
+    // than failing fast.
+    //
+    // Elsewhere the socket IS dual-stack, so `routable_candidate` can advertise
+    // the IPv4 internal address in mapped form and the branch stays useful.
+    let socket_will_be_dual_stack = !cfg!(windows);
+    let have_ipv6_internal_addr = local_nat_info
+        .ip_addr_info()
+        .map(|info| info.internal_ip.is_ipv6())
+        .unwrap_or(false);
+
     // only bind to ipv6 if v6 is enabled locally, and, both nodes have an external ipv6 addr,
     // AND, the peer allows ipv6, then go with ipv6
     if local_allows_ipv6
         && local_has_an_external_ipv6_addr
         && peer_has_an_external_ipv6_addr
         && peer_allows_ipv6
+        && (socket_will_be_dual_stack || have_ipv6_internal_addr)
     {
         // bind to IN_ADDR6_ANY. Allows both conns from loopback and public internet
         crate::socket_helpers::get_udp_socket("[::]:0")
