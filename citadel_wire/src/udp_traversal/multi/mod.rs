@@ -57,11 +57,15 @@
 //! - [`netbeam::multiplex`] - Connection multiplexing
 //!
 
+use crate::udp_traversal::abort_on_drop::AbortOnDrop;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
+// Still used by the loser-rebuild race below, where "first socket wins and the
+// other attempt is abandoned" IS the intended meaning. It is NOT the intended
+// meaning for the sender/reader pair -- see the comment there.
 use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use futures::future::select_ok;
 use futures::stream::FuturesUnordered;
@@ -140,8 +144,14 @@ impl DualStackUdpHolePuncher {
         }
 
         // TODO: Setup concurrent UPnP AND NAT-PMP async https://docs.rs/natpmp/latest/natpmp/struct.NatpmpAsync.html
+        // AbortOnDrop, not `spawn`. `driver` in udp_hole_puncher.rs wraps this
+        // whole future in a timeout and retries; on timeout the future is
+        // dropped, and a dropped JoinHandle DETACHES rather than aborts. `drive`
+        // has no exit path once nobody is listening, so every timed-out attempt
+        // used to leave a task looping forever on its bound UDP sockets, and
+        // the next attempt bound a fresh set. See udp_traversal/abort_on_drop.rs.
         let task = async move {
-            citadel_io::tokio::task::spawn(drive(hole_punchers, relative_node_type, napp))
+            AbortOnDrop::spawn(drive(hole_punchers, relative_node_type, napp))
                 .await
                 .map_err(|err| anyhow::Error::msg(format!("panic in hole puncher: {err:?}")))?
         };
@@ -232,9 +242,10 @@ async fn drive(
             (res, hole_puncher)
         };
 
-        let task = citadel_io::tokio::task::spawn(task);
-
-        futures.push(task);
+        // Also abort-on-drop: these hold the individual sockets, and
+        // `FuturesUnordered` drops whatever it still holds when `drive` itself
+        // is cancelled.
+        futures.push(AbortOnDrop::spawn(task));
     }
 
     let current_enqueued_set: &citadel_io::tokio::sync::Mutex<Vec<HolePunchedUdpSocket>> =
@@ -512,14 +523,24 @@ async fn drive(
 
     log::trace!(target: "citadel", "[DualStack] Executing hole-puncher ....");
     let sender_reader_combo = async move {
-        let res = futures::future::select_ok([
-            Box::pin(futures_resolver)
-                as Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + Send>>,
-            Box::pin(reader),
-        ])
-        .await;
-        if let Some(err) = res.as_ref().err() {
-            log::warn!(target: "citadel", "Both reader/resolver futures failed: {err:?}")
+        // `join`, not `select_ok`. `select_ok` returns on the FIRST Ok and drops
+        // the other future -- and the resolver finishing first is the ordinary
+        // case, not an edge one: it completes as soon as every local puncher has
+        // resolved, including when they all failed. Dropping the reader there
+        // means a `Winner` the remote sends afterwards is never consumed,
+        // `commanded_winner` is never set, and both sides sit until the whole
+        // attempt times out. That is precisely the asymmetric-NAT recovery this
+        // protocol exists for.
+        //
+        // This arm intentionally never completes (it ends in `pending`); its job
+        // is to keep BOTH futures polled. Termination belongs to the `select!`
+        // below, via `done_rx` or the rebuilder.
+        let (resolver, reader) = futures::future::join(futures_resolver, reader).await;
+        if let Err(err) = resolver {
+            log::warn!(target: "citadel", "Hole-puncher resolver future failed: {err:?}")
+        }
+        if let Err(err) = reader {
+            log::warn!(target: "citadel", "Hole-puncher reader future failed: {err:?}")
         }
 
         // Just wait for the background process to finish up
@@ -577,4 +598,72 @@ async fn receive(
     conn.recv()
         .await
         .ok_or_else(|| anyhow::Error::msg("recv from bichannel failed: stream ended"))?
+}
+
+#[cfg(test)]
+mod sender_reader_combo_tests {
+    //! The sender/reader pair in `drive` must keep BOTH futures polled.
+    //!
+    //! These pin the SHAPE of that combination, not the whole of `drive` —
+    //! reproducing the real thing needs two live `NetworkEndpoint`s and a NAT.
+    //! What they do establish is the property the bug turned on: the resolver
+    //! completing successfully must not stop the reader from consuming a signal
+    //! that arrives afterwards.
+    use citadel_io::tokio;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// A late signal, of the kind `DualStackCandidateSignal::Winner` is: it
+    /// arrives after local resolution has already finished.
+    async fn late_signal(consumed: Arc<AtomicBool>) -> Result<(), anyhow::Error> {
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        consumed.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// The fix.
+    #[tokio::test]
+    async fn a_reader_still_runs_after_the_resolver_succeeds() {
+        let consumed = Arc::new(AtomicBool::new(false));
+        let resolver = async { Ok::<_, anyhow::Error>(()) };
+
+        let combo = async {
+            let _ = futures::future::join(resolver, late_signal(consumed.clone())).await;
+        };
+        tokio::time::timeout(Duration::from_millis(500), combo)
+            .await
+            .expect("the combination should finish once both halves do");
+
+        assert!(
+            consumed.load(Ordering::SeqCst),
+            "the reader was not polled after the resolver completed"
+        );
+    }
+
+    /// The control, kept as a test: `select_ok` really does drop the loser, so
+    /// the test above is measuring the change and not something both
+    /// combinators would have done.
+    #[tokio::test]
+    async fn select_ok_would_have_dropped_the_reader() {
+        let consumed = Arc::new(AtomicBool::new(false));
+        let resolver = async { Ok::<_, anyhow::Error>(()) };
+        let reader = late_signal(consumed.clone());
+
+        let _ = futures::future::select_ok([
+            Box::pin(resolver)
+                as std::pin::Pin<
+                    Box<dyn futures::Future<Output = Result<(), anyhow::Error>> + Send>,
+                >,
+            Box::pin(reader),
+        ])
+        .await;
+
+        // Give the dropped future every chance to have run anyway.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        assert!(
+            !consumed.load(Ordering::SeqCst),
+            "select_ok kept the reader alive, so the join above proves nothing"
+        );
+    }
 }

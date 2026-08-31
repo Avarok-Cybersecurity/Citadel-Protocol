@@ -57,6 +57,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
+pub mod abort_on_drop;
 pub mod hole_punch_config;
 pub mod hole_punched_socket;
 
