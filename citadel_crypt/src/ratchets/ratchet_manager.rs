@@ -622,6 +622,23 @@ where
                 // This prevents indefinite blocking if the listener notification is missed
                 // (e.g., due to stale message skipping or rare race conditions).
                 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+                // A ceiling on the whole wait, not just on one slice of it.
+                //
+                // The loop below used to `continue` forever whenever a slice
+                // timed out without the version advancing -- and it does that
+                // while still holding `_permit`, the single permit of
+                // `rekey_trigger_semaphore` acquired at the top of this
+                // function. So one rekey the peer never answers (it stale-skips
+                // our AliceToBob, for instance) wedged EVERY later rekey on the
+                // session, and in Perfect mode messaging waits on rekeys.
+                //
+                // 60s matches DECLARED_VERSION_STALENESS_TIMEOUT_SECS above,
+                // which is this file's existing answer to "how long before we
+                // call a rekey stuck". Failing here releases the permit and
+                // lets the next attempt run; the caller decides whether to
+                // retry.
+                const OVERALL_WAIT_TIMEOUT: Duration = Duration::from_secs(60);
+                let wait_deadline = citadel_io::time::Instant::now() + OVERALL_WAIT_TIMEOUT;
                 let mut rx = rx.unwrap();
                 loop {
                     match citadel_io::time::timeout(WAIT_TIMEOUT, &mut rx).await {
@@ -651,10 +668,17 @@ where
                                 self.cid, version_at_entry, current_version, rkt_start.elapsed().as_millis());
                                 break;
                             }
-                            // Version unchanged after timeout - log and continue waiting
+                            // Version unchanged after this slice. Keep waiting,
+                            // but not forever -- see OVERALL_WAIT_TIMEOUT.
+                            if citadel_io::time::Instant::now() >= wait_deadline {
+                                log::warn!(target: "citadel", "[CBD-RKT-WAIT] Client {} giving up on rekey after {}ms, version still {}; releasing the rekey semaphore",
+                                self.cid, rkt_start.elapsed().as_millis(), current_version);
+                                return Err(citadel_io::error!(
+                                    citadel_io::ErrorCode::RekeyMessageTimeout
+                                ));
+                            }
                             log::debug!(target: "citadel", "[CBD-RKT-WAIT] Client {} waiting for listener, version unchanged at {}: elapsed={}ms",
                             self.cid, current_version, rkt_start.elapsed().as_millis());
-                            // Continue looping - the rekey might still complete
                         }
                     }
                 }
