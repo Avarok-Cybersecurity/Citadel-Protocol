@@ -15,6 +15,86 @@ pub mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    /// The conditions under which a connection case cannot run belong in ONE
+    /// place. They were duplicated, and the copies had drifted: the Windows
+    /// IPv6/QUIC skip existed in `test_tcp_or_tls` only, so
+    /// `test_many_proto_conns` went on binding `[::1]:0` on Windows.
+    fn unsupported_here(addr: SocketAddr) -> Option<&'static str> {
+        if !cfg!(feature = "multi-threaded") {
+            return Some("only works in multi-threaded mode");
+        }
+        if addr.is_ipv6() && !is_ipv6_enabled() {
+            return Some("ipv6 is not enabled locally");
+        }
+        // Windows IPv6 sockets in dual-stack mode make Quinn fail QUIC endpoint
+        // creation with WSAEINVAL (10022).
+        if addr.is_ipv6() && cfg!(windows) {
+            return Some("windows dual-stack ipv6 breaks QUIC endpoint creation");
+        }
+        None
+    }
+
+    /// Windows denies an ephemeral bind with WSAEACCES (10013) when the port the
+    /// OS happened to hand out lies inside a Hyper-V/WinNAT reserved range. The
+    /// denial is a property of that one port, not of the address, so asking the
+    /// OS for a different port is the correct response — a fresh `:0` bind draws
+    /// a new one.
+    ///
+    /// Deliberately narrow: it retries ONLY WSAEACCES, and ONLY when we asked for
+    /// an ephemeral port. A denial on an explicit port is a real configuration
+    /// error and is returned untouched, as is every other errno.
+    async fn bind_retrying_reserved_ports(
+        proto: ServerMode<NativeIO>,
+        addr: SocketAddr,
+    ) -> std::io::Result<(<NativeIO as ProtocolIO>::Listener, SocketAddr)> {
+        const ATTEMPTS: usize = 8;
+        const WSAEACCES: i32 = 10013;
+        for attempt in 1..=ATTEMPTS {
+            match NativeIO::bind(proto.clone(), addr).await {
+                Ok(bound) => return Ok(bound),
+                Err(e) if addr.port() == 0 && e.raw_os_error() == Some(WSAEACCES) => {
+                    log::warn!(target: "citadel", "bind {addr} denied (WSAEACCES) on attempt {attempt}/{ATTEMPTS}: the OS-chosen port is reserved; drawing another");
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("{ATTEMPTS} consecutive ephemeral ports for {addr} were reserved"),
+        ))
+    }
+
+    /// A bind failure must arrive with its errno and kind intact. These were
+    /// destroyed by `err.to_string()` conversions, so every failure read as
+    /// `ConnectionRefused` — a kind a bind cannot produce — and the errno
+    /// survived only as English inside the message. The retry that keeps Windows
+    /// CI green depends on reading the errno, and was inert until this held.
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    async fn bind_failure_preserves_errno_and_kind() {
+        citadel_logging::setup_log();
+        let occupant = citadel_io::tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap();
+        let taken = occupant.local_addr().unwrap();
+
+        let proto = ServerMode::OrderedReliable(NativeOrderedReliableConfig::new());
+        match NativeIO::bind(proto, taken).await {
+            Ok(_) => panic!("bind unexpectedly succeeded on an occupied port {taken}"),
+            Err(e) => {
+                assert_eq!(
+                    e.kind(),
+                    std::io::ErrorKind::AddrInUse,
+                    "kind was flattened; got {:?} ({e})",
+                    e.kind()
+                );
+                assert!(
+                    e.raw_os_error().is_some(),
+                    "errno was stringified away; got {e:?}"
+                );
+            }
+        }
+    }
+
     #[fixture]
     #[once]
     fn protocols() -> Vec<ServerMode<NativeIO>> {
@@ -77,27 +157,15 @@ pub mod tests {
     ) -> std::io::Result<()> {
         citadel_logging::setup_log();
 
-        if !is_ipv6_enabled() && addr.is_ipv6() {
-            log::trace!(target: "citadel", "Skipping ipv6 test since ipv6 is not enabled locally");
-            return Ok(());
-        }
-
-        // Skip IPv6 tests on Windows - Windows IPv6 sockets in dual-stack mode cause
-        // WSAEINVAL (error 10022) when Quinn creates QUIC endpoints
-        if cfg!(windows) && addr.is_ipv6() {
-            log::trace!(target: "citadel", "Skipping IPv6 test on Windows due to QUIC socket compatibility issues");
-            return Ok(());
-        }
-
-        if !cfg!(feature = "multi-threaded") {
-            log::warn!(target: "citadel", "Skipping test since only works on multi-threaded mode");
+        if let Some(reason) = unsupported_here(addr) {
+            log::warn!(target: "citadel", "Skipping {addr}: {reason}");
             return Ok(());
         }
 
         for proto in protocols {
             log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", proto, addr);
 
-            let res = NativeIO::bind(proto.clone(), addr).await;
+            let res = bind_retrying_reserved_ports(proto.clone(), addr).await;
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket: {err:?}");
@@ -148,13 +216,8 @@ pub mod tests {
     ) -> std::io::Result<()> {
         citadel_logging::setup_log();
 
-        if !cfg!(feature = "multi-threaded") {
-            log::trace!(target: "citadel", "Skipping test since only works on multi-threaded mode");
-            return Ok(());
-        }
-
-        if !is_ipv6_enabled() && addr.is_ipv6() {
-            log::warn!(target: "citadel", "Skipping ipv6 test since ipv6 is not enabled locally");
+        if let Some(reason) = unsupported_here(addr) {
+            log::warn!(target: "citadel", "Skipping {addr}: {reason}");
             return Ok(());
         }
 
@@ -163,7 +226,7 @@ pub mod tests {
             log::trace!(target: "citadel", "Testing proto {:?}", proto);
             let cnt = &AtomicUsize::new(0);
 
-            let res = NativeIO::bind(proto.clone(), addr).await;
+            let res = bind_retrying_reserved_ports(proto.clone(), addr).await;
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket w/mode {proto:?}: {err:?}");
