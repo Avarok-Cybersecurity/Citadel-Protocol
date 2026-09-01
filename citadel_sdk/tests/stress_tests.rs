@@ -164,9 +164,32 @@ mod tests {
                 .await?;
         }
 
-        let mut counter = HashMap::new();
+        let mut counter: HashMap<_, usize> = HashMap::new();
 
-        while let Some(msg) = rx.next().await {
+        // Bounded, and it says what was missing.
+        //
+        // This was `while let Some(msg) = rx.next().await`, so a shortfall of a
+        // single message left the loop waiting for the rest of the test: the
+        // break needs every one of the n-1 senders to reach `count` exactly. It
+        // surfaced as an rstest timeout with NO output, because the per-message
+        // log is trace-level and CI runs at `citadel=warn` — a 90s hang saying
+        // only that 90s had passed.
+        //
+        // The budget does not repair a shortfall; it makes the next one legible.
+        // "1 sender seen" and "sender X reached 487 of 500" are different bugs,
+        // and neither is distinguishable from a hang.
+        const RECEIVE_BUDGET: Duration = Duration::from_secs(30);
+        loop {
+            let msg = match citadel_io::tokio::time::timeout(RECEIVE_BUDGET, rx.next()).await {
+                Ok(Some(msg)) => msg,
+                Ok(None) => break,
+                Err(_) => panic!(
+                    "group broadcast stalled after {RECEIVE_BUDGET:?}: saw {} of {} expected \
+                     sender(s), per-sender counts {counter:?}, each needing {count}",
+                    counter.len(),
+                    total_peers - 1,
+                ),
+            };
             match msg {
                 GroupBroadcastPayload::Message { payload, sender } => {
                     let cur_idx = counter.entry(sender).or_insert(0usize);
