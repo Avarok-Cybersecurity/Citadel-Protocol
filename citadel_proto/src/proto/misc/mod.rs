@@ -46,7 +46,6 @@ pub mod lock_holder;
 pub mod panic_future;
 pub mod session_security_settings;
 
-#[cfg(not(target_family = "wasm"))]
 /// `citadel_wire` returns `anyhow::Error`. Converting it with `err.to_string()`
 /// destroys the errno AND the kind, so callers cannot distinguish
 /// "address in use" from "permission denied", or a connect timeout from a
@@ -64,6 +63,7 @@ pub(crate) fn io_error_from_anyhow(
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 pub mod native_bind;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_config;
