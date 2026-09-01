@@ -74,6 +74,30 @@ pub async fn process_deregister<R: Ratchet, T: PlatformOps>(
         );
         let header = &header;
         let session_cid = header.session_cid.get();
+
+        // The CID in the header must be the one this session authenticated as.
+        //
+        // Nothing bound them. `get_orientation_safe_ratchet(.., None)` returns
+        // the SESSION's own C2S ratchet, so the AEAD proves that the holder of
+        // this session's key wrote the header — not that the CID inside it is
+        // theirs. A connected client that writes somebody else's CID into a
+        // DO_DEREGISTER header therefore authenticated it perfectly well, and
+        // `deregister_client_from_self` below called
+        // `delete_client_by_cid(that value)`: any account, deleted by any
+        // authenticated user.
+        //
+        // The STAGE_SUCCESS branch already reads `session.session_cid` for
+        // exactly this reason; this is the same question asked one branch
+        // earlier. Left as a check rather than a substitution because the header
+        // value is what the rest of this function replies with, and for an
+        // honest client the two are equal.
+        if let Some(authenticated_cid) = session.session_cid.get() {
+            if session_cid != authenticated_cid {
+                log::warn!(target: "citadel", "Dropping deregister: header names {session_cid}, but this session authenticated as {authenticated_cid}");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+        }
+
         let security_level = header.security_level.into();
 
         match header.cmd_aux {
