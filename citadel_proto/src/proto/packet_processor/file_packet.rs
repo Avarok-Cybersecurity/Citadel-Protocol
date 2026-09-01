@@ -254,6 +254,26 @@ pub fn process_file_packet<R: Ratchet, T: PlatformOps>(
                                 ))
                             };
                             let virtual_target = header_to_response_vconn_type(&header);
+                            // Same binding as the deregister path: the C2S
+                            // ratchet that validated this packet is the
+                            // SESSION's, so the header's CID is attacker-chosen
+                            // for any connected client. This operates on that
+                            // user's RE-VFS, and the comment beside it already
+                            // says "the cid of the sender" — this is what makes
+                            // that true.
+                            // C2S only. A PEER's RE-VFS request is proxied
+                            // (target_cid != 0) and its header legitimately
+                            // names the peer, not this session — binding it
+                            // there broke test_p2p_file_transfer_revfs, which is
+                            // how the scope of this check was found.
+                            if let Some(authenticated_cid) = session.session_cid.get() {
+                                if header.target_cid.get() == 0
+                                    && header.session_cid.get() != authenticated_cid
+                                {
+                                    log::warn!(target: "citadel", "Dropping RE-VFS request: header names {}, session authenticated as {authenticated_cid}", header.session_cid.get());
+                                    return Ok(PrimaryProcessorResult::Void);
+                                }
+                            }
                             let revfs_cid = header.session_cid.get();
                             let resp_target_cid = get_resp_target_cid_from_header(&header);
                             let delete_on_pull = packet.delete_on_pull;
@@ -334,6 +354,26 @@ pub fn process_file_packet<R: Ratchet, T: PlatformOps>(
                         Some(payload) => {
                             let virtual_path = payload.virtual_path;
                             // we use the cid of the sender, because, they are requesting to alter data here
+                            // Same binding as the deregister path: the C2S
+                            // ratchet that validated this packet is the
+                            // SESSION's, so the header's CID is attacker-chosen
+                            // for any connected client. This operates on that
+                            // user's RE-VFS, and the comment beside it already
+                            // says "the cid of the sender" — this is what makes
+                            // that true.
+                            // C2S only. A PEER's RE-VFS request is proxied
+                            // (target_cid != 0) and its header legitimately
+                            // names the peer, not this session — binding it
+                            // there broke test_p2p_file_transfer_revfs, which is
+                            // how the scope of this check was found.
+                            if let Some(authenticated_cid) = session.session_cid.get() {
+                                if header.target_cid.get() == 0
+                                    && header.session_cid.get() != authenticated_cid
+                                {
+                                    log::warn!(target: "citadel", "Dropping RE-VFS request: header names {}, session authenticated as {authenticated_cid}", header.session_cid.get());
+                                    return Ok(PrimaryProcessorResult::Void);
+                                }
+                            }
                             let re_vfs_cid = header.session_cid.get();
                             let resp_target_cid = get_resp_target_cid_from_header(&header);
                             let pers = session.account_manager.get_persistence_handler().clone();
