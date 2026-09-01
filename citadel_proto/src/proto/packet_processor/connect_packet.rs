@@ -150,6 +150,17 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                     .udp_channel_oneshot_tx
                                     .rx
                                     .take();
+                                // A `None` here with udp_mode Enabled is the
+                                // asymmetry behind an intermittent CI failure:
+                                // the peer reports Some and asserts a UDP channel
+                                // this side never had. Not reproducible locally,
+                                // so it has to name itself when it next happens.
+                                if state_container.udp_mode
+                                    == citadel_types::prelude::UdpMode::Enabled
+                                    && udp_channel_rx.is_none()
+                                {
+                                    log::warn!(target: "citadel", "[udp-oneshot] receiver: udp_mode=Enabled but no channel receiver at connect STAGE0 — the initiator will disagree");
+                                }
                                 let channel = state_container.init_new_c2s_virtual_connection(
                                     &cnac,
                                     kernel_ticket,
@@ -323,6 +334,11 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 .udp_channel_oneshot_tx
                                 .rx
                                 .take();
+                            if state_container.udp_mode == citadel_types::prelude::UdpMode::Enabled
+                                && udp_channel_rx.is_none()
+                            {
+                                log::warn!(target: "citadel", "[udp-oneshot] initiator: udp_mode=Enabled but no channel receiver at connect SUCCESS");
+                            }
 
                             let channel = state_container.init_new_c2s_virtual_connection(
                                 &cnac,

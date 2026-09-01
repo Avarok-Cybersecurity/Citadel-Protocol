@@ -152,6 +152,27 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                     packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                                 sc.keep_alive_timeout_ns = kat;
                                 sc.udp_mode = udp_mode;
+                                // Install the UDP channel one-shot the moment we
+                                // LEARN udp mode is on, not when the hole punch
+                                // finishes.
+                                //
+                                // The receiver used to be created only in
+                                // `handle_success_as_receiver`, which runs after
+                                // `c2s_hole_punch().await`. The initiator does not
+                                // wait for that: once its own preconnect is done it
+                                // sends CONNECT STAGE0, and the STAGE0 handler takes
+                                // `udp_channel_oneshot_tx.rx`. On a loaded machine
+                                // that arrives while the punch is still in flight,
+                                // so the take found the sender still `empty()` and
+                                // handed the kernel `udp_channel_rx: None` — while
+                                // the initiator, which installs its own in
+                                // `begin_connect`, reported `Some`. The two sides
+                                // disagreed about whether UDP existed, and the punch
+                                // itself had succeeded: nothing failed, it was late.
+                                if udp_mode == UdpMode::Enabled {
+                                    sc.pre_connect_state.udp_channel_oneshot_tx =
+                                        UdpChannelSender::default();
+                                }
                                 sc.cnac = Some(cnac);
                                 session.session_cid.set(Some(header.session_cid.get()));
                                 sc.session_security_settings = Some(session_security_settings);
@@ -620,13 +641,14 @@ fn handle_success_as_receiver<R: Ratchet, T: PlatformOps>(
     state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
     state_container.pre_connect_state.on_packet_received();
 
-    if state_container
-        .pre_connect_state
-        .udp_channel_oneshot_tx
-        .tx
-        .is_none()
-    {
-        // TODO ensure this exists BEFORE udp socket loading
+    // Only when the pair has never been created. Testing `tx.is_none()` alone
+    // also fired once the UDP loader had TAKEN the sender, and the assignment
+    // then replaced the receiver that was holding the delivered channel with a
+    // fresh one nothing would ever send on — turning a working UDP channel into
+    // a permanent await. The sender is now installed in the SYN handler above,
+    // so this is a fallback for paths that reach here without one.
+    let sender = &state_container.pre_connect_state.udp_channel_oneshot_tx;
+    if sender.tx.is_none() && sender.rx.is_none() {
         state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
     }
 
