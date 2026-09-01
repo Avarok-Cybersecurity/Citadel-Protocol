@@ -624,8 +624,13 @@ fn handle_success_as_receiver<R: Ratchet, T: PlatformOps>(
     // also fired once the UDP loader had TAKEN the sender, and the assignment
     // then replaced the receiver that was holding the delivered channel with a
     // fresh one nothing would ever send on — turning a working UDP channel into
-    // a permanent await. The sender is now installed in the SYN handler above,
-    // so this is a fallback for paths that reach here without one.
+    // a permanent await.
+    //
+    // This IS the install; there is no earlier one. Installing the sender in the
+    // SYN handler was tried and reverted: it made the receiver present even when
+    // the hole punch had failed, so the assertion passed and then awaited a
+    // channel TCP-only mode never delivers — a 1.4s failure became a 90s hang.
+    // Its absence is how the fallback reports itself.
     let sender = &state_container.pre_connect_state.udp_channel_oneshot_tx;
     if sender.tx.is_none() && sender.rx.is_none() {
         state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
