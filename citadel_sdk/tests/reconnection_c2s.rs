@@ -27,13 +27,13 @@ mod tests {
         // Server setup - echo messages back
         let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
             move |mut connection| async move {
-                log::info!("[Server] Connection received");
+                log::info!(target: "citadel", "[Server] Connection received");
                 let channel = connection.take_channel().unwrap();
                 let (mut tx, mut rx) = channel.split();
 
                 // Echo messages back
                 while let Some(msg) = rx.next().await {
-                    log::trace!("[Server] Echoing message");
+                    log::trace!(target: "citadel", "[Server] Echoing message");
                     tx.send(msg).await?;
                 }
 
@@ -51,11 +51,11 @@ mod tests {
         let client_kernel = ReconnectionTestKernel::new(
             state_a_clone.clone(),
             move |remote: NodeRemote<StackedRatchet>, state: Arc<NodeState>| async move {
-                log::info!("[Client] Starting C2S reconnection test");
+                log::info!(target: "citadel", "[Client] Starting C2S reconnection test");
 
                 // ===== PHASE 0: Initial Setup =====
                 state.set_phase(0);
-                log::info!("[Client] Phase 0: Register + Connect + Rekey");
+                log::info!(target: "citadel", "[Client] Phase 0: Register + Connect + Rekey");
 
                 // Register
                 let reg_result = remote
@@ -66,7 +66,7 @@ mod tests {
                         password,
                     )
                     .await?;
-                log::info!("[Client] Registered with CID: {}", reg_result.cid);
+                log::info!(target: "citadel", "[Client] Registered with CID: {}", reg_result.cid);
                 state.set_cid(reg_result.cid).await;
 
                 // Connect
@@ -77,16 +77,16 @@ mod tests {
                     ))
                     .await?;
                 let cid_1 = conn.cid;
-                log::info!("[Client] Connected with CID: {}", cid_1);
+                log::info!(target: "citadel", "[Client] Connected with CID: {}", cid_1);
                 state.set_cid(cid_1).await;
 
                 // Rekey to advance ratchet version
                 let rekey_result = conn.rekey().await?;
-                log::info!("[Client] Rekey result: {:?}", rekey_result);
+                log::info!(target: "citadel", "[Client] Rekey result: {:?}", rekey_result);
 
                 // ===== PHASE 1: First USE =====
                 state.set_phase(1);
-                log::info!("[Client] Phase 1: Send 5 messages");
+                log::info!(target: "citadel", "[Client] Phase 1: Send 5 messages");
 
                 let channel = conn.take_channel().unwrap();
                 let (mut tx, mut rx) = channel.split();
@@ -103,18 +103,18 @@ mod tests {
                     state.increment_messages_received();
                 }
 
-                log::info!("[Client] Phase 1 complete: sent and received 5 messages");
+                log::info!(target: "citadel", "[Client] Phase 1 complete: sent and received 5 messages");
 
                 // ===== PHASE 2: Disconnect =====
                 state.set_phase(2);
-                log::info!("[Client] Phase 2: Disconnect");
+                log::info!(target: "citadel", "[Client] Phase 2: Disconnect");
 
                 conn.disconnect().await?;
-                log::info!("[Client] Disconnected");
+                log::info!(target: "citadel", "[Client] Disconnected");
 
                 // ===== PHASE 3: Reconnect Setup =====
                 state.set_phase(3);
-                log::info!("[Client] Phase 3: Reconnect");
+                log::info!(target: "citadel", "[Client] Phase 3: Reconnect");
 
                 // Reconnect (login, not register)
                 let mut conn2 = remote
@@ -124,7 +124,7 @@ mod tests {
                     ))
                     .await?;
                 let cid_2 = conn2.cid;
-                log::info!("[Client] Reconnected with CID: {}", cid_2);
+                log::info!(target: "citadel", "[Client] Reconnected with CID: {}", cid_2);
                 state.set_cid(cid_2).await;
 
                 // Verify CID unchanged
@@ -132,11 +132,11 @@ mod tests {
 
                 // Rekey again after reconnect
                 let rekey_result = conn2.rekey().await?;
-                log::info!("[Client] Rekey result after reconnect: {:?}", rekey_result);
+                log::info!(target: "citadel", "[Client] Rekey result after reconnect: {:?}", rekey_result);
 
                 // ===== PHASE 4: Post-Reconnect USE =====
                 state.set_phase(4);
-                log::info!("[Client] Phase 4: Send 5 more messages");
+                log::info!(target: "citadel", "[Client] Phase 4: Send 5 more messages");
 
                 let channel2 = conn2.take_channel().unwrap();
                 let (mut tx2, mut rx2) = channel2.split();
@@ -153,11 +153,11 @@ mod tests {
                     state.increment_messages_received();
                 }
 
-                log::info!("[Client] Phase 4 complete: sent and received 5 more messages");
+                log::info!(target: "citadel", "[Client] Phase 4 complete: sent and received 5 more messages");
 
                 // ===== PHASE 5: Verification =====
                 state.set_phase(5);
-                log::info!("[Client] Phase 5: Verify state");
+                log::info!(target: "citadel", "[Client] Phase 5: Verify state");
 
                 state.assert_final_state(
                     "Client A", 0,  // c2s_connect (intercepted)
@@ -186,6 +186,6 @@ mod tests {
             .expect("Test timed out");
 
         assert!(result.is_ok(), "Test failed: {:?}", result);
-        log::info!("Test 1 (C2S Reconnection) PASSED");
+        log::info!(target: "citadel", "Test 1 (C2S Reconnection) PASSED");
     }
 }
