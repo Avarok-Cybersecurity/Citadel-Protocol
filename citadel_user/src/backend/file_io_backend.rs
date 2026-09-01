@@ -308,6 +308,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             .memory_backend
             .remove_byte_map_value(session_cid, peer_cid, key, sub_key)
             .await?;
+        // Nothing removed, nothing to persist. Each of these saves is a full
+        // bincode of the account plus a whole-file overwrite, so a removal that
+        // found no key used to cost exactly as much as one that found it.
+        if res.is_none() {
+            return Ok(res);
+        }
         self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
@@ -319,10 +325,25 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
         sub_key: &str,
         value: Vec<u8>,
     ) -> Result<Option<Vec<u8>>, AccountError> {
+        // Rewriting the account file to store the value it already holds is the
+        // same cost as storing a new one. The comparison is a HashMap lookup and
+        // a memcmp against data already in memory; the write it can avoid is a
+        // bincode of every key ever stored for this CID plus a full-file
+        // overwrite. ILM re-stores unchanged tracker state per message, so this
+        // is the ordinary case, not an edge one.
+        let unchanged = matches!(
+            self.memory_backend
+                .get_byte_map_value(session_cid, peer_cid, key, sub_key)
+                .await?,
+            Some(existing) if existing == value
+        );
         let res = self
             .memory_backend
             .store_byte_map_value(session_cid, peer_cid, key, sub_key, value)
             .await?;
+        if unchanged {
+            return Ok(res);
+        }
         self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
@@ -332,11 +353,15 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
         peer_cid: u64,
         key: &str,
     ) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        let res = self
-            .memory_backend
+        // A READ. This used to call `save_cnac_by_cid` too, which serialises the
+        // entire ClientNetworkAccount — `byte_map` and all — and overwrites the
+        // account file. Reading changed nothing, so the write persisted nothing;
+        // it just made every key listing cost a full-account rewrite. Its
+        // single-value sibling `get_byte_map_value` never did this, which is
+        // what identifies it as a slip rather than a decision.
+        self.memory_backend
             .get_byte_map_values_by_key(session_cid, peer_cid, key)
-            .await?;
-        self.save_cnac_by_cid(session_cid).await.map(|_| res)
+            .await
     }
 
     async fn remove_byte_map_values_by_key(
@@ -349,6 +374,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             .memory_backend
             .remove_byte_map_values_by_key(session_cid, peer_cid, key)
             .await?;
+        if res.is_empty() {
+            return Ok(res);
+        }
         self.save_cnac_by_cid(session_cid).await.map(|_| res)
     }
 
