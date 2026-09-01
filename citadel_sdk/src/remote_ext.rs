@@ -1218,44 +1218,29 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             command: group_request,
         });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
-        while let Some(evt) = subscription.next().await {
-            // `into_result()?`, like every neighbouring method — this loop was
-            // the one that did not, so SignalError, OutboundRequestRejected and
-            // InternalServerError were all discarded along with the failure
-            // below.
-            match evt.into_result()? {
-                NodeResult::GroupChannelCreated(GroupChannelCreated {
-                    ticket: _,
-                    channel,
-                    session_cid: _,
-                }) => return Ok(channel),
 
-                // The server's answer to a Create it could not perform:
-                // `create_new_message_group` returns None when the owner
-                // already holds 256 groups, or when their `message_groups`
-                // entry is missing, and the reply is CreateResponse with no
-                // key on this very ticket. It reached this loop and fell
-                // through the `if let`, so the future never resolved and the
-                // caller's task parked forever. The broadcast prefab handles
-                // exactly this event as BroadcastCreateGroupFailed — the guard
-                // existed, in the prefab only.
-                NodeResult::GroupEvent(GroupEvent {
-                    event: GroupBroadcast::CreateResponse { key: None },
-                    ..
-                }) => {
-                    return Err(citadel_io::error!(
-                        citadel_io::ErrorCode::Generic,
-                        "The server refused to create the group"
-                    ))
-                }
-
-                _ => {}
-            }
+        // The loop lives in `group_create_wait` so its refusal paths can be
+        // tested without a running node: the only way to make a real server
+        // refuse a Create is to give the owner 256 groups first.
+        //
+        // It matched GroupChannelCreated and nothing else, and — alone among its
+        // neighbours — never called into_result(). So SignalError,
+        // OutboundRequestRejected and InternalServerError were discarded, and so
+        // was the server's own answer to a Create it could not perform:
+        // CreateResponse { key: None }, delivered on this very ticket. Every one
+        // of those left the caller parked on a stream that would never speak
+        // again. The broadcast prefab handles that same event as
+        // BroadcastCreateGroupFailed — the guard existed, in the prefab only.
+        match crate::group_create_wait::await_group_creation(&mut subscription).await? {
+            crate::group_create_wait::GroupCreation::Created(channel) => Ok(channel),
+            crate::group_create_wait::GroupCreation::Refused => Err(citadel_io::error!(
+                citadel_io::ErrorCode::Generic,
+                "The server refused to create the group"
+            )),
+            crate::group_create_wait::GroupCreation::Ended => Err(citadel_io::error!(
+                citadel_io::ErrorCode::RemoteCreateGroupEndedUnexpectedly
+            )),
         }
-
-        Err(citadel_io::error!(
-            citadel_io::ErrorCode::RemoteCreateGroupEndedUnexpectedly
-        ))
     }
 
     /// Lists all groups that which the current peer owns

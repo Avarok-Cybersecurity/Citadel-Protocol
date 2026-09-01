@@ -260,11 +260,13 @@ pub mod backend_kv_store;
 mod builder;
 /// Convenience functions for interacting with the remote encrypted virtual filesystem (RE-VFS)
 pub mod fs;
+/// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
+mod group_create_wait;
 /// Real-time audio/video transport bound to a connection (see [`citadel_media`])
 pub mod media;
 /// The prefabs module contains pre-built kernels for common use cases.
 pub mod prefabs;
-/// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
+
 pub mod remote_ext;
 /// For easy construction of replies to common message types
 pub mod responses;
