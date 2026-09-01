@@ -152,27 +152,6 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                     packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                                 sc.keep_alive_timeout_ns = kat;
                                 sc.udp_mode = udp_mode;
-                                // Install the UDP channel one-shot the moment we
-                                // LEARN udp mode is on, not when the hole punch
-                                // finishes.
-                                //
-                                // The receiver used to be created only in
-                                // `handle_success_as_receiver`, which runs after
-                                // `c2s_hole_punch().await`. The initiator does not
-                                // wait for that: once its own preconnect is done it
-                                // sends CONNECT STAGE0, and the STAGE0 handler takes
-                                // `udp_channel_oneshot_tx.rx`. On a loaded machine
-                                // that arrives while the punch is still in flight,
-                                // so the take found the sender still `empty()` and
-                                // handed the kernel `udp_channel_rx: None` — while
-                                // the initiator, which installs its own in
-                                // `begin_connect`, reported `Some`. The two sides
-                                // disagreed about whether UDP existed, and the punch
-                                // itself had succeeded: nothing failed, it was late.
-                                if udp_mode == UdpMode::Enabled {
-                                    sc.pre_connect_state.udp_channel_oneshot_tx =
-                                        UdpChannelSender::default();
-                                }
                                 sc.cnac = Some(cnac);
                                 session.session_cid.set(Some(header.session_cid.get()));
                                 sc.session_security_settings = Some(session_security_settings);
