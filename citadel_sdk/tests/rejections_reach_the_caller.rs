@@ -108,13 +108,14 @@ mod tests {
     /// A peer that hangs up mid-handshake, saying nothing at all.
     ///
     /// The case with no FAILURE packet to deliver: a server restart, a dropped
-    /// network, a listener that accepts and closes. Included as a regression
-    /// guard rather than as a control — it already passed before this branch's
-    /// changes, because the client fails earlier, at "Unable to get first
+    /// network, a listener that accepts and closes. A regression guard rather
+    /// than a control — it already passed before this branch, because a listener
+    /// that closes immediately fails the client earlier, at "Unable to get first
     /// packet", rather than through a clean EOF in its read loop.
     ///
-    /// That result is why the clean-EOF-while-provisional handling considered
-    /// here was dropped: no test could be made to reach it. See the branch notes.
+    /// The clean-EOF path IS reachable, just not from here: see
+    /// `a_registration_the_server_refuses_returns_its_reason`, which reaches it
+    /// whenever the final-reply flush loses its race.
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_peer_that_hangs_up_mid_handshake_is_reported() {
         citadel_logging::setup_log();
@@ -197,8 +198,20 @@ mod tests {
 
         let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
 
-        // The kernel returning at all — with an Err — is the assertion. Before
-        // the fix it never returned, so the timeout is the discriminator.
+        // Two layered fixes are under test here, and they fail differently.
+        //
+        // Returning AT ALL is the hard requirement, and it comes from the
+        // provisional-EOF handling in `execute`: whatever happens on the wire,
+        // the caller must not park forever. The timeout is its discriminator.
+        //
+        // Returning the SERVER's reason is the second, and it comes from the
+        // final-reply flush plus the stage-0 FAILURE guard. Disabling either of
+        // those leaves this test passing the first assertion and failing the
+        // second with the generic message — which is how their controls read.
+        //
+        // Disabling BOTH is what hangs, and that is the combination the original
+        // local controls missed: each fix alone looked unmeasurable because the
+        // other one covered for it. CI on ubuntu found it, at the full 20s.
         let outcome = citadel_io::tokio::time::timeout(MUST_ANSWER_WITHIN, async {
             citadel_io::tokio::select! {
                 _ = server => panic!("the server ended first"),

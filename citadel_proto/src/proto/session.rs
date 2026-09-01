@@ -136,6 +136,26 @@ enum SessionShutdownReason {
 /// and only on a session that is already ending.
 const FINAL_REPLY_FLUSH_YIELDS: usize = 8;
 
+/// How long to let the writer finish after those yields.
+///
+/// Paid only on a session that is already ending, and only when a handler
+/// actually queued a closing reply. Bounded rather than awaited-to-completion
+/// because the writer's channel has no drain signal to await, and because a peer
+/// that has already gone will never let the write finish.
+const FINAL_REPLY_FLUSH_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Which half of a session's future ended it.
+///
+/// `Deliberate` is this node calling `shutdown()` — a completed registration, a
+/// requested disconnect. `Stream` is the socket ending: EOF or a writer error.
+/// The distinction only matters for a session that is still provisional, where
+/// the two are otherwise indistinguishable `Ok(())`s with opposite meanings.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum SessionEnd {
+    Deliberate,
+    Stream,
+}
+
 impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
     pub fn strong_count(&self) -> usize {
         #[cfg(not(feature = "multi-threaded"))]
@@ -573,11 +593,21 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 cnac_opt,
             );
 
+            // Which half ended the session, not merely that one did.
+            //
+            // A registration that SUCCEEDS ends here too — the STAGE_SUCCESS
+            // handler emits RegisterOkay and calls `session.shutdown()`, which
+            // resolves the stopper. A registration that is REFUSED, or a peer
+            // that simply hangs up, ends with the stream. Both are `Ok(())` and
+            // both leave the session provisional, so the Ok arm below cannot tell
+            // them apart without knowing which future resolved — and it has to,
+            // because one of them must reach the caller as an error and the other
+            // must not.
             let session_future = spawn_handle!(async move {
                 citadel_io::tokio::select! {
-                    res0 = writer_future => res0,
-                    res1 = reader_future => res1,
-                    res2 = stopper_future => res2
+                    res0 = writer_future => res0.map(|_| SessionEnd::Stream),
+                    res1 = reader_future => res1.map(|_| SessionEnd::Stream),
+                    res2 = stopper_future => res2.map(|_| SessionEnd::Deliberate)
                 }
             });
 
@@ -623,6 +653,36 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         };
 
         match res {
+            Ok(SessionEnd::Stream) if this_close.is_provisional() => {
+                // The peer hung up mid-handshake, and nothing has been reported.
+                //
+                // A clean EOF resolves the read loop as Ok, and the Ok path emits
+                // nothing: `send_session_dc_signal` returns early for a CID-less
+                // session and Drop disables it for a provisional one. So
+                // `remote.register()` — an unbounded `subscription.next()` loop —
+                // waited on a stream that would never speak again, and the caller
+                // parked for the life of the process.
+                //
+                // This is the BACKSTOP under the final-reply flush above, not a
+                // duplicate of it. The flush decides whether the caller learns
+                // the server's actual reason; this decides whether the caller
+                // learns anything at all. It was briefly removed for being
+                // unmeasurable — disabling it alone left the suite green, because
+                // with the flush working the ordinary RegisterFailure path
+                // answers first — and CI then produced the case the local
+                // controls could not: on a loaded Linux runner the flush lost its
+                // race, the client saw a bare EOF, and the test hung for its full
+                // 20s budget. The measuring control is disabling BOTH.
+                //
+                // Scoped to a provisional session ended by the STREAM. A
+                // successful registration ends provisional too, but via
+                // `session.shutdown()` — the Deliberate arm — after RegisterOkay
+                // has already been sent.
+                let reason = "The connection ended before the handshake completed";
+                log::warn!(target: "citadel", "[DC_SIGNAL:execute] provisional session ended by peer | cid: {:?} | is_server: {}", session_cid.get(), this_close.is_server);
+                Err((NetworkError::generic(reason), session_cid.get()))
+            }
+
             Ok(_) => {
                 log::trace!(target: "citadel", "Done EXECUTING sess (Ok(())) | cid: {:?} | is_server: {}", this_close.session_cid.get(), this_close.is_server);
                 Ok(session_cid.get())
@@ -1020,6 +1080,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     for _ in 0..FINAL_REPLY_FLUSH_YIELDS {
                         citadel_io::tokio::task::yield_now().await;
                     }
+                    // The yields alone are a race, and CI won it against us: on a
+                    // loaded Linux runner the writer had not finished its socket
+                    // write when the reader returned, so the peer saw a bare EOF
+                    // and lost the reason. A session that is ending can afford
+                    // the wait; a peer that never learns why cannot.
+                    citadel_io::tokio::time::sleep(FINAL_REPLY_FLUSH_GRACE).await;
                 }
                 log::error!(target: "citadel", "[PrimaryProcessor] session ending: {err:?} | Session end state: {:?}", session.state.get());
                 Err(std::io::Error::other(err))
