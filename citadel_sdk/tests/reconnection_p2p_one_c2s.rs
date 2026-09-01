@@ -86,7 +86,7 @@ mod tests {
                 let peer_username = peer_username_b;
 
                 async move {
-                    log::info!("[Peer A] Starting");
+                    log::info!(target: "citadel", "[Peer A] Starting");
 
                     // ===== PHASE 0: Register, Connect, P2P Setup =====
                     state.set_phase(0);
@@ -100,7 +100,7 @@ mod tests {
                             password,
                         )
                         .await?;
-                    log::info!("[Peer A] Registered CID={}", reg.cid);
+                    log::info!(target: "citadel", "[Peer A] Registered CID={}", reg.cid);
                     state.set_cid(reg.cid).await;
 
                     // Connect
@@ -110,31 +110,31 @@ mod tests {
                             password,
                         ))
                         .await?;
-                    log::info!("[Peer A] C2S Connected");
+                    log::info!(target: "citadel", "[Peer A] C2S Connected");
 
                     // Rekey C2S
                     conn.rekey().await?;
-                    log::info!("[Peer A] C2S Rekey done");
+                    log::info!(target: "citadel", "[Peer A] C2S Rekey done");
 
                     // Wait for Peer B before P2P operations
                     wait_for_peers().await;
-                    log::info!("[Peer A] All peers ready for P2P");
+                    log::info!(target: "citadel", "[Peer A] All peers ready for P2P");
 
                     // P2P Register with B
                     let peer_handle = conn.propose_target(reg.cid, peer_username.clone()).await?;
                     let _reg_status = peer_handle.register_to_peer().await?;
-                    log::info!("[Peer A] P2P Registered with peer B");
+                    log::info!(target: "citadel", "[Peer A] P2P Registered with peer B");
 
                     // P2P Connect
                     let p2p = peer_handle.connect_to_peer().await?;
-                    log::info!("[Peer A] P2P Connected");
+                    log::info!(target: "citadel", "[Peer A] P2P Connected");
 
                     let channel = p2p.channel;
                     let (mut tx, mut rx) = channel.split();
 
                     // Rekey P2P
                     p2p.remote.rekey().await?;
-                    log::info!("[Peer A] P2P Rekey done");
+                    log::info!(target: "citadel", "[Peer A] P2P Rekey done");
 
                     // ===== PHASE 1: First USE =====
                     state.set_phase(1);
@@ -153,7 +153,7 @@ mod tests {
                         state.increment_messages_received();
                     }
 
-                    log::info!("[Peer A] Phase 1 complete");
+                    log::info!(target: "citadel", "[Peer A] Phase 1 complete");
 
                     // ===== PHASE 2: Wait for B to disconnect C2S =====
                     state.set_phase(2);
@@ -179,14 +179,14 @@ mod tests {
                     // Reconnect P2P - already registered, just need to connect
                     let peer_handle2 = conn.find_target(conn.cid, peer_username.clone()).await?;
                     let p2p2 = peer_handle2.connect_to_peer().await?;
-                    log::info!("[Peer A] P2P Reconnected");
+                    log::info!(target: "citadel", "[Peer A] P2P Reconnected");
 
                     let channel2 = p2p2.channel;
                     let (mut tx2, mut rx2) = channel2.split();
 
                     // Rekey P2P
                     p2p2.remote.rekey().await?;
-                    log::info!("[Peer A] P2P Rekey done after reconnect");
+                    log::info!(target: "citadel", "[Peer A] P2P Rekey done after reconnect");
 
                     // ===== PHASE 4: Post-Reconnect USE =====
                     state.set_phase(4);
@@ -205,7 +205,7 @@ mod tests {
                         state.increment_messages_received();
                     }
 
-                    log::info!("[Peer A] Phase 4 complete");
+                    log::info!(target: "citadel", "[Peer A] Phase 4 complete");
 
                     // ===== PHASE 5: Verification =====
                     state.set_phase(5);
@@ -242,7 +242,7 @@ mod tests {
                 let peer_username = peer_username_a;
 
                 async move {
-                    log::info!("[Peer B] Starting");
+                    log::info!(target: "citadel", "[Peer B] Starting");
 
                     // ===== PHASE 0: Register, Connect, P2P Setup =====
                     state.set_phase(0);
@@ -256,7 +256,7 @@ mod tests {
                             password,
                         )
                         .await?;
-                    log::info!("[Peer B] Registered CID={}", reg.cid);
+                    log::info!(target: "citadel", "[Peer B] Registered CID={}", reg.cid);
                     state.set_cid(reg.cid).await;
 
                     // Connect
@@ -266,31 +266,31 @@ mod tests {
                             password,
                         ))
                         .await?;
-                    log::info!("[Peer B] C2S Connected");
+                    log::info!(target: "citadel", "[Peer B] C2S Connected");
 
                     // Rekey C2S
                     conn.rekey().await?;
-                    log::info!("[Peer B] C2S Rekey done");
+                    log::info!(target: "citadel", "[Peer B] C2S Rekey done");
 
                     // Wait for Peer A before P2P operations
                     wait_for_peers().await;
-                    log::info!("[Peer B] All peers ready for P2P");
+                    log::info!(target: "citadel", "[Peer B] All peers ready for P2P");
 
                     // P2P Register with A
                     let peer_handle = conn.propose_target(reg.cid, peer_username.clone()).await?;
                     let _reg_status = peer_handle.register_to_peer().await?;
-                    log::info!("[Peer B] P2P Registered with peer A");
+                    log::info!(target: "citadel", "[Peer B] P2P Registered with peer A");
 
                     // P2P Connect
                     let p2p = peer_handle.connect_to_peer().await?;
-                    log::info!("[Peer B] P2P Connected");
+                    log::info!(target: "citadel", "[Peer B] P2P Connected");
 
                     let channel = p2p.channel;
                     let (mut tx, mut rx) = channel.split();
 
                     // Rekey P2P
                     p2p.remote.rekey().await?;
-                    log::info!("[Peer B] P2P Rekey done");
+                    log::info!(target: "citadel", "[Peer B] P2P Rekey done");
 
                     // ===== PHASE 1: First USE =====
                     state.set_phase(1);
@@ -309,7 +309,7 @@ mod tests {
                         state.increment_messages_received();
                     }
 
-                    log::info!("[Peer B] Phase 1 complete");
+                    log::info!(target: "citadel", "[Peer B] Phase 1 complete");
 
                     // ===== PHASE 2: B disconnects C2S (triggers P2P disconnect) =====
                     state.set_phase(2);
@@ -320,7 +320,7 @@ mod tests {
 
                     // Disconnect C2S - this should trigger P2P disconnect to A
                     conn.disconnect().await?;
-                    log::info!("[Peer B] C2S Disconnected (triggers P2P disconnect to A)");
+                    log::info!(target: "citadel", "[Peer B] C2S Disconnected (triggers P2P disconnect to A)");
 
                     barrier2.wait().await;
 
@@ -334,26 +334,26 @@ mod tests {
                             password,
                         ))
                         .await?;
-                    log::info!("[Peer B] C2S Reconnected");
+                    log::info!(target: "citadel", "[Peer B] C2S Reconnected");
                     state.set_cid(conn2.cid).await;
 
                     // Rekey C2S again
                     conn2.rekey().await?;
-                    log::info!("[Peer B] C2S Rekey done after reconnect");
+                    log::info!(target: "citadel", "[Peer B] C2S Rekey done after reconnect");
 
                     barrier3.wait().await;
 
                     // Reconnect P2P - already registered, just need to connect
                     let peer_handle2 = conn2.find_target(conn2.cid, peer_username.clone()).await?;
                     let p2p2 = peer_handle2.connect_to_peer().await?;
-                    log::info!("[Peer B] P2P Reconnected");
+                    log::info!(target: "citadel", "[Peer B] P2P Reconnected");
 
                     let channel2 = p2p2.channel;
                     let (mut tx2, mut rx2) = channel2.split();
 
                     // Rekey P2P
                     p2p2.remote.rekey().await?;
-                    log::info!("[Peer B] P2P Rekey done after reconnect");
+                    log::info!(target: "citadel", "[Peer B] P2P Rekey done after reconnect");
 
                     // ===== PHASE 4: Post-Reconnect USE =====
                     state.set_phase(4);
@@ -372,7 +372,7 @@ mod tests {
                         state.increment_messages_received();
                     }
 
-                    log::info!("[Peer B] Phase 4 complete");
+                    log::info!(target: "citadel", "[Peer B] Phase 4 complete");
 
                     // ===== PHASE 5: Verification =====
                     state.set_phase(5);
@@ -415,6 +415,6 @@ mod tests {
             .expect("Test timed out");
 
         assert!(result.is_ok(), "Test failed: {:?}", result);
-        log::info!("Test 2 (P2P After ONE C2S Disconnect) PASSED");
+        log::info!(target: "citadel", "Test 2 (P2P After ONE C2S Disconnect) PASSED");
     }
 }
