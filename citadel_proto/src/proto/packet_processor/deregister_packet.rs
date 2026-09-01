@@ -217,10 +217,17 @@ async fn deregister_from_hyperlan_server_as_client<R: Ratchet, T: PlatformOps>(
         }
     };
 
+    // `success`, not a literal. The value is computed two statements above from
+    // `delete_client_by_cid` and was then thrown away here while the dc signal
+    // below used it — the server-side sibling threads the same variable into the
+    // same field, which is what makes this a slip rather than a decision. The
+    // SDK's deregister loop returns Ok(()) on the first `success: true` and
+    // nothing downstream reads the dc signal's flag, so a local delete that
+    // failed was reported to the caller as a completed deregistration.
     session.send_to_kernel(NodeResult::DeRegistration(DeRegistration {
         session_cid,
         ticket_opt: dereg_ticket,
-        success: true,
+        success,
     }))?;
 
     session.send_session_dc_signal(

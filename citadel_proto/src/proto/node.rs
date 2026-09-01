@@ -402,16 +402,36 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             )
         };
 
+        /// Report a synchronous rejection of an outbound request.
+        ///
+        /// `cid_opt` must carry the CID of the request being rejected, or the
+        /// error never reaches the caller waiting on it. `send_callback_subscription`
+        /// registers its listener under `CallbackKey { ticket, session_cid:
+        /// request.session_cid() }`, and `session_cid()` is `Some` for
+        /// PeerCommand, ReKey, SendObject, PullObject, DeleteObject,
+        /// GroupBroadcastCommand, Deregister and Disconnect. `search_for_value`
+        /// refuses to match a cid-less result against a listener that expects
+        /// one — "we expect a cid, but the received does not have one" — so an
+        /// error stamped `None` fell through to the kernel's default handler,
+        /// the subscription received nothing, and the SDK loops awaiting it
+        /// never terminated: their stream only ends when the receiver drops, and
+        /// the receiver is what the hung caller is holding.
+        ///
+        /// So `register_to_peer` on a session that is no longer Connected, or
+        /// `create_group` for a CID no longer in the session map, parked a tokio
+        /// task and a callback-map entry permanently, and the real reason
+        /// (SessionNotConnected, DispatchSessionNotFound) never reached anyone.
         fn send_error<K: Ratchet>(
             to_kernel_tx: &UnboundedSender<NodeResult<K>>,
             ticket_id: Ticket,
+            cid_opt: Option<u64>,
             err: NetworkError,
         ) -> Result<(), NetworkError> {
             let err = err.into_string();
             if to_kernel_tx
                 .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                     ticket_opt: Some(ticket_id),
-                    cid_opt: None,
+                    cid_opt,
                     message: err.clone(),
                 }))
                 .is_err()
@@ -424,11 +444,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         }
 
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.recv().await {
-            if let Some(cid) = outbound_request.session_cid() {
+            // Read before the match destructures the request: this is the CID
+            // the caller's callback listener was registered under, and every
+            // rejection below has to carry it. See `send_error`.
+            let request_cid = outbound_request.session_cid();
+            if let Some(cid) = request_cid {
                 if cid == 0 {
                     send_error(
                         &to_kernel_tx,
                         ticket_id,
+                        request_cid,
                         error!(
                             ErrorCode::KernelZeroCidRequest,
                             format!("{outbound_request:?}")
@@ -447,7 +472,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         session_cid,
                         cmd,
                     ) {
-                        send_error(&to_kernel_tx, ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                     }
                 }
 
@@ -477,7 +502,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                             let to_kernel_tx = to_kernel_tx.clone();
                             let task = async move {
                                 if let Err(err) = session.await {
-                                    let _ = send_error(&to_kernel_tx, ticket_id, err);
+                                    let _ = send_error(&to_kernel_tx, ticket_id, request_cid, err);
                                 }
                             };
 
@@ -485,7 +510,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         }
 
                         Err(err) => {
-                            send_error(&to_kernel_tx, ticket_id, err)?;
+                            send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                         }
                     }
                 }
@@ -518,21 +543,21 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                             let to_kernel_tx = to_kernel_tx.clone();
                             let task = async move {
                                 if let Err(err) = session.await {
-                                    let _ = send_error(&to_kernel_tx, ticket_id, err);
+                                    let _ = send_error(&to_kernel_tx, ticket_id, request_cid, err);
                                 }
                             };
                             spawn!(task);
                         }
 
                         Err(err) => {
-                            send_error(&to_kernel_tx, ticket_id, err)?;
+                            send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                         }
                     }
                 }
 
                 NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { session_cid }) => {
                     if let Err(err) = session_manager.initiate_disconnect(session_cid, ticket_id) {
-                        send_error(&to_kernel_tx, ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                     }
                 }
 
@@ -542,7 +567,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     if let Err(err) = session_manager
                         .initiate_update_entropy_bank_subroutine(virtual_target, ticket_id)
                     {
-                        send_error(&to_kernel_tx, ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                     }
                 }
 
@@ -555,7 +580,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         virtual_connection_type,
                         ticket_id,
                     ) {
-                        send_error(&to_kernel_tx, ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                     }
                 }
 
@@ -573,7 +598,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         )
                         .await
                     {
-                        send_error(&to_kernel_tx, ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                     }
                 }
 
@@ -593,7 +618,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         SecurityLevel::Standard,
                         transfer_type,
                     ) {
-                        send_error(&to_kernel_tx, ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                     }
                 }
 
@@ -611,7 +636,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         delete_on_pull,
                         transfer_security_level,
                     ) {
-                        send_error(&to_kernel_tx, ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                     }
                 }
 
@@ -627,7 +652,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         virtual_dir,
                         security_level,
                     ) {
-                        send_error(&to_kernel_tx, ticket_id, err)?;
+                        send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
                     }
                 }
 
@@ -644,6 +669,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                         send_error(
                             &to_kernel_tx,
                             ticket_id,
+                            request_cid,
                             NetworkError::generic(err.to_string()),
                         )?;
                     }

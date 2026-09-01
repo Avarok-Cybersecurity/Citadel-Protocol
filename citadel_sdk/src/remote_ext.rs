@@ -1219,13 +1219,37 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         });
         let mut subscription = self.remote().send_callback_subscription(request).await?;
         while let Some(evt) = subscription.next().await {
-            if let NodeResult::GroupChannelCreated(GroupChannelCreated {
-                ticket: _,
-                channel,
-                session_cid: _,
-            }) = evt
-            {
-                return Ok(channel);
+            // `into_result()?`, like every neighbouring method — this loop was
+            // the one that did not, so SignalError, OutboundRequestRejected and
+            // InternalServerError were all discarded along with the failure
+            // below.
+            match evt.into_result()? {
+                NodeResult::GroupChannelCreated(GroupChannelCreated {
+                    ticket: _,
+                    channel,
+                    session_cid: _,
+                }) => return Ok(channel),
+
+                // The server's answer to a Create it could not perform:
+                // `create_new_message_group` returns None when the owner
+                // already holds 256 groups, or when their `message_groups`
+                // entry is missing, and the reply is CreateResponse with no
+                // key on this very ticket. It reached this loop and fell
+                // through the `if let`, so the future never resolved and the
+                // caller's task parked forever. The broadcast prefab handles
+                // exactly this event as BroadcastCreateGroupFailed — the guard
+                // existed, in the prefab only.
+                NodeResult::GroupEvent(GroupEvent {
+                    event: GroupBroadcast::CreateResponse { key: None },
+                    ..
+                }) => {
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::Generic,
+                        "The server refused to create the group"
+                    ))
+                }
+
+                _ => {}
             }
         }
 

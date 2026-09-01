@@ -442,11 +442,28 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
             packet_flags::cmd::aux::do_register::FAILURE => {
                 log::trace!(target: "citadel", "STAGE FAILURE REGISTER PACKET");
                 // This node is again Bob. Alice received Bob's stage1 packet, but was unable to connect
-                // A failure can be sent at any stage greater than the zeroth
+                //
+                // A failure is meaningful once we have SENT something. The guard
+                // used to be `last_stage > STAGE0`, on the stated premise that "a
+                // failure can be sent at any stage greater than the zeroth" — but
+                // the server answers stage 0 itself with a FAILURE, for a
+                // transient registration against a server with
+                // `allow_transient_connections: false` (register_packet.rs
+                // STAGE0) and for every stage-0 validation failure. `last_stage`
+                // is still its default 0 at that point, because only the STAGE1
+                // handler ever advances it, so the client dropped the packet, sent
+                // no RegisterFailure, and the server then closed the stream. A
+                // clean EOF resolves the read loop as Ok and emits nothing, so
+                // `remote.register()` — an unbounded `subscription.next()` loop —
+                // never returned.
+                //
+                // `last_packet_time` is written in exactly one place,
+                // `handle_zero_state`, as stage 0 goes out. It is the marker the
+                // old guard was reaching for: registration is in flight.
                 if inner_state!(session.state_container)
                     .register_state
-                    .last_stage
-                    > packet_flags::cmd::aux::do_register::STAGE0
+                    .last_packet_time
+                    .is_some()
                 {
                     if let Some(error_message) =
                         validation::do_register::validate_failure(&header, &payload[..])
@@ -466,7 +483,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         "Registration subroutine ended (Status: FAIL)",
                     ))
                 } else {
-                    log::warn!(target: "citadel", "A failure packet was received, but the program's registration did not advance past stage 0. Dropping");
+                    log::warn!(target: "citadel", "A failure packet was received, but this node never sent a registration request. Dropping");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
