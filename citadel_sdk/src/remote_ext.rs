@@ -1449,10 +1449,43 @@ pub mod results {
         }
     }
 
+    /// The peer's answer to a registration request.
+    ///
+    /// `Ok` means the request completed, not that it was accepted — a decline is
+    /// a successful round trip with the answer "no". This type derived nothing,
+    /// so a caller could neither compare it nor log it, and all three real
+    /// callers wrote `Ok(_)` / `let _ =` and carried on as though the peer had
+    /// said yes. `peer_connection.rs` then issued a PostConnect to a peer that
+    /// had just declined and waited out a 60s RemoteP2pConnectTimeout, reporting
+    /// that instead of the decline the SDK had in hand.
+    ///
+    /// The derives are the fix for the type; `is_accepted` is the fix for the
+    /// call sites, which needed something shorter to write than the mistake.
+    #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum PeerRegisterStatus {
         Accepted,
         Declined,
         Failed { reason: Option<String> },
+    }
+
+    impl PeerRegisterStatus {
+        /// Did the peer say yes?
+        pub fn is_accepted(&self) -> bool {
+            matches!(self, PeerRegisterStatus::Accepted)
+        }
+
+        /// The reason this was not an acceptance, or `None` if it was.
+        pub fn refusal_reason(&self) -> Option<String> {
+            match self {
+                PeerRegisterStatus::Accepted => None,
+                PeerRegisterStatus::Declined => Some("The peer declined the request".to_string()),
+                PeerRegisterStatus::Failed { reason } => Some(
+                    reason
+                        .clone()
+                        .unwrap_or_else(|| "The registration request failed".to_string()),
+                ),
+            }
+        }
     }
 
     #[derive(Clone, Debug)]

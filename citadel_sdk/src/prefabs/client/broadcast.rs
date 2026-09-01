@@ -210,7 +210,15 @@ where
                     let handle = connect_success
                         .propose_target(local_user.clone(), owner_orig.clone())
                         .await?;
-                    let _ = handle.register_to_peer().await?;
+                    // Ok is not acceptance — see PeerRegisterStatus. A declined
+                    // owner used to surface as BroadcastJoinUserNotRegistered,
+                    // which describes the consequence rather than the cause.
+                    let registration = handle.register_to_peer().await?;
+                    if let Some(reason) = registration.refusal_reason() {
+                        return Err(NetworkError::generic(format!(
+                            "Cannot join the group: registering with its owner failed: {reason}"
+                        )));
+                    }
                     // wait_for_peers().await;
                     owner_orig
                         .search_peer(session_cid, connect_success.account_manager())

@@ -236,3 +236,72 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "localhost-testing"))]
+mod register_status_tests {
+    //! A decline is an `Ok`, and every caller treated `Ok` as acceptance.
+    //!
+    //! `PeerRegisterStatus` derived nothing — no `Debug`, no `PartialEq` — so a
+    //! caller could neither compare it nor log it, and all three real ones wrote
+    //! `Ok(_)` or `let _ = ...?`. `peer_connection.rs` then issued a PostConnect
+    //! to a peer that had just said no and waited out a 60s
+    //! RemoteP2pConnectTimeout, reporting a timeout instead of the refusal the
+    //! SDK already had in hand.
+    //!
+    //! These are unit tests of the type, deliberately: the call-site fix is a
+    //! `refusal_reason()` check, and the thing worth pinning is that the type
+    //! can express the distinction at all. A type with no derives is what made
+    //! `Ok(_)` the path of least resistance.
+    use citadel_sdk::prelude::results::PeerRegisterStatus;
+
+    #[test]
+    fn only_accepted_counts_as_accepted() {
+        assert!(PeerRegisterStatus::Accepted.is_accepted());
+        assert!(!PeerRegisterStatus::Declined.is_accepted());
+        assert!(!PeerRegisterStatus::Failed { reason: None }.is_accepted());
+    }
+
+    #[test]
+    fn a_refusal_always_carries_a_reason_and_an_acceptance_never_does() {
+        assert_eq!(PeerRegisterStatus::Accepted.refusal_reason(), None);
+
+        // Every non-acceptance must produce something a caller can show a user.
+        // `Failed { reason: None }` is the case that would otherwise return an
+        // empty string and read as "no reason given" to the code above it.
+        for refused in [
+            PeerRegisterStatus::Declined,
+            PeerRegisterStatus::Failed { reason: None },
+            PeerRegisterStatus::Failed {
+                reason: Some("peer did not answer in time".to_string()),
+            },
+        ] {
+            let reason = refused
+                .refusal_reason()
+                .expect("a refusal must give a reason");
+            assert!(!reason.is_empty(), "empty reason for {refused:?}");
+        }
+    }
+
+    #[test]
+    fn the_protocols_own_reason_survives() {
+        // The SDK maps PeerResponse::Timeout to Failed { reason: Some(..) }.
+        // Losing that string in favour of a generic one would put the caller
+        // back where it started.
+        let timeout = PeerRegisterStatus::Failed {
+            reason: Some("Timeout on register request. Peer did not accept in time".to_string()),
+        };
+        assert_eq!(
+            timeout.refusal_reason().unwrap(),
+            "Timeout on register request. Peer did not accept in time",
+        );
+    }
+
+    #[test]
+    fn the_status_can_be_compared_and_logged() {
+        // The derives ARE the fix for the type. Without them a caller cannot
+        // write anything but `Ok(_)`, which is exactly what every caller wrote.
+        assert_eq!(PeerRegisterStatus::Accepted, PeerRegisterStatus::Accepted);
+        assert_ne!(PeerRegisterStatus::Accepted, PeerRegisterStatus::Declined);
+        assert!(format!("{:?}", PeerRegisterStatus::Declined).contains("Declined"));
+    }
+}
