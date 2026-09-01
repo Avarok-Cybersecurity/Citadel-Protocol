@@ -1112,19 +1112,53 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { session_cid: cid });
 
             let mut subscription = self.remote().send_callback_subscription(request).await?;
-            while let Some(event) = subscription.next().await {
-                if let NodeResult::Disconnect(Disconnect {
-                    success, message, ..
-                }) = event.into_result()?
-                {
-                    return if success {
-                        Ok(())
-                    } else {
-                        Err(citadel_io::error!(
-                            citadel_io::ErrorCode::RemoteDisconnected,
-                            message
+            // Bounded, because this wait is otherwise the end of the line.
+            //
+            // The stream closing is handled below, but a subscription that
+            // stays OPEN and simply never carries the matching Disconnect
+            // parks here for ever. That is the reconnection suite's 240s
+            // timeout: with the phase markers reaching CI, both peers finish
+            // phase one and the disconnecting side never logs the line after
+            // this call, while the other blocks on the barrier it never
+            // reaches. The only await between those two markers is this one.
+            //
+            // The session is being torn down either way, so an unconfirmed
+            // disconnect is reported rather than waited on: a caller can retry
+            // or proceed, and neither is possible from inside an indefinite
+            // await.
+            const DISCONNECT_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(30);
+            let deadline = citadel_io::time::Instant::now() + DISCONNECT_CONFIRMATION_TIMEOUT;
+            loop {
+                let remaining =
+                    deadline.saturating_duration_since(citadel_io::time::Instant::now());
+                if remaining.is_zero() {
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::RemoteDisconnectEventMissing
+                    ));
+                }
+                match citadel_io::time::timeout(remaining, subscription.next()).await {
+                    Ok(Some(event)) => {
+                        if let NodeResult::Disconnect(Disconnect {
+                            success, message, ..
+                        }) = event.into_result()?
+                        {
+                            return if success {
+                                Ok(())
+                            } else {
+                                Err(citadel_io::error!(
+                                    citadel_io::ErrorCode::RemoteDisconnected,
+                                    message
+                                ))
+                            };
+                        }
+                    }
+                    // The stream ended without ever carrying the event.
+                    Ok(None) => break,
+                    Err(_elapsed) => {
+                        return Err(citadel_io::error!(
+                            citadel_io::ErrorCode::RemoteDisconnectEventMissing
                         ))
-                    };
+                    }
                 }
             }
 
