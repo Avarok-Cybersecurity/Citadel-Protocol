@@ -43,7 +43,7 @@ pub fn create_listener(
 
         ServerMode::OrderedReliable(NativeOrderedReliableConfig { listener: None }) => {
             let listener = citadel_wire::socket_helpers::get_tcp_listener(bind)
-                .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
+                .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::AddrNotAvailable))?;
             let bind = listener.local_addr()?;
             Ok((
                 GenericNetworkListener::new_tcp(listener, redirect_to_quic)?,
@@ -57,7 +57,7 @@ pub fn create_listener(
             is_self_signed,
         }) => {
             let listener = citadel_wire::socket_helpers::get_tcp_listener(bind)
-                .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
+                .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::AddrNotAvailable))?;
             log::trace!(target: "citadel", "Setting up TLS listener socket on {bind:?}");
             let bind = listener.local_addr()?;
             let tls_listener =
@@ -74,8 +74,8 @@ pub fn create_listener(
             let mut quic = if let Some(quic) = quic_endpoint_opt {
                 quic
             } else {
-                let udp_socket =
-                    citadel_wire::socket_helpers::get_udp_socket(bind).map_err(generic_error)?;
+                let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind)
+                    .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::AddrNotAvailable))?;
                 QuicServer::create(udp_socket, crypto).map_err(generic_error)?
             };
             let bind = quic.endpoint.local_addr()?;

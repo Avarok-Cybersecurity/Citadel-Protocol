@@ -36,7 +36,7 @@ pub async fn c2s_connect(
     let mut stream =
         citadel_wire::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT))
             .await
-            .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
+            .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::ConnectionRefused))?;
     let bind_addr = stream.local_addr()?;
     log::trace!(target: "citadel", "C2S Bind addr: {bind_addr:?}");
     let first_packet = read_first_packet(&mut stream, timeout).await?;

@@ -299,13 +299,57 @@ pub async fn udp_mode_assertions<R: Ratchet>(
             let chan = udp_channel_rx_opt.unwrap().await.unwrap();
             citadel_logging::info!(target: "citadel", "Inside UDP mode assertions AB2 ...");
             let (tx, mut rx) = chan.split();
-            tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
-            assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
-            citadel_logging::info!(target: "citadel", "Inside UDP mode assertions AB2.5 ...");
-            tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
-            assert_eq!(rx.next().await.unwrap().as_ref(), b"Hello, world!");
-            // wait to give time for the other side to receive the message
-            citadel_io::time::sleep(Duration::from_millis(500)).await;
+
+            // UDP does not promise delivery, and this used to assert that it
+            // does: two datagrams sent, two receives awaited, both unbounded.
+            // One dropped datagram blocked `rx.next()` for the rest of the test
+            // and died at the 180s timeout with no indication of where.
+            //
+            // Every connected PAIR runs this, so the exposure scales with the
+            // peer count — which is exactly the observed pattern:
+            // `test_peer_to_peer_file_transfer::case_2` (3 peers, 3 pairs)
+            // timed out where `case_1` (2 peers, 1 pair) passed in seconds.
+            //
+            // Resending until the echo arrives tests what was meant — that the
+            // channel carries datagrams — without asserting a guarantee UDP has
+            // never made. The bound turns a silent 180s hang into a failure that
+            // says what did not happen.
+            const RESEND_EVERY: Duration = Duration::from_millis(200);
+            const RESENDS_BEFORE_GIVING_UP: usize = 150; // 30s
+            for exchange in ["first", "second"] {
+                let mut delivered = false;
+                for _ in 0..RESENDS_BEFORE_GIVING_UP {
+                    tx.unbounded_send(b"Hello, world!" as &[u8]).unwrap();
+                    match citadel_io::time::timeout(RESEND_EVERY, rx.next()).await {
+                        Ok(Some(message)) => {
+                            assert_eq!(message.as_ref(), b"Hello, world!");
+                            delivered = true;
+                            break;
+                        }
+                        Ok(None) => panic!("the UDP channel closed during the {exchange} exchange"),
+                        Err(_) => continue, // dropped; send it again
+                    }
+                }
+                assert!(
+                    delivered,
+                    "no UDP datagram came back in 30s during the {exchange} exchange",
+                );
+                if exchange == "first" {
+                    citadel_logging::info!(target: "citadel", "Inside UDP mode assertions AB2.5 ...");
+                }
+            }
+            // Keep SENDING while waiting, not just waiting.
+            //
+            // The exchange is mutual: each side sends and each side expects to
+            // receive. A peer that completes first used to stop sending and
+            // sleep, which strands a peer whose datagram was lost — it resends
+            // into somebody who will never answer. That is why resend-only
+            // recovered the 2-peer case and not the 3-peer one, where a peer
+            // holds two connections and finishes one before the other.
+            for _ in 0..15 {
+                let _ = tx.unbounded_send(b"Hello, world!" as &[u8]);
+                citadel_io::time::sleep(Duration::from_millis(200)).await;
+            }
             //wait_for_peers().await;
             std::mem::forget((tx, rx)); // do not run destructor to not trigger premature
         }

@@ -46,6 +46,23 @@ pub mod lock_holder;
 pub mod panic_future;
 pub mod session_security_settings;
 
+/// `citadel_wire` returns `anyhow::Error`. Converting it with `err.to_string()`
+/// destroys the errno AND the kind, so callers cannot distinguish
+/// "address in use" from "permission denied", or a connect timeout from a
+/// refusal, without parsing English. The underlying `io::Error` is still in the
+/// anyhow chain — recover it, and fall back to `fallback` only for errors that
+/// genuinely did not originate from the OS.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn io_error_from_anyhow(
+    err: anyhow::Error,
+    fallback: std::io::ErrorKind,
+) -> std::io::Error {
+    match err.downcast::<std::io::Error>() {
+        Ok(io_err) => io_err,
+        Err(other) => std::io::Error::new(fallback, other.to_string()),
+    }
+}
+
 #[cfg(not(target_family = "wasm"))]
 pub mod native_bind;
 #[cfg(not(target_family = "wasm"))]

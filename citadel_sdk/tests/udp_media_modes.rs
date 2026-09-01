@@ -22,6 +22,31 @@ mod tests {
     use citadel_sdk::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::{server_info_reactive, wait_for_peers, TestBarrier};
+
+    /// Await one datagram, bounded, saying what was being waited for.
+    ///
+    /// UDP does not promise delivery and these assertions awaited it unbounded,
+    /// so one dropped datagram parked the test until its timeout with no
+    /// indication of which exchange stalled — the shape that made a 180s hang in
+    /// the peer-to-peer transfer test unreadable until it was bounded.
+    ///
+    /// Bounding, not resending. The echo here is strictly counted: the server
+    /// echoes exactly two payloads, so a resent datagram would draw an extra
+    /// echo, exhaust that count early and strand the second exchange. Making the
+    /// test tolerate loss needs the echo protocol changed, which is a larger
+    /// change than this earns; naming the failure is what is safe to do now.
+    async fn recv_bounded<S>(rx: &mut S, waiting_for: &str) -> S::Item
+    where
+        S: futures::Stream + Unpin,
+    {
+        use futures::StreamExt;
+        const BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+        match citadel_io::tokio::time::timeout(BUDGET, rx.next()).await {
+            Ok(Some(item)) => item,
+            Ok(None) => panic!("the UDP channel closed before {waiting_for} arrived"),
+            Err(_) => panic!("no UDP datagram within {BUDGET:?} while waiting for {waiting_for}"),
+        }
+    }
     use futures::StreamExt;
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -175,8 +200,8 @@ mod tests {
                 wait_for_peers().await;
                 // Echo two payloads back (whatever level the client used; receiver is
                 // self-describing).
-                for _ in 0..2 {
-                    let msg = rx.next().await.unwrap();
+                for exchange in ["first", "second"] {
+                    let msg = recv_bounded(&mut rx, exchange).await;
                     tx.unbounded_send(msg.as_ref()).unwrap();
                 }
                 server_success.store(true, Ordering::SeqCst);
@@ -204,13 +229,15 @@ mod tests {
                 let err = tx.unbounded_send(BytesMut::zeroed(max + 1)).unwrap_err();
                 assert_eq!(err.code(), ErrorCode::UdpDatagramTooLarge);
                 tx.unbounded_send(b"standard level" as &[u8]).unwrap();
-                assert_eq!(rx.next().await.unwrap().as_ref(), b"standard level");
+                let echoed = recv_bounded(&mut rx, "the standard-level echo").await;
+                assert_eq!(echoed.as_ref(), b"standard level");
 
                 // 2. Raised security level: budget shrinks by one AEAD layer and data round-trips.
                 tx.set_security_level(SecurityLevel::Reinforced);
                 assert_eq!(tx.max_payload_len(), max - 32);
                 tx.unbounded_send(b"reinforced level" as &[u8]).unwrap();
-                assert_eq!(rx.next().await.unwrap().as_ref(), b"reinforced level");
+                let echoed = recv_bounded(&mut rx, "the reinforced-level echo").await;
+                assert_eq!(echoed.as_ref(), b"reinforced level");
 
                 client_success.store(true, Ordering::Relaxed);
                 citadel_sdk::test_common::finish_udp_channel(tx, rx).await;
