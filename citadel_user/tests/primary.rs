@@ -479,6 +479,141 @@ mod tests {
         .await
     }
 
+    /// Every write to the account file, counted by deleting it and asking
+    /// whether the operation puts it back.
+    ///
+    /// The filesystem backend persists a byte-map mutation by serialising the
+    /// ENTIRE `ClientNetworkAccount` — ratchet state plus every key ever stored
+    /// for that CID — and overwriting the file. That is inherent to the format.
+    /// What was not inherent: doing it for operations that changed nothing.
+    ///
+    ///   * `get_byte_map_values_by_key` is a READ and saved anyway, so listing
+    ///     keys cost a full-account rewrite. Its single-value sibling
+    ///     `get_byte_map_value` never did, which is what marks it as a slip.
+    ///   * a remove that removed nothing, and a store of the value already
+    ///     held, each cost exactly as much as one that changed something. ILM
+    ///     re-stores unchanged tracker state per message, so that is the
+    ///     ordinary case.
+    ///
+    /// Deleting the file between operations is the measurement: if the
+    /// operation saves, the file comes back.
+    #[cfg(feature = "filesystem")]
+    #[tokio::test]
+    async fn a_byte_map_read_does_not_rewrite_the_account_file() -> Result<(), AccountError> {
+        use citadel_user::prelude::CNAC_SERIALIZED_EXTENSION;
+
+        citadel_logging::setup_log();
+        let BackendType::Filesystem(home) = generate_random_filesystem_dir() else {
+            panic!("generate_random_filesystem_dir stopped returning a filesystem backend");
+        };
+        let container =
+            TestContainer::new(BackendType::InMemory, BackendType::Filesystem(home.clone())).await;
+        let pers = container.client_acc_mgr.get_persistence_handler().clone();
+        let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+        let cid = client.get_cid();
+
+        /// This CID's account file under `home`, wherever the layout puts it.
+        ///
+        /// Named by CID rather than "the only .hca file": the SDK also keeps a
+        /// `0.hca` — the shared local-only account documented as the node's KV
+        /// store — beside it.
+        fn account_file(home: &str, cid: u64) -> std::path::PathBuf {
+            fn walk(dir: &std::path::Path, cid: u64, out: &mut Vec<std::path::PathBuf>) {
+                let Ok(entries) = std::fs::read_dir(dir) else {
+                    return;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        walk(&path, cid, out);
+                    } else if path.extension().and_then(|e| e.to_str())
+                        == Some(CNAC_SERIALIZED_EXTENSION)
+                        && path.file_stem().and_then(|e| e.to_str()) == Some(&cid.to_string())
+                    {
+                        out.push(path);
+                    }
+                }
+            }
+            let mut found = Vec::new();
+            walk(std::path::Path::new(home), cid, &mut found);
+            assert_eq!(
+                found.len(),
+                1,
+                "expected exactly one account file for {cid}: {found:?}"
+            );
+            found.remove(0)
+        }
+
+        let path = account_file(&home, cid);
+        let value = Vec::from("a value");
+
+        // A store of a NEW value must write — without this the assertions below
+        // pass on a backend that never persists anything at all.
+        std::fs::remove_file(&path).unwrap();
+        pers.store_byte_map_value(cid, 1234, "k", "sub", value.clone())
+            .await?;
+        assert!(path.exists(), "storing a new value must persist it");
+
+        // Storing the value it already holds changes nothing.
+        std::fs::remove_file(&path).unwrap();
+        pers.store_byte_map_value(cid, 1234, "k", "sub", value.clone())
+            .await?;
+        assert!(
+            !path.exists(),
+            "re-storing an identical value rewrote the account file"
+        );
+
+        // A read is a read.
+        pers.get_byte_map_value(cid, 1234, "k", "sub").await?;
+        assert!(
+            !path.exists(),
+            "get_byte_map_value rewrote the account file"
+        );
+        let listed = pers.get_byte_map_values_by_key(cid, 1234, "k").await?;
+        assert_eq!(listed.get("sub"), Some(&value), "the read must still read");
+        assert!(
+            !path.exists(),
+            "get_byte_map_values_by_key rewrote the account file"
+        );
+
+        // A removal that finds nothing removes nothing.
+        pers.remove_byte_map_value(cid, 1234, "k", "absent").await?;
+        assert!(
+            !path.exists(),
+            "a removal that removed nothing rewrote the account file"
+        );
+        pers.remove_byte_map_values_by_key(cid, 4321, "absent")
+            .await?;
+        assert!(
+            !path.exists(),
+            "a by-key removal that removed nothing rewrote the file"
+        );
+
+        // The controls: mutations that DO change something must still persist.
+        pers.store_byte_map_value(cid, 1234, "k", "sub", Vec::from("different"))
+            .await?;
+        assert!(path.exists(), "storing a changed value must persist it");
+
+        std::fs::remove_file(&path).unwrap();
+        pers.remove_byte_map_value(cid, 1234, "k", "sub").await?;
+        assert!(
+            path.exists(),
+            "a removal that removed something must persist it"
+        );
+
+        pers.store_byte_map_value(cid, 1234, "k", "sub", value.clone())
+            .await?;
+        std::fs::remove_file(&path).unwrap();
+        pers.remove_byte_map_values_by_key(cid, 1234, "k").await?;
+        assert!(
+            path.exists(),
+            "a by-key removal that removed something must persist it"
+        );
+
+        container.purge().await;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_byte_map() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
