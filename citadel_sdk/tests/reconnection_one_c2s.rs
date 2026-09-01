@@ -166,6 +166,7 @@ mod tests {
                     state.wait_for_p2p_disconnect(Duration::from_secs(30)).await;
 
                     log::info!(
+                        target: "citadel",
                         "[Peer A] P2P disconnect received count: {}",
                         state.p2p_disconnect_received_count.load(Ordering::SeqCst)
                     );
