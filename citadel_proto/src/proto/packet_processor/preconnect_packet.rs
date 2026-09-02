@@ -715,6 +715,26 @@ fn handle_success_as_receiver<R: Ratchet, T: PlatformOps>(
                 Some(tcp_loaded_alerter_rx),
             );
         }
+    } else if state_container.udp_mode == UdpMode::Enabled {
+        // The punch failed, and this side has to say so — the same way the
+        // server's own fallback does at the STAGE0 handler.
+        //
+        // This branch only WARNED. On the initiator that leaves the pair from
+        // `session.rs` intact, so `connect_packet.rs` takes a receiver that is
+        // `Some` and hands it to the caller, and nothing will ever send on it.
+        // The SDK's documented use is to await that receiver, so a client behind
+        // an uncooperative NAT awaited forever while the connection itself was
+        // fine over TCP. The comment above records that exact outcome — "a 1.4s
+        // failure became a 90s hang" — as the reason an earlier install attempt
+        // was reverted; it was already shipping here, from the other direction.
+        //
+        // `empty()` rather than dropping only the sender, so the answer is the
+        // one every other site already uses: no receiver means no UDP. A
+        // receiver that resolves to an error would be a second encoding of the
+        // same fact, and this mechanism has enough of those.
+        log::warn!(target: "citadel", "No UDP splittable was specified; falling back to TCP only and reporting UDP as unavailable");
+        state_container.udp_mode = UdpMode::Disabled;
+        state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::empty();
     } else {
         log::warn!(target: "citadel", "No UDP splittable was specified. UdpMode: {:?}", state_container.udp_mode);
     }
