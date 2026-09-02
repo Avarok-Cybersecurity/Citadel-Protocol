@@ -489,7 +489,18 @@ where
                         }
 
                         log::info!(target: "citadel", "{session_cid} registering to peer {id:?}");
-                        let _reg_success = handle.register_to_peer().await?;
+                        // A decline is an Ok. This read `let _reg_success = ...?`
+                        // and then logged "success -> now connecting", so a peer
+                        // that had just said no was sent a PostConnect and the
+                        // caller waited out a 60s RemoteP2pConnectTimeout —
+                        // reporting a timeout instead of the refusal the SDK
+                        // already had.
+                        let registration = handle.register_to_peer().await?;
+                        if let Some(reason) = registration.refusal_reason() {
+                            return Err(NetworkError::generic(format!(
+                                "Cannot connect to peer {id:?}: {reason}"
+                            )));
+                        }
                         log::info!(target: "citadel", "{session_cid} registered to peer {id:?} registered || success -> now connecting");
                         handle
                     };

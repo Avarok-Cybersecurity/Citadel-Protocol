@@ -128,6 +128,34 @@ enum SessionShutdownReason {
     Error(NetworkError),
 }
 
+/// How many times the reader yields so the writer can flush a final reply.
+///
+/// The two share one task through the `select!` in `execute`, so the writer only
+/// runs when the reader is not ready. One yield lets the writer take the packet
+/// off the queue; the rest cover the awaits inside its own write path. Cheap,
+/// and only on a session that is already ending.
+const FINAL_REPLY_FLUSH_YIELDS: usize = 8;
+
+/// How long to let the writer finish after those yields.
+///
+/// Paid only on a session that is already ending, and only when a handler
+/// actually queued a closing reply. Bounded rather than awaited-to-completion
+/// because the writer's channel has no drain signal to await, and because a peer
+/// that has already gone will never let the write finish.
+const FINAL_REPLY_FLUSH_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Which half of a session's future ended it.
+///
+/// `Deliberate` is this node calling `shutdown()` — a completed registration, a
+/// requested disconnect. `Stream` is the socket ending: EOF or a writer error.
+/// The distinction only matters for a session that is still provisional, where
+/// the two are otherwise indistinguishable `Ok(())`s with opposite meanings.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum SessionEnd {
+    Deliberate,
+    Stream,
+}
+
 impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
     pub fn strong_count(&self) -> usize {
         #[cfg(not(feature = "multi-threaded"))]
@@ -565,11 +593,21 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 cnac_opt,
             );
 
+            // Which half ended the session, not merely that one did.
+            //
+            // A registration that SUCCEEDS ends here too — the STAGE_SUCCESS
+            // handler emits RegisterOkay and calls `session.shutdown()`, which
+            // resolves the stopper. A registration that is REFUSED, or a peer
+            // that simply hangs up, ends with the stream. Both are `Ok(())` and
+            // both leave the session provisional, so the Ok arm below cannot tell
+            // them apart without knowing which future resolved — and it has to,
+            // because one of them must reach the caller as an error and the other
+            // must not.
             let session_future = spawn_handle!(async move {
                 citadel_io::tokio::select! {
-                    res0 = writer_future => res0,
-                    res1 = reader_future => res1,
-                    res2 = stopper_future => res2
+                    res0 = writer_future => res0.map(|_| SessionEnd::Stream),
+                    res1 = reader_future => res1.map(|_| SessionEnd::Stream),
+                    res2 = stopper_future => res2.map(|_| SessionEnd::Deliberate)
                 }
             });
 
@@ -615,6 +653,36 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         };
 
         match res {
+            Ok(SessionEnd::Stream) if this_close.is_provisional() => {
+                // The peer hung up mid-handshake, and nothing has been reported.
+                //
+                // A clean EOF resolves the read loop as Ok, and the Ok path emits
+                // nothing: `send_session_dc_signal` returns early for a CID-less
+                // session and Drop disables it for a provisional one. So
+                // `remote.register()` — an unbounded `subscription.next()` loop —
+                // waited on a stream that would never speak again, and the caller
+                // parked for the life of the process.
+                //
+                // This is the BACKSTOP under the final-reply flush above, not a
+                // duplicate of it. The flush decides whether the caller learns
+                // the server's actual reason; this decides whether the caller
+                // learns anything at all. It was briefly removed for being
+                // unmeasurable — disabling it alone left the suite green, because
+                // with the flush working the ordinary RegisterFailure path
+                // answers first — and CI then produced the case the local
+                // controls could not: on a loaded Linux runner the flush lost its
+                // race, the client saw a bare EOF, and the test hung for its full
+                // 20s budget. The measuring control is disabling BOTH.
+                //
+                // Scoped to a provisional session ended by the STREAM. A
+                // successful registration ends provisional too, but via
+                // `session.shutdown()` — the Deliberate arm — after RegisterOkay
+                // has already been sent.
+                let reason = "The connection ended before the handshake completed";
+                log::warn!(target: "citadel", "[DC_SIGNAL:execute] provisional session ended by peer | cid: {:?} | is_server: {}", session_cid.get(), this_close.is_server);
+                Err((NetworkError::generic(reason), session_cid.get()))
+            }
+
             Ok(_) => {
                 log::trace!(target: "citadel", "Done EXECUTING sess (Ok(())) | cid: {:?} | is_server: {}", this_close.session_cid.get(), this_close.is_server);
                 Ok(session_cid.get())
@@ -937,7 +1005,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             )
         };
 
-        fn evaluate_result<R: Ratchet, T: PlatformOps>(
+        async fn evaluate_result<R: Ratchet, T: PlatformOps>(
             result: Result<PrimaryProcessorResult, NetworkError>,
             primary_stream: &OutboundPrimaryStreamSender,
             kernel_tx: &UnboundedSender<NodeResult<R>>,
@@ -945,6 +1013,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             cid_opt: Option<u64>,
         ) -> std::io::Result<()> {
             let mut session_closing_error: Option<String> = None;
+            let mut queued_a_final_reply = false;
             match &result {
                 Ok(
                     PrimaryProcessorResult::ReplyToSender { .. }
@@ -956,6 +1025,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             // Set state to Disconnecting immediately so new connection attempts can wait
                             session.state.set(SessionState::Disconnecting);
                             session_closing_error = Some(err.to_string());
+                            queued_a_final_reply = true;
                             packet
                         }
                         _ => unreachable!(),
@@ -994,6 +1064,29 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             }
 
             if let Some(err) = session_closing_error {
+                // The reply this variant is named for is only QUEUED at this
+                // point: `send_to_primary_stream_closure` pushes onto a channel,
+                // and the reader and the writer share one task through the
+                // `select!` in `execute`. Returning Err here ends the reader,
+                // which resolves that select and drops the writer — so the packet
+                // the handler crafted was discarded unsent, and a server refusing
+                // a registration at stage 0 simply hung up. The client then saw a
+                // bare EOF and lost the reason entirely.
+                //
+                // Yield so the select can poll the writer branch. Bounded, and
+                // best effort: this session is ending either way, and a peer that
+                // is gone cannot be told anything.
+                if queued_a_final_reply {
+                    for _ in 0..FINAL_REPLY_FLUSH_YIELDS {
+                        citadel_io::tokio::task::yield_now().await;
+                    }
+                    // The yields alone are a race, and CI won it against us: on a
+                    // loaded Linux runner the writer had not finished its socket
+                    // write when the reader returned, so the peer saw a bare EOF
+                    // and lost the reason. A session that is ending can afford
+                    // the wait; a peer that never learns why cannot.
+                    citadel_io::tokio::time::sleep(FINAL_REPLY_FLUSH_GRACE).await;
+                }
                 log::error!(target: "citadel", "[PrimaryProcessor] session ending: {err:?} | Session end state: {:?}", session.state.get());
                 Err(std::io::Error::other(err))
             } else {
@@ -1117,7 +1210,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 // properly at the source — the disconnect responder transitions to `Disconnecting`
                 // before replying FINAL (see disconnect_packet.rs), so the reconnect deterministically
                 // takes the event-driven wait-for-clean-drop path. No sleep needed.)
-                evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid)
+                evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid).await
             })
             .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer_cid))
             .await;

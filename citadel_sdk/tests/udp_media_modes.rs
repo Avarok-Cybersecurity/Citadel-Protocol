@@ -47,7 +47,6 @@ mod tests {
             Err(_) => panic!("no UDP datagram within {BUDGET:?} while waiting for {waiting_for}"),
         }
     }
-    use futures::StreamExt;
     use rstest::rstest;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
