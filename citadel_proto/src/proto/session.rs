@@ -697,7 +697,33 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                 log::warn!(target: "citadel", "[DC_SIGNAL:execute] C2S session ending | cid: {:?} | ticket: {} | reason: {} | strong_count: {} | is_provisional: {}",
                     cid, ticket.0, reason.as_str(), this_close.strong_count(), this_close.is_provisional());
-                this_close.send_session_dc_signal(Some(ticket), false, "Inbound stream ending");
+                // `None`, not `Some(ticket)` — `ticket` here is the KERNEL
+                // ticket, and passing it takes the `(Some(explicit), _)` branch
+                // in `send_session_dc_signal`, which is precisely the branch
+                // that skips `pending_c2s_disconnect_ticket`.
+                //
+                // That field exists for this exact situation, and its own
+                // comment says so: "an application-initiated disconnect must
+                // resolve with ITS ticket even when the session ends abruptly
+                // (lost FINAL)". This arm defeated it. So when the stream ended
+                // between `disconnect()` sending STAGE0 and the FINAL being
+                // processed, the signal went to `{kernel_ticket, cid}` — a key
+                // nobody holds — and `try_c2s_disconnect` then suppressed the
+                // FINAL handler's correctly-ticketed signal as a duplicate. The
+                // caller's subscription received NOTHING and timed out after 30s
+                // with `RemoteDisconnectEventMissing`.
+                //
+                // Found by the `[dc-wait]` probe: "the subscription carried 0
+                // other event(s)". Zero is what rules out a misrouted Disconnect
+                // among live traffic and points at nothing being routed here at
+                // all.
+                //
+                // With `None`, the match resolves `(None, Some(pending))` to the
+                // caller's own ticket and reports success — the session is gone,
+                // which is what `disconnect()` asked for. With no pending
+                // disconnect it falls to `(None, None)` and behaves exactly as
+                // before.
+                this_close.send_session_dc_signal(None, false, "Inbound stream ending");
 
                 Err((err, cid))
             }
