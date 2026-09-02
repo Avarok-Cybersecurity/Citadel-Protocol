@@ -48,6 +48,19 @@ use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 
+/// How long the preconnect SUCCESS handler will wait for this side's own hole
+/// punch before answering anyway.
+///
+/// Bounded because the alternative to answering is a connection that never
+/// completes. The punch itself is already bounded by the hole puncher's own
+/// timeout, so reaching this means something has gone wrong that this handler
+/// cannot fix; today's behaviour — answer, and report no UDP — is the better
+/// failure.
+const PUNCH_RESOLVE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+/// How often to re-check. The wait is normally zero iterations; the observed
+/// losing margin is about a millisecond.
+const PUNCH_RESOLVE_POLL: std::time::Duration = std::time::Duration::from_millis(1);
+
 /// Handles preconnect packets. Handles the NAT traversal
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
     level = "trace",
@@ -420,6 +433,59 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     log::trace!(target: "citadel", "RECV STAGE SUCCESS PRE CONNECT PACKET");
                 } else {
                     log::trace!(target: "citadel", "RECV STAGE FAILURE PRE CONNECT PACKET");
+                }
+
+                // Do not answer BEGIN_CONNECT until THIS side's hole punch has
+                // resolved.
+                //
+                // `success = true` below is set from the PEER's packet, and the
+                // connect STAGE0 gate asks only for that
+                // (`connect_packet.rs:74`). Inbound packets are processed
+                // concurrently (`session.rs`, `try_for_each_concurrent(64)`), so
+                // the STAGE0 handler that installs the UDP one-shot is still
+                // pending while this replies. The initiator then sends connect
+                // STAGE0, this side takes a receiver that was never installed,
+                // and reports `udp_rx_opt: None` for a connection whose UDP is
+                // about to work — while the late install hands a fresh pair to
+                // nobody and the loader fills an unbounded channel no one reads.
+                //
+                // The window is roughly a millisecond on loopback, which is why
+                // it took three CI failures in thirty days to see. It is entirely
+                // the initiator's `WinnerCanEnd` arriving before this side's own
+                // punch future is polled: the hole-punch loser returns as soon as
+                // it sends that, the winner only after receiving it.
+                //
+                // `last_stage == SUCCESS` is the signal, and it already exists —
+                // both branches of the STAGE0 handler set it, the successful one
+                // through `handle_success_as_receiver` and the TCP fallback
+                // directly. Bounded, and only entered when UDP is still expected:
+                // a timeout leaves exactly today's behaviour rather than a
+                // connection that never completes.
+                {
+                    let waiting = {
+                        let state_container = inner_state!(session.state_container);
+                        state_container.udp_mode == UdpMode::Enabled
+                            && state_container.pre_connect_state.last_stage
+                                != packet_flags::cmd::aux::do_preconnect::SUCCESS
+                    };
+                    if waiting {
+                        let deadline = citadel_io::tokio::time::Instant::now() + PUNCH_RESOLVE_WAIT;
+                        loop {
+                            citadel_io::tokio::time::sleep(PUNCH_RESOLVE_POLL).await;
+                            let resolved = {
+                                let state_container = inner_state!(session.state_container);
+                                state_container.pre_connect_state.last_stage
+                                    == packet_flags::cmd::aux::do_preconnect::SUCCESS
+                            };
+                            if resolved {
+                                break;
+                            }
+                            if citadel_io::tokio::time::Instant::now() >= deadline {
+                                log::warn!(target: "citadel", "[udp-oneshot] hole punch had not resolved within {PUNCH_RESOLVE_WAIT:?} of the peer's preconnect SUCCESS; answering anyway");
+                                break;
+                            }
+                        }
+                    }
                 }
 
                 let timestamp = session.time_tracker.get_global_time_ns();
