@@ -919,19 +919,57 @@ mod tests {
                                 .expect("Failed to send file");
                         } else {
                             // TODO: route file-transfer + other events to peer channel
-                            let mut handle = conn
-                                .incoming_object_transfer_handles
-                                .take()
-                                .unwrap()
-                                .recv()
-                                .await
-                                .unwrap();
+                            // Bounded, so a failure names the stage it stopped at.
+                            //
+                            // `case_2` times out at the rstest budget of 180s on
+                            // macOS, intermittently, and the report is the bare
+                            // "Timeout 180s expired" — which cannot say whether
+                            // the handle never arrived, or arrived and the
+                            // transfer then stalled part way. Those are different
+                            // bugs. Two other intermittent failures in this suite
+                            // were solved this session by exactly this move, and
+                            // neither yielded to reading the code.
+                            //
+                            // The budgets are generous fractions of the 180s the
+                            // test already allows, so this cannot turn a slow
+                            // machine into a failure it would not otherwise have
+                            // had — it only replaces silence with a sentence.
+                            const HANDLE_BUDGET: std::time::Duration =
+                                std::time::Duration::from_secs(60);
+                            const STATUS_BUDGET: std::time::Duration =
+                                std::time::Duration::from_secs(60);
+
+                            let mut handles = conn.incoming_object_transfer_handles.take().unwrap();
+                            let mut handle = match citadel_io::tokio::time::timeout(
+                                HANDLE_BUDGET,
+                                handles.recv(),
+                            )
+                            .await
+                            {
+                                Ok(Some(handle)) => handle,
+                                Ok(None) => panic!(
+                                    "the incoming-transfer channel closed before any handle arrived"
+                                ),
+                                Err(_) => panic!(
+                                    "no incoming file-transfer handle within {HANDLE_BUDGET:?}: the sender never started, or its request never routed here"
+                                ),
+                            };
                             handle.accept().unwrap();
 
                             use citadel_types::proto::ObjectTransferStatus;
                             use futures::StreamExt;
                             let mut path = None;
-                            while let Some(status) = handle.next().await {
+                            while let Some(status) = match citadel_io::tokio::time::timeout(
+                                STATUS_BUDGET,
+                                handle.next(),
+                            )
+                            .await
+                            {
+                                Ok(status) => status,
+                                Err(_) => panic!(
+                                    "the transfer stalled: no status within {STATUS_BUDGET:?}, last seen {path:?}"
+                                ),
+                            } {
                                 match status {
                                     ObjectTransferStatus::ReceptionComplete => {
                                         let cmp =
