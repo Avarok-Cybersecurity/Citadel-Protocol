@@ -179,7 +179,8 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 {
                                     log::warn!(
                                         target: "citadel",
-                                        "[udp-oneshot] receiver: udp_mode=Enabled but no channel receiver at connect STAGE0 (preconnect last_stage={}, SUCCESS={}) — the initiator will disagree",
+                                        "[udp-oneshot] receiver: udp_mode=Enabled but no channel receiver at connect STAGE0 (is_server={}, preconnect last_stage={}, SUCCESS={}) — the initiator will disagree",
+                                        session.is_server,
                                         state_container.pre_connect_state.last_stage,
                                         packet_flags::cmd::aux::do_preconnect::SUCCESS,
                                     );
