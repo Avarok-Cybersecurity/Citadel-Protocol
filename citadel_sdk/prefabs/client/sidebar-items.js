@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ServerConnectionSettings"],"mod":["broadcast","peer_connection","single_connection"],"struct":["ServerConnectionSettingsBuilder"],"trait":["PrefabFunctions"],"type":["DefaultServerConnectionSettingsBuilder"]};

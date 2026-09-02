@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["remote_specialization","results"],"struct":["CitadelClientServerConnection","RegisterSuccess"],"trait":["ProtocolRemoteExt","ProtocolRemoteTargetExt"]};
