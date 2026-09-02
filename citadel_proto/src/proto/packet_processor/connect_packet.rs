@@ -153,13 +153,36 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 // A `None` here with udp_mode Enabled is the
                                 // asymmetry behind an intermittent CI failure:
                                 // the peer reports Some and asserts a UDP channel
-                                // this side never had. Not reproducible locally,
-                                // so it has to name itself when it next happens.
+                                // this side never had.
+                                //
+                                // `last_stage` is the discriminator, and the
+                                // reason it is logged rather than the sender's
+                                // shape. The gate above this handler asks only
+                                // `pre_connect_state.success`, which the
+                                // preconnect SUCCESS arm sets BEFORE this
+                                // session's own hole punch has finished — and
+                                // inbound packets are processed concurrently, so
+                                // connect STAGE0 can arrive and take the receiver
+                                // that `handle_success_as_receiver` has not
+                                // installed yet. If that is what happens, this
+                                // prints a stage that is not SUCCESS.
+                                //
+                                // The first version of this line logged the
+                                // sender's own state at the INSTALL site instead,
+                                // to catch a half-consumed pair. That state was
+                                // then proved unreachable on a TCP transport —
+                                // one install per session, no retransmission — so
+                                // it was a warning that could never fire.
                                 if state_container.udp_mode
                                     == citadel_types::prelude::UdpMode::Enabled
                                     && udp_channel_rx.is_none()
                                 {
-                                    log::warn!(target: "citadel", "[udp-oneshot] receiver: udp_mode=Enabled but no channel receiver at connect STAGE0 — the initiator will disagree");
+                                    log::warn!(
+                                        target: "citadel",
+                                        "[udp-oneshot] receiver: udp_mode=Enabled but no channel receiver at connect STAGE0 (preconnect last_stage={}, SUCCESS={}) — the initiator will disagree",
+                                        state_container.pre_connect_state.last_stage,
+                                        packet_flags::cmd::aux::do_preconnect::SUCCESS,
+                                    );
                                 }
                                 let channel = state_container.init_new_c2s_virtual_connection(
                                     &cnac,

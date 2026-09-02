@@ -700,23 +700,6 @@ fn handle_success_as_receiver<R: Ratchet, T: PlatformOps>(
     let sender = &state_container.pre_connect_state.udp_channel_oneshot_tx;
     if sender.tx.is_none() && sender.rx.is_none() {
         state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
-    } else if sender.rx.is_none() {
-        // The state that would explain the intermittent CI failure, named.
-        //
-        // `[udp-oneshot] receiver: ... no channel receiver at connect STAGE0`
-        // fires on the server when this handler left `rx` as None. From a fresh
-        // `default()` that cannot happen — so the only way here is a RE-ENTRY
-        // after `rx` was taken while `tx` had not been: the guard above sees a
-        // half-consumed pair, declines to reinstall, and the next connect finds
-        // no receiver. Permanent for that session.
-        //
-        // Logged rather than fixed, deliberately. The fix would be to key the
-        // guard on `rx` alone, and the comment above records that a previous
-        // change in exactly this area turned a 1.4s failure into a 90s hang —
-        // so it wants a reproduction first, and 12 local runs of the failing
-        // test did not produce one. This line is what makes the next CI
-        // occurrence say whether the hypothesis is right.
-        log::warn!(target: "citadel", "[udp-oneshot] install: receiver already taken while the sender was not (tx.is_some()={}) — a later connect on this session will find no receiver", sender.tx.is_some());
     }
 
     if let Some(udp_splittable) = udp_splittable {
