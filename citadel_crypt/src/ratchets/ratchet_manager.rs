@@ -1830,6 +1830,30 @@ pub(crate) mod tests {
 
                         assert_eq!(latest_0, latest_1, "Version mismatch after rekey. Container 0: {latest_0}, Container 1: {latest_1}");
 
+                        // Matching version NUMBERS are not matching ratchets.
+                        //
+                        // This assertion used to stop at the line above, which
+                        // compares two integers. Under contention the
+                        // Double-Loser tiebreak promotes one side mid-flight
+                        // (see the RoleTransition::Invalid arm), and the
+                        // concern is that both sides can commit DIFFERENT
+                        // ratchet material at the SAME version -- at which
+                        // point the integer check passes, `trigger_rekey`
+                        // returns Ok, and the channel is silently and
+                        // permanently unusable while every log line says the
+                        // rekey succeeded.
+                        //
+                        // The only honest check is whether the two ratchets
+                        // still agree, so encrypt with one and decrypt with the
+                        // other. The helper for it already existed in this
+                        // module and was never called from the contention
+                        // rounds.
+                        assert_ratchets_agree(
+                            &container_0.session_crypto_state,
+                            &container_1.session_crypto_state,
+                            latest_0,
+                        );
+
                         // In contention scenarios with zero delay, both peers might return Ok()
                         // without actually completing a rekey. This is expected behavior.
                         // We should see progress in at least some rounds.
@@ -1906,6 +1930,56 @@ pub(crate) mod tests {
         bob_result.unwrap().unwrap();
 
         post_checks(&container_0, &container_1);
+    }
+
+    /// Do these two peers still hold the SAME ratchet?
+    ///
+    /// Encrypts with one and decrypts with the other, which is the only
+    /// property that matters and the one a version comparison cannot see. A
+    /// failure here means the two sides committed divergent material at the
+    /// same version -- the channel is dead, and every completion check in the
+    /// manager, all of which compare integers, reported success.
+    pub fn assert_ratchets_agree<R: Ratchet>(
+        container_0: &PeerSessionCrypto<R>,
+        container_1: &PeerSessionCrypto<R>,
+        version: u32,
+    ) {
+        let probe = b"do we still share a ratchet?";
+        let zero = container_0
+            .get_ratchet(None)
+            .expect("container 0 has no usable ratchet");
+        let one = container_1
+            .get_ratchet(None)
+            .expect("container 1 has no usable ratchet");
+
+        let sealed = zero
+            .encrypt(probe)
+            .expect("container 0 could not encrypt at all");
+        let opened = one.decrypt(&sealed).unwrap_or_else(|err| {
+            panic!(
+                "DIVERGENT RATCHETS at version {version}: container 1 cannot decrypt what \
+                 container 0 encrypted ({err:?}). Both report the same version, so every \
+                 integer-comparing completion check called this rekey a success."
+            )
+        });
+        assert_eq!(
+            opened,
+            probe.to_vec(),
+            "ratchets at version {version} decrypt to different plaintext"
+        );
+
+        // And the other direction: a one-way check would miss a divergence
+        // that happens to leave container 1 able to read container 0.
+        let sealed_back = one
+            .encrypt(probe)
+            .expect("container 1 could not encrypt at all");
+        let opened_back = zero.decrypt(&sealed_back).unwrap_or_else(|err| {
+            panic!(
+                "DIVERGENT RATCHETS at version {version}: container 0 cannot decrypt what \
+                 container 1 encrypted ({err:?})."
+            )
+        });
+        assert_eq!(opened_back, probe.to_vec());
     }
 
     pub fn ratchet_encrypt_decrypt_test<R: Ratchet>(
