@@ -614,6 +614,114 @@ mod tests {
         Ok(())
     }
 
+    /// A retry after a failed disk write must reach the disk.
+    ///
+    /// The "nothing changed" skip decides by comparing against the IN-MEMORY
+    /// map — and memory is written before the file is, and is never rolled back
+    /// when the write fails. So `memory == value` is not evidence that
+    /// `disk == value`: a caller retrying a failed `set` with the same bytes hit
+    /// the skip and got `Ok` without the file ever being written, which turns a
+    /// retry loop — whose whole purpose is surviving a transient I/O failure —
+    /// into a silent no-op. The change is gone after a restart, and every caller
+    /// was told it succeeded.
+    ///
+    /// The failure is staged by making the directory unwritable, which is the
+    /// closest thing to a real transient I/O error a test can produce.
+    #[cfg(all(unix, feature = "filesystem"))]
+    #[tokio::test]
+    async fn a_retry_after_a_failed_write_still_reaches_the_disk() -> Result<(), AccountError> {
+        use citadel_user::prelude::CNAC_SERIALIZED_EXTENSION;
+        use std::os::unix::fs::PermissionsExt;
+
+        citadel_logging::setup_log();
+        let BackendType::Filesystem(home) = generate_random_filesystem_dir() else {
+            panic!("generate_random_filesystem_dir stopped returning a filesystem backend");
+        };
+        let container =
+            TestContainer::new(BackendType::InMemory, BackendType::Filesystem(home.clone())).await;
+        let pers = container.client_acc_mgr.get_persistence_handler().clone();
+        let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+        let cid = client.get_cid();
+
+        fn account_file(home: &str, cid: u64) -> std::path::PathBuf {
+            fn walk(dir: &std::path::Path, cid: u64, out: &mut Vec<std::path::PathBuf>) {
+                let Ok(entries) = std::fs::read_dir(dir) else {
+                    return;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        walk(&path, cid, out);
+                    } else if path.extension().and_then(|e| e.to_str())
+                        == Some(CNAC_SERIALIZED_EXTENSION)
+                        && path.file_stem().and_then(|e| e.to_str()) == Some(&cid.to_string())
+                    {
+                        out.push(path);
+                    }
+                }
+            }
+            let mut found = Vec::new();
+            walk(std::path::Path::new(home), cid, &mut found);
+            assert_eq!(
+                found.len(),
+                1,
+                "expected one account file for {cid}: {found:?}"
+            );
+            found.remove(0)
+        }
+
+        pers.store_byte_map_value(cid, 1234, "k", "sub", Vec::from("first"))
+            .await?;
+        let path = account_file(&home, cid);
+        let dir = path.parent().unwrap().to_path_buf();
+        let before = std::fs::read(&path).unwrap();
+
+        // Stage the I/O failure.
+        let original = std::fs::metadata(&dir).unwrap().permissions();
+        let mut readonly = original.clone();
+        readonly.set_mode(0o555);
+        std::fs::set_permissions(&dir, readonly).unwrap();
+
+        let failed = pers
+            .store_byte_map_value(cid, 1234, "k", "sub", Vec::from("second"))
+            .await;
+        std::fs::set_permissions(&dir, original).unwrap();
+        assert!(
+            failed.is_err(),
+            "the write did not fail, so this test is staging nothing",
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "the failed write reached the file, so there is nothing to retry",
+        );
+
+        // The retry: identical bytes, and memory already holds them.
+        pers.store_byte_map_value(cid, 1234, "k", "sub", Vec::from("second"))
+            .await?;
+        assert_ne!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "the retry was skipped as unchanged, so the value was acknowledged but never stored",
+        );
+
+        // And the skip works again once the file is current — or this fix would
+        // simply be the optimisation removed.
+        let after_retry = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        pers.store_byte_map_value(cid, 1234, "k", "sub", Vec::from("second"))
+            .await?;
+        assert!(
+            !path.exists(),
+            "an identical store rewrote the file even though the disk was current",
+        );
+        // Put it back: purge expects the account it is being asked to remove.
+        std::fs::write(&path, &after_retry).unwrap();
+
+        container.purge().await;
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_byte_map() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {

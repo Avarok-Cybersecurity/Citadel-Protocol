@@ -32,6 +32,20 @@ pub struct FileIOBackend<R: Ratchet, Fcm: Ratchet> {
     directory_store: Option<DirectoryStore>,
     home_dir: String,
     file_io: Arc<dyn FileIO>,
+    /// CIDs whose on-disk copy is known to be behind memory.
+    ///
+    /// The byte-map skips below decide "nothing changed" by comparing against
+    /// the IN-MEMORY map — and memory is written before the file is, and is
+    /// never rolled back when the write fails. So `memory == value` is not
+    /// evidence that `disk == value`, and a caller retrying a failed `set` with
+    /// the same bytes hit the skip and got `Ok` without the file ever being
+    /// written. That turns a retry loop — whose entire purpose is to survive a
+    /// transient I/O failure — into a silent no-op, and the change is gone after
+    /// a restart while every caller was told it succeeded.
+    ///
+    /// A CID is marked when its save fails and cleared when one succeeds, so the
+    /// skips are disabled for exactly as long as the file may be stale.
+    stale_on_disk: Arc<parking_lot::RwLock<std::collections::HashSet<u64>>>,
 }
 
 impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
@@ -42,6 +56,7 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
             memory_backend: MemoryBackend::default(),
             directory_store: None,
             file_io,
+            stale_on_disk: Arc::new(parking_lot::RwLock::new(std::collections::HashSet::new())),
         }
     }
 }
@@ -311,7 +326,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
         // Nothing removed, nothing to persist. Each of these saves is a full
         // bincode of the account plus a whole-file overwrite, so a removal that
         // found no key used to cost exactly as much as one that found it.
-        if res.is_none() {
+        if res.is_none() && self.disk_is_current(session_cid) {
             return Ok(res);
         }
         self.save_cnac_by_cid(session_cid).await.map(|_| res)
@@ -341,7 +356,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             .memory_backend
             .store_byte_map_value(session_cid, peer_cid, key, sub_key, value)
             .await?;
-        if unchanged {
+        if unchanged && self.disk_is_current(session_cid) {
             return Ok(res);
         }
         self.save_cnac_by_cid(session_cid).await.map(|_| res)
@@ -374,7 +389,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
             .memory_backend
             .remove_byte_map_values_by_key(session_cid, peer_cid, key)
             .await?;
-        if res.is_empty() {
+        if res.is_empty() && self.disk_is_current(session_cid) {
             return Ok(res);
         }
         self.save_cnac_by_cid(session_cid).await.map(|_| res)
@@ -498,7 +513,25 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
             .get(&cid)
             .cloned()
             .ok_or(AccountError::account_client_non_exists(cid))?;
-        self.save_cnac(&cnac).await
+        let outcome = self.save_cnac(&cnac).await;
+        // Record whether the file now matches memory — see `stale_on_disk`.
+        match &outcome {
+            Ok(()) => {
+                let _ = self.stale_on_disk.write().remove(&cid);
+            }
+            Err(_) => {
+                let _ = self.stale_on_disk.write().insert(cid);
+            }
+        }
+        outcome
+    }
+
+    /// May a "nothing changed in memory" skip be trusted for this CID?
+    ///
+    /// Only when the file is known to match memory. After a failed save it does
+    /// not, and the next identical write is the retry that has to reach the disk.
+    fn disk_is_current(&self, cid: u64) -> bool {
+        !self.stale_on_disk.read().contains(&cid)
     }
 
     fn generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> PathBuf {
