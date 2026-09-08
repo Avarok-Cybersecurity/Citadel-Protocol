@@ -832,6 +832,33 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     ) -> Result<Option<Vec<u8>>, AccountError> {
         let conn = self.get_conn().await?;
         let get_query = self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ? LIMIT 1");
+        // UPDATE first, INSERT only if it matched nothing.
+        //
+        // This used to be an unconditional INSERT, and `bytemap` carries no
+        // unique constraint on (cid, peer_cid, id, sub_id) -- so every store
+        // APPENDED a row and the reads above, which are `LIMIT 1` with no
+        // ORDER BY, kept returning the FIRST one written. A byte map key was
+        // therefore write-once: the initial value stuck and every later update
+        // was invisible, while the table grew a row per write.
+        //
+        // It was found in production. A workspace's owner was assigned, stored,
+        // and then read back empty on the very next request, so the first
+        // administrator could never claim the workspace -- twelve rows for one
+        // key, four of them carrying the owner that nothing would read. The
+        // filesystem backend was unaffected, which is why it went unnoticed:
+        // the byte-map tests in citadel_user/tests/primary.rs construct
+        // BackendType::Filesystem, so no test ever exercised this path.
+        //
+        // UPDATE rather than DELETE-then-INSERT for two reasons. It is one
+        // atomic statement, so there is no window in which a crash leaves the
+        // key with no value at all. And it rewrites EVERY duplicate row a
+        // previously-affected store has already accumulated, so those rows
+        // become identical and the `LIMIT 1` reads return the right answer
+        // immediately -- an existing corrupted store heals on its next write
+        // instead of needing a migration.
+        let update_query = self.format(
+            "UPDATE bytemap SET bin = ? WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ?",
+        );
         let set_query = self
             .format("INSERT INTO bytemap (cid, peer_cid, id, sub_id, bin) VALUES (?, ?, ?, ?, ?)");
 
@@ -842,13 +869,29 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .await
             .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
-        let _query = gen_query!(sqlx::query(&set_query), self, session_cid, peer_cid)
-            .bind(key)
-            .bind(sub_key)
-            .bind(value)
-            .execute(&conn)
-            .await
-            .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
+        // `bin` is bound BEFORE the cid pair here, because it is the SET clause
+        // and precedes the WHERE -- gen_query! binds the cids in order.
+        let updated: AnyQueryResult = gen_query!(
+            sqlx::query(&update_query).bind(value.clone()),
+            self,
+            session_cid,
+            peer_cid
+        )
+        .bind(key)
+        .bind(sub_key)
+        .execute(&conn)
+        .await
+        .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
+
+        if updated.rows_affected() == 0 {
+            let _query = gen_query!(sqlx::query(&set_query), self, session_cid, peer_cid)
+                .bind(key)
+                .bind(sub_key)
+                .bind(value)
+                .execute(&conn)
+                .await
+                .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
+        }
 
         if let Some(row) = row {
             match row.try_get::<Vec<u8>, _>("bin") {
@@ -1105,6 +1148,9 @@ pub fn u64_into_i64(x: u64) -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(feature = "sql", not(coverage)))]
+    use citadel_io::tokio;
+
     #[test]
     fn test_u64_into_i64() {
         assert_eq!(super::u64_into_i64(0), i64::MIN);
@@ -1115,5 +1161,101 @@ mod tests {
     fn test_i64_into_u64() {
         assert_eq!(super::i64_into_u64(i64::MIN), 0);
         assert_eq!(super::i64_into_u64(i64::MAX), u64::MAX);
+    }
+
+    /// Storing twice under one key must leave ONE value: the second.
+    ///
+    /// This is the first test in this crate to drive the byte map through the
+    /// SQL backend at all. The existing byte-map coverage in
+    /// `citadel_user/tests/primary.rs` constructs `BackendType::Filesystem`,
+    /// so the SQL implementation of the same trait was never executed by a
+    /// test -- and it did not overwrite. `store_byte_map_value` ran a plain
+    /// `INSERT` with no unique constraint on the table, so every write
+    /// appended a row, while the reads are `LIMIT 1` with no `ORDER BY` and
+    /// kept returning the FIRST. A key was write-once.
+    ///
+    /// In production that meant a workspace owner could be assigned, stored,
+    /// and read back empty on the next request, forever.
+    ///
+    /// The row count is asserted as well as the value, because the value alone
+    /// does not discriminate: a read that happened to return the newest row
+    /// would satisfy it while the table still grew without bound.
+    #[cfg(all(feature = "sql", not(coverage)))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn storing_twice_overwrites_rather_than_appending() {
+        use crate::backend::{BackendConnection, BackendType};
+        use citadel_crypt::ratchets::stacked::StackedRatchet;
+
+        let dir = std::env::temp_dir().join(format!(
+            "citadel-bytemap-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("test.db");
+        let url = format!("sqlite://{}?mode=rwc", db.display());
+
+        let mut backend: super::SqlBackend<StackedRatchet, StackedRatchet> =
+            super::SqlBackend::try_from(BackendType::sql(url)).unwrap();
+        BackendConnection::<StackedRatchet, StackedRatchet>::connect(&mut backend)
+            .await
+            .unwrap();
+
+        let (cid, peer) = (777u64, 0u64);
+
+        // `bytemap.cid` is a foreign key onto `cnacs`, and SQLite enforces it
+        // here, so the row has to exist before any byte map write. Only `cid`
+        // is NOT NULL, so a bare row is enough -- this test is about the byte
+        // map, not about account serialisation.
+        {
+            let seed = backend.get_conn().await.unwrap();
+            let _seeded = sqlx::query("INSERT INTO cnacs (cid) VALUES (?)")
+                .bind(cid.to_string())
+                .execute(&seed)
+                .await
+                .unwrap();
+        }
+
+        let _first = backend
+            .store_byte_map_value(cid, peer, "k", "sub", b"first".to_vec())
+            .await
+            .unwrap();
+        let previous = backend
+            .store_byte_map_value(cid, peer, "k", "sub", b"second".to_vec())
+            .await
+            .unwrap();
+
+        // The store returns what it replaced, which is still the old contract.
+        assert_eq!(previous.as_deref(), Some(&b"first"[..]));
+
+        let got = backend
+            .get_byte_map_value(cid, peer, "k", "sub")
+            .await
+            .unwrap();
+        assert_eq!(
+            got.as_deref(),
+            Some(&b"second"[..]),
+            "the second store must be what is read back"
+        );
+
+        let conn = backend.get_conn().await.unwrap();
+        let rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ?",
+        )
+        .bind(cid.to_string())
+        .bind(peer.to_string())
+        .bind("k")
+        .bind("sub")
+        .fetch_one(&conn)
+        .await
+        .unwrap();
+        assert_eq!(
+            rows, 1,
+            "one key must hold exactly one row, not a row per write"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
