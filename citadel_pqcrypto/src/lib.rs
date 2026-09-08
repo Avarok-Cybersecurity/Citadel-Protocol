@@ -158,17 +158,23 @@ pub(crate) mod functions {
         secret_key: impl AsRef<[u8]>,
     ) -> Result<Vec<u8>, Error> {
         use ml_dsa::signature::Signer;
-        use ml_dsa::{EncodedSigningKey, MlDsa65, Signature, SigningKey};
+        use ml_dsa::{ExpandedSigningKey, ExpandedSigningKeyBytes, MlDsa65, Signature};
 
         let sk_bytes = secret_key.as_ref();
-        let encoded_sk = EncodedSigningKey::<MlDsa65>::try_from(sk_bytes).map_err(|_| {
+        let encoded_sk = ExpandedSigningKeyBytes::<MlDsa65>::try_from(sk_bytes).map_err(|_| {
             citadel_io::error!(
                 citadel_io::ErrorCode::SigKeyDeserializeFailed,
                 "ML-DSA",
                 "secret key"
             )
         })?;
-        let sk = SigningKey::decode(&encoded_sk);
+        // ml-dsa 0.1 made the 32-byte seed the canonical `SigningKey` and deprecated the 4032-byte
+        // expanded form in favour of it. We are pinned to the expanded form: `sk_bytes` is the
+        // persisted/on-wire secret key (FIPS 204 Alg. 24 skEncode), so switching to seeds would be a
+        // breaking format change. `from_expanded` is Alg. 25 skDecode, byte-identical to the
+        // `SigningKey::decode` this replaces.
+        #[allow(deprecated)]
+        let sk = ExpandedSigningKey::<MlDsa65>::from_expanded(&encoded_sk);
         let sig: Signature<MlDsa65> = sk.sign(message.as_ref());
         Ok(sig.encode().as_slice().to_vec())
     }
@@ -208,12 +214,24 @@ pub(crate) mod functions {
     }
 
     fn ml_dsa_keypair() -> Result<(PublicKeyType, SecretKeyType), Error> {
-        use ml_dsa::{KeyGen, MlDsa65};
+        use citadel_io::RngCore;
+        use ml_dsa::{ExpandedSigningKey, MlDsa65, Seed};
+        use zeroize::Zeroize;
 
+        // ml-dsa 0.1 dropped the `KeyGen` trait; `Generate` replaces it but is bound to rand_core
+        // 0.9, while this workspace is on rand 0.8. Drawing the 32-byte seed ourselves and calling
+        // `from_seed` (FIPS 204 Alg. 1, exactly what `key_gen` did internally) keeps keygen on the
+        // workspace RNG and produces identically-distributed keys.
         let mut rng = citadel_io::ThreadRng::default();
-        let kp = MlDsa65::key_gen(&mut rng);
-        let pk_bytes = kp.verifying_key().encode().as_slice().to_vec();
-        let sk_bytes = kp.signing_key().encode().as_slice().to_vec();
+        let mut seed = Seed::default();
+        rng.fill_bytes(&mut seed[..]);
+        let sk = ExpandedSigningKey::<MlDsa65>::from_seed(&seed);
+        seed[..].zeroize();
+
+        let pk_bytes = sk.verifying_key().encode().as_slice().to_vec();
+        // Deprecated in favour of the seed form, but the expanded encoding is our wire format.
+        #[allow(deprecated)]
+        let sk_bytes = sk.to_expanded().as_slice().to_vec();
         Ok((Zeroizing::new(pk_bytes), Zeroizing::new(sk_bytes)))
     }
 
@@ -1566,6 +1584,181 @@ mod seed_keygen_tests {
             &ss_enc[..],
             &ss_dec[..],
             "encapsulate(derived pk) must decapsulate to the same shared secret with the derived sk",
+        );
+    }
+}
+
+#[cfg(test)]
+mod ml_dsa_tests {
+    use super::functions::{signature_bytes, signature_keypair, signature_sign, signature_verify};
+    use citadel_types::crypto::SigAlgorithm;
+    use sha3::{Digest, Sha3_256};
+
+    // ML-DSA-65 encoded sizes (FIPS 204). These are wire constants: public keys, secret keys and
+    // signatures are persisted and exchanged between peers.
+    const PK_LEN: usize = 1952;
+    const SK_LEN: usize = 4032;
+    const SIG_LEN: usize = 3309;
+
+    fn sha3_hex(bytes: &[u8]) -> String {
+        Sha3_256::digest(bytes)
+            .iter()
+            .fold(String::new(), |mut s, b| {
+                use core::fmt::Write;
+                let _ = write!(s, "{b:02x}");
+                s
+            })
+    }
+
+    /// Sign -> verify must round-trip, and every way of corrupting the inputs must be REJECTED.
+    /// The negative cases matter more than the positive one: a verifier that returns `Ok` for
+    /// everything would pass a round-trip test alone.
+    #[test]
+    fn sign_verify_round_trips_and_rejects_tampering() {
+        let (pk, sk) = signature_keypair(SigAlgorithm::MlDsa65).unwrap();
+        assert_eq!(pk.len(), PK_LEN, "public key length is a wire constant");
+        assert_eq!(sk.len(), SK_LEN, "secret key length is a wire constant");
+
+        let msg = b"attack at dawn";
+        let sig = signature_sign(msg, sk.as_slice(), SigAlgorithm::MlDsa65).unwrap();
+        assert_eq!(sig.len(), SIG_LEN, "signature length is a wire constant");
+        signature_verify(msg, &sig, pk.as_slice(), SigAlgorithm::MlDsa65)
+            .expect("a freshly produced signature must verify");
+
+        // A flipped bit anywhere in the signature must be rejected (c_tilde, z and hint regions).
+        for idx in [0usize, 100, 1500, SIG_LEN - 1] {
+            let mut bad = sig.clone();
+            bad[idx] ^= 0x01;
+            assert!(
+                signature_verify(msg, &bad, pk.as_slice(), SigAlgorithm::MlDsa65).is_err(),
+                "tampered signature (bit {idx}) was accepted"
+            );
+        }
+
+        // A different message must not verify against this signature.
+        assert!(
+            signature_verify(
+                b"attack at dusk",
+                &sig,
+                pk.as_slice(),
+                SigAlgorithm::MlDsa65
+            )
+            .is_err(),
+            "signature verified against the wrong message"
+        );
+
+        // A different key must not verify this signature.
+        let (other_pk, _) = signature_keypair(SigAlgorithm::MlDsa65).unwrap();
+        assert!(
+            signature_verify(msg, &sig, other_pk.as_slice(), SigAlgorithm::MlDsa65).is_err(),
+            "signature verified under an unrelated public key"
+        );
+
+        // Wrong-length inputs must return an error, not panic.
+        assert!(
+            signature_verify(
+                msg,
+                &sig[..SIG_LEN - 1],
+                pk.as_slice(),
+                SigAlgorithm::MlDsa65
+            )
+            .is_err(),
+            "truncated signature was accepted"
+        );
+        assert!(
+            signature_verify(msg, &sig, &pk[..PK_LEN - 1], SigAlgorithm::MlDsa65).is_err(),
+            "truncated public key was accepted"
+        );
+        assert!(
+            signature_sign(msg, &sk[..SK_LEN - 1], SigAlgorithm::MlDsa65).is_err(),
+            "truncated secret key was accepted"
+        );
+    }
+
+    /// Wire-format lock, pinned to bytes produced by ml-dsa **0.0.4** from the same fixed seed.
+    ///
+    /// ml-dsa 0.1 made the 32-byte seed the canonical `SigningKey` and deprecated the 4032-byte
+    /// expanded encoding that we persist and send over the wire. Because signing here is the
+    /// deterministic ML-DSA variant, a fixed seed pins the public key, secret key AND signature to
+    /// exact byte strings. If a future bump changes any encoding, these digests change and this
+    /// test fails loudly instead of silently breaking every already-deployed peer.
+    #[test]
+    fn wire_format_is_unchanged_from_ml_dsa_0_0_4() {
+        use ml_dsa::{ExpandedSigningKey, MlDsa65, Seed};
+
+        let mut seed = Seed::default();
+        for (i, b) in seed.iter_mut().enumerate() {
+            *b = i as u8;
+        }
+        let sk = ExpandedSigningKey::<MlDsa65>::from_seed(&seed);
+
+        let pk_bytes = sk.verifying_key().encode().as_slice().to_vec();
+        // The expanded encoding is deprecated upstream but is our wire format; see `ml_dsa_sign`.
+        #[allow(deprecated)]
+        let sk_bytes = sk.to_expanded().as_slice().to_vec();
+
+        assert_eq!(pk_bytes.len(), PK_LEN);
+        assert_eq!(sk_bytes.len(), SK_LEN);
+        assert_eq!(
+            sha3_hex(&pk_bytes),
+            "1800725067e388d837d911fe4f66101cc1961b1bb755030dc574272cfb00013f",
+            "ML-DSA-65 public key encoding changed -- this is a protocol break"
+        );
+        assert_eq!(
+            sha3_hex(&sk_bytes),
+            "4ecfbd119980b1090a7feda39c225539ffa3ef3ff673b239b60189bfd4541170",
+            "ML-DSA-65 secret key encoding changed -- this is a protocol break"
+        );
+
+        let msg = b"citadel ml-dsa wire-format cross-version vector";
+        let sig = signature_sign(msg, &sk_bytes, SigAlgorithm::MlDsa65).unwrap();
+        assert_eq!(sig.len(), SIG_LEN);
+        assert_eq!(
+            sha3_hex(&sig),
+            "b8c5625b8a6fdbcae0f2659c16522424b4253dfa769a0085cde2a281dde60a15",
+            "ML-DSA-65 signature encoding changed -- this is a protocol break"
+        );
+        assert_eq!(signature_bytes(SigAlgorithm::MlDsa65), SIG_LEN);
+
+        // The 0.0.4-era vector still verifies through the production path.
+        signature_verify(msg, &sig, &pk_bytes, SigAlgorithm::MlDsa65).unwrap();
+    }
+
+    /// Regression guard for CVE-2026-24850: ml-dsa 0.0.4 accepted signature hints whose indices
+    /// merely did not decrease, so an index could be REPEATED within a polynomial's run. 0.1.x
+    /// requires them to be strictly increasing. Built off the fixed-seed vector above, so the hint
+    /// layout (Omega=55 index bytes then K=6 cut offsets) is deterministic.
+    #[test]
+    fn repeated_hint_indices_are_rejected() {
+        use ml_dsa::{ExpandedSigningKey, MlDsa65, Seed};
+
+        let mut seed = Seed::default();
+        for (i, b) in seed.iter_mut().enumerate() {
+            *b = i as u8;
+        }
+        let sk = ExpandedSigningKey::<MlDsa65>::from_seed(&seed);
+        let pk_bytes = sk.verifying_key().encode().as_slice().to_vec();
+        #[allow(deprecated)]
+        let sk_bytes = sk.to_expanded().as_slice().to_vec();
+
+        let msg = b"citadel ml-dsa wire-format cross-version vector";
+        let sig = signature_sign(msg, &sk_bytes, SigAlgorithm::MlDsa65).unwrap();
+        // Sanity: the unmodified signature verifies, so a rejection below is caused by our edit.
+        signature_verify(msg, &sig, &pk_bytes, SigAlgorithm::MlDsa65).unwrap();
+
+        // The hint occupies the final 61 bytes: 55 index bytes then 6 cut offsets. The first
+        // polynomial's run holds 6 indices, so duplicating the first one yields a non-strictly-
+        // increasing run that 0.0.4 would have decoded and 0.1.x must refuse.
+        let hint_start = SIG_LEN - 61;
+        let mut forged = sig.clone();
+        forged[hint_start + 1] = forged[hint_start];
+        assert_ne!(
+            forged, sig,
+            "the forgery must actually differ from the input"
+        );
+        assert!(
+            signature_verify(msg, &forged, &pk_bytes, SigAlgorithm::MlDsa65).is_err(),
+            "a signature with a repeated hint index was accepted (CVE-2026-24850)"
         );
     }
 }
