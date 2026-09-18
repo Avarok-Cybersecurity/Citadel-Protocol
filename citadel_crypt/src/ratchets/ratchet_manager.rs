@@ -360,8 +360,12 @@ where
             } else {
                 log::info!(target: "citadel", "[CBD-RKT-0c2] Client {} rekey already pending (declared={}, current={}, age={}s, role={:?}): returning payload",
                     self.cid, declared_version, version_at_entry, age_secs, role);
-                // Notify messenger to check queue - a rekey is pending so queue will drain when it completes
-                let _ = self.rekey_done_notifier_tx.send(None);
+                // No notification here. The pending rekey sends one when it concludes
+                // (spawn_rekey_process: Some on success, None on error or exit). The
+                // messenger's queue drainer is the caller that lands here, and it treats
+                // any notification as "retry now": a None sent from this line woke it
+                // straight back into this same early return, a busy loop for as long as
+                // the rekey stayed pending.
                 return Ok(attached_payload);
             }
         }
@@ -379,8 +383,8 @@ where
 
             // If wait_for_completion=false, return immediately with payload
             if !wait_for_completion {
-                // Notify messenger to check queue - ongoing rekey will trigger completion notification
-                let _ = self.rekey_done_notifier_tx.send(None);
+                // No notification: the ongoing rekey sends one when it concludes. See the
+                // "rekey already pending" return above.
                 return Ok(attached_payload);
             }
 
@@ -875,6 +879,9 @@ where
         // leaving both sides waiting for messages that never arrive. The timeout
         // allows recovery via error handling and retry.
         const ACTIVE_REKEY_TIMEOUT: Duration = Duration::from_secs(60);
+        // The local declaration (declared version, when declared) that was
+        // outstanding at the previous Idle tick. See the Idle branch below.
+        let mut declaration_at_last_idle_tick: Option<(u32, u64)> = None;
 
         loop {
             let msg = if self.role() != RekeyRole::Idle {
@@ -889,14 +896,25 @@ where
                     }
                 }
             } else {
-                // Even in idle mode, use a generous timeout to prevent indefinite blocking
-                // in case the channel is not properly closed on disconnect
-                const IDLE_REKEY_TIMEOUT: Duration = Duration::from_secs(300);
-                match citadel_io::time::timeout(IDLE_REKEY_TIMEOUT, receiver.next()).await {
+                // Idle is not always idle: trigger_rekey declares a version and sends
+                // AliceToBob without leaving Idle, and the role only changes when the
+                // peer answers. If the peer never does, nothing else ends the round,
+                // and every Perfect-mode message queued behind it waits forever. So a
+                // declaration that is still outstanding, unchanged, one full tick
+                // later (at least ACTIVE_REKEY_TIMEOUT old) is abandoned here; the
+                // error path resets it and notifies the messenger.
+                match citadel_io::time::timeout(ACTIVE_REKEY_TIMEOUT, receiver.next()).await {
                     Ok(msg) => msg,
                     Err(_) => {
-                        log::trace!(target: "citadel", "Client {} idle rekey timeout (no messages for {}s), continuing",
-                            self.cid, IDLE_REKEY_TIMEOUT.as_secs());
+                        let outstanding = self.outstanding_declaration();
+                        if outstanding.is_some() && outstanding == declaration_at_last_idle_tick {
+                            log::warn!(target: "citadel", "Client {} abandoning rekey the peer never answered (declared, current)={:?}",
+                                self.cid, (self.session_crypto_state.declared_next_version(), self.session_crypto_state.latest_usable_version()));
+                            return Err(citadel_io::error!(
+                                citadel_io::ErrorCode::RekeyMessageTimeout
+                            ));
+                        }
+                        declaration_at_last_idle_tick = outstanding;
                         continue;
                     }
                 }
@@ -1648,6 +1666,18 @@ where
         }
     }
 
+    /// The rekey this side declared and has not concluded, identified by the
+    /// declared version and when it was declared.
+    fn outstanding_declaration(&self) -> Option<(u32, u64)> {
+        let declared = self.session_crypto_state.declared_next_version();
+        (declared > self.session_crypto_state.latest_usable_version()).then(|| {
+            (
+                declared,
+                self.declared_version_set_at.load(Ordering::Relaxed),
+            )
+        })
+    }
+
     fn get_rekey_metadata(&self) -> RekeyMetadata {
         // Use latest_usable_version only - declared_next_version is used
         // at trigger_rekey() entry to prevent overlapping rekeys
@@ -2211,6 +2241,113 @@ pub(crate) mod tests {
         assert_eq!(
             bob_manager.session_crypto_state.latest_usable_version(),
             ROUNDS as u32
+        );
+    }
+
+    /// Alice with a peer that receives her AliceToBob and never answers: her
+    /// rekey stays pending (declared = current + 1) for as long as the test
+    /// holds the returned channel ends.
+    fn manager_with_a_silent_peer() -> (
+        TestRatchetManager<StackedRatchet, u64>,
+        impl Sized, // peer ends; dropping them ends Alice's stream or send
+    ) {
+        let (alice_container, _bob_container) = setup_endpoint_containers::<StackedRatchet>(
+            SecurityLevel::Standard,
+            EncryptionAlgorithm::AES_GCM_256,
+            KemAlgorithm::MlKem,
+        );
+        let (tx_alice, peer_inbox) = futures::channel::mpsc::unbounded();
+        let (peer_sink, rx_alice) = futures::channel::mpsc::unbounded();
+        let alice = RatchetManager::new(
+            Box::new(tx_alice)
+                as Box<dyn RatchetManagerSink<u64, Error = futures::channel::mpsc::SendError>>,
+            Box::new(rx_alice) as Box<dyn RatchetManagerStream<u64>>,
+            alice_container,
+            TEST_PSKS,
+        );
+        (alice, (peer_inbox, peer_sink))
+    }
+
+    /// "Not ready" must not wake the queue drainer.
+    ///
+    /// The messenger's drainer (messaging.rs) waits on the rekey-finished
+    /// channel, calls trigger_rekey_with_payload(.., false) on every
+    /// notification, and waits again when the payload comes back unsent. If
+    /// the not-ready return itself sends a notification, the drainer's next
+    /// wait is already satisfied and it re-enters at once: a busy loop for as
+    /// long as the rekey is pending. That loop is what filled the Windows CI
+    /// log (~870k re-entries in one 34s run of the kyber stress test).
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(60))]
+    #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
+    #[cfg_attr(target_family = "wasm", tokio::test(flavor = "current_thread"))]
+    async fn a_rekey_that_is_not_ready_does_not_wake_the_queue_drainer() {
+        citadel_logging::setup_log();
+        let (alice, peer) = manager_with_a_silent_peer();
+        let mut drainer_wakeups = alice.take_on_rekey_finished_event_listener().unwrap();
+
+        let first = alice.trigger_rekey_with_payload(Some(1), false).await;
+        assert!(
+            matches!(first, Ok(None)),
+            "the first payload should ride the rekey's AliceToBob"
+        );
+        let second = alice.trigger_rekey_with_payload(Some(2), false).await;
+        assert!(
+            matches!(second, Ok(Some(2))),
+            "with a rekey pending, the second payload must come back unsent"
+        );
+
+        let woken = drainer_wakeups.try_recv();
+        drop(peer);
+        assert!(
+            woken.is_err(),
+            "the not-ready return notified the drainer, which would call straight \
+             back in and get the same answer: {woken:?}"
+        );
+    }
+
+    /// A rekey the peer never answers must still end, and say so.
+    ///
+    /// trigger_rekey sends AliceToBob without leaving the Idle role; the role
+    /// changes only when the peer answers. The rekey loop's Idle wait had no
+    /// deadline (it `continue`d every 300s), so an unanswered declaration was
+    /// only ever cleared by the 60s staleness check at trigger_rekey's entry --
+    /// reachable only by a caller that keeps calling. The messenger's busy loop
+    /// was, in effect, that caller. Without it, the loop itself has to
+    /// abandon the round: reset the declaration and notify the drainer.
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_rekey_the_peer_never_answers_is_abandoned_and_reported() {
+        citadel_logging::setup_log();
+        let (alice, peer) = manager_with_a_silent_peer();
+        let mut drainer_wakeups = alice.take_on_rekey_finished_event_listener().unwrap();
+
+        assert!(matches!(
+            alice.trigger_rekey_with_payload(Some(1), false).await,
+            Ok(None)
+        ));
+        let state = alice.session_crypto_state();
+        assert_eq!(
+            state.declared_next_version(),
+            state.latest_usable_version() + 1
+        );
+
+        // Paused clock: this wait costs virtual time only. Ten minutes is well
+        // past any deadline the loop should apply, and far short of forever.
+        let woken =
+            citadel_io::time::timeout(Duration::from_secs(600), drainer_wakeups.recv()).await;
+        let declared_after = state.declared_next_version();
+        let latest_after = state.latest_usable_version();
+        drop(peer);
+
+        assert!(
+            woken.is_ok(),
+            "an unanswered rekey never concluded: the drainer was never woken, so \
+             every queued Perfect-mode message would wait forever"
+        );
+        assert_eq!(
+            declared_after, latest_after,
+            "the abandoned declaration must be reset so the next rekey can start"
         );
     }
 }
