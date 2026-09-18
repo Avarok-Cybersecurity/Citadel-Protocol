@@ -407,8 +407,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let mut this = self.write();
         let mut other = other_orig.write();
 
-        this.mutuals.insert(
-            HYPERLAN_IDX,
+        record_hyperlan_peer(
+            &mut this,
             MutualPeer {
                 parent_icid: HYPERLAN_IDX,
                 cid: other_cid,
@@ -416,8 +416,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             },
         );
 
-        other.mutuals.insert(
-            HYPERLAN_IDX,
+        record_hyperlan_peer(
+            &mut other,
             MutualPeer {
                 parent_icid: HYPERLAN_IDX,
                 cid: this_cid,
@@ -474,13 +474,13 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         mutuals.insert_many(HYPERLAN_IDX, peers);
     }
 
-    /// ONLY run this after you're sure the peer doesn't already exist
+    /// Records `cid` as a hyperlan peer, replacing any existing record of it
     pub(crate) fn insert_hyperlan_peer<T: Into<String>>(&self, cid: u64, username: T) {
         let mut write = self.write();
         let username = Some(username.into());
 
-        write.mutuals.insert(
-            HYPERLAN_IDX,
+        record_hyperlan_peer(
+            &mut write,
             MutualPeer {
                 username,
                 parent_icid: HYPERLAN_IDX,
@@ -493,17 +493,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     #[allow(unused_results)]
     pub(crate) fn remove_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
         log::trace!(target: "citadel", "[remove peer] session_cid: {} | peer_cid: {}", self.get_cid(), cid);
-        let mut write = self.write();
-        if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
-            if let Some(idx) = hyperlan_peers.iter().position(|peer| peer.cid == cid) {
-                let removed_peer = hyperlan_peers.remove(idx);
-                return Some(removed_peer);
-            } else {
-                log::warn!(target: "citadel", "Peer {} not found within cnac {}", cid, self.inner.cid);
-            }
+        let removed = forget_hyperlan_peer(&mut self.write(), cid);
+        if removed.is_none() {
+            log::warn!(target: "citadel", "Peer {} not found within cnac {}", cid, self.inner.cid);
         }
-
-        None
+        removed
     }
 
     /*
@@ -575,5 +569,95 @@ impl<R: Ratchet, Fcm: Ratchet> Clone for ClientNetworkAccount<R, Fcm> {
         Self {
             inner: self.inner.clone(),
         }
+    }
+}
+
+/// One record per peer, as the redis backend's `hset` gives: registering a pair the
+/// server already holds (a second device, or both peers inviting each other) must not
+/// store it twice, or one deregistration leaves it registered.
+fn record_hyperlan_peer(state: &mut AccountState, peer: MutualPeer) {
+    match state.mutuals.get_vec_mut(&HYPERLAN_IDX) {
+        Some(peers) => match peers.iter_mut().find(|existing| existing.cid == peer.cid) {
+            Some(existing) => *existing = peer,
+            None => peers.push(peer),
+        },
+        None => state.mutuals.insert(HYPERLAN_IDX, peer),
+    }
+}
+
+/// Removes every record of `cid`. Accounts saved before registration was idempotent
+/// can hold the same peer more than once; removing one copy left it registered.
+fn forget_hyperlan_peer(state: &mut AccountState, cid: u64) -> Option<MutualPeer> {
+    let peers = state.mutuals.get_vec_mut(&HYPERLAN_IDX)?;
+    let first = peers.iter().position(|peer| peer.cid == cid)?;
+    let removed = peers.remove(first);
+    peers.retain(|peer| peer.cid != cid);
+    Some(removed)
+}
+
+#[cfg(test)]
+mod hyperlan_peer_records {
+    use super::*;
+
+    fn peer(cid: u64, username: &str) -> MutualPeer {
+        MutualPeer {
+            parent_icid: HYPERLAN_IDX,
+            cid,
+            username: Some(username.to_string()),
+        }
+    }
+
+    fn state_holding(peers: Vec<MutualPeer>) -> AccountState {
+        let mut mutuals = MultiMap::new();
+        mutuals.insert_many(HYPERLAN_IDX, peers);
+        AccountState {
+            client_rtdb_config: None,
+            mutuals,
+            byte_map: HashMap::new(),
+        }
+    }
+
+    fn cids(state: &AccountState) -> Vec<u64> {
+        state
+            .mutuals
+            .get_vec(&HYPERLAN_IDX)
+            .map(|peers| peers.iter().map(|peer| peer.cid).collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn recording_a_peer_twice_keeps_one_record_with_the_latest_name() {
+        let mut state = state_holding(vec![peer(202, "bob")]);
+        record_hyperlan_peer(&mut state, peer(303, "carol"));
+        record_hyperlan_peer(&mut state, peer(202, "bobby"));
+
+        assert_eq!(cids(&state), vec![202, 303]);
+        let names: Vec<_> = state
+            .mutuals
+            .get_vec(&HYPERLAN_IDX)
+            .unwrap()
+            .iter()
+            .map(|p| p.username.clone())
+            .collect();
+        assert_eq!(
+            names,
+            vec![Some("bobby".to_string()), Some("carol".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_saved_account_holding_a_peer_twice_forgets_it_in_one_removal() {
+        let mut state = state_holding(vec![peer(202, "bob"), peer(303, "carol"), peer(202, "bob")]);
+
+        assert_eq!(
+            forget_hyperlan_peer(&mut state, 202).map(|p| p.cid),
+            Some(202)
+        );
+        assert_eq!(
+            cids(&state),
+            vec![303],
+            "a second record of the removed peer survived"
+        );
+        assert!(forget_hyperlan_peer(&mut state, 202).is_none());
     }
 }
