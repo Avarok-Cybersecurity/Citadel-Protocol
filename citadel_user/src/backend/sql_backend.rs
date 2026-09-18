@@ -503,7 +503,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         session_cid: u64,
     ) -> Result<Option<Vec<u64>>, AccountError> {
         let conn = &(self.get_conn().await?);
-        let query = self.format("SELECT peer_cid FROM peers WHERE cid = ?");
+        // DISTINCT: a pair accepted twice has two rows (see hyperlan_peer_exists),
+        // and without it the peer was listed twice.
+        let query = self.format("SELECT DISTINCT peer_cid FROM peers WHERE cid = ?");
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await
@@ -632,7 +634,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .await
             .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
-        Ok(query.try_get::<i64, _>("count").unwrap_or(-1) == 1)
+        // `>= 1`, not `== 1`. `peers` has no unique constraint on (cid,
+        // peer_cid), so a pair accepted twice has two rows, and `== 1` read
+        // that registered pair as NOT registered. A missing count still maps
+        // to -1 and so to false: an unreadable answer is not "registered".
+        Ok(query.try_get::<i64, _>("count").unwrap_or(-1) >= 1)
     }
 
     async fn hyperlan_peers_are_mutuals(
@@ -649,7 +655,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         let insert = self.construct_arg_insert_any(peers);
 
-        let query = self.format(format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}"));
+        // DISTINCT before the LIMIT. The join returns one row per matching
+        // `peers` row, and LIMIT caps it at the number of peers asked about, so a
+        // pair accepted twice spent one of those slots on a duplicate and a
+        // DIFFERENT, genuinely mutual peer was reported as not mutual.
+        let query = self.format(format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT DISTINCT peers.peer_cid FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}"));
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await
@@ -677,7 +687,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         let insert = self.construct_arg_insert_any(peers);
 
-        let query = self.format(format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT peers.peer_cid, peers.username FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}"));
+        // DISTINCT before the LIMIT, for the reason in hyperlan_peers_are_mutuals:
+        // a duplicated pair returned itself twice and pushed another peer out.
+        let query = self.format(format!("WITH input(peer_cid) AS (VALUES {insert}) SELECT DISTINCT peers.peer_cid, peers.username FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {limit}"));
         let query: Vec<AnyRow> = gen_query!(sqlx::query(&query), self, session_cid)
             .fetch_all(conn)
             .await
@@ -1255,6 +1267,101 @@ mod tests {
             rows, 1,
             "one key must hold exactly one row, not a row per write"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A pair registered twice is still one registered pair.
+    ///
+    /// `peers` has no unique constraint on (cid, peer_cid), and
+    /// `register_p2p_as_server` inserts on every accepted registration with no
+    /// existence check of its own — the only guard is on the CLIENT, in the SDK
+    /// prefab, so two peers proposing to each other at the same moment can both
+    /// be accepted and write the pair twice. That is the byte-map defect's shape
+    /// again, and like it, the duplicate does not merely add a row; it makes
+    /// correct answers wrong:
+    ///
+    ///   - `hyperlan_peer_exists` returned `count == 1`, so two rows read as
+    ///     "NOT registered" — and anything that re-registers on that adds a
+    ///     third row, and the answer stays wrong for good;
+    ///   - `get_hyperlan_peer_list` listed the peer twice;
+    ///   - `hyperlan_peers_are_mutuals` and `get_hyperlan_peers` cap their join
+    ///     at `LIMIT n` for n peers asked about, so a duplicate spends one of
+    ///     those n slots and a DIFFERENT, genuinely mutual peer drops out.
+    ///
+    /// The third peer (303, registered once) is the discriminating part: an
+    /// implementation that only looked at 202 would pass everything else here.
+    #[cfg(all(feature = "sql", not(coverage)))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_pair_registered_twice_is_still_one_registered_pair() {
+        use crate::backend::{BackendConnection, BackendType};
+        use citadel_crypt::ratchets::stacked::StackedRatchet;
+
+        let dir = std::env::temp_dir().join(format!(
+            "citadel-peers-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("test.db");
+        let url = format!("sqlite://{}?mode=rwc", db.display());
+
+        let mut backend: super::SqlBackend<StackedRatchet, StackedRatchet> =
+            super::SqlBackend::try_from(BackendType::sql(url)).unwrap();
+        BackendConnection::<StackedRatchet, StackedRatchet>::connect(&mut backend)
+            .await
+            .unwrap();
+
+        // `peers.cid` is a foreign key onto `cnacs`, and the insert reads each
+        // side's username from there, so all three accounts must exist.
+        let (me, twice, once) = (101u64, 202u64, 303u64);
+        {
+            let seed = backend.get_conn().await.unwrap();
+            for (cid, name) in [(me, "me"), (twice, "twice"), (once, "once")] {
+                let _seeded = sqlx::query("INSERT INTO cnacs (cid, username) VALUES (?, ?)")
+                    .bind(cid.to_string())
+                    .bind(name)
+                    .execute(&seed)
+                    .await
+                    .unwrap();
+            }
+        }
+
+        backend.register_p2p_as_server(me, twice).await.unwrap();
+        backend.register_p2p_as_server(me, twice).await.unwrap();
+        backend.register_p2p_as_server(me, once).await.unwrap();
+
+        assert!(
+            backend.hyperlan_peer_exists(me, twice).await.unwrap(),
+            "a pair registered twice read as NOT registered"
+        );
+        assert!(backend.hyperlan_peer_exists(twice, me).await.unwrap());
+        assert!(backend.hyperlan_peer_exists(me, once).await.unwrap());
+
+        let mut list = backend.get_hyperlan_peer_list(me).await.unwrap().unwrap();
+        list.sort_unstable();
+        assert_eq!(list, vec![twice, once], "the peer list repeated a peer");
+
+        assert_eq!(
+            backend
+                .hyperlan_peers_are_mutuals(me, &[twice, once])
+                .await
+                .unwrap(),
+            vec![true, true],
+            "a duplicate row pushed a genuinely mutual peer out of the LIMITed join"
+        );
+
+        let mut mutual: Vec<u64> = backend
+            .get_hyperlan_peers(me, &[twice, once])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|p| p.cid)
+            .collect();
+        mutual.sort_unstable();
+        assert_eq!(mutual, vec![twice, once]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
