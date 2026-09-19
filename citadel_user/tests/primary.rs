@@ -1428,6 +1428,81 @@ mod tests {
         .await
     }
 
+    // The server records a pair on every accepted PostRegister without asking whether
+    // it already holds it, so a pair can be recorded twice. Removing it once must
+    // still remove it: a deregistered peer that reads as registered is a peer the
+    // user believes they cut off.
+    #[tokio::test]
+    async fn test_pair_registered_twice_is_gone_after_one_deregister() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let peer = PEERS.first().unwrap();
+            let (peer_cnac, peer_container) = container
+                .create_peer_cnac(
+                    peer.0.as_str(),
+                    peer.1.as_str(),
+                    peer.2.as_str(),
+                    BackendType::InMemory,
+                )
+                .await;
+            let peer_pers = &peer_container
+                .client_acc_mgr
+                .get_persistence_handler()
+                .clone();
+            let (me, them) = (client.get_cid(), peer_cnac.get_cid());
+
+            for _ in 0..2 {
+                register_peers(
+                    &pers_cl,
+                    me,
+                    USERNAME,
+                    peer_pers,
+                    them,
+                    peer.0.as_str(),
+                    &pers_se,
+                )
+                .await;
+            }
+
+            let listed = pers_se.get_hyperlan_peer_list(me).await.unwrap().unwrap();
+
+            deregister_peers(&pers_cl, me, peer_pers, them, &pers_se).await;
+
+            let survivors = [
+                (
+                    "server, from my side",
+                    pers_se.hyperlan_peer_exists(me, them).await.unwrap(),
+                ),
+                (
+                    "server, from their side",
+                    pers_se.hyperlan_peer_exists(them, me).await.unwrap(),
+                ),
+                (
+                    "my client",
+                    pers_cl.hyperlan_peer_exists(me, them).await.unwrap(),
+                ),
+                (
+                    "their client",
+                    peer_pers.hyperlan_peer_exists(them, me).await.unwrap(),
+                ),
+            ];
+            let still_registered: Vec<&str> = survivors
+                .iter()
+                .filter(|(_, exists)| *exists)
+                .map(|(side, _)| *side)
+                .collect();
+            assert!(
+                listed == vec![them] && still_registered.is_empty(),
+                "server listed the pair as {listed:?} (want [{them}]); \
+                 after one deregister it is still registered on: {still_registered:?}"
+            );
+
+            peer_container.client_acc_mgr.purge().await?;
+            Ok(())
+        })
+        .await
+    }
+
     /*
     #[tokio::test]
     async fn test_synchronize_p2p_list() -> Result<(), AccountError> {
