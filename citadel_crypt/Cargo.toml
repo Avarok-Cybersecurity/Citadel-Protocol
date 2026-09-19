@@ -55,6 +55,8 @@ num_cpus = { workspace = true }
 
 # SRTP comparison arm of the `udp_media_vs_srtp` bench only (native; the bench is criterion/native).
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+# Paused clock for ratchet-manager deadline tests (60s+ deadlines, run in milliseconds).
+tokio = { workspace = true, features = ["test-util"] }
 rtp = "0.17"
 webrtc-srtp = { version = "0.17", default-features = false }
 
