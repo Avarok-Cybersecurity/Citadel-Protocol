@@ -114,6 +114,103 @@ mod tests {
         assert!(result.is_ok(), "failed: {result:?}");
     }
 
+    /// Two workspaces behind one HTTP edge share its address and differ only by URL, and one
+    /// agent may log in to both at once. Keying the client's in-flight (provisional) connections
+    /// by the edge address made the second attempt collide with the first: refused with
+    /// `ProvisionalConnectionExists`, or, when both passed the check before either was recorded,
+    /// the first shut down as a "lingering" connection. Here both URLs reach one native server
+    /// (the listener ignores the path), and both registrations and both logins run concurrently.
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    async fn two_urls_behind_one_address_connect_concurrently() {
+        citadel_logging::setup_log();
+
+        let server_kernel = ClientConnectListenerKernel::<_, _, StackedRatchet>::new(
+            |mut connection: CitadelClientServerConnection<StackedRatchet>| async move {
+                let (mut tx, mut rx) = connection.take_channel().unwrap().split();
+                while let Some(msg) = rx.next().await {
+                    tx.send(msg).await?;
+                }
+                Ok(())
+            },
+        );
+        let ((server, _tcp_addr), ws_addr) =
+            server_test_node_with_websocket(server_kernel, |builder| {
+                let _ = builder.with_backend(BackendType::InMemory);
+            });
+        let at = |tenant: &str| {
+            WebSocketEndpoint::parse(&format!("ws://127.0.0.1:{}/{tenant}", ws_addr.port()))
+                .unwrap()
+        };
+        let (acme, globex) = (at("acme"), at("globex"));
+        let run = Uuid::new_v4().to_string();
+        let (user_a, user_b) = (
+            format!("acme_{}", &run[..8]),
+            format!("globex_{}", &run[..8]),
+        );
+        let password = "password123";
+
+        let client_kernel = ReconnectionTestKernel::new(
+            Arc::new(NodeState::default()),
+            move |remote: NodeRemote<StackedRatchet>, _state: Arc<NodeState>| async move {
+                let (a, b) = tokio::join!(
+                    remote.register_to_endpoint(
+                        acme.clone(),
+                        user_a.as_str(),
+                        user_a.as_str(),
+                        password,
+                        Default::default(),
+                        None,
+                    ),
+                    remote.register_to_endpoint(
+                        globex.clone(),
+                        user_b.as_str(),
+                        user_b.as_str(),
+                        password,
+                        Default::default(),
+                        None,
+                    ),
+                );
+                let (a, b) = (a?, b?);
+                assert_eq!(remote.server_endpoint(a.cid).await?, Some(acme));
+                assert_eq!(remote.server_endpoint(b.cid).await?, Some(globex));
+
+                let (first, second) = tokio::join!(
+                    remote.connect_with_defaults(AuthenticationRequest::credentialed(
+                        user_a.clone(),
+                        password,
+                    )),
+                    remote.connect_with_defaults(AuthenticationRequest::credentialed(
+                        user_b.clone(),
+                        password,
+                    )),
+                );
+                let (mut first, mut second) = (first?, second?);
+                assert_eq!((first.cid, second.cid), (a.cid, b.cid));
+                echo_once(&mut first, "to acme").await;
+                echo_once(&mut second, "to globex").await;
+                first.disconnect().await?;
+                second.shutdown_kernel().await
+            },
+        );
+
+        let client = DefaultNodeBuilder::default()
+            .with_backend(BackendType::InMemory)
+            .build(client_kernel)
+            .unwrap();
+
+        let task = async move {
+            citadel_io::tokio::select! {
+                server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
+                client_res = client => client_res
+            }
+        };
+
+        let result = citadel_io::tokio::time::timeout(Duration::from_secs(60), task)
+            .await
+            .expect("timed out");
+        assert!(result.is_ok(), "failed: {result:?}");
+    }
+
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_url_nothing_listens_on_is_refused_not_hung() {
         citadel_logging::setup_log();

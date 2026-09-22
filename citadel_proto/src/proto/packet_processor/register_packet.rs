@@ -315,7 +315,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                         );
 
                                         session.session_manager.clear_provisional_session(
-                                            &remote_addr,
+                                            &session.provisional_key,
                                             session.init_time,
                                         );
 
@@ -414,7 +414,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                         } else {
                                             // Finally, alert the higher-level kernel about the success
                                             session.session_manager.clear_provisional_session(
-                                                &remote_addr,
+                                                &session.provisional_key,
                                                 session.init_time,
                                             );
                                             kernel_tx.unbounded_send(NodeResult::RegisterOkay(

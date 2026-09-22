@@ -252,6 +252,8 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     /// waiting on a ticket that never arrives (CI reconnect-wedge: `reconnection_p2p_one_c2s`).
     pub(super) pending_c2s_disconnect_ticket: DualRwLock<Option<Ticket>>,
     pub(super) remote_peer: SocketAddr,
+    /// This session's entry in the session manager's provisional connections until it is upgraded.
+    pub(super) provisional_key: crate::proto::session_manager::ProvisionalKey,
     /// A registration's server WebSocket URL, recorded in the new account once it exists.
     pub(super) endpoint_to_persist: Option<citadel_io::WebSocketEndpoint>,
     // Sends results directly to the kernel
@@ -338,6 +340,7 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub account_manager: AccountManager<R, R>,
     pub time_tracker: TimeTracker,
     pub remote_peer: SocketAddr,
+    pub provisional_key: crate::proto::session_manager::ProvisionalKey,
     pub init_ticket: Ticket,
     pub client_config: T::ClientConfig,
     pub hypernode_peer_layer: CitadelNodePeerLayer<R>,
@@ -464,6 +467,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let time_tracker = session_init_params.time_tracker;
         let kernel_ticket = session_init_params.init_ticket;
         let remote_peer = session_init_params.remote_peer;
+        let provisional_key = session_init_params.provisional_key;
         let session_manager = session_init_params.session_manager;
         let hdp_remote = session_init_params.citadel_remote;
         let session_security_settings = client_only_settings.as_ref().map(|r| r.security_settings);
@@ -504,6 +508,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             kernel_ticket: kernel_ticket.into(),
             pending_c2s_disconnect_ticket: DualRwLock::from(None),
             remote_peer,
+            provisional_key,
             endpoint_to_persist,
             kernel_tx: kernel_tx.clone(),
             session_manager,
