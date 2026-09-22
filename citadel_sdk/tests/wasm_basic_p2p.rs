@@ -182,7 +182,9 @@ fn test_injected_listener_requires_a_server_node() {
         .with_node_type(NodeType::Peer)
         .with_backend(BackendType::InMemory)
         .with_injected_listener(listener)
-        .build(citadel_sdk::prefabs::server::empty::EmptyKernel::<StackedRatchet>::default());
+        .build(citadel_sdk::prefabs::server::empty::EmptyKernel::<
+            StackedRatchet,
+        >::default());
     assert!(built.is_err());
 }
 
@@ -198,7 +200,9 @@ async fn test_a_server_ends_when_its_injector_is_dropped() {
         .with_node_type(NodeType::server("127.0.0.1:0").expect("addr"))
         .with_backend(BackendType::InMemory)
         .with_injected_listener(listener)
-        .build(citadel_sdk::prefabs::server::empty::EmptyKernel::<StackedRatchet>::default())
+        .build(citadel_sdk::prefabs::server::empty::EmptyKernel::<
+            StackedRatchet,
+        >::default())
         .expect("build server");
     let outcome = citadel_io::time::timeout(std::time::Duration::from_secs(20), node).await;
     assert!(
