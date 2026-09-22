@@ -97,6 +97,7 @@ chrono = { workspace = true, features = ["wasmbind"] }
 wasm-bindgen = { workspace = true }
 web-sys = { workspace = true, features = [
     "WebSocket",
+    "EventTarget",
     "MessageEvent",
     "ErrorEvent",
     "CloseEvent",

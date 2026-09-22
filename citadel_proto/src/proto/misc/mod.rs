@@ -106,7 +106,7 @@ pub(crate) mod wasm_p2p_signaling;
 #[cfg(target_family = "wasm")]
 pub(crate) mod wasm_rtc;
 #[cfg(target_family = "wasm")]
-pub(crate) mod wasm_stream;
+pub mod wasm_stream;
 
 /// The copy-free writer half of a split primary stream (see [`DirectFrameWriter`]).
 pub type PrimaryStreamWriter<S> = DirectFrameWriter<WriteHalf<S>>;

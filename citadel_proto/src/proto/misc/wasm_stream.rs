@@ -142,11 +142,90 @@ impl AsyncWrite for WasmStream {
 
 // ── WebSocket stream ────────────────────────────────────────────────
 
-/// Prevent closures from being dropped (must live as long as the WebSocket).
-struct WsClosures {
-    _onmessage: Closure<dyn FnMut(web_sys::MessageEvent)>,
-    _onerror: Closure<dyn FnMut(web_sys::ErrorEvent)>,
-    _onclose: Closure<dyn FnMut(web_sys::CloseEvent)>,
+/// Event listeners attached to a WebSocket; kept so they can be detached on drop.
+///
+/// `addEventListener` rather than the `on*` setters: the setters are a browser convenience that the
+/// server half of a Workers `WebSocketPair` does not honour, while listeners work in every runtime
+/// this stream runs in (browsers, Node, workerd).
+struct WsListeners {
+    onmessage: Closure<dyn FnMut(web_sys::MessageEvent)>,
+    onerror: Closure<dyn FnMut(web_sys::Event)>,
+    onclose: Closure<dyn FnMut(web_sys::Event)>,
+}
+
+/// Resolves `connect` once the socket opens, or with the error that stopped it.
+type OpenSignal = Arc<std::sync::Mutex<Option<oneshot::Sender<Result<(), String>>>>>;
+
+impl WsListeners {
+    fn attach(
+        ws: &web_sys::WebSocket,
+        state: &Arc<std::sync::Mutex<WasmStreamState>>,
+        on_error: Option<OpenSignal>,
+    ) -> io::Result<Self> {
+        // Binary frames surface as `ArrayBuffer` only when asked: the standard default is `Blob`,
+        // which Workers deliver to the server half of a pair unless told otherwise, and which the
+        // message handler below rejects.
+        ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
+        let state_msg = state.clone();
+        let onmessage = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
+            let mut s = state_msg.lock().unwrap();
+            match event.data().dyn_into::<js_sys::ArrayBuffer>() {
+                Ok(abuf) => s.read_buf.extend(js_sys::Uint8Array::new(&abuf).to_vec()),
+                // A text frame (or a Blob, were binaryType ever reset) is not part of this byte
+                // stream; dropping it would desynchronise the framing without a trace.
+                Err(_) => s.error = Some("non-binary WebSocket frame".to_string()),
+            }
+            if let Some(waker) = s.read_waker.take() {
+                waker.wake();
+            }
+        }) as Box<dyn FnMut(web_sys::MessageEvent)>);
+
+        let state_err = state.clone();
+        let onerror = Closure::wrap(Box::new(move |_: web_sys::Event| {
+            let mut s = state_err.lock().unwrap();
+            s.error = Some("WebSocket error".to_string());
+            if let Some(waker) = s.read_waker.take() {
+                waker.wake();
+            }
+            if let Some(tx) = on_error.as_ref().and_then(|tx| tx.lock().unwrap().take()) {
+                let _ = tx.send(Err("WebSocket error".to_string()));
+            }
+        }) as Box<dyn FnMut(web_sys::Event)>);
+
+        let state_close = state.clone();
+        let onclose = Closure::wrap(Box::new(move |_: web_sys::Event| {
+            let mut s = state_close.lock().unwrap();
+            s.closed = true;
+            if let Some(waker) = s.read_waker.take() {
+                waker.wake();
+            }
+        }) as Box<dyn FnMut(web_sys::Event)>);
+
+        let this = Self {
+            onmessage,
+            onerror,
+            onclose,
+        };
+        for (name, cb) in this.callbacks() {
+            ws.add_event_listener_with_callback(name, cb)
+                .map_err(|e| io::Error::other(format!("{e:?}")))?;
+        }
+        Ok(this)
+    }
+
+    fn callbacks(&self) -> [(&'static str, &js_sys::Function); 3] {
+        [
+            ("message", self.onmessage.as_ref().unchecked_ref()),
+            ("error", self.onerror.as_ref().unchecked_ref()),
+            ("close", self.onclose.as_ref().unchecked_ref()),
+        ]
+    }
+
+    fn detach(&self, ws: &web_sys::WebSocket) {
+        for (name, cb) in self.callbacks() {
+            let _ = ws.remove_event_listener_with_callback(name, cb);
+        }
+    }
 }
 
 /// WebSocket-backed async byte stream.
@@ -156,7 +235,7 @@ struct WsClosures {
 pub struct WasmWebSocketStream {
     ws: web_sys::WebSocket,
     state: Arc<std::sync::Mutex<WasmStreamState>>,
-    _closures: WsClosures,
+    listeners: WsListeners,
 }
 
 unsafe impl Send for WasmWebSocketStream {}
@@ -170,14 +249,12 @@ impl WasmWebSocketStream {
     pub async fn connect(url: &str) -> io::Result<Self> {
         let ws = web_sys::WebSocket::new(url)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))?;
-        ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
 
         let state = Arc::new(std::sync::Mutex::new(WasmStreamState::new()));
 
         let (open_tx, open_rx) = oneshot::channel::<Result<(), String>>();
         let open_tx = Arc::new(std::sync::Mutex::new(Some(open_tx)));
 
-        // onopen
         let tx_open = open_tx.clone();
         let onopen = Closure::once(move || {
             if let Some(tx) = tx_open.lock().unwrap().take() {
@@ -187,46 +264,7 @@ impl WasmWebSocketStream {
         ws.set_onopen(Some(onopen.as_ref().unchecked_ref()));
         onopen.forget();
 
-        // onmessage
-        let state_msg = state.clone();
-        let onmessage = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
-            if let Ok(abuf) = event.data().dyn_into::<js_sys::ArrayBuffer>() {
-                let array = js_sys::Uint8Array::new(&abuf);
-                let bytes = array.to_vec();
-                let mut s = state_msg.lock().unwrap();
-                s.read_buf.extend(bytes);
-                if let Some(waker) = s.read_waker.take() {
-                    waker.wake();
-                }
-            }
-        }) as Box<dyn FnMut(web_sys::MessageEvent)>);
-        ws.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
-
-        // onerror
-        let state_err = state.clone();
-        let tx_err = open_tx.clone();
-        let onerror = Closure::wrap(Box::new(move |_: web_sys::ErrorEvent| {
-            let mut s = state_err.lock().unwrap();
-            s.error = Some("WebSocket error".to_string());
-            if let Some(waker) = s.read_waker.take() {
-                waker.wake();
-            }
-            if let Some(tx) = tx_err.lock().unwrap().take() {
-                let _ = tx.send(Err("WebSocket error".to_string()));
-            }
-        }) as Box<dyn FnMut(web_sys::ErrorEvent)>);
-        ws.set_onerror(Some(onerror.as_ref().unchecked_ref()));
-
-        // onclose
-        let state_close = state.clone();
-        let onclose = Closure::wrap(Box::new(move |_: web_sys::CloseEvent| {
-            let mut s = state_close.lock().unwrap();
-            s.closed = true;
-            if let Some(waker) = s.read_waker.take() {
-                waker.wake();
-            }
-        }) as Box<dyn FnMut(web_sys::CloseEvent)>);
-        ws.set_onclose(Some(onclose.as_ref().unchecked_ref()));
+        let listeners = WsListeners::attach(&ws, &state, Some(open_tx))?;
 
         match open_rx.await {
             Ok(Ok(())) => {}
@@ -242,20 +280,27 @@ impl WasmWebSocketStream {
         Ok(Self {
             ws,
             state,
-            _closures: WsClosures {
-                _onmessage: onmessage,
-                _onerror: onerror,
-                _onclose: onclose,
-            },
+            listeners,
+        })
+    }
+
+    /// Wrap a WebSocket that a host has already accepted — the server half of a Workers
+    /// `WebSocketPair` after `accept()`, for instance. It is open by construction, so there is no
+    /// `open` event to await.
+    pub fn from_accepted(ws: web_sys::WebSocket) -> io::Result<Self> {
+        let state = Arc::new(std::sync::Mutex::new(WasmStreamState::new()));
+        let listeners = WsListeners::attach(&ws, &state, None)?;
+        Ok(Self {
+            ws,
+            state,
+            listeners,
         })
     }
 }
 
 impl Drop for WasmWebSocketStream {
     fn drop(&mut self) {
-        self.ws.set_onmessage(None);
-        self.ws.set_onerror(None);
-        self.ws.set_onclose(None);
+        self.listeners.detach(&self.ws);
         let _ = self.ws.close();
     }
 }

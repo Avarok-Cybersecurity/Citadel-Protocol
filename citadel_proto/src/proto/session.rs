@@ -1111,7 +1111,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     // write when the reader returned, so the peer saw a bare EOF
                     // and lost the reason. A session that is ending can afford
                     // the wait; a peer that never learns why cannot.
-                    citadel_io::tokio::time::sleep(FINAL_REPLY_FLUSH_GRACE).await;
+                    citadel_io::time::sleep(FINAL_REPLY_FLUSH_GRACE).await;
                 }
                 log::error!(target: "citadel", "[PrimaryProcessor] session ending: {err:?} | Session end state: {:?}", session.state.get());
                 Err(std::io::Error::other(err))

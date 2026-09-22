@@ -169,7 +169,7 @@ async fn poll_for_peer(
             }
         }
 
-        citadel_io::tokio::time::sleep(std::time::Duration::from_millis(poll_interval_ms)).await;
+        citadel_io::time::sleep(std::time::Duration::from_millis(poll_interval_ms)).await;
     }
 }
 
@@ -267,6 +267,6 @@ async fn poll_for_key<T: serde::de::DeserializeOwned>(
             return Ok(result);
         }
 
-        citadel_io::tokio::time::sleep(std::time::Duration::from_millis(poll_interval_ms)).await;
+        citadel_io::time::sleep(std::time::Duration::from_millis(poll_interval_ms)).await;
     }
 }

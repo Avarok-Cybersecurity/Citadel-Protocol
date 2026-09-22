@@ -469,9 +469,9 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                 != packet_flags::cmd::aux::do_preconnect::SUCCESS
                     };
                     if waiting {
-                        let deadline = citadel_io::tokio::time::Instant::now() + PUNCH_RESOLVE_WAIT;
+                        let deadline = citadel_io::time::Instant::now() + PUNCH_RESOLVE_WAIT;
                         loop {
-                            citadel_io::tokio::time::sleep(PUNCH_RESOLVE_POLL).await;
+                            citadel_io::time::sleep(PUNCH_RESOLVE_POLL).await;
                             let resolved = {
                                 let state_container = inner_state!(session.state_container);
                                 state_container.pre_connect_state.last_stage
@@ -480,7 +480,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             if resolved {
                                 break;
                             }
-                            if citadel_io::tokio::time::Instant::now() >= deadline {
+                            if citadel_io::time::Instant::now() >= deadline {
                                 log::warn!(target: "citadel", "[udp-oneshot] hole punch had not resolved within {PUNCH_RESOLVE_WAIT:?} of the peer's preconnect SUCCESS; answering anyway");
                                 break;
                             }

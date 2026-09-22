@@ -580,6 +580,8 @@ pub mod prelude {
     pub use crate::proto::misc::signaling_firebase::{FirebaseSignaling, FirebaseSignalingConfig};
     #[cfg(target_family = "wasm")]
     pub use crate::proto::misc::wasm_io::*;
+    #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::wasm_stream::{WasmStream, WasmWebSocketStream};
 
     pub use crate::proto::misc::platform_ops::{DefaultTransport, PlatformOps, TransferMetadata};
 
