@@ -111,12 +111,22 @@ impl Default for BackendType {
     ///
     /// On native + filesystem feature: uses `~/.citadel/<uuid>` directory.
     /// On WASM or without filesystem feature: uses in-memory storage.
+    ///
+    /// Under `localhost-testing` the same kind of store goes under the OS temp
+    /// dir instead. The directory is a fresh uuid on every call, so no later run
+    /// ever reads it back: every test node built without a backend left one
+    /// behind in the user's home, forever -- 27,000 of them, 6 GB, on one
+    /// developer machine. `localhost-testing` is only ever enabled by
+    /// dev-dependencies, so release builds keep `~/.citadel`.
     fn default() -> Self {
         #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
         {
-            let mut home_dir = dirs2::home_dir().unwrap();
-            home_dir.push(format!(".citadel/{}", uuid::Uuid::new_v4().as_u128()));
-            return BackendType::Filesystem(home_dir.to_str().unwrap().to_string());
+            #[cfg(feature = "localhost-testing")]
+            let mut base = std::env::temp_dir();
+            #[cfg(not(feature = "localhost-testing"))]
+            let mut base = dirs2::home_dir().unwrap();
+            base.push(format!(".citadel/{}", uuid::Uuid::new_v4().as_u128()));
+            return BackendType::Filesystem(base.to_str().unwrap().to_string());
         }
 
         #[allow(unreachable_code)]
@@ -444,5 +454,37 @@ impl<R: Ratchet, Fcm: Ratchet> Clone for PersistenceHandler<R, Fcm> {
         Self {
             inner: self.inner.clone(),
         }
+    }
+}
+
+#[cfg(all(test, feature = "filesystem", not(target_family = "wasm")))]
+mod default_backend_tests {
+    use super::BackendType;
+
+    fn default_dir() -> std::path::PathBuf {
+        match BackendType::default() {
+            BackendType::Filesystem(dir) => std::path::PathBuf::from(dir),
+            other => panic!("the default backend is not a filesystem store: {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "localhost-testing")]
+    #[test]
+    fn a_test_build_keeps_default_stores_out_of_the_home_directory() {
+        let dir = default_dir();
+        assert!(
+            dir.starts_with(std::env::temp_dir()),
+            "a test node's default store went to {dir:?}, not the temp dir"
+        );
+    }
+
+    #[cfg(not(feature = "localhost-testing"))]
+    #[test]
+    fn a_release_build_keeps_its_default_store_in_the_home_directory() {
+        let dir = default_dir();
+        assert!(
+            dir.starts_with(dirs2::home_dir().unwrap().join(".citadel")),
+            "the default store moved: {dir:?}"
+        );
     }
 }
