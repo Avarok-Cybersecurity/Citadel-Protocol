@@ -217,6 +217,41 @@ pub struct RegisterSuccess {
     pub cid: u64,
 }
 
+/// Waits for the outcome of a registration request.
+async fn await_registration<R: Ratchet, Rem: Remote<R>>(
+    remote: &Rem,
+    register_request: NodeRequest,
+) -> Result<RegisterSuccess, NetworkError> {
+    let mut subscription = remote.send_callback_subscription(register_request).await?;
+    while let Some(status) = subscription.next().await {
+        match status.into_result()? {
+            NodeResult::RegisterOkay(RegisterOkay { cid, .. }) => {
+                return Ok(RegisterSuccess { cid });
+            }
+            NodeResult::RegisterFailure(err) => {
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RemoteRegisterFailure,
+                    err.error_message
+                ));
+            }
+            NodeResult::Disconnect(err) => {
+                return Err(citadel_io::error!(
+                    citadel_io::ErrorCode::RemoteDisconnected,
+                    err.message
+                ));
+            }
+            evt => {
+                log::warn!(target: "citadel", "Invalid NodeResult for Register request received: {evt:?}");
+            }
+        }
+    }
+
+    Err(citadel_io::error!(
+        citadel_io::ErrorCode::RemoteKernelStreamDied,
+        "register"
+    ))
+}
+
 #[async_trait]
 /// Endows the [NodeRemote](NodeRemote) with additional functions
 pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
@@ -246,36 +281,43 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             proposed_credentials: creds,
             static_security_settings: default_security_settings,
             session_password: server_password.unwrap_or_default(),
+            endpoint: None,
         });
 
-        let mut subscription = self.send_callback_subscription(register_request).await?;
-        while let Some(status) = subscription.next().await {
-            match status.into_result()? {
-                NodeResult::RegisterOkay(RegisterOkay { cid, .. }) => {
-                    return Ok(RegisterSuccess { cid });
-                }
-                NodeResult::RegisterFailure(err) => {
-                    return Err(citadel_io::error!(
-                        citadel_io::ErrorCode::RemoteRegisterFailure,
-                        err.error_message
-                    ));
-                }
-                NodeResult::Disconnect(err) => {
-                    return Err(citadel_io::error!(
-                        citadel_io::ErrorCode::RemoteDisconnected,
-                        err.message
-                    ));
-                }
-                evt => {
-                    log::warn!(target: "citadel", "Invalid NodeResult for Register request received: {evt:?}");
-                }
-            }
-        }
+        await_registration(self, register_request).await
+    }
 
-        Err(citadel_io::error!(
-            citadel_io::ErrorCode::RemoteKernelStreamDied,
-            "register"
-        ))
+    /// Registers with a server reached by a WebSocket URL (`wss://org.example.net/`, or
+    /// `ws://host:port/path`) rather than at an address of its own: a server behind an HTTP edge,
+    /// which is told apart from the edge's other servers by hostname and path. The account
+    /// remembers the URL, so a later [`connect`](Self::connect) with credentials dials it too.
+    #[cfg(not(target_family = "wasm"))]
+    async fn register_to_endpoint<
+        P: Into<String> + Send,
+        V: Into<String> + Send,
+        K: Into<SecBuffer> + Send,
+    >(
+        &self,
+        endpoint: citadel_io::WebSocketEndpoint,
+        full_name: P,
+        username: V,
+        proposed_password: K,
+        default_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
+    ) -> Result<RegisterSuccess, NetworkError> {
+        let remote_addr = endpoint.resolve().await?;
+        let creds =
+            ProposedCredentials::new_register(full_name, username, proposed_password.into())
+                .await?;
+        let register_request = NodeRequest::RegisterToHypernode(RegisterToHypernode {
+            remote_addr,
+            proposed_credentials: creds,
+            static_security_settings: default_security_settings,
+            session_password: server_password.unwrap_or_default(),
+            endpoint: Some(endpoint),
+        });
+
+        await_registration(self, register_request).await
     }
 
     /// Registers using the default settings. The default uses No Google FCM keys and the default session security settings
