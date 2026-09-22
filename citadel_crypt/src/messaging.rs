@@ -269,14 +269,23 @@ where
                 // In Perfect mode, each message requires its own rekey for perfect forward secrecy.
                 // When a rekey is already in progress, queue the message to be sent later.
                 // The background task drains the queue after each rekey completes.
+                //
+                // The queue lock is taken BEFORE the trigger and held until the message
+                // is queued. Taken after, there was a gap: "not ready" came back, the
+                // pending rekey concluded, the drainer consumed that notification, found
+                // the queue empty and went back to waiting -- and then this message was
+                // queued with no rekey pending and nothing left to wake the drainer. It
+                // left only when a later send started a rekey, and never if it was the
+                // last. Holding the lock makes the drainer wait for the push. It cannot
+                // deadlock: the drainer never holds this lock while it waits, and the
+                // ratchet manager never takes it.
+                let mut queue = self.enqueued_messages.lock().await;
                 if let Some(message_not_sent) = self
                     .manager
                     .trigger_rekey_with_payload(Some(message), false)
                     .await?
                 {
-                    // Constructor unavailable (rekey in progress), enqueue for later
-                    let mut lock = self.enqueued_messages.lock().await;
-                    lock.push_back(message_not_sent);
+                    queue.push_back(message_not_sent);
                 }
                 // Success: either message was sent with rekey, or it's enqueued
                 Ok(())
