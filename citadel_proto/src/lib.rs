@@ -555,7 +555,9 @@ pub mod prelude {
     };
 
     // Unconditional exports available on all platforms
+    pub use crate::proto::misc::server_endpoint_store::load as load_server_endpoint;
     pub use async_trait::async_trait;
+    pub use citadel_io::WebSocketEndpoint;
     pub use citadel_wire::hypernode_type::NodeType;
 
     // Native-only prelude exports

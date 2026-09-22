@@ -320,6 +320,17 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         await_registration(self, register_request).await
     }
 
+    /// The WebSocket URL the local account `cid` registered to (see
+    /// [`register_to_endpoint`](Self::register_to_endpoint)), or `None` when its server is the
+    /// address in its connection info. Behind an HTTP edge that address is one of the edge's,
+    /// shared with every other server there, so it does not identify the server; this does.
+    async fn server_endpoint(
+        &self,
+        cid: u64,
+    ) -> Result<Option<citadel_io::WebSocketEndpoint>, NetworkError> {
+        citadel_proto::prelude::load_server_endpoint(self.account_manager(), cid).await
+    }
+
     /// Registers using the default settings. The default uses No Google FCM keys and the default session security settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
     async fn register_with_defaults<

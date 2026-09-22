@@ -14,8 +14,8 @@ mod tests {
     use crate::common::{NodeState, ReconnectionTestKernel};
     use citadel_io::tokio;
     use citadel_io::WebSocketEndpoint;
-    use citadel_sdk::prelude::*;
     use citadel_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
+    use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::server_test_node_with_websocket;
     use futures::StreamExt;
     use std::sync::Arc;
@@ -60,7 +60,7 @@ mod tests {
             move |remote: NodeRemote<StackedRatchet>, _state: Arc<NodeState>| async move {
                 let registered = remote
                     .register_to_endpoint(
-                        endpoint,
+                        endpoint.clone(),
                         username.as_str(),
                         username.as_str(),
                         password,
@@ -68,6 +68,11 @@ mod tests {
                         None,
                     )
                     .await?;
+                assert_eq!(
+                    remote.server_endpoint(registered.cid).await?,
+                    Some(endpoint),
+                    "the account must remember the URL it registered to"
+                );
 
                 let mut first = remote
                     .connect_with_defaults(AuthenticationRequest::credentialed(

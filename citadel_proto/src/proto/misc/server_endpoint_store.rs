@@ -38,7 +38,9 @@ pub(crate) async fn store<R: Ratchet>(
         .map_err(|err| NetworkError::generic(err.into_string()))
 }
 
-pub(crate) async fn load<R: Ratchet>(
+/// The WebSocket URL the account `cid` registered to, or `None` for an account whose server is
+/// its address.
+pub async fn load<R: Ratchet>(
     account_manager: &AccountManager<R, R>,
     cid: u64,
 ) -> Result<Option<WebSocketEndpoint>, NetworkError> {
