@@ -361,7 +361,11 @@ impl GenericNetworkListener {
                 let send = send.clone();
 
                 let handle_ws = async move {
-                    match tokio_tungstenite::accept_async(tcp_stream).await {
+                    match tokio_tungstenite::accept_async(
+                        super::native_websocket::WsTransport::Plain(tcp_stream),
+                    )
+                    .await
+                    {
                         Ok(ws_stream) => {
                             let byte_stream = super::native_websocket::WebSocketByteStream::new(
                                 ws_stream, addr, addr,

@@ -78,6 +78,14 @@ impl ProtocolIO for NativeIO {
         super::native_connect::c2s_connect(None, addr, config).await
     }
 
+    async fn connect_endpoint(
+        config: &Self::ClientConfig,
+        _addr: Self::Addr,
+        endpoint: citadel_io::WebSocketEndpoint,
+    ) -> io::Result<Self::Stream> {
+        super::native_ws_connect::c2s_connect_endpoint(None, &endpoint, config).await
+    }
+
     async fn bind_unreliable(addr: Self::Addr) -> io::Result<Self::UnreliableSocket> {
         citadel_wire::socket_helpers::get_udp_socket(addr)
             .map(NativeUdpSocket)

@@ -341,12 +341,20 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_layer,
                     stun_servers,
                     turn_servers,
+                    endpoint,
                 ) = {
-                    let (peer_addr, cnac, proposed_credentials) = {
+                    let (peer_addr, cnac, proposed_credentials, endpoint) = {
                         match &init_mode {
-                            HdpSessionInitMode::Register(peer_addr, proposed_credentials) => {
-                                (*peer_addr, None, proposed_credentials.clone())
-                            }
+                            HdpSessionInitMode::Register(
+                                peer_addr,
+                                proposed_credentials,
+                                endpoint,
+                            ) => (
+                                *peer_addr,
+                                None,
+                                proposed_credentials.clone(),
+                                endpoint.clone(),
+                            ),
 
                             HdpSessionInitMode::Connect(auth_request) => match auth_request {
                                 AuthenticationRequest::Passwordless {
@@ -356,6 +364,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                     *server_addr,
                                     None,
                                     ProposedCredentials::transient(username.clone()),
+                                    None,
                                 ),
 
                                 AuthenticationRequest::Credentialed { id, password } => {
@@ -370,13 +379,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                         .ok_or(error!(ErrorCode::SessionClientNotLoaded))?;
                                     let conn_info = cnac.get_connect_info();
                                     let peer_addr = conn_info.addr;
+                                    let endpoint = crate::proto::misc::server_endpoint_store::load(
+                                        &acc_mgr,
+                                        cnac.get_cid(),
+                                    )
+                                    .await?;
 
                                     let proposed_credentials = cnac
                                         .generate_connect_credentials(password.clone())
                                         .await
                                         .map_err(|err| NetworkError::generic(err.into_string()))?;
 
-                                    (peer_addr, Some(cnac), proposed_credentials)
+                                    (peer_addr, Some(cnac), proposed_credentials, endpoint)
                                 }
                             },
                         }
@@ -428,6 +442,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         peer_layer,
                         stun_servers,
                         turn_servers,
+                        endpoint,
                     )
                 };
 
@@ -435,10 +450,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     ConnectProtocol::P2P(T::server_identity(&listener_underlying_proto));
 
                 // create conn to peer
-                let primary_stream =
-                    T::connect(default_client_config, T::from_socket_addr(peer_addr))
+                let primary_stream = match endpoint {
+                    Some(endpoint) => {
+                        T::connect_endpoint(
+                            default_client_config,
+                            T::from_socket_addr(peer_addr),
+                            endpoint,
+                        )
                         .await
-                        .map_err(|err| NetworkError::socket(err.to_string()))?;
+                    }
+                    None => T::connect(default_client_config, T::from_socket_addr(peer_addr)).await,
+                }
+                .map_err(|err| NetworkError::socket(err.to_string()))?;
                 let local_bind_addr: SocketAddr = T::to_socket_addr(
                     &T::local_addr(&primary_stream)
                         .map_err(|err| NetworkError::generic(err.to_string()))?,

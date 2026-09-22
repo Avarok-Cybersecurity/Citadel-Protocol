@@ -252,6 +252,8 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     /// waiting on a ticket that never arrives (CI reconnect-wedge: `reconnection_p2p_one_c2s`).
     pub(super) pending_c2s_disconnect_ticket: DualRwLock<Option<Ticket>>,
     pub(super) remote_peer: SocketAddr,
+    /// A registration's server WebSocket URL, recorded in the new account once it exists.
+    pub(super) endpoint_to_persist: Option<citadel_io::WebSocketEndpoint>,
     // Sends results directly to the kernel
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
@@ -317,7 +319,12 @@ pub enum SessionState {
 #[allow(variant_size_differences)]
 pub enum HdpSessionInitMode {
     Connect(AuthenticationRequest),
-    Register(SocketAddr, ProposedCredentials),
+    /// The optional endpoint is the server's WebSocket URL (see `RegisterToHypernode::endpoint`).
+    Register(
+        SocketAddr,
+        ProposedCredentials,
+        Option<citadel_io::WebSocketEndpoint>,
+    ),
 }
 
 pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
@@ -392,6 +399,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 .is_some(),
             "Must have either a client or a server"
         );
+
+        let endpoint_to_persist = match session_init_params
+            .client_only_settings
+            .as_ref()
+            .map(|r| &r.init_mode)
+        {
+            Some(HdpSessionInitMode::Register(_, _, endpoint)) => endpoint.clone(),
+            _ => None,
+        };
 
         let (cnac, state, session_cid) =
             if let Some(client_init_settings) = &session_init_params.client_only_settings {
@@ -488,6 +504,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             kernel_ticket: kernel_ticket.into(),
             pending_c2s_disconnect_ticket: DualRwLock::from(None),
             remote_peer,
+            endpoint_to_persist,
             kernel_tx: kernel_tx.clone(),
             session_manager,
             state_container: StateContainerInner::create(

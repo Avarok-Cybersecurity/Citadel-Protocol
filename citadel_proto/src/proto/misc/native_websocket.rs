@@ -1,8 +1,11 @@
-//! WebSocket byte stream adapter for native servers.
+//! WebSocket byte stream adapter for native servers and clients.
 //!
 //! Wraps `tokio-tungstenite`'s message-oriented `WebSocketStream` into a
 //! byte-oriented `AsyncRead + AsyncWrite` stream. This allows the protocol
 //! layer to treat WebSocket connections identically to TCP/TLS streams.
+//!
+//! The socket under the WebSocket is a [`WsTransport`]: plain TCP for the server's
+//! listener and for `ws://` clients, TLS for `wss://` clients.
 
 use std::collections::VecDeque;
 use std::io;
@@ -11,17 +14,18 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use citadel_io::tokio::net::TcpStream;
 use futures::{Sink, Stream};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
+
+pub use super::native_ws_transport::WsTransport;
 
 /// Byte-oriented wrapper around a WebSocket connection.
 ///
 /// Reads extract binary data from incoming WebSocket frames and buffer it.
 /// Writes send binary frames containing the raw bytes.
 pub struct WebSocketByteStream {
-    inner: WebSocketStream<TcpStream>,
+    inner: WebSocketStream<WsTransport>,
     read_buf: VecDeque<u8>,
     peer_addr: SocketAddr,
     local_addr: SocketAddr,
@@ -29,7 +33,7 @@ pub struct WebSocketByteStream {
 
 impl WebSocketByteStream {
     pub fn new(
-        inner: WebSocketStream<TcpStream>,
+        inner: WebSocketStream<WsTransport>,
         peer_addr: SocketAddr,
         local_addr: SocketAddr,
     ) -> Self {
@@ -149,9 +153,10 @@ mod tests {
     async fn ws_client_connect(addr: SocketAddr) -> WebSocketByteStream {
         let tcp = TokioTcpStream::connect(addr).await.unwrap();
         let local = tcp.local_addr().unwrap();
-        let (ws, _) = tokio_tungstenite::client_async(format!("ws://{addr}"), tcp)
-            .await
-            .unwrap();
+        let (ws, _) =
+            tokio_tungstenite::client_async(format!("ws://{addr}"), WsTransport::Plain(tcp))
+                .await
+                .unwrap();
         WebSocketByteStream::new(ws, addr, local)
     }
 
@@ -173,7 +178,9 @@ mod tests {
             let server = citadel_io::tokio::spawn(async move {
                 let (tcp, peer) = listener.accept().await.unwrap();
                 let local = tcp.local_addr().unwrap();
-                let ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                let ws = tokio_tungstenite::accept_async(WsTransport::Plain(tcp))
+                    .await
+                    .unwrap();
                 let mut stream = WebSocketByteStream::new(ws, peer, local);
 
                 let mut buf = [0u8; 5];
@@ -212,7 +219,9 @@ mod tests {
             let server = citadel_io::tokio::spawn(async move {
                 let (tcp, peer) = listener.accept().await.unwrap();
                 let local = tcp.local_addr().unwrap();
-                let ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                let ws = tokio_tungstenite::accept_async(WsTransport::Plain(tcp))
+                    .await
+                    .unwrap();
                 let stream = WebSocketByteStream::new(ws, peer, local);
 
                 let mut framed = LengthDelimitedCodec::builder()
@@ -265,7 +274,9 @@ mod tests {
             let server = citadel_io::tokio::spawn(async move {
                 let (tcp, peer) = listener.accept().await.unwrap();
                 let local = tcp.local_addr().unwrap();
-                let ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                let ws = tokio_tungstenite::accept_async(WsTransport::Plain(tcp))
+                    .await
+                    .unwrap();
                 let mut stream = WebSocketByteStream::new(ws, peer, local);
 
                 let mut received = vec![0u8; payload_clone.len()];
