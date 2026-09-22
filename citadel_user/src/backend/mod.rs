@@ -65,6 +65,8 @@ pub mod file_io;
 /// File I/O backend implementation (supports filesystem and OPFS)
 #[cfg(any(feature = "filesystem", feature = "opfs"))]
 pub mod file_io_backend;
+/// A backend over SQL storage the host provides (e.g. a Durable Object's SQLite)
+pub mod host_sql;
 /// Implementation for an in-memory backend. No synchronization occurs.
 /// This is useful for no-fs environments
 pub mod memory;
@@ -104,6 +106,8 @@ pub enum BackendType {
     #[cfg(all(feature = "redis", not(coverage)))]
     /// Synchronization will occur on a remote redis database
     Redis(String, RedisConnectionOptions),
+    /// Synchronization will occur through SQL storage the host process provides
+    HostSql(host_sql::HostSqlHandle),
 }
 
 impl Default for BackendType {

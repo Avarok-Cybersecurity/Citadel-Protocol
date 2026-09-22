@@ -542,6 +542,9 @@ pub mod prelude {
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_user::account_manager::AccountManager;
     pub use citadel_user::auth::proposed_credentials::ProposedCredentials;
+    pub use citadel_user::backend::host_sql::{
+        HostSqlHandle, SqlHost, SqlRow, SqlStatement, SqlValue,
+    };
     pub use citadel_user::backend::BackendType;
     pub use citadel_user::external_services::{RtdbConfig, ServicesConfig, ServicesObject};
     pub use citadel_user::prelude::ConnectProtocol;

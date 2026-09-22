@@ -1,5 +1,9 @@
+#[path = "common/sqlite_host.rs"]
+mod sqlite_host;
+
 #[cfg(test)]
 mod tests {
+    use crate::sqlite_host::SqliteHost;
     use citadel_crypt::prelude::{ConstructorOpts, Toolset};
     use citadel_crypt::ratchets::stacked::constructor::StackedRatchetConstructor;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
@@ -168,7 +172,11 @@ mod tests {
 
     #[cfg(any(feature = "sql", feature = "redis", feature = "filesystem"))]
     fn get_possible_backends(env: &str, ty: &str) -> Vec<BackendType> {
-        let mut backends = vec![BackendType::InMemory, generate_random_filesystem_dir()];
+        let mut backends = vec![
+            BackendType::InMemory,
+            generate_random_filesystem_dir(),
+            BackendType::HostSql(SqliteHost::handle()),
+        ];
 
         match std::env::var(env) {
             Ok(addr) => {
@@ -195,7 +203,10 @@ mod tests {
 
     #[cfg(not(any(feature = "sql", feature = "redis", feature = "filesystem")))]
     fn get_possible_backends(_env: &str, _ty: &str) -> Vec<BackendType> {
-        vec![BackendType::InMemory]
+        vec![
+            BackendType::InMemory,
+            BackendType::HostSql(SqliteHost::handle()),
+        ]
     }
 
     fn client_backends() -> Vec<BackendType> {
