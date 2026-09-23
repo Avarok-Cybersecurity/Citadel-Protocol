@@ -47,7 +47,13 @@ impl Coturn {
         std::fs::write(&key_path, cert.signing_key.serialize_pem()).unwrap();
         let (port, tls_port) = (free_port(), free_port());
         let relay_base = 40000 + (port % 2000) * 10;
-        let child = Command::new(bin)
+        // citadel_logging's panic hook exits the process, so Drop never runs on a failed test;
+        // a shell watchdog kills turnserver once the test process is gone (or on SIGTERM).
+        const WATCHDOG: &str = "p=$1; shift; \"$@\" & c=$!; trap 'kill $c; exit 0' TERM; \
+            while kill -0 \"$p\" 2>/dev/null && kill -0 $c 2>/dev/null; do sleep 1; done; kill $c";
+        let child = Command::new("sh")
+            .args(["-c", WATCHDOG, "sh", &std::process::id().to_string()])
+            .arg(bin)
             .args(["-n", "--lt-cred-mech", "--fingerprint"])
             .args(["--listening-ip", "127.0.0.1", "--relay-ip", "127.0.0.1"])
             .args(["--listening-port", &port.to_string()])
@@ -116,7 +122,10 @@ impl Coturn {
 
 impl Drop for Coturn {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        // SIGTERM, not SIGKILL: the watchdog's trap forwards it to turnserver.
+        let _ = Command::new("kill")
+            .arg(self.child.id().to_string())
+            .status();
         let _ = self.child.wait();
         let _ = std::fs::remove_dir_all(&self.dir);
     }
