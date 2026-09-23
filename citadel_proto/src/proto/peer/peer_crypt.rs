@@ -72,7 +72,12 @@ pub enum KeyExchangeProcess {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PeerNatInfo {
-    // This is the location of the listener for the other peer as obtained by the central server
+    /// The peer's address as the Citadel server observed it on the peer's C2S connection,
+    /// inserted by the server into the Kex. Diagnostic and untrusted: it is the peer's C2S
+    /// source address, not a verified reflexive address, and may differ from what any other
+    /// host (a STUN or TURN server, the peer itself) sees. Use it only where a wrong value is
+    /// harmless (logging, widening a TURN permission filter whose traffic QUIC and the P2P
+    /// ratchet authenticate anyway), never as proof of where the peer is.
     pub peer_remote_addr_visible_from_server: SocketAddr,
     pub peer_nat: NatType,
     pub tls_domain: TlsDomain,

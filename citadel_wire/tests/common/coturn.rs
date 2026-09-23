@@ -20,6 +20,8 @@ pub struct Coturn {
     pub port: u16,
     pub tls_port: u16,
     pub cert_der: Vec<u8>,
+    /// Ports coturn allocates relayed addresses from.
+    pub relay_ports: std::ops::RangeInclusive<u16>,
 }
 
 fn free_port() -> u16 {
@@ -76,6 +78,7 @@ impl Coturn {
             port,
             tls_port,
             cert_der: cert.cert.der().to_vec(),
+            relay_ports: relay_base..=relay_base + 9,
         };
         this.wait_listening();
         this

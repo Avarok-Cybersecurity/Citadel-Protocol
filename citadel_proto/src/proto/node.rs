@@ -657,6 +657,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     }
                 }
 
+                NodeRequest::SetPeerTurnConfig(crate::proto::node_request::SetPeerTurnConfig {
+                    session_cid,
+                    peer_cid,
+                    config,
+                }) => {
+                    if let Err(err) =
+                        session_manager.set_peer_turn_config(session_cid, peer_cid, config)
+                    {
+                        send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
+                    }
+                }
+
                 NodeRequest::GetActiveSessions => {
                     if let Err(err) =
                         to_kernel_tx.unbounded_send(NodeResult::SessionList(SessionList {

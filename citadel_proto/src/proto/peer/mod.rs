@@ -49,4 +49,11 @@ pub mod message_group;
 
 pub mod p2p_conn_handler;
 
+pub mod p2p_path;
+
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod turn_p2p;
+#[cfg(not(target_family = "wasm"))]
+mod turn_rendezvous;
+
 pub(crate) mod hole_punch_compat_sink_stream;

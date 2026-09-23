@@ -38,6 +38,8 @@
 //! - File transfers are encrypted end-to-end
 
 use self::includes::*;
+use crate::proto::peer::p2p_path::P2pPathCell;
+use citadel_wire::udp_traversal::turn_relay::TurnRelayConfig;
 
 // Re-exported at the module root so external paths like
 // `crate::proto::state_container::VirtualConnectionType` keep resolving.
@@ -179,6 +181,9 @@ pub struct StateContainerInner<R: Ratchet> {
     // u64 is peer id, ticket is the local original ticket (ticket may
     // transform if a simultaneous connect)
     pub(super) outgoing_peer_connect_attempts: HashMap<u64, OutgoingPeerConnectionAttempt>,
+    /// TURN relay configuration the application supplied for the next P2P attempt with a peer.
+    /// Taken (not cloned) when that attempt decides its plan, so credentials never outlive it.
+    pub(crate) peer_turn_configs: HashMap<u64, TurnRelayConfig>,
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection<R>>,
@@ -360,6 +365,8 @@ impl<R: Ratchet> VirtualConnection<R> {
 
 pub struct EndpointChannelContainer<R: Ratchet> {
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
+    /// Shared with the application's `PeerChannel`.
+    pub(crate) p2p_path: P2pPathCell,
     pub(crate) ratchet_manager: ProtocolRatchetManager<R>,
     pub(crate) channel_signal: Option<NodeResult<R>>,
     to_ordered_local_channel:
@@ -532,6 +539,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     ) -> StateContainer<R> {
         let inner = Self {
             outgoing_peer_connect_attempts: Default::default(),
+            peer_turn_configs: Default::default(),
             file_transfer_handles: DashMap::new(),
             group_channels: Default::default(),
             group_cgka: Default::default(),

@@ -10,7 +10,9 @@ use std::sync::Arc;
 use citadel_io::tokio::io::AsyncRead;
 use citadel_io::{ProtocolUpgrade, ServerMode};
 use citadel_wire::exports::tokio_rustls::rustls::{pki_types, ClientConfig};
-use citadel_wire::quic::{QuicClient, QuicEndpointConnector, QuicServer, SELF_SIGNED_DOMAIN};
+use citadel_wire::quic::{
+    QuicClient, QuicEndpointConnector, QuicPath, QuicServer, SELF_SIGNED_DOMAIN,
+};
 use citadel_wire::tls::client_config_to_tls_connector;
 
 use crate::constants::TCP_CONN_TIMEOUT;
@@ -128,8 +130,9 @@ pub async fn quic_p2p_connect(
     remote: SocketAddr,
     secure_client_config: Arc<ClientConfig>,
     require_cert_verification: bool,
+    path: QuicPath,
 ) -> io::Result<GenericNetworkStream> {
-    log::trace!(target: "citadel", "Connecting to QUIC node {remote:?}");
+    log::trace!(target: "citadel", "Connecting to QUIC node {remote:?} over {path:?} path");
     let cfg = if domain.is_some() {
         citadel_wire::quic::rustls_client_config_to_quinn_config(secure_client_config)?
     } else if require_cert_verification {
@@ -142,6 +145,10 @@ pub async fn quic_p2p_connect(
         citadel_wire::quic::insecure::configure_client()
     };
 
+    let cfg = match path {
+        QuicPath::Direct => cfg,
+        QuicPath::Relayed => citadel_wire::quic::relayed_client_config(cfg),
+    };
     log::trace!(target: "citadel", "Using cfg={cfg:?} to connect to {remote:?}");
 
     let (conn, sink, stream) = citadel_io::time::timeout(
@@ -200,6 +207,48 @@ pub async fn p2p_connect_from_socket(
         // P2P hole-punched peers use ephemeral self-signed certs (no CA exists for them); the
         // ratchet layer authenticates the peer, so cert verification is not applicable here.
         false,
+        QuicPath::Direct,
+    )
+    .await
+}
+
+/// Create a QUIC listener over a TURN allocation (the relay's allocating peer).
+pub fn p2p_listener_from_relay(
+    allocation: Arc<citadel_wire::udp_traversal::turn_relay::TurnAllocation>,
+) -> io::Result<GenericNetworkListener> {
+    let relayed_addr = allocation.relayed_addr();
+    let socket =
+        Arc::new(citadel_wire::udp_traversal::turn_relay::TurnRelaySocket::new(allocation));
+    let node = QuicServer::new_self_signed_relayed(socket).map_err(generic_error)?;
+    super::native_bind::create_listener(
+        ServerMode::P2P(NativeP2PConfig::self_signed()),
+        None,
+        Some(node),
+        relayed_addr,
+    )
+    .map(|(listener, _)| listener)
+}
+
+/// Connect to a peer's TURN relayed address from a plain UDP socket (the relay's dialing peer).
+pub async fn p2p_connect_relayed(
+    socket: citadel_io::tokio::net::UdpSocket,
+    relayed_addr: SocketAddr,
+    domain: TlsDomain,
+    client_config: Arc<ClientConfig>,
+    timeout: Option<Duration>,
+) -> io::Result<GenericNetworkStream> {
+    let quic_endpoint =
+        QuicClient::new_with_rustls_config(socket, client_config.clone()).map_err(generic_error)?;
+    quic_p2p_connect(
+        quic_endpoint.endpoint,
+        timeout,
+        domain,
+        relayed_addr,
+        client_config,
+        // Same as the hole-punched path: the peer's certificate is ephemeral and self-signed; the
+        // ratchet layer authenticates the peer.
+        false,
+        QuicPath::Relayed,
     )
     .await
 }

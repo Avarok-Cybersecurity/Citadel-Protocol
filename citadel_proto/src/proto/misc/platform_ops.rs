@@ -130,6 +130,7 @@ pub trait PlatformOps: ProtocolIO {
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         cancel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
+        plan: crate::proto::peer::p2p_path::P2pPlan,
     ) -> impl Future<Output = Result<(), NetworkError>> + ContextRequirements;
 
     // ── File I/O ──

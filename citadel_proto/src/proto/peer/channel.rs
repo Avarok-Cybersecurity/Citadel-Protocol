@@ -57,6 +57,7 @@ use crate::error::NetworkError;
 use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, UnboundedReceiver};
+use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell};
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::UserMessage;
@@ -79,6 +80,7 @@ use std::sync::Arc;
 pub struct PeerChannel<R: Ratchet> {
     send_half: PeerChannelSendHalf<R>,
     recv_half: PeerChannelRecvHalf<R>,
+    path: P2pPathCell,
 }
 
 impl<R: Ratchet> PeerChannel<R> {
@@ -92,6 +94,7 @@ impl<R: Ratchet> PeerChannel<R> {
         is_alive: Arc<AtomicBool>,
         messenger: ProtocolMessenger<R>,
         disconnect_token: Option<DisconnectToken>,
+        path: P2pPathCell,
     ) -> Self {
         let session_cid = vconn_type.get_session_cid();
 
@@ -121,7 +124,20 @@ impl<R: Ratchet> PeerChannel<R> {
         PeerChannel {
             send_half,
             recv_half,
+            path,
         }
+    }
+
+    /// The path this connection's traffic currently takes (direct, TURN relay, or the Citadel
+    /// server). Settled before the channel is delivered; it changes only when the P2P
+    /// connection is lost (it then reads [`P2pPath::ServerRelay`] or the vconn is torn down).
+    pub fn p2p_path(&self) -> P2pPath {
+        self.path.get()
+    }
+
+    /// A handle that keeps reporting the path after [`Self::split`].
+    pub fn p2p_path_cell(&self) -> P2pPathCell {
+        self.path.clone()
     }
 
     /// Gets the CID of the endpoint

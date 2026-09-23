@@ -997,6 +997,44 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         }
     }
 
+    /// Supplies (`Some`) or withdraws (`None`) the TURN relay configuration for the next P2P
+    /// attempt with this peer. Both peers must supply one for the relay to be used (the
+    /// accepting peer before it accepts); the attempt consumes it. When direct P2P is impossible
+    /// or fails, the peers then connect through the relay, and
+    /// [`PeerChannel::p2p_path`](citadel_proto::prelude::PeerChannel::p2p_path) reports
+    /// [`P2pPath::Turn`].
+    async fn set_turn_config(
+        &self,
+        config: Option<citadel_proto::prelude::TurnRelayConfig>,
+    ) -> Result<(), NetworkError> {
+        let session_cid = self.user().get_session_cid();
+        let peer_cid = self
+            .try_as_peer_connection()
+            .await?
+            .get_original_target_cid();
+        self.remote()
+            .send(NodeRequest::SetPeerTurnConfig(SetPeerTurnConfig {
+                session_cid,
+                peer_cid,
+                config,
+            }))
+            .await
+            .map(|_| ())
+    }
+
+    /// [`Self::connect_to_peer_custom`] with a TURN relay configuration for this attempt.
+    async fn connect_to_peer_with_turn(
+        &self,
+        session_security_settings: SessionSecuritySettings,
+        udp_mode: UdpMode,
+        peer_session_password: Option<PreSharedKey>,
+        turn: citadel_proto::prelude::TurnRelayConfig,
+    ) -> Result<PeerConnectSuccess<R>, NetworkError> {
+        self.set_turn_config(Some(turn)).await?;
+        self.connect_to_peer_custom(session_security_settings, udp_mode, peer_session_password)
+            .await
+    }
+
     /// Connects to the target peer with default settings
     async fn connect_to_peer(&self) -> Result<PeerConnectSuccess<R>, NetworkError> {
         self.connect_to_peer_custom(Default::default(), Default::default(), Default::default())

@@ -226,6 +226,9 @@ async fn quic_runs_over_the_relay(#[case] transport: &str) {
     // that both ends run at the relayed MTU, i.e. the TURN ChannelData header is accounted for.
     const QUIC_DATAGRAM_OVERHEAD: usize = 38;
     let relayed_ceiling = RELAYED_QUIC_MTU as usize - QUIC_DATAGRAM_OVERHEAD;
-    assert_eq!(max, relayed_ceiling, "client datagram ceiling ignores TURN overhead");
+    assert_eq!(
+        max, relayed_ceiling,
+        "client datagram ceiling ignores TURN overhead"
+    );
     assert_eq!(server_conn.max_datagram_size(), Some(relayed_ceiling));
 }

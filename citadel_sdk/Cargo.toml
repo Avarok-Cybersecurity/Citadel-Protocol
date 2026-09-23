@@ -83,6 +83,9 @@ hyper-util = { workspace = true, features = ["tokio"] }
 http-body-util = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+# TURN relay tests: coturn harness (self-signed TLS cert generation, test-only trust).
+rcgen = { workspace = true, features = ["pem", "crypto", "ring"] }
+rustls = { workspace = true }
 # Test-fixture download/cache (tests/common/fixtures.rs) and media test hashing. Test-tree only;
 # never reaches production or wasm builds.
 ureq = { version = "3", default-features = false, features = ["rustls"] }

@@ -29,17 +29,21 @@ impl super::platform_ops::PlatformOps for WasmIO {
         udp_mode: citadel_types::proto::UdpMode,
         session_security_settings: citadel_types::proto::SessionSecuritySettings,
         cancel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
+        plan: crate::proto::peer::p2p_path::P2pPlan,
     ) -> impl std::future::Future<Output = Result<(), crate::error::NetworkError>>
            + crate::macros::ContextRequirements {
         use crate::proto::peer::peer_layer::PeerSignal;
 
         SendFuture(async move {
+            // The browser's ICE agent owns relaying (its TURN servers come from the node's
+            // `with_turn_servers`); the native TURN plan does not apply here.
             let _ = (
                 peer_nat_info,
                 hole_punch_compat_stream,
                 endpoint_ratchet,
                 sync_instant,
                 cancel_rx,
+                plan,
             );
 
             let is_initiator = node_type == netbeam::sync::RelativeNodeType::Initiator;
