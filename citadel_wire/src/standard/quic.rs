@@ -210,6 +210,26 @@ impl QuicClient {
         let quinn_config = rustls_client_config_to_quinn_config(client_config)?;
         Self::new_with_config(socket, quinn_config)
     }
+
+    /// A client over a relayed socket (e.g. this peer's own TURN allocation), with the transport
+    /// tuned for [`QuicPath::Relayed`].
+    pub fn new_relayed_over(
+        socket: Arc<dyn AsyncUdpSocket>,
+        client_config: Arc<rustls::ClientConfig>,
+    ) -> Result<QuicNode, anyhow::Error> {
+        let cfg = relayed_client_config(rustls_client_config_to_quinn_config(client_config)?);
+        let mut endpoint = Endpoint::new_with_abstract_socket(
+            EndpointConfig::default(),
+            None,
+            socket,
+            Arc::new(TokioRuntime),
+        )?;
+        endpoint.set_default_client_config(cfg);
+        Ok(QuicNode {
+            endpoint,
+            tls_domain_opt: None,
+        })
+    }
 }
 
 impl QuicServer {

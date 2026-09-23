@@ -135,6 +135,12 @@ impl<R: Ratchet> PeerChannel<R> {
         self.path.get()
     }
 
+    /// On a [`P2pPath::Turn`] path, whether both peers relay through their own allocation
+    /// (relay-to-relay: two TURN servers' egress per packet) rather than one.
+    pub fn p2p_relayed_both(&self) -> bool {
+        self.path.relayed_both()
+    }
+
     /// A handle that keeps reporting the path after [`Self::split`].
     pub fn p2p_path_cell(&self) -> P2pPathCell {
         self.path.clone()

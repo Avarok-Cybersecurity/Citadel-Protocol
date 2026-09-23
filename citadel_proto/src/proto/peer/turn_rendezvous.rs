@@ -17,7 +17,9 @@ use citadel_wire::udp_traversal::turn_relay::{
 use crate::proto::peer::p2p_conn_handler::generic_error;
 
 const PROBE_INTERVAL: Duration = Duration::from_millis(100);
-const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+/// A dialer whose plain-UDP probes go unanswered this long falls back to its own relay.
+pub(super) const UDP_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 const REFLEXIVE_TIMEOUT: Duration = Duration::from_millis(1500);
 /// Both start with a zero byte, which QUIC's fixed bit rules out, so a stray one reaching quinn
 /// after the hand-over is discarded as a non-QUIC packet.
@@ -28,12 +30,18 @@ fn tagged(magic: &[u8; 5], nonce: &[u8; 16]) -> Vec<u8> {
     [&magic[..], &nonce[..]].concat()
 }
 
+/// `stream_first`: try TCP/TLS servers before UDP ones — for a peer that has seen its UDP fail.
 pub(super) async fn allocate_first_usable(
     config: &TurnRelayConfig,
     tls: Arc<rustls::ClientConfig>,
+    stream_first: bool,
 ) -> io::Result<TurnAllocation> {
     let mut last_err = generic_error("no TURN server with unexpired credentials");
-    for server in config.usable_servers(SystemTime::now()) {
+    let mut servers: Vec<_> = config.usable_servers(SystemTime::now()).collect();
+    if stream_first {
+        servers.sort_by_key(|s| s.url.transport == TurnTransport::Udp);
+    }
+    for server in servers {
         match TurnAllocation::allocate(server, Some(tls.clone())).await {
             Ok(a) => return Ok(a),
             Err(err) => {
@@ -93,11 +101,15 @@ pub(super) async fn install_permissions(
 
 /// Where the relay may see this socket's traffic come from: the route's source IP (same host or
 /// LAN as the relay) and the socket's server-reflexive IP from this peer's own UDP TURN servers.
+///
+/// The flag reports whether UDP demonstrably works from this socket (a STUN Binding to one of
+/// those servers was answered). A peer with no UDP TURN server, or none answering, treats its
+/// UDP as blocked and relays through its own allocation instead.
 pub(super) async fn dialer_candidates(
     socket: &UdpSocket,
     relayed: SocketAddr,
     config: &TurnRelayConfig,
-) -> Vec<IpAddr> {
+) -> (Vec<IpAddr>, bool) {
     let mut out = Vec::new();
     // connect() on a UDP socket only resolves the route; nothing is sent.
     if let Ok(route) = std::net::UdpSocket::bind(unspecified_like(relayed)) {
@@ -119,20 +131,20 @@ pub(super) async fn dialer_candidates(
         };
         if let Ok(reflexive) = reflexive_address(socket, addr, REFLEXIVE_TIMEOUT).await {
             out.push(reflexive.ip());
-            break;
+            return (out, true);
         }
     }
-    out
+    (out, false)
 }
 
 /// Allocator side: answers every nonce-bearing probe (binding a channel to its source) until
-/// `acked` — the dialer's confirmation over the signalling stream — resolves. Returns the dialer's
-/// address as the relay sees it.
-pub(super) async fn await_probe(
+/// `acked` — the dialer's next message over the signalling stream — resolves. Returns the
+/// dialer's address as the relay saw it (if any probe arrived) with that message.
+pub(super) async fn await_probe<T>(
     allocation: &TurnAllocation,
     nonce: &[u8; 16],
-    acked: impl std::future::Future<Output = io::Result<()>>,
-) -> io::Result<SocketAddr> {
+    acked: impl std::future::Future<Output = io::Result<T>>,
+) -> io::Result<(Option<SocketAddr>, T)> {
     let probe = tagged(PROBE_MAGIC, nonce);
     let ack = tagged(ACK_MAGIC, nonce);
     let mut dialer = None;
@@ -140,10 +152,7 @@ pub(super) async fn await_probe(
     citadel_io::time::timeout(PROBE_TIMEOUT, async {
         loop {
             citadel_io::tokio::select! {
-                done = &mut acked => {
-                    done?;
-                    return dialer.ok_or_else(|| generic_error("ProbeAcked before any probe"));
-                }
+                done = &mut acked => return Ok((dialer, done?)),
                 datagram = allocation.recv_from() => {
                     let (from, payload) = datagram?;
                     if payload != probe {
@@ -160,20 +169,49 @@ pub(super) async fn await_probe(
     .map_err(|_| generic_error("dialer's probes never reached the relay"))?
 }
 
+/// How the dialer reaches the allocator's relayed address.
+pub(super) enum ProbeLeg<'a> {
+    /// Plain UDP from the dialer's socket.
+    Udp(&'a UdpSocket),
+    /// Through the dialer's own allocation (relay-to-relay).
+    OwnRelay(&'a TurnAllocation),
+}
+
+impl ProbeLeg<'_> {
+    async fn send_to(&self, payload: &[u8], to: SocketAddr) -> io::Result<()> {
+        match self {
+            ProbeLeg::Udp(socket) => socket.send_to(payload, to).await.map(|_| ()),
+            ProbeLeg::OwnRelay(allocation) => allocation.send_to(to, payload),
+        }
+    }
+
+    async fn recv_from(&self) -> io::Result<(SocketAddr, Vec<u8>)> {
+        match self {
+            ProbeLeg::Udp(socket) => {
+                let mut buf = [0u8; 64];
+                let (n, from) = socket.recv_from(&mut buf).await?;
+                Ok((from, buf[..n].to_vec()))
+            }
+            ProbeLeg::OwnRelay(allocation) => allocation.recv_from().await,
+        }
+    }
+}
+
+/// Dialer side: probes `relayed` until the allocator's ack comes back from it, or `within` passes.
 pub(super) async fn probe_until_acked(
-    socket: &UdpSocket,
+    leg: ProbeLeg<'_>,
     relayed: SocketAddr,
     nonce: &[u8; 16],
+    within: Duration,
 ) -> io::Result<()> {
     let probe = tagged(PROBE_MAGIC, nonce);
     let ack = tagged(ACK_MAGIC, nonce);
-    let mut buf = [0u8; 64];
-    citadel_io::time::timeout(PROBE_TIMEOUT, async {
+    citadel_io::time::timeout(within, async {
         loop {
-            socket.send_to(&probe, relayed).await?;
-            let wait = citadel_io::time::timeout(PROBE_INTERVAL, socket.recv_from(&mut buf));
-            if let Ok(Ok((n, from))) = wait.await {
-                if from == relayed && buf[..n] == ack[..] {
+            leg.send_to(&probe, relayed).await?;
+            let wait = citadel_io::time::timeout(PROBE_INTERVAL, leg.recv_from());
+            if let Ok(Ok((from, payload))) = wait.await {
+                if from == relayed && payload == ack {
                     return Ok::<(), io::Error>(());
                 }
             }

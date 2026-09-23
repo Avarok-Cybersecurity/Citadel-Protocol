@@ -47,7 +47,7 @@ use crate::proto::packet::HeaderObfuscator;
 use crate::proto::packet_crafter;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::includes::{Duration, Instant, SocketAddr};
-use crate::proto::peer::p2p_path::P2pPath;
+use crate::proto::peer::p2p_path::P2pRoute;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
@@ -166,7 +166,7 @@ pub(crate) mod native_p2p {
         ticket: Ticket,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
-        path: P2pPath,
+        path: P2pRoute,
     ) -> Result<(), NetworkError> {
         let kernel_tx = session.kernel_tx.clone();
         let session_cid = session.session_cid.clone();
@@ -221,7 +221,7 @@ pub(crate) mod native_p2p {
         ticket: Ticket,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
-        path: P2pPath,
+        path: P2pRoute,
     ) -> std::io::Result<()> {
         let remote_peer = p2p_stream.peer_addr()?;
         let local_bind_addr = p2p_stream.local_addr()?;
@@ -573,7 +573,7 @@ pub(crate) mod native_p2p {
                     ticket,
                     udp_mode,
                     session_security_settings,
-                    P2pPath::Direct,
+                    P2pRoute::Direct,
                 )
             } else {
                 log::trace!(target: "citadel", "Non-initiator: creating listener before signaling ready");
@@ -596,7 +596,7 @@ pub(crate) mod native_p2p {
                     ticket,
                     udp_mode,
                     session_security_settings,
-                    P2pPath::Direct,
+                    P2pRoute::Direct,
                 )
                 .await
                 .map_err(|err| generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))

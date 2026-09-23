@@ -33,10 +33,13 @@ mod tests {
     #[derive(Clone)]
     struct Expect {
         path: P2pPath,
-        /// When set, the UDP channel must exist and one side's datagrams must be addressed to a
-        /// relayed address in this port range (proof the traffic crosses the relay).
+        /// When set, the UDP channel must exist and the sides' datagrams must be addressed to a
+        /// relayed address in this port range (proof the traffic crosses the relay): one side
+        /// with a single allocation, both sides relay-to-relay.
         relay_ports: Option<RangeInclusive<u16>>,
         udp: bool,
+        /// Both peers relay through their own allocation (`PeerChannel::p2p_relayed_both`).
+        relayed_both: bool,
     }
 
     fn relay_config(url: &str, policy: TurnPolicy) -> TurnRelayConfig {
@@ -67,8 +70,17 @@ mod tests {
 
     /// Resends until the peer's datagram arrives (UDP may drop), then keeps sending briefly so the
     /// peer is never stranded waiting for ours.
-    async fn exchange_media_datagram<R: Ratchet>(udp: UdpChannel<R>) -> SocketAddr {
+    async fn exchange_media_datagram<R: Ratchet>(udp: UdpChannel<R>, path: P2pPath) -> SocketAddr {
         let (tx, mut rx) = udp.split();
+        if path == P2pPath::Turn {
+            // One ChannelData header per client leg, however many allocations: the relayed MTU,
+            // minus quinn's 38-byte datagram overhead, is the ceiling on every relayed path.
+            assert_eq!(
+                tx.max_datagram_len(),
+                citadel_wire::quic::RELAYED_QUIC_MTU as usize - 38,
+                "relayed datagram ceiling"
+            );
+        }
         let max = tx.max_payload_len();
         assert!(
             max >= RECOMMENDED_UDP_PAYLOAD_BUDGET,
@@ -95,7 +107,9 @@ mod tests {
         remote
     }
 
-    async fn run_pair(turn: Option<TurnRelayConfig>, expect: Expect) {
+    /// `trust`: a certificate the nodes' TLS client config must accept (coturn's self-signed
+    /// `turns:` certificate); `None` keeps the native root store.
+    async fn run_pair(turn: Option<TurnRelayConfig>, trust: Option<Vec<u8>>, expect: Expect) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
         let succeeded = &AtomicUsize::new(0);
@@ -123,12 +137,17 @@ mod tests {
                 move |mut results, remote| async move {
                     let mut conn = results.recv().await.unwrap().unwrap();
                     assert_eq!(conn.channel.p2p_path(), expect.path, "peer {me} path");
+                    assert_eq!(
+                        conn.channel.p2p_relayed_both(),
+                        expect.relayed_both,
+                        "peer {me} relay-to-relay"
+                    );
                     let udp_rx = conn.udp_channel_rx.take().expect("UDP mode is enabled");
                     let reliable = exchange_reliable(conn.channel, me).await;
                     let udp = tokio::time::timeout(Duration::from_secs(10), udp_rx).await;
                     if expect.udp {
                         let udp = udp.expect("UDP channel never arrived").unwrap();
-                        let remote_addr = exchange_media_datagram(udp).await;
+                        let remote_addr = exchange_media_datagram(udp, expect.path).await;
                         if let Some(ports) = &expect.relay_ports {
                             if ports.contains(&remote_addr.port()) {
                                 relayed_remotes.fetch_add(1, Ordering::SeqCst);
@@ -147,7 +166,11 @@ mod tests {
                     remote.shutdown_kernel().await
                 },
             );
-            let client = DefaultNodeBuilder::default().build(kernel).unwrap();
+            let mut builder = DefaultNodeBuilder::default();
+            if let Some(cert) = &trust {
+                builder.with_custom_certs(&[cert]).unwrap();
+            }
+            let client = builder.build(kernel).unwrap();
             kernels.push(async move { client.await.map(|_| ()) });
         }
 
@@ -163,7 +186,7 @@ mod tests {
             // The dialer addresses the relayed address; the allocator addresses the dialer.
             assert_eq!(
                 relayed_remotes.load(Ordering::SeqCst),
-                1,
+                if expect.relayed_both { 2 } else { 1 },
                 "no side sent via the relay"
             );
         }
@@ -175,23 +198,71 @@ mod tests {
         let coturn = Coturn::start(Duration::from_secs(600));
         run_pair(
             Some(relay_config(&coturn.url("udp"), TurnPolicy::RelayOnly)),
+            None,
             Expect {
                 path: P2pPath::Turn,
                 relay_ports: Some(coturn.relay_ports.clone()),
                 udp: true,
+                relayed_both: false,
             },
         )
         .await;
     }
 
-    /// Manual live smoke: the same pair relayed through Cloudflare Realtime TURN (UDP 3478).
+    /// Relay-to-relay: the only TURN URL is TLS, so the dialer has no UDP path to the relay and
+    /// allocates its own; both sides send ChannelData through their allocation.
+    #[ignore = "needs coturn (turnserver) on PATH"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_dialer_without_udp_relays_through_its_own_allocation() {
+        let coturn = Coturn::start(Duration::from_secs(600));
+        run_pair(
+            Some(relay_config(&coturn.url("tls"), TurnPolicy::RelayOnly)),
+            Some(coturn.cert_der.clone()),
+            Expect {
+                path: P2pPath::Turn,
+                relay_ports: Some(coturn.relay_ports.clone()),
+                udp: true,
+                relayed_both: true,
+            },
+        )
+        .await;
+    }
+
+    /// Relay-to-relay detected from a failing UDP TURN server: the dialer's STUN to its UDP
+    /// server (a closed port) goes unanswered, so it allocates over TCP instead.
+    #[ignore = "needs coturn (turnserver) on PATH"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_dialer_whose_udp_turn_fails_relays_through_its_own_allocation() {
+        let coturn = Coturn::start(Duration::from_secs(600));
+        let closed = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let closed_url = format!("turn:{}?transport=udp", closed.local_addr().unwrap());
+        drop(closed);
+        let servers = [coturn.url("tcp"), closed_url]
+            .iter()
+            .map(|url| TurnServerCredential::new(url, USER, PASSWORD, None).unwrap())
+            .collect();
+        run_pair(
+            Some(TurnRelayConfig::new(servers, TurnPolicy::RelayOnly)),
+            None,
+            Expect {
+                path: P2pPath::Turn,
+                relay_ports: Some(coturn.relay_ports.clone()),
+                udp: true,
+                relayed_both: true,
+            },
+        )
+        .await;
+    }
+
+    /// Manual live smoke: the same pair relayed through Cloudflare Realtime TURN with TLS 443 as
+    /// the only transport, so the dialer cannot use UDP and relays through its own allocation.
     /// Needs a freshly minted short-TTL credential in `CF_TURN_USERNAME` / `CF_TURN_CREDENTIAL`.
     #[ignore = "live: needs CF_TURN_USERNAME / CF_TURN_CREDENTIAL minted from a Cloudflare TURN key"]
     #[tokio::test(flavor = "multi_thread")]
     async fn p2p_runs_over_cloudflare_turn() {
         let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} must be set"));
         let server = TurnServerCredential::new(
-            "turn:turn.cloudflare.com:3478?transport=udp",
+            "turns:turn.cloudflare.com:443?transport=tcp",
             var("CF_TURN_USERNAME"),
             var("CF_TURN_CREDENTIAL"),
             Some(std::time::SystemTime::now() + Duration::from_secs(300)),
@@ -199,10 +270,12 @@ mod tests {
         .unwrap();
         run_pair(
             Some(TurnRelayConfig::new(vec![server], TurnPolicy::RelayOnly)),
+            None,
             Expect {
                 path: P2pPath::Turn,
                 relay_ports: None,
                 udp: true,
+                relayed_both: true,
             },
         )
         .await;
@@ -214,10 +287,12 @@ mod tests {
     async fn without_a_turn_config_the_pair_connects_directly() {
         run_pair(
             None,
+            None,
             Expect {
                 path: P2pPath::Direct,
                 relay_ports: None,
                 udp: true,
+                relayed_both: false,
             },
         )
         .await;
@@ -232,10 +307,12 @@ mod tests {
         drop(dead);
         run_pair(
             Some(relay_config(&url, TurnPolicy::RelayOnly)),
+            None,
             Expect {
                 path: P2pPath::ServerRelay,
                 relay_ports: None,
                 udp: false,
+                relayed_both: false,
             },
         )
         .await;

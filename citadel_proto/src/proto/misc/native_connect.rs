@@ -229,16 +229,31 @@ pub fn p2p_listener_from_relay(
     .map(|(listener, _)| listener)
 }
 
-/// Connect to a peer's TURN relayed address from a plain UDP socket (the relay's dialing peer).
+/// Connect to the allocating peer's TURN relayed address (the relay's dialing peer).
+/// The dialing peer's side of a relayed path: a plain UDP socket, or its own TURN allocation
+/// when it cannot send UDP (relay-to-relay).
+pub enum RelayDialerSocket {
+    Udp(citadel_io::tokio::net::UdpSocket),
+    OwnRelay(Arc<citadel_wire::udp_traversal::turn_relay::TurnAllocation>),
+}
+
 pub async fn p2p_connect_relayed(
-    socket: citadel_io::tokio::net::UdpSocket,
+    socket: RelayDialerSocket,
     relayed_addr: SocketAddr,
     domain: TlsDomain,
     client_config: Arc<ClientConfig>,
     timeout: Option<Duration>,
 ) -> io::Result<GenericNetworkStream> {
-    let quic_endpoint =
-        QuicClient::new_with_rustls_config(socket, client_config.clone()).map_err(generic_error)?;
+    let quic_endpoint = match socket {
+        RelayDialerSocket::Udp(socket) => {
+            QuicClient::new_with_rustls_config(socket, client_config.clone())
+        }
+        RelayDialerSocket::OwnRelay(allocation) => QuicClient::new_relayed_over(
+            Arc::new(citadel_wire::udp_traversal::turn_relay::TurnRelaySocket::new(allocation)),
+            client_config.clone(),
+        ),
+    }
+    .map_err(generic_error)?;
     quic_p2p_connect(
         quic_endpoint.endpoint,
         timeout,

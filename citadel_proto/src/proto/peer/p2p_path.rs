@@ -19,23 +19,21 @@ pub enum P2pPath {
     ServerRelay,
 }
 
-impl P2pPath {
-    fn to_u8(self) -> u8 {
-        match self {
-            P2pPath::Direct => 0,
-            P2pPath::Turn => 1,
-            P2pPath::ServerRelay => 2,
-        }
-    }
-
-    fn from_u8(v: u8) -> Self {
-        match v {
-            0 => P2pPath::Direct,
-            1 => P2pPath::Turn,
-            _ => P2pPath::ServerRelay,
-        }
-    }
+/// How an established P2P connection is carried; recorded into a [`P2pPathCell`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum P2pRoute {
+    Direct,
+    /// `relayed_both`: each peer sends through its own allocation (relay-to-relay), so every
+    /// packet egresses two TURN servers.
+    Turn {
+        relayed_both: bool,
+    },
 }
+
+const DIRECT: u8 = 0;
+const TURN_ONE_ALLOCATION: u8 = 1;
+const SERVER_RELAY: u8 = 2;
+const TURN_BOTH_ALLOCATIONS: u8 = 3;
 
 /// Shared, live view of a virtual connection's [`P2pPath`], read by the application's channel and
 /// written when a P2P connection is (or is not) established.
@@ -45,15 +43,32 @@ pub struct P2pPathCell(Arc<AtomicU8>);
 impl P2pPathCell {
     /// Every virtual connection starts server-relayed: the channel exists before any P2P attempt.
     pub(crate) fn server_relayed() -> Self {
-        Self(Arc::new(AtomicU8::new(P2pPath::ServerRelay.to_u8())))
+        Self(Arc::new(AtomicU8::new(SERVER_RELAY)))
     }
 
     pub fn get(&self) -> P2pPath {
-        P2pPath::from_u8(self.0.load(Ordering::Acquire))
+        match self.0.load(Ordering::Acquire) {
+            DIRECT => P2pPath::Direct,
+            TURN_ONE_ALLOCATION | TURN_BOTH_ALLOCATIONS => P2pPath::Turn,
+            _ => P2pPath::ServerRelay,
+        }
     }
 
-    pub(crate) fn set(&self, path: P2pPath) {
-        self.0.store(path.to_u8(), Ordering::Release);
+    /// True when the path is [`P2pPath::Turn`] through two allocations (both peers relayed), for
+    /// accounting double TURN egress.
+    pub fn relayed_both(&self) -> bool {
+        self.0.load(Ordering::Acquire) == TURN_BOTH_ALLOCATIONS
+    }
+
+    pub(crate) fn set(&self, route: P2pRoute) {
+        let v = match route {
+            P2pRoute::Direct => DIRECT,
+            P2pRoute::Turn {
+                relayed_both: false,
+            } => TURN_ONE_ALLOCATION,
+            P2pRoute::Turn { relayed_both: true } => TURN_BOTH_ALLOCATIONS,
+        };
+        self.0.store(v, Ordering::Release);
     }
 }
 
@@ -112,10 +127,23 @@ mod tests {
     fn path_cell_round_trips() {
         let cell = P2pPathCell::server_relayed();
         let view = cell.clone();
-        assert_eq!(view.get(), P2pPath::ServerRelay);
-        for p in [P2pPath::Direct, P2pPath::Turn, P2pPath::ServerRelay] {
-            cell.set(p);
-            assert_eq!(view.get(), p);
+        assert_eq!(
+            (view.get(), view.relayed_both()),
+            (P2pPath::ServerRelay, false)
+        );
+        for (route, path, both) in [
+            (P2pRoute::Direct, P2pPath::Direct, false),
+            (
+                P2pRoute::Turn {
+                    relayed_both: false,
+                },
+                P2pPath::Turn,
+                false,
+            ),
+            (P2pRoute::Turn { relayed_both: true }, P2pPath::Turn, true),
+        ] {
+            cell.set(route);
+            assert_eq!((view.get(), view.relayed_both()), (path, both));
         }
     }
 }
