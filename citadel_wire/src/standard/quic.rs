@@ -51,8 +51,8 @@
 
 use futures::Future;
 use quinn::{
-    Accept, ClientConfig, Connection, Endpoint, EndpointConfig, RecvStream, SendStream,
-    ServerConfig, TokioRuntime, VarInt,
+    Accept, AsyncUdpSocket, ClientConfig, Connection, Endpoint, EndpointConfig, RecvStream,
+    SendStream, ServerConfig, TokioRuntime, VarInt,
 };
 
 use crate::exports::{Certificate, PrivateKey};
@@ -228,6 +228,28 @@ impl QuicServer {
         Self::create(socket, None)
     }
 
+    /// A self-signed listener over a relayed socket (e.g. a TURN allocation), with the transport
+    /// tuned for [`QuicPath::Relayed`].
+    pub fn new_self_signed_relayed(
+        socket: Arc<dyn AsyncUdpSocket>,
+    ) -> Result<QuicNode, anyhow::Error> {
+        let mut server_cfg = configure_server_self_signed()?.0;
+        load_hole_punch_friendly_quic_transport_config(
+            Either::Left(&mut server_cfg),
+            QuicPath::Relayed,
+        );
+        let endpoint = Endpoint::new_with_abstract_socket(
+            EndpointConfig::default(),
+            Some(server_cfg),
+            socket,
+            Arc::new(TokioRuntime),
+        )?;
+        Ok(QuicNode {
+            endpoint,
+            tls_domain_opt: None,
+        })
+    }
+
     pub fn new_from_pkcs_12_der_path<P: AsRef<Path>>(
         socket: UdpSocket,
         path: P,
@@ -256,7 +278,7 @@ fn make_server_endpoint(
         None => configure_server_self_signed()?.0,
     };
 
-    load_hole_punch_friendly_quic_transport_config(Either::Left(&mut server_cfg));
+    load_hole_punch_friendly_quic_transport_config(Either::Left(&mut server_cfg), QuicPath::Direct);
     let endpoint_config = EndpointConfig::default();
     let socket = socket.into_std()?; // Quinn sets nonblocking to true
     let endpoint = Endpoint::new(
@@ -275,7 +297,10 @@ fn make_client_endpoint(
     let mut client_cfg = client_config.unwrap_or_else(insecure::configure_client);
 
     let socket = socket.into_std()?; // Quinn handles setting nonblocking to true
-    load_hole_punch_friendly_quic_transport_config(Either::Right(&mut client_cfg));
+    load_hole_punch_friendly_quic_transport_config(
+        Either::Right(&mut client_cfg),
+        QuicPath::Direct,
+    );
     let mut endpoint = Endpoint::new(
         EndpointConfig::default(),
         None,
@@ -292,8 +317,34 @@ fn make_client_endpoint(
 const QUIC_DATAGRAM_RECV_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 const QUIC_DATAGRAM_SEND_BUFFER_BYTES: usize = 2 * 1024 * 1024;
 
+/// Initial QUIC MTU (UDP payload bytes) on a direct, hole-punched path.
+pub const DIRECT_INITIAL_MTU: u16 = 1280;
+
+/// QUIC MTU on a TURN-relayed path: the direct floor minus the ChannelData header the relay leg
+/// adds to every packet (RFC 8656 §12.4). Fixed — path-MTU discovery is off on relayed paths —
+/// so quinn's `max_datagram_size`, and every datagram budget derived from it, accounts for TURN.
+pub const RELAYED_QUIC_MTU: u16 =
+    DIRECT_INITIAL_MTU - crate::udp_traversal::turn_relay::CHANNEL_DATA_HEADER_LEN as u16;
+
+/// Which kind of path a QUIC endpoint runs over.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum QuicPath {
+    /// Hole-punched (or otherwise direct) UDP.
+    Direct,
+    /// Through a TURN relay: fixed [`RELAYED_QUIC_MTU`], no path-MTU discovery.
+    Relayed,
+}
+
+/// Returns `cfg` with the transport tuned for a relayed path. Both ends of a relayed connection
+/// need it: packets in either direction cross the ChannelData leg.
+pub fn relayed_client_config(mut cfg: ClientConfig) -> ClientConfig {
+    load_hole_punch_friendly_quic_transport_config(Either::Right(&mut cfg), QuicPath::Relayed);
+    cfg
+}
+
 fn load_hole_punch_friendly_quic_transport_config<'a>(
     cfg: Either<&'a mut ServerConfig, &'a mut ClientConfig>,
+    path: QuicPath,
 ) {
     let mut transport_cfg = TransportConfig::default();
     transport_cfg.keep_alive_interval(Some(Duration::from_millis(8000)));
@@ -313,7 +364,15 @@ fn load_hole_punch_friendly_quic_transport_config<'a>(
     // fragmentation), so we gain ~80 bytes of goodput per packet from the first datagram without
     // depending on PMTU discovery. PMTUD is left at its default; this only raises the floor, it does
     // not probe upward, so it cannot break the most restrictive hole-punched path.
-    transport_cfg.initial_mtu(1280);
+    match path {
+        QuicPath::Direct => {
+            transport_cfg.initial_mtu(DIRECT_INITIAL_MTU);
+        }
+        QuicPath::Relayed => {
+            transport_cfg.initial_mtu(RELAYED_QUIC_MTU);
+            transport_cfg.mtu_discovery_config(None);
+        }
+    }
 
     // Unreliable-datagram buffers for the UDP subsystem (real-time media). quinn drops the oldest
     // queued datagram when the send buffer overflows, which is the policy media wants; the receive

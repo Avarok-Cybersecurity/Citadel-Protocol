@@ -60,6 +60,7 @@ use uuid::Uuid;
 pub mod abort_on_drop;
 pub mod hole_punch_config;
 pub mod hole_punched_socket;
+pub mod turn_relay;
 
 #[cfg(not(target_family = "wasm"))]
 pub mod linear;
