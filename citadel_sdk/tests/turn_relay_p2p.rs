@@ -184,6 +184,30 @@ mod tests {
         .await;
     }
 
+    /// Manual live smoke: the same pair relayed through Cloudflare Realtime TURN (UDP 3478).
+    /// Needs a freshly minted short-TTL credential in `CF_TURN_USERNAME` / `CF_TURN_CREDENTIAL`.
+    #[ignore = "live: needs CF_TURN_USERNAME / CF_TURN_CREDENTIAL minted from a Cloudflare TURN key"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn p2p_runs_over_cloudflare_turn() {
+        let var = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} must be set"));
+        let server = TurnServerCredential::new(
+            "turn:turn.cloudflare.com:3478?transport=udp",
+            var("CF_TURN_USERNAME"),
+            var("CF_TURN_CREDENTIAL"),
+            Some(std::time::SystemTime::now() + Duration::from_secs(300)),
+        )
+        .unwrap();
+        run_pair(
+            Some(TurnRelayConfig::new(vec![server], TurnPolicy::RelayOnly)),
+            Expect {
+                path: P2pPath::Turn,
+                relay_ports: None,
+                udp: true,
+            },
+        )
+        .await;
+    }
+
     /// Control: the same pair with the TURN config removed attempts (and on loopback gets) the
     /// direct path; nothing is relayed.
     #[tokio::test(flavor = "multi_thread")]

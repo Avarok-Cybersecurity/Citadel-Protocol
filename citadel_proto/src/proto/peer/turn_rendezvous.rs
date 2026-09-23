@@ -68,6 +68,29 @@ pub(super) fn permission_candidates(
     .collect()
 }
 
+/// One CreatePermission per candidate: a server may refuse some addresses (Cloudflare answers 403
+/// for private and loopback peers, RFC 8656 §9.1), and one refusal must not void the rest.
+pub(super) async fn install_permissions(
+    allocation: &TurnAllocation,
+    ips: &[IpAddr],
+) -> io::Result<()> {
+    let mut installed = 0usize;
+    let mut last_err = generic_error("no permission candidates");
+    for ip in ips {
+        match allocation.create_permissions(&[*ip]).await {
+            Ok(()) => installed += 1,
+            Err(err) => {
+                log::debug!(target: "citadel", "[TURN] permission for a dialer candidate refused: {err}");
+                last_err = err;
+            }
+        }
+    }
+    if installed == 0 {
+        return Err(last_err);
+    }
+    Ok(())
+}
+
 /// Where the relay may see this socket's traffic come from: the route's source IP (same host or
 /// LAN as the relay) and the socket's server-reflexive IP from this peer's own UDP TURN servers.
 pub(super) async fn dialer_candidates(

@@ -533,9 +533,6 @@ pub(crate) mod native_p2p {
         let mut cancel_rx = cancel_rx;
 
         let process = async move {
-            if !attempt_direct {
-                return Err(generic_error("direct path skipped (TURN relay-only plan)"));
-            }
             if !session_alive.alive() {
                 return Err(generic_error("Session no longer alive"));
             }
@@ -610,7 +607,10 @@ pub(crate) mod native_p2p {
 
         let timed_process = citadel_io::time::timeout(P2P_CONN_TIMEOUT, process);
 
-        let result = if let Some(cancel_rx) = cancel_rx.as_mut() {
+        let result = if !attempt_direct {
+            log::info!(target: "citadel", "[Hole-punch] skipped: TURN relay-only plan");
+            Ok(Err(generic_error("direct path skipped")))
+        } else if let Some(cancel_rx) = cancel_rx.as_mut() {
             citadel_io::tokio::select! {
                 res = timed_process => res,
                 _ = cancel_rx => {
@@ -628,7 +628,9 @@ pub(crate) mod native_p2p {
                 true
             }
             Ok(Err(err)) => {
-                log::warn!(target: "citadel", "[Hole-punch/Err] {err:?}");
+                if attempt_direct {
+                    log::warn!(target: "citadel", "[Hole-punch/Err] {err:?}");
+                }
                 false
             }
             Err(_elapsed) => {

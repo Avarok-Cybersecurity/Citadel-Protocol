@@ -42,8 +42,8 @@ use crate::proto::peer::p2p_conn_handler::native_p2p::{handle_p2p_stream, p2p_co
 use crate::proto::peer::p2p_path::P2pPath;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::turn_rendezvous::{
-    allocate_first_usable, await_probe, dialer_candidates, permission_candidates,
-    probe_until_acked, unspecified_like,
+    allocate_first_usable, await_probe, dialer_candidates, install_permissions,
+    permission_candidates, probe_until_acked, unspecified_like,
 };
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
@@ -118,7 +118,7 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
         if ips.is_empty() {
             return Err(generic_error("no dialer address of the relay's family"));
         }
-        allocation.create_permissions(&ips).await?;
+        install_permissions(&allocation, &ips).await?;
         stream
             .send_serialized(RelaySignal::PermissionsReady)
             .await?;
