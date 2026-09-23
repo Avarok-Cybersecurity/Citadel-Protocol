@@ -221,11 +221,11 @@ async fn quic_runs_over_the_relay(#[case] transport: &str) {
     assert_eq!(datagram.len(), max);
     assert_eq!(server_conn.remote_address(), dialer_addr);
     assert_eq!(client_conn.remote_address(), relayed);
-    // 1 flags + 8 CID + 1 packet number + 16 AEAD tag + 1 DATAGRAM frame type: nothing larger
-    // fits in a relayed-MTU packet.
-    assert!(
-        max <= RELAYED_QUIC_MTU as usize - 27,
-        "datagram ceiling {max} ignores TURN overhead"
-    );
-    assert!(server_conn.max_datagram_size().unwrap() <= RELAYED_QUIC_MTU as usize - 27);
+    // quinn's ceiling is current_mtu - (1 flags + 8 CID + 4 PN + 16 AEAD tag + 9 DATAGRAM frame
+    // bound) = mtu - 38 (1200 -> 1162, as media/config.rs records for direct paths). Equality pins
+    // that both ends run at the relayed MTU, i.e. the TURN ChannelData header is accounted for.
+    const QUIC_DATAGRAM_OVERHEAD: usize = 38;
+    let relayed_ceiling = RELAYED_QUIC_MTU as usize - QUIC_DATAGRAM_OVERHEAD;
+    assert_eq!(max, relayed_ceiling, "client datagram ceiling ignores TURN overhead");
+    assert_eq!(server_conn.max_datagram_size(), Some(relayed_ceiling));
 }
