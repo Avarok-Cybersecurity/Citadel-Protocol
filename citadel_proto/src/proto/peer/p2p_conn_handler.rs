@@ -47,6 +47,7 @@ use crate::proto::packet::HeaderObfuscator;
 use crate::proto::packet_crafter;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::includes::{Duration, Instant, SocketAddr};
+use crate::proto::peer::p2p_path::P2pRoute;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
@@ -146,16 +147,17 @@ pub(crate) fn generic_error<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
 }
 
 #[cfg(not(target_family = "wasm"))]
-mod native_p2p {
+pub(crate) mod native_p2p {
     use super::*;
     use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
     use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
     use citadel_wire::exports::tokio_rustls::rustls;
     use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
+    use citadel_wire::udp_traversal::turn_relay::TurnRelayConfig;
     use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 
     #[allow(clippy::too_many_arguments)]
-    async fn p2p_conn_handler<R: Ratchet, T: PlatformOps>(
+    pub(crate) async fn p2p_conn_handler<R: Ratchet, T: PlatformOps>(
         mut p2p_listener: GenericNetworkListener,
         session: CitadelSession<R, T>,
         _necessary_remote_addr: SocketAddr,
@@ -164,6 +166,7 @@ mod native_p2p {
         ticket: Ticket,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        path: P2pRoute,
     ) -> Result<(), NetworkError> {
         let kernel_tx = session.kernel_tx.clone();
         let session_cid = session.session_cid.clone();
@@ -189,6 +192,7 @@ mod native_p2p {
                     ticket,
                     udp_mode,
                     session_security_settings,
+                    path,
                 )?;
                 Ok(())
             }
@@ -206,7 +210,7 @@ mod native_p2p {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn handle_p2p_stream<R: Ratchet, T: PlatformOps>(
+    pub(crate) fn handle_p2p_stream<R: Ratchet, T: PlatformOps>(
         mut p2p_stream: GenericNetworkStream,
         session_cid: DualRwLock<Option<u64>>,
         session: CitadelSession<R, T>,
@@ -217,6 +221,7 @@ mod native_p2p {
         ticket: Ticket,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        path: P2pRoute,
     ) -> std::io::Result<()> {
         let remote_peer = p2p_stream.peer_addr()?;
         let local_bind_addr = p2p_stream.local_addr()?;
@@ -283,6 +288,14 @@ mod native_p2p {
             .get(&peer_cid)
             .map(|vconn| vconn.p2p_connection_id)
             .unwrap_or(Ticket(0));
+
+        if let Some(endpoint) = state_container
+            .active_virtual_connections
+            .get(&peer_cid)
+            .and_then(|vconn| vconn.endpoint_container.as_ref())
+        {
+            endpoint.p2p_path.set(path);
+        }
 
         if udp_mode == UdpMode::Enabled {
             T::spawn_udp_socket_loader(
@@ -502,6 +515,8 @@ mod native_p2p {
         session_security_settings: SessionSecuritySettings,
         cancel_rx: Option<Receiver<()>>,
         session_alive: SessionAliveTracker<R, T>,
+        attempt_direct: bool,
+        relay: Option<TurnRelayConfig>,
     ) -> std::io::Result<()> {
         let client_config: Arc<rustls::ClientConfig> = T::client_config_to_any(&client_config)
             .and_then(|c| c.downcast::<Arc<rustls::ClientConfig>>().ok())
@@ -510,6 +525,12 @@ mod native_p2p {
         let is_initiator = app.is_initiator();
         let kernel_tx = &kernel_tx;
         let v_conn = peer_connection_type.as_virtual_connection();
+        let relay_app = app.clone();
+        let relay_session = session.clone();
+        let relay_session_cid = session_cid.clone();
+        let relay_nat_info = peer_nat_info.clone();
+        let relay_tls = client_config.clone();
+        let mut cancel_rx = cancel_rx;
 
         let process = async move {
             if !session_alive.alive() {
@@ -552,6 +573,7 @@ mod native_p2p {
                     ticket,
                     udp_mode,
                     session_security_settings,
+                    P2pRoute::Direct,
                 )
             } else {
                 log::trace!(target: "citadel", "Non-initiator: creating listener before signaling ready");
@@ -574,6 +596,7 @@ mod native_p2p {
                     ticket,
                     udp_mode,
                     session_security_settings,
+                    P2pRoute::Direct,
                 )
                 .await
                 .map_err(|err| generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))
@@ -584,10 +607,13 @@ mod native_p2p {
 
         let timed_process = citadel_io::time::timeout(P2P_CONN_TIMEOUT, process);
 
-        let result = if let Some(mut cancel_rx) = cancel_rx {
+        let result = if !attempt_direct {
+            log::info!(target: "citadel", "[Hole-punch] skipped: TURN relay-only plan");
+            Ok(Err(generic_error("direct path skipped")))
+        } else if let Some(cancel_rx) = cancel_rx.as_mut() {
             citadel_io::tokio::select! {
                 res = timed_process => res,
-                _ = &mut cancel_rx => {
+                _ = cancel_rx => {
                     log::info!(target: "citadel", "[Hole-punch/Cancelled] Hole punch cancelled by session shutdown");
                     return Ok(());
                 }
@@ -596,15 +622,59 @@ mod native_p2p {
             timed_process.await
         };
 
-        match result {
+        let direct_established = match result {
             Ok(Ok(())) => {
                 log::trace!(target: "citadel", "[Hole-punch] P2P connection established successfully");
+                true
             }
             Ok(Err(err)) => {
-                log::warn!(target: "citadel", "[Hole-punch/Err] {err:?}");
+                if attempt_direct {
+                    log::warn!(target: "citadel", "[Hole-punch/Err] {err:?}");
+                }
+                false
             }
             Err(_elapsed) => {
                 log::warn!(target: "citadel", "[Hole-punch/Timeout] P2P connection establishment timed out after {}s", P2P_CONN_TIMEOUT.as_secs());
+                false
+            }
+        };
+
+        if let (false, Some(relay)) = (direct_established, relay) {
+            let relayed = crate::proto::peer::turn_p2p::establish_relayed_p2p(
+                &relay_app,
+                relay,
+                relay_session,
+                relay_session_cid,
+                &relay_nat_info,
+                v_conn,
+                ticket,
+                udp_mode,
+                session_security_settings,
+                relay_tls,
+            );
+            let timed =
+                citadel_io::time::timeout(crate::proto::peer::turn_p2p::RELAY_TIMEOUT, relayed);
+            let outcome = if let Some(cancel_rx) = cancel_rx.as_mut() {
+                citadel_io::tokio::select! {
+                    res = timed => res,
+                    _ = cancel_rx => {
+                        log::info!(target: "citadel", "[TURN/Cancelled] relay attempt cancelled by session shutdown");
+                        return Ok(());
+                    }
+                }
+            } else {
+                timed.await
+            };
+            match outcome {
+                Ok(Ok(())) => {
+                    log::info!(target: "citadel", "[TURN] P2P connection established over the relay")
+                }
+                Ok(Err(err)) => {
+                    log::warn!(target: "citadel", "[TURN/Err] relay unavailable, staying server-relayed: {err}")
+                }
+                Err(_) => {
+                    log::warn!(target: "citadel", "[TURN/Timeout] relay attempt timed out, staying server-relayed")
+                }
             }
         }
 

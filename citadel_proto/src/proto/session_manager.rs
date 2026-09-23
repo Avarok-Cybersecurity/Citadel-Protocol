@@ -962,6 +962,27 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         }
     }
 
+    /// Stores (or clears) the TURN config the next P2P attempt with `peer_cid` will use.
+    pub fn set_peer_turn_config(
+        &self,
+        session_cid: u64,
+        peer_cid: u64,
+        config: Option<citadel_wire::udp_traversal::turn_relay::TurnRelayConfig>,
+    ) -> Result<(), NetworkError> {
+        let this = inner!(self);
+        let sess = &this
+            .sessions
+            .get(&session_cid)
+            .ok_or_else(|| error!(ErrorCode::SessionManagerNotActiveSession, session_cid))?
+            .1;
+        let mut state_container = inner_mut_state!(sess.state_container);
+        match config {
+            Some(config) => state_container.peer_turn_configs.insert(peer_cid, config),
+            None => state_container.peer_turn_configs.remove(&peer_cid),
+        };
+        Ok(())
+    }
+
     /// Returns true if the process initiated successfully
     pub fn initiate_deregistration_subroutine(
         &self,

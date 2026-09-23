@@ -102,6 +102,15 @@ pub struct DisconnectFromHypernode {
     pub session_cid: u64,
 }
 
+/// Supplies (`Some`) or withdraws (`None`) the TURN relay configuration for the next P2P attempt
+/// between `session_cid` and `peer_cid`. Both peers must supply one for the relay to be used; it is
+/// consumed by that attempt. Local only — credentials are never sent over the wire.
+pub struct SetPeerTurnConfig {
+    pub session_cid: u64,
+    pub peer_cid: u64,
+    pub config: Option<citadel_wire::udp_traversal::turn_relay::TurnRelayConfig>,
+}
+
 /// These are sent down the stack into the server. Most of the requests expect a ticket ID
 /// in order for processes sitting above the [Kernel] to know how the request went
 #[allow(variant_size_differences)]
@@ -126,6 +135,8 @@ pub enum NodeRequest {
     GroupBroadcastCommand(GroupBroadcastCommand),
     /// Tells the server to disconnect a session (implicated cid, target_cid)
     DisconnectFromHypernode(DisconnectFromHypernode),
+    /// Sets the TURN relay configuration for the next P2P attempt with a peer
+    SetPeerTurnConfig(SetPeerTurnConfig),
     /// Returns a list of connected sessions
     GetActiveSessions,
     /// shutdown signal
@@ -149,6 +160,9 @@ impl NodeRequest {
                 Some(*session_cid)
             }
             NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { session_cid }) => {
+                Some(*session_cid)
+            }
+            NodeRequest::SetPeerTurnConfig(SetPeerTurnConfig { session_cid, .. }) => {
                 Some(*session_cid)
             }
             NodeRequest::GetActiveSessions => None,

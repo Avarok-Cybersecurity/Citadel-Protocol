@@ -2,6 +2,7 @@
 //! lookup, direct-P2P upgrade, and stream selection.
 
 use super::includes::*;
+use crate::proto::peer::p2p_path::P2pPathCell;
 use citadel_io::{error, ErrorCode};
 
 impl<R: Ratchet> StateContainerInner<R> {
@@ -252,6 +253,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             _ => None, // C2S connections don't use P2P disconnect tokens in the channel
         };
 
+        let p2p_path = P2pPathCell::server_relayed();
         let peer_channel = PeerChannel::new(
             self.node_remote.clone(),
             target_cid,
@@ -261,6 +263,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             is_active.clone(),
             protocol_messenger,
             disconnect_token,
+            p2p_path.clone(),
         );
 
         CitadelSession::spawn_message_sender_function(
@@ -271,6 +274,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         let endpoint_container = Some(EndpointChannelContainer {
             direct_p2p_remote: None,
+            p2p_path,
             ratchet_manager,
             channel_signal: None,
             to_ordered_local_channel: to_channel,

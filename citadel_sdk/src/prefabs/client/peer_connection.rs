@@ -237,6 +237,7 @@ struct PeerConnectionSettings {
     udp_mode: UdpMode,
     ensure_registered: bool,
     peer_session_password: Option<PreSharedKey>,
+    turn: Option<TurnRelayConfig>,
 }
 
 pub struct AddedPeer {
@@ -246,6 +247,7 @@ pub struct AddedPeer {
     ensure_registered: bool,
     udp_mode: Option<UdpMode>,
     peer_session_password: Option<PreSharedKey>,
+    turn: Option<TurnRelayConfig>,
 }
 
 impl AddedPeer {
@@ -257,6 +259,7 @@ impl AddedPeer {
             udp_mode: self.udp_mode.unwrap_or_default(),
             ensure_registered: self.ensure_registered,
             peer_session_password: self.peer_session_password,
+            turn: self.turn,
         };
 
         self.list.inner.push(new);
@@ -266,6 +269,13 @@ impl AddedPeer {
     /// Sets the [`UdpMode`] for this peer to peer connection
     pub fn with_udp_mode(mut self, udp_mode: UdpMode) -> Self {
         self.udp_mode = Some(udp_mode);
+        self
+    }
+
+    /// Supplies a TURN relay configuration for this P2P connection (the peer must supply one
+    /// too). Without it, peers whose NATs defeat hole punching stay relayed through the server.
+    pub fn with_turn_config(mut self, turn: TurnRelayConfig) -> Self {
+        self.turn = Some(turn);
         self
     }
 
@@ -338,6 +348,7 @@ impl PeerConnectionSetupAggregator {
             session_security_settings: None,
             udp_mode: None,
             peer_session_password: None,
+            turn: None,
         }
     }
 }
@@ -456,6 +467,7 @@ where
                 udp_mode,
                 ensure_registered,
                 peer_session_password,
+                turn,
             } = peer_to_connect;
 
             let task = async move {
@@ -520,6 +532,10 @@ where
                         .active_peer_conns
                         .lock()
                         .insert(peer_conn, peer_context);
+
+                    if let Some(turn) = turn {
+                        handle.set_turn_config(Some(turn)).await?;
+                    }
 
                     handle
                         .connect_to_peer_custom(

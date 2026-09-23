@@ -30,6 +30,7 @@ use crate::macros::ContextRequirements;
 use crate::proto::node_result::NodeResult;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::p2p_conn_handler;
+use crate::proto::peer::p2p_path::P2pPlan;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
@@ -110,8 +111,18 @@ impl PlatformOps for NativeIO {
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         cancel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
+        plan: P2pPlan,
     ) -> impl std::future::Future<Output = Result<(), NetworkError>> + ContextRequirements {
         async move {
+            let (attempt_direct, relay) = match plan {
+                P2pPlan::DirectOnly => (true, None),
+                P2pPlan::DirectThenRelay(cfg) => (true, Some(cfg)),
+                P2pPlan::RelayOnly(cfg) => (false, Some(cfg)),
+                P2pPlan::ServerOnly => {
+                    session.send_to_kernel(channel_signal)?;
+                    return Ok(());
+                }
+            };
             let stun_servers = session.stun_servers.clone();
             let session_cid = session.session_cid.clone();
             let kernel_tx = session.kernel_tx.clone();
@@ -148,6 +159,8 @@ impl PlatformOps for NativeIO {
                         session_security_settings,
                         cancel_rx,
                         session_alive,
+                        attempt_direct,
+                        relay,
                     )
                     .await;
                     Ok(())

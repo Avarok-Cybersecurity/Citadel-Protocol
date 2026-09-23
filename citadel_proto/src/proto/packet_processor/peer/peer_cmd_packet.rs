@@ -31,6 +31,7 @@
 //! - `StackedRatchet`: Cryptographic operations
 //! - `StateContainer`: State management
 
+use crate::proto::peer::p2p_path::{plan_p2p, P2pPlan};
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
@@ -607,7 +608,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             .generate_proper_listener_connect_addr(
                                                 &session.local_nat_type,
                                             );
-                                        log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", bob_predicted_socket_addr, needs_turn);
+                                        log::trace!(target: "citadel", "[NAT] Peer addr as observed by the Citadel server (diagnostic, unverified): {:?} || needs TURN? {}", bob_predicted_socket_addr, needs_turn);
                                         let udp_rx_opt = kem_state.udp_channel_sender.rx.take();
                                         let local_is_file_transfer_compat = session
                                             .account_manager
@@ -732,8 +733,12 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
-                                    if should_use_turn(needs_turn) {
-                                        log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
+                                    let plan = plan_p2p(
+                                        should_use_turn(needs_turn),
+                                        take_turn_config(session, peer_cid),
+                                    );
+                                    if let P2pPlan::ServerOnly = plan {
+                                        log::warn!(target: "citadel", "This p2p connection requires TURN, and no TURN config was supplied: staying server-relayed");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
                                         T::p2p_hole_punch(
@@ -750,6 +755,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_mode,
                                             session_security_settings,
                                             Some(hole_punch_cancel_rx),
+                                            plan,
                                         )
                                         .await?;
                                     }
@@ -825,7 +831,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             .get_backend_type()
                                             .is_filesystem_backend();
 
-                                        log::trace!(target: "citadel", "[STUN] Peer public addr: {:?} || needs TURN? {}", alice_predicted_socket_addr, needs_turn);
+                                        log::trace!(target: "citadel", "[NAT] Peer addr as observed by the Citadel server (diagnostic, unverified): {:?} || needs TURN? {}", alice_predicted_socket_addr, needs_turn);
 
                                         let p2p_connection_id = kem.p2p_connection_id;
                                         let channel = match state_container
@@ -906,8 +912,12 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
-                                    if should_use_turn(needs_turn) {
-                                        log::warn!(target: "citadel", "This p2p connection requires TURN-like routing");
+                                    let plan = plan_p2p(
+                                        should_use_turn(needs_turn),
+                                        take_turn_config(session, peer_cid),
+                                    );
+                                    if let P2pPlan::ServerOnly = plan {
+                                        log::warn!(target: "citadel", "This p2p connection requires TURN, and no TURN config was supplied: staying server-relayed");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
                                         let diff = Duration::from_nanos(i64::abs(
@@ -929,6 +939,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_mode,
                                             session_security_settings,
                                             Some(hole_punch_cancel_rx),
+                                            plan,
                                         )
                                         .await?;
                                     }
@@ -1835,6 +1846,16 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             }
         }
     }
+}
+
+/// Takes the application's TURN config for this attempt: each attempt consumes its own.
+fn take_turn_config<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    peer_cid: u64,
+) -> Option<citadel_wire::udp_traversal::turn_relay::TurnRelayConfig> {
+    inner_mut_state!(session.state_container)
+        .peer_turn_configs
+        .remove(&peer_cid)
 }
 
 /// Whether to use TURN routing. In localhost-testing mode, always attempt
