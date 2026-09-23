@@ -59,6 +59,40 @@ impl futures::Stream for WasmRtcListener {
 
 impl Unpin for WasmRtcListener {}
 
+impl WasmListener {
+    /// A listener fed by the host rather than by signaling: every stream handed to the returned
+    /// [`WasmConnectionInjector`] is yielded as an inbound connection. This is how a server node
+    /// runs where the host accepts sockets itself (a Workers Durable Object accepting the server
+    /// half of a `WebSocketPair`). The listener ends — and the node with it — once every injector
+    /// is dropped, so the host keeps one for as long as the node should accept connections.
+    pub fn injected() -> (WasmConnectionInjector, Self) {
+        let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
+        (
+            WasmConnectionInjector { tx },
+            Self::Rtc(WasmRtcListener { rx }),
+        )
+    }
+}
+
+/// The sending half of [`WasmListener::injected`].
+#[derive(Clone)]
+pub struct WasmConnectionInjector {
+    tx: citadel_io::tokio::sync::mpsc::UnboundedSender<io::Result<(WasmStream, SocketAddr)>>,
+}
+
+impl WasmConnectionInjector {
+    /// Hand the node an accepted stream. `peer_addr` is what the node records as the remote end;
+    /// a host that cannot see one passes a sentinel. Fails once the node has stopped listening.
+    pub fn inject(&self, stream: WasmStream, peer_addr: SocketAddr) -> io::Result<()> {
+        self.tx.send(Ok((stream, peer_addr))).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the node is no longer accepting connections",
+            )
+        })
+    }
+}
+
 // ── Unreliable socket ───────────────────────────────────────────────
 
 /// WASM UDP socket — errors on all operations (browsers have no raw UDP).
@@ -94,8 +128,13 @@ impl UnreliableDatagram for WasmUnreliableSocket {
 /// Client configuration for WASM WebSocket transport.
 #[derive(Clone)]
 pub struct WasmClientConfig {
-    /// Use `wss://` (true) or `ws://` (false).
+    /// Use `wss://` (true) or `ws://` (false). Ignored when `endpoint` is set.
     pub use_tls: bool,
+    /// The full WebSocket URL to dial (`wss://org.example.net/citadel`), for a server reached by
+    /// hostname and path rather than by the `SocketAddr` the connection settings carry — a server
+    /// behind an HTTP edge has no address of its own to dial. When set it wins over `use_tls` and
+    /// the address.
+    pub endpoint: Option<String>,
     /// Pre-established stream for serverless client mode.
     /// First `connect()` call takes it; subsequent calls use normal WebSocket.
     pub pre_built_stream: Option<std::sync::Arc<std::sync::Mutex<Option<WasmStream>>>>,
@@ -163,13 +202,14 @@ impl ProtocolIO for WasmIO {
             .pre_built_stream
             .as_ref()
             .and_then(|m| m.lock().unwrap().take());
-        let use_tls = config.use_tls;
+        let url = config.endpoint.clone().unwrap_or_else(|| {
+            let scheme = if config.use_tls { "wss" } else { "ws" };
+            format!("{scheme}://{addr}")
+        });
         SendFuture(async move {
             if let Some(stream) = pre_built {
                 return Ok(stream);
             }
-            let scheme = if use_tls { "wss" } else { "ws" };
-            let url = format!("{scheme}://{addr}");
             WasmWebSocketStream::connect(&url)
                 .await
                 .map(WasmStream::WebSocket)
@@ -190,6 +230,7 @@ impl ProtocolIO for WasmIO {
     async fn default_client_config() -> io::Result<Self::ClientConfig> {
         Ok(WasmClientConfig {
             use_tls: false,
+            endpoint: None,
             pre_built_stream: None,
         })
     }

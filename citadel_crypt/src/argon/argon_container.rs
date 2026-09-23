@@ -65,19 +65,40 @@ use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio::task::{JoinError, JoinHandle};
+use tokio::task::JoinError;
+#[cfg(not(target_family = "wasm"))]
+use tokio::task::JoinHandle;
 
 const ARGON_SALT_LENGTH: usize = 16;
 
 // A wrapper that allows asynchronous hashing and verification
 pub struct AsyncArgon {
     /// for access to the handle as required
+    #[cfg(not(target_family = "wasm"))]
     pub task: JoinHandle<ArgonStatus>,
+    /// wasm32 has no blocking pool to hand the work to (and `spawn_blocking` panics without a
+    /// tokio runtime), so the hash is computed when the future is created and handed back ready.
+    #[cfg(target_family = "wasm")]
+    status: Option<ArgonStatus>,
 }
 
 impl AsyncArgon {
+    #[cfg(not(target_family = "wasm"))]
+    fn run(work: impl FnOnce() -> ArgonStatus + Send + 'static) -> Self {
+        Self {
+            task: tokio::task::spawn_blocking(work),
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn run(work: impl FnOnce() -> ArgonStatus) -> Self {
+        Self {
+            status: Some(work()),
+        }
+    }
+
     pub fn hash(password: SecBuffer, settings: ArgonSettings) -> Self {
-        let task = tokio::task::spawn_blocking(move || {
+        Self::run(move || {
             match argon2::hash_raw(
                 password.as_ref(),
                 settings.inner.salt.as_slice(),
@@ -86,13 +107,11 @@ impl AsyncArgon {
                 Ok(hashed) => ArgonStatus::HashSuccess(SecBuffer::from(hashed)),
                 Err(err) => ArgonStatus::HashFailed(err.to_string()),
             }
-        });
-
-        Self { task }
+        })
     }
 
     pub fn verify(proposed_password: SecBuffer, settings: ServerArgonContainer) -> Self {
-        let task = tokio::task::spawn_blocking(move || {
+        Self::run(move || {
             match argon2::verify_raw(
                 proposed_password.as_ref(),
                 settings.settings.inner.salt.as_slice(),
@@ -105,9 +124,7 @@ impl AsyncArgon {
 
                 Err(err) => ArgonStatus::VerificationFailed(Some(err.to_string())),
             }
-        });
-
-        Self { task }
+        })
     }
 }
 
@@ -319,8 +336,17 @@ impl ArgonContainerType {
 impl Future for AsyncArgon {
     type Output = Result<ArgonStatus, JoinError>;
 
+    #[cfg(not(target_family = "wasm"))]
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.task).poll(cx)
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Poll::Ready(Ok(self
+            .status
+            .take()
+            .expect("AsyncArgon polled after completion")))
     }
 }
 

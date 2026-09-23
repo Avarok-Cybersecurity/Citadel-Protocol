@@ -198,7 +198,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                             };
 
                             // Upgrade the connect BEFORE updating the CNAC
-                            if !session.session_manager.upgrade_connection(addr, cid) {
+                            if !session
+                                .session_manager
+                                .upgrade_connection(&session.provisional_key, cid)
+                            {
                                 return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection (Server)"));
                             }
 
@@ -383,7 +386,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                             // Upgrade the connect BEFORE updating the CNAC
                             if !session
                                 .session_manager
-                                .upgrade_connection(session.remote_peer, cid)
+                                .upgrade_connection(&session.provisional_key, cid)
                             {
                                 return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection (Client)"));
                             }

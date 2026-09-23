@@ -62,6 +62,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     turn_servers: Option<Vec<TurnServerConfig>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     websocket_listen_addr: Option<std::net::SocketAddr>,
+    injected_listener: Option<T::Listener>,
     #[cfg(target_family = "wasm")]
     serverless_config: Option<ServerlessConfig>,
     _ratchet: PhantomData<R>,
@@ -89,6 +90,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             turn_servers: None,
             local_only_server_settings: None,
             websocket_listen_addr: None,
+            injected_listener: None,
             #[cfg(target_family = "wasm")]
             serverless_config: None,
             _ratchet: Default::default(),
@@ -161,6 +163,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = self.local_only_server_settings.take();
         let websocket_listen_addr = self.websocket_listen_addr.take();
+        let injected_listener = self.injected_listener.take();
         #[cfg(target_family = "wasm")]
         let serverless_config = self.serverless_config.take();
 
@@ -197,11 +200,11 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 
                     T::setup_serverless_transport(conn.stream, conn.is_server_role, client_config)
                 } else {
-                    (None, client_config, hypernode_type)
+                    (injected_listener, client_config, hypernode_type)
                 };
 
                 #[cfg(not(target_family = "wasm"))]
-                let pre_built_listener = None;
+                let pre_built_listener = injected_listener;
 
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
                 let rt = citadel_io::try_current_runtime().map_err(NetworkError::generic)?;
@@ -357,6 +360,17 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         self
     }
 
+    /// Serves a server node from a listener the host feeds, instead of binding one. The node
+    /// accepts whatever connections the listener yields and never opens a socket of its own; the
+    /// bind address given to [`NodeType::Server`] is only recorded. On WASM this is how a server
+    /// runs where the host accepts sockets itself — see `WasmListener::injected`.
+    ///
+    /// Only meaningful for [`NodeType::Server`]; `build` refuses it on a peer.
+    pub fn with_injected_listener(&mut self, listener: T::Listener) -> &mut Self {
+        self.injected_listener = Some(listener);
+        self
+    }
+
     /// Enables serverless browser-to-browser mode. Both peers run identical code;
     /// one is automatically assigned the server role and the other the client role
     /// via deterministic signaling through the provided [`ServerlessConfig`].
@@ -393,6 +407,14 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
     }
 
     fn check(&self) -> anyhow::Result<()> {
+        if self.injected_listener.is_some()
+            && !matches!(self.hypernode_type, Some(NodeType::Server(_)))
+        {
+            return Err(anyhow::Error::msg(
+                "An injected listener requires NodeType::Server",
+            ));
+        }
+
         #[cfg(feature = "google-services")]
         if let Some(svc) = self.services.as_ref() {
             if svc.google_rtdb.is_some() && svc.google_services_json_path.is_none() {

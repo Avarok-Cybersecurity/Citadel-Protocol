@@ -59,6 +59,25 @@ pub trait ProtocolIO: Clone + Send + Sync + 'static {
         addr: Self::Addr,
     ) -> impl Future<Output = io::Result<Self::Stream>> + Send;
 
+    /// Connect to a server reached by a WebSocket URL (`ws://` or `wss://host[:port]/path`)
+    /// rather than by the address alone: a server behind an HTTP edge is identified by its
+    /// hostname and path, which a `SocketAddr` cannot carry. `addr` is the address the URL's host
+    /// resolved to, kept for the protocol's bookkeeping.
+    ///
+    /// Transports without a WebSocket client refuse.
+    fn connect_endpoint(
+        _config: &Self::ClientConfig,
+        _addr: Self::Addr,
+        endpoint: crate::WebSocketEndpoint,
+    ) -> impl Future<Output = io::Result<Self::Stream>> + Send {
+        async move {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("this transport cannot dial the WebSocket endpoint {endpoint}"),
+            ))
+        }
+    }
+
     /// Create an unreliable datagram socket bound to the given address.
     fn bind_unreliable(
         addr: Self::Addr,

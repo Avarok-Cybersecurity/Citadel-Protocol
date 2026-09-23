@@ -71,6 +71,9 @@ dirs2 = { workspace = true }
 rstest = { workspace = true }
 lazy_static = { workspace = true }
 citadel_pqcrypto = { workspace = true }
+# The host_sql backend's native test host. 0.32 shares libsqlite3-sys 0.30 with sqlx 0.8,
+# which a build with the `sql` feature also links; two versions of it cannot coexist.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [lib]
 doctest = false

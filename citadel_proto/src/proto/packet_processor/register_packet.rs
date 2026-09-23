@@ -315,7 +315,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                         );
 
                                         session.session_manager.clear_provisional_session(
-                                            &remote_addr,
+                                            &session.provisional_key,
                                             session.init_time,
                                         );
 
@@ -375,19 +375,35 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             let reg_ticket = session.kernel_ticket.clone();
                             let account_manager = session.account_manager.clone();
                             let kernel_tx = session.kernel_tx.clone();
+                            let endpoint_to_persist = session.endpoint_to_persist.clone();
 
                             let session_crypto_state =
                                 initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
 
                             async move {
-                                match account_manager
+                                let registered = account_manager
                                     .register_personal_hyperlan_server(
                                         session_crypto_state,
                                         credentials,
                                         conn_info,
                                     )
-                                    .await
-                                {
+                                    .await;
+                                // An account whose server is a URL must remember the URL, or its
+                                // next login dials the bare address and cannot reach the server.
+                                let registered = match (registered, &endpoint_to_persist) {
+                                    (Ok(cnac), Some(endpoint)) => {
+                                        crate::proto::misc::server_endpoint_store::store(
+                                            &account_manager,
+                                            cnac.get_cid(),
+                                            endpoint,
+                                        )
+                                        .await
+                                        .map(|()| cnac)
+                                    }
+                                    (registered, _) => registered
+                                        .map_err(|err| NetworkError::generic(err.into_string())),
+                                };
+                                match registered {
                                     Ok(new_cnac) => {
                                         if passwordless {
                                             CitadelSession::begin_connect(&session, &new_cnac)?;
@@ -398,7 +414,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                         } else {
                                             // Finally, alert the higher-level kernel about the success
                                             session.session_manager.clear_provisional_session(
-                                                &remote_addr,
+                                                &session.provisional_key,
                                                 session.init_time,
                                             );
                                             kernel_tx.unbounded_send(NodeResult::RegisterOkay(

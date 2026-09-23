@@ -101,7 +101,7 @@ pub async fn process_disconnect<R: Ratchet, T: PlatformOps>(
             // exposed by removing the sleep: the peer's disconnect().await would hang forever).
             let (ack_tx, ack_rx) = citadel_io::tokio::sync::oneshot::channel();
             if primary_stream.send_flush(ack_tx).is_ok() {
-                let _ = citadel_io::tokio::time::timeout(Duration::from_millis(100), ack_rx).await;
+                let _ = citadel_io::time::timeout(Duration::from_millis(100), ack_rx).await;
             }
             Ok(PrimaryProcessorResult::EndSession(SUCCESS_DISCONNECT))
         }

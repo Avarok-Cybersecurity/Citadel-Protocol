@@ -44,6 +44,7 @@ use bytes::BytesMut;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ServerMode;
+use citadel_io::WebSocketEndpoint;
 use citadel_io::{error, ErrorCode};
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
@@ -88,6 +89,22 @@ use citadel_types::proto::{
 
 define_outer_struct_wrapper!(CitadelSessionManager, HdpSessionManagerInner, <R: Ratchet, T: PlatformOps>, <R, T>);
 
+/// What identifies an in-flight (provisional) connection. The remote address alone is not enough
+/// for a server reached by WebSocket URL: every server behind an HTTP edge shares the edge's
+/// address, and one client may be connecting to several of them at once (one agent, two hosted
+/// workspaces). Such a connection is keyed by its URL as well; every other one by address alone.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ProvisionalKey {
+    pub addr: SocketAddr,
+    pub endpoint: Option<WebSocketEndpoint>,
+}
+
+impl ProvisionalKey {
+    pub fn new(addr: SocketAddr, endpoint: Option<WebSocketEndpoint>) -> Self {
+        Self { addr, endpoint }
+    }
+}
+
 /// Used for handling stateful connections between two peer
 #[allow(clippy::type_complexity)]
 pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
@@ -100,7 +117,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     /// Connections which have no implicated CID go herein. They are strictly expected to be
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [CitadelSessionManager] and thereafter placed inside an appropriate session
-    pub provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, CitadelSession<R, T>)>,
+    pub provisional_connections:
+        HashMap<ProvisionalKey, (Instant, Sender<()>, CitadelSession<R, T>)>,
     /// Reserves a CID the instant an incoming connection is cleared to proceed, closing the window
     /// between `can_proceed_with_new_incoming_connection` and the SYN commit (which is when the
     /// provisional connection first becomes findable by CID). Without this, two SYNs for the same
@@ -328,6 +346,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 peer_layer,
                 stun_servers,
                 turn_servers,
+                provisional_key,
             ) = {
                 let (
                     remote,
@@ -341,12 +360,20 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_layer,
                     stun_servers,
                     turn_servers,
+                    provisional_key,
                 ) = {
-                    let (peer_addr, cnac, proposed_credentials) = {
+                    let (peer_addr, cnac, proposed_credentials, endpoint) = {
                         match &init_mode {
-                            HdpSessionInitMode::Register(peer_addr, proposed_credentials) => {
-                                (*peer_addr, None, proposed_credentials.clone())
-                            }
+                            HdpSessionInitMode::Register(
+                                peer_addr,
+                                proposed_credentials,
+                                endpoint,
+                            ) => (
+                                *peer_addr,
+                                None,
+                                proposed_credentials.clone(),
+                                endpoint.clone(),
+                            ),
 
                             HdpSessionInitMode::Connect(auth_request) => match auth_request {
                                 AuthenticationRequest::Passwordless {
@@ -356,6 +383,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                     *server_addr,
                                     None,
                                     ProposedCredentials::transient(username.clone()),
+                                    None,
                                 ),
 
                                 AuthenticationRequest::Credentialed { id, password } => {
@@ -370,13 +398,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                         .ok_or(error!(ErrorCode::SessionClientNotLoaded))?;
                                     let conn_info = cnac.get_connect_info();
                                     let peer_addr = conn_info.addr;
+                                    let endpoint = crate::proto::misc::server_endpoint_store::load(
+                                        &acc_mgr,
+                                        cnac.get_cid(),
+                                    )
+                                    .await?;
 
                                     let proposed_credentials = cnac
                                         .generate_connect_credentials(password.clone())
                                         .await
                                         .map_err(|err| NetworkError::generic(err.into_string()))?;
 
-                                    (peer_addr, Some(cnac), proposed_credentials)
+                                    (peer_addr, Some(cnac), proposed_credentials, endpoint)
                                 }
                             },
                         }
@@ -402,12 +435,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     let stun_servers = this.stun_servers.clone();
                     let turn_servers = this.turn_servers.clone();
 
-                    if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
+                    let provisional_key = ProvisionalKey::new(peer_addr, endpoint);
+                    if let Some((init_time, ..)) =
+                        this.provisional_connections.get(&provisional_key)
+                    {
                         // Localhost is already trying to connect. However, it's possible that the entry has expired,
                         // especially on IOS/droid where the background timer just stops completely
                         if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
                             // remove the entry, since it's expired anyways
-                            let _ = this.provisional_connections.remove(&peer_addr);
+                            let _ = this.provisional_connections.remove(&provisional_key);
                         } else {
                             return Err(error!(
                                 ErrorCode::SessionManagerProvisionalConnectionExists,
@@ -428,6 +464,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         peer_layer,
                         stun_servers,
                         turn_servers,
+                        provisional_key,
                     )
                 };
 
@@ -435,10 +472,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     ConnectProtocol::P2P(T::server_identity(&listener_underlying_proto));
 
                 // create conn to peer
-                let primary_stream =
-                    T::connect(default_client_config, T::from_socket_addr(peer_addr))
+                let primary_stream = match provisional_key.endpoint.clone() {
+                    Some(endpoint) => {
+                        T::connect_endpoint(
+                            default_client_config,
+                            T::from_socket_addr(peer_addr),
+                            endpoint,
+                        )
                         .await
-                        .map_err(|err| NetworkError::socket(err.to_string()))?;
+                    }
+                    None => T::connect(default_client_config, T::from_socket_addr(peer_addr)).await,
+                }
+                .map_err(|err| NetworkError::socket(err.to_string()))?;
                 let local_bind_addr: SocketAddr = T::to_socket_addr(
                     &T::local_addr(&primary_stream)
                         .map_err(|err| NetworkError::generic(err.to_string()))?,
@@ -458,6 +503,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_layer,
                     stun_servers,
                     turn_servers,
+                    provisional_key,
                 )
             };
 
@@ -478,6 +524,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             let session_init_params = SessionInitParams {
                 local_nat_type,
                 remote_peer: peer_addr,
+                provisional_key: provisional_key.clone(),
                 on_drop,
                 citadel_remote: remote,
                 local_bind_addr,
@@ -502,7 +549,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
             if let Some((_prev_conn_init_time, _stopper, lingering_session)) = inner_mut!(self)
                 .provisional_connections
-                .insert(peer_addr, (init_time, stopper, new_session.clone()))
+                .insert(provisional_key, (init_time, stopper, new_session.clone()))
             {
                 // If the previous connection was not dropped, then we need to drop it
                 log::warn!(target: "citadel", "Found a previous lingering connection to {peer_addr}. Dropping it ...");
@@ -553,10 +600,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 if let Some(cid) = *cid_opt {
                     //log::trace!(target: "citadel", "[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
                     session_manager.clear_session(cid, init_time);
-                    session_manager.clear_provisional_session(&peer_addr, init_time);
+                    session_manager
+                        .clear_provisional_session(&new_session.provisional_key, init_time);
                 } else {
                     //log::trace!(target: "citadel", "[safe] deleting provisional connection to {}", &peer_addr);
-                    session_manager.clear_provisional_session(&peer_addr, init_time);
+                    session_manager
+                        .clear_provisional_session(&new_session.provisional_key, init_time);
                 }
             }
         }
@@ -766,6 +815,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             account_manager: this.account_manager.clone(),
             time_tracker: this.time_tracker,
             remote_peer: peer_addr,
+            provisional_key: ProvisionalKey::new(peer_addr, None),
             init_ticket: provisional_ticket,
             client_config,
             hypernode_peer_layer: peer_layer,
@@ -782,8 +832,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         };
 
         let (stopper, new_session) = CitadelSession::new(session_init_params)?;
-        this.provisional_connections
-            .insert(peer_addr, (init_time, stopper, new_session.clone()));
+        this.provisional_connections.insert(
+            ProvisionalKey::new(peer_addr, None),
+            (init_time, stopper, new_session.clone()),
+        );
         drop(this);
 
         let session = Self::execute_session_with_safe_shutdown(
@@ -1001,9 +1053,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// DO_CONNECT stage
     /// This will return false if the provisional connection was already removed. This can happen to really
     /// slow connections, or during background execution on android/ios
-    pub fn upgrade_connection(&self, socket_addr: SocketAddr, session_cid: u64) -> bool {
+    pub fn upgrade_connection(&self, key: &ProvisionalKey, session_cid: u64) -> bool {
         let mut this = inner_mut!(self);
-        if let Some((_, stopper, session)) = this.provisional_connections.remove(&socket_addr) {
+        if let Some((_, stopper, session)) = this.provisional_connections.remove(key) {
             //let _ = this.hypernode_peer_layer.register_peer(session_cid, true);
             if let Some(lingering_conn) = this.sessions.insert(session_cid, (stopper, session)) {
                 // sometimes (especially on cellular networks), when the network changes due to
@@ -1069,14 +1121,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     }
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
-    pub fn clear_provisional_session(&self, addr: &SocketAddr, init_time: Instant) {
+    pub fn clear_provisional_session(&self, key: &ProvisionalKey, init_time: Instant) {
         log::trace!(target: "citadel", "Attempting to clear provisional session ...");
         let mut this = inner_mut!(self);
-        if let Some((prev_init_time, _, _)) = this.provisional_connections.get(addr) {
+        if let Some((prev_init_time, _, _)) = this.provisional_connections.get(key) {
             if *prev_init_time == init_time {
-                this.provisional_connections.remove(addr);
+                this.provisional_connections.remove(key);
             } else {
-                log::warn!(target: "citadel", "Attempted to remove a connection {addr:?} that was provisional yet for a different process");
+                log::warn!(target: "citadel", "Attempted to remove a connection {key:?} that was provisional yet for a different process");
             }
         }
     }

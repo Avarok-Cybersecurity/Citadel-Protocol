@@ -42,6 +42,10 @@ pub struct RegisterToHypernode {
     pub static_security_settings: SessionSecuritySettings,
     // Some servers require a password in order to register and connect. By default, it is empty.
     pub session_password: PreSharedKey,
+    /// The server's WebSocket URL, for a server reached through an HTTP edge rather than at
+    /// `remote_addr` itself (`remote_addr` is then what the URL's host resolved to). The account
+    /// remembers it, so later credentialed connects dial it too. `None` dials `remote_addr`.
+    pub endpoint: Option<citadel_io::WebSocketEndpoint>,
 }
 
 pub struct PeerCommand {

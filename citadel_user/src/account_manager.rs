@@ -187,6 +187,11 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
                 let backend = RedisBackend::new(url.clone(), opts.clone());
                 PersistenceHandler::create(backend).await?
             }
+
+            BackendType::HostSql(host) => {
+                use crate::backend::host_sql::HostSqlBackend;
+                PersistenceHandler::create(HostSqlBackend::new(host.clone())).await?
+            }
         };
 
         if !persistence_handler.is_connected().await? {

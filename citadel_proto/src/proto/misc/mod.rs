@@ -78,8 +78,13 @@ pub mod native_upgrade;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_websocket;
 #[cfg(not(target_family = "wasm"))]
+pub mod native_ws_connect;
+#[cfg(not(target_family = "wasm"))]
+pub mod native_ws_transport;
+#[cfg(not(target_family = "wasm"))]
 pub mod net;
 pub(crate) mod platform_ops;
+pub(crate) mod server_endpoint_store;
 pub(crate) mod threading;
 pub mod udp_internal_interface;
 pub(crate) mod udp_session_loader;
@@ -106,7 +111,7 @@ pub(crate) mod wasm_p2p_signaling;
 #[cfg(target_family = "wasm")]
 pub(crate) mod wasm_rtc;
 #[cfg(target_family = "wasm")]
-pub(crate) mod wasm_stream;
+pub mod wasm_stream;
 
 /// The copy-free writer half of a split primary stream (see [`DirectFrameWriter`]).
 pub type PrimaryStreamWriter<S> = DirectFrameWriter<WriteHalf<S>>;

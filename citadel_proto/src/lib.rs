@@ -542,6 +542,9 @@ pub mod prelude {
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_user::account_manager::AccountManager;
     pub use citadel_user::auth::proposed_credentials::ProposedCredentials;
+    pub use citadel_user::backend::host_sql::{
+        HostSqlHandle, SqlHost, SqlRow, SqlStatement, SqlValue,
+    };
     pub use citadel_user::backend::BackendType;
     pub use citadel_user::external_services::{RtdbConfig, ServicesConfig, ServicesObject};
     pub use citadel_user::prelude::ConnectProtocol;
@@ -555,7 +558,9 @@ pub mod prelude {
     };
 
     // Unconditional exports available on all platforms
+    pub use crate::proto::misc::server_endpoint_store::load as load_server_endpoint;
     pub use async_trait::async_trait;
+    pub use citadel_io::WebSocketEndpoint;
     pub use citadel_wire::hypernode_type::NodeType;
 
     // Native-only prelude exports
@@ -580,6 +585,8 @@ pub mod prelude {
     pub use crate::proto::misc::signaling_firebase::{FirebaseSignaling, FirebaseSignalingConfig};
     #[cfg(target_family = "wasm")]
     pub use crate::proto::misc::wasm_io::*;
+    #[cfg(target_family = "wasm")]
+    pub use crate::proto::misc::wasm_stream::{WasmStream, WasmWebSocketStream};
 
     pub use crate::proto::misc::platform_ops::{DefaultTransport, PlatformOps, TransferMetadata};
 

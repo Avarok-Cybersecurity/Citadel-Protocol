@@ -172,3 +172,41 @@ fn test_hybrid_encryption_settings() {
         .build();
     assert!(result.is_ok());
 }
+
+/// An injected listener stands in for a bound socket, which only a server has; a peer that is
+/// handed one must be refused at build time rather than silently ignoring it.
+#[wasm_bindgen_test]
+fn test_injected_listener_requires_a_server_node() {
+    let (_injector, listener) = WasmListener::injected();
+    let built = DefaultNodeBuilder::default()
+        .with_node_type(NodeType::Peer)
+        .with_backend(BackendType::InMemory)
+        .with_injected_listener(listener)
+        .build(citadel_sdk::prefabs::server::empty::EmptyKernel::<
+            StackedRatchet,
+        >::default());
+    assert!(built.is_err());
+}
+
+/// The listener lives exactly as long as its injector: once the host drops every injector the
+/// listener ends, and a server node with nothing left to accept stops instead of idling forever.
+/// This is the failure the old `WasmIO::bind` produced for every wasm server (it dropped its
+/// sender on creation), so it is pinned here by name.
+#[wasm_bindgen_test]
+async fn test_a_server_ends_when_its_injector_is_dropped() {
+    let (injector, listener) = WasmListener::injected();
+    drop(injector);
+    let node = DefaultNodeBuilder::default()
+        .with_node_type(NodeType::server("127.0.0.1:0").expect("addr"))
+        .with_backend(BackendType::InMemory)
+        .with_injected_listener(listener)
+        .build(citadel_sdk::prefabs::server::empty::EmptyKernel::<
+            StackedRatchet,
+        >::default())
+        .expect("build server");
+    let outcome = citadel_io::time::timeout(std::time::Duration::from_secs(20), node).await;
+    assert!(
+        matches!(outcome, Ok(Err(_))),
+        "expected the node to stop with an error once its listener ended"
+    );
+}

@@ -161,6 +161,7 @@ http-body-util = { version = "0.1.5", default-features = false }
 sha256 = { version = "1.5.0" }
 tokio-openssl = { version = "0.6.3" }
 tokio-tungstenite = { version = "0.28", default-features = false }
+url = { version = "2.5" }
 # >=0.1.0-rc.5 clears CVE-2026-24850 (verify accepted repeated hint indices), CVE-2026-22705
 # (timing side-channel in decomposition) and GHSA-h37v-hp6w-2pp8 (UseHint off-by-two at r0==0).
 # `getrandom`/`rand_core` are off: those features pull rand_core 0.9, but the workspace is on

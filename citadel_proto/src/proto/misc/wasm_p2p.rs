@@ -155,6 +155,7 @@ impl super::platform_ops::PlatformOps for WasmIO {
             let stream_holder = std::sync::Arc::new(std::sync::Mutex::new(Some(stream)));
             let cfg = super::wasm_io::WasmClientConfig {
                 use_tls: false,
+                endpoint: None,
                 pre_built_stream: Some(stream_holder),
             };
             (None, Some(cfg), crate::prelude::NodeType::Peer)
