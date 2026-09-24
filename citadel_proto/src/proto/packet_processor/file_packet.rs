@@ -36,7 +36,7 @@ use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_crafter::file::ReVFSPullAckPacket;
 use crate::proto::packet_processor::header_to_response_vconn_type;
 use crate::proto::packet_processor::primary_group_packet::{
-    get_orientation_safe_ratchet, get_resp_target_cid_from_header,
+    get_orientation_safe_ratchet, get_resp_target_cid_from_header, ordered_channel_cid,
 };
 use crate::proto::{get_preferred_primary_stream, send_with_error_logging};
 use citadel_crypt::ratchets::Ratchet;
@@ -163,6 +163,27 @@ pub fn process_file_packet<R: Ratchet, T: PlatformOps>(
                                     &state_container
                                 ))
                             };
+
+                            // A peer transfer takes its first group id -- the one this
+                            // header carries -- from the counter messages use (the P2P
+                            // arm of session.rs's object send), so the ordered channel
+                            // must step over it NOW. Waiting for the first group header
+                            // was too late: the sender streams no group until the
+                            // recipient accepts, so while an offer sat unanswered, and
+                            // for ever once it was declined, every later message --
+                            // rekey messages included -- waited behind an id that would
+                            // never arrive.
+                            //
+                            // Peer only: a C2S transfer draws its ids from the
+                            // file-transfer counter, and stepping over one of those
+                            // would drop the real message that owns it.
+                            if matches!(v_target, VirtualConnectionType::LocalGroupPeer { .. }) {
+                                let state_container = inner_state!(session.state_container);
+                                state_container.skip_non_message_group(
+                                    ordered_channel_cid(proxy_cid_info),
+                                    header.group.get(),
+                                );
+                            }
 
                             {
                                 let mut state_container = inner_mut_state!(session.state_container);
