@@ -477,7 +477,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     let local_is_file_transfer_compat = session
                                         .account_manager
                                         .get_backend_type()
-                                        .is_filesystem_backend();
+                                        .stores_streamed_objects();
 
                                     // Echo back the p2p_connection_id from Stage0
                                     let signal = PeerSignal::Kex {
@@ -613,7 +613,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         let local_is_file_transfer_compat = session
                                             .account_manager
                                             .get_backend_type()
-                                            .is_filesystem_backend();
+                                            .stores_streamed_objects();
 
                                         let p2p_connection_id = kem_state.p2p_connection_id;
                                         let channel = match state_container
@@ -829,7 +829,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         let local_is_file_transfer_compat = session
                                             .account_manager
                                             .get_backend_type()
-                                            .is_filesystem_backend();
+                                            .stores_streamed_objects();
 
                                         log::trace!(target: "citadel", "[NAT] Peer addr as observed by the Citadel server (diagnostic, unverified): {:?} || needs TURN? {}", alice_predicted_socket_addr, needs_turn);
 

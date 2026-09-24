@@ -151,6 +151,12 @@ impl BackendType {
         }
     }
 
+    /// Whether this backend stores the objects streamed to it (file transfers, RE-VFS). Nodes
+    /// exchange it when they connect, and a node refuses to send a file to one that cannot.
+    pub fn stores_streamed_objects(&self) -> bool {
+        self.is_filesystem_backend() || matches!(self, BackendType::HostSql(_))
+    }
+
     /// Creates a new [`BackendType`] given the provided `url`. Returns an error
     /// if the URL could not be parsed
     pub fn new<T: Into<String>>(url: T) -> Result<Self, AccountError> {
