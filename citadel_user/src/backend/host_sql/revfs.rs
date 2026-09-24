@@ -26,6 +26,7 @@ pub const REVFS_CHUNK_BYTES: usize = 512 * 1024;
 /// What an upload wrote before it committed.
 struct Staged {
     groups: usize,
+    first_group_bytes: usize,
     chunks: i64,
     bytes: u64,
 }
@@ -93,10 +94,14 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
     ) -> Result<(), AccountError> {
         let mut staged = Staged {
             groups: 0,
+            first_group_bytes: 0,
             chunks: 0,
             bytes: 0,
         };
         while let Some(group) = source.recv().await {
+            if staged.groups == 0 {
+                staged.first_group_bytes = group.len();
+            }
             staged.groups += 1;
             for piece in group.chunks(REVFS_CHUNK_BYTES) {
                 self.stage_chunk(key, upload, staged.chunks, piece, quota)
@@ -188,6 +193,7 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
                     .map_err(|_| op_error(format!("object of {} bytes", staged.bytes)))?,
             ),
             SqlValue::Integer(staged.chunks),
+            SqlValue::Integer(staged.first_group_bytes as i64),
             SqlValue::Blob(metadata),
             text_value(upload),
         ]);

@@ -52,6 +52,11 @@ async fn an_object_round_trips_byte_for_byte_in_bounded_rows_and_is_gone_once_de
         512 * KIB as i64
     );
     assert_eq!(rows(&host, UPLOADS).await, 0);
+    assert_eq!(
+        rows(&host, "SELECT group_bytes FROM citadel_revfs_files").await,
+        1200 * KIB as i64,
+        "the object must remember the size of the groups it arrived in"
+    );
 
     backend
         .revfs_delete(CID, "/docs/report.pdf".into())

@@ -139,7 +139,7 @@ async fn deleting_an_account_deletes_its_objects_and_no_one_elses() {
     .await;
     let _ = sql(
         &host,
-        "INSERT INTO citadel_revfs_files (cid, path, upload, size, chunks, metadata) VALUES ('7', '/other', 'u7', 0, 0, x'')",
+        "INSERT INTO citadel_revfs_files (cid, path, upload, size, chunks, group_bytes, metadata) VALUES ('7', '/other', 'u7', 0, 0, 0, x'')",
         vec![],
     )
     .await;

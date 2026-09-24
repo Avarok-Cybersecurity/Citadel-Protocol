@@ -11,13 +11,15 @@
 /// RE-VFS objects (see `revfs`): `citadel_revfs_files` maps an account's virtual path to the
 /// upload that holds its bytes, `citadel_revfs_chunks` holds those bytes in bounded rows keyed by
 /// upload and index, and `citadel_revfs_uploads` is the staging record of an upload in flight.
+/// `group_bytes` is the length of the object's first group as it arrived. The client encrypted
+/// each group on its own, so the object can only be sent back in groups of exactly that size.
 /// Upload ids are unique per upload, so a replacement stages beside the object it replaces and
 /// swaps in with one transaction.
 pub(super) const CREATE_TABLES: [&str; 6] = [
     "CREATE TABLE IF NOT EXISTS citadel_cnacs (cid TEXT NOT NULL PRIMARY KEY, is_personal INTEGER NOT NULL, username TEXT NOT NULL, full_name TEXT NOT NULL, creation_date TEXT NOT NULL, bin BLOB NOT NULL)",
     "CREATE TABLE IF NOT EXISTS citadel_peers (cid TEXT NOT NULL, peer_cid TEXT NOT NULL, username TEXT, PRIMARY KEY (cid, peer_cid))",
     "CREATE TABLE IF NOT EXISTS citadel_bytemap (cid TEXT NOT NULL, peer_cid TEXT NOT NULL, id TEXT NOT NULL, sub_id TEXT NOT NULL, bin BLOB NOT NULL, PRIMARY KEY (cid, peer_cid, id, sub_id))",
-    "CREATE TABLE IF NOT EXISTS citadel_revfs_files (cid TEXT NOT NULL, path TEXT NOT NULL, upload TEXT NOT NULL, size INTEGER NOT NULL, chunks INTEGER NOT NULL, metadata BLOB NOT NULL, PRIMARY KEY (cid, path))",
+    "CREATE TABLE IF NOT EXISTS citadel_revfs_files (cid TEXT NOT NULL, path TEXT NOT NULL, upload TEXT NOT NULL, size INTEGER NOT NULL, chunks INTEGER NOT NULL, group_bytes INTEGER NOT NULL, metadata BLOB NOT NULL, PRIMARY KEY (cid, path))",
     "CREATE TABLE IF NOT EXISTS citadel_revfs_uploads (upload TEXT NOT NULL PRIMARY KEY, cid TEXT NOT NULL, path TEXT NOT NULL, bytes INTEGER NOT NULL)",
     "CREATE TABLE IF NOT EXISTS citadel_revfs_chunks (upload TEXT NOT NULL, idx INTEGER NOT NULL, bin BLOB NOT NULL, PRIMARY KEY (upload, idx))",
 ];
@@ -98,8 +100,8 @@ pub(super) const INSERT_REVFS_CHUNK_WITHIN_QUOTA: &str = "INSERT INTO citadel_re
 pub(super) const ADD_REVFS_UPLOAD_BYTES: &str = "UPDATE citadel_revfs_uploads SET bytes = bytes + ? WHERE upload = ? AND EXISTS (SELECT 1 FROM citadel_revfs_chunks WHERE upload = ? AND idx = ?)";
 /// Commit, part 1: the replaced object's chunks, if the upload is still staged. Params `cid, path, upload`.
 pub(super) const DELETE_REPLACED_REVFS_CHUNKS: &str = "DELETE FROM citadel_revfs_chunks WHERE upload IN (SELECT upload FROM citadel_revfs_files WHERE cid = ? AND path = ?) AND EXISTS (SELECT 1 FROM citadel_revfs_uploads WHERE upload = ?)";
-/// Commit, part 2: point the path at the upload. Params `cid, path, upload, size, chunks, metadata, upload`.
-pub(super) const UPSERT_REVFS_FILE: &str = "INSERT INTO citadel_revfs_files (cid, path, upload, size, chunks, metadata) SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM citadel_revfs_uploads WHERE upload = ?) ON CONFLICT (cid, path) DO UPDATE SET upload = excluded.upload, size = excluded.size, chunks = excluded.chunks, metadata = excluded.metadata";
+/// Commit, part 2: point the path at the upload. Params `cid, path, upload, size, chunks, group_bytes, metadata, upload`.
+pub(super) const UPSERT_REVFS_FILE: &str = "INSERT INTO citadel_revfs_files (cid, path, upload, size, chunks, group_bytes, metadata) SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM citadel_revfs_uploads WHERE upload = ?) ON CONFLICT (cid, path) DO UPDATE SET upload = excluded.upload, size = excluded.size, chunks = excluded.chunks, group_bytes = excluded.group_bytes, metadata = excluded.metadata";
 /// Commit, part 3, and abort: the staging record. A row back means the upload was still staged.
 pub(super) const DELETE_REVFS_UPLOAD: &str =
     "DELETE FROM citadel_revfs_uploads WHERE upload = ? RETURNING upload";
