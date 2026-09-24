@@ -144,6 +144,11 @@ const FINAL_REPLY_FLUSH_YIELDS: usize = 8;
 /// that has already gone will never let the write finish.
 const FINAL_REPLY_FLUSH_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// How long handlers already running may finish once the inbound stream has ended. They
+/// were answering a peer that has gone; the grace only lets a final packet's processing
+/// (a disconnect, a last request) complete rather than being cut mid-way.
+const STREAM_END_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Which half of a session's future ended it.
 ///
 /// `Deliberate` is this node calling `shutdown()` — a completed registration, a
@@ -1214,9 +1219,25 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             }
         }
 
+        // The stream's end, told apart from the handlers still running. A clean EOF lets
+        // `try_for_each_concurrent` finish only once every in-flight handler has, and the
+        // keep-alive handler sleeps a whole KEEP_ALIVE_INTERVAL_MS (15 minutes) before it
+        // replies. So a FIN left the session registered, and the account was refused
+        // "Session Already Connected" until that sleep ran out. On Cloudflare, where a
+        // WebSocket close is the only way a dropped client reaches the server, that was
+        // every drop. An I/O error was never affected: it short-circuits the loop.
+        let (stream_ended_tx, stream_ended_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
         let reader = async_stream::stream! {
             while let Some(packet) = reader.next().await {
                 yield packet
+            }
+            let _ = stream_ended_tx.send(());
+        };
+        let stream_ended = async move {
+            if stream_ended_rx.await.is_ok() {
+                citadel_io::time::sleep(STREAM_END_GRACE).await;
+            } else {
+                std::future::pending::<()>().await;
             }
         };
 
@@ -1260,8 +1281,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 // takes the event-driven wait-for-clean-drop path. No sleep needed.)
                 evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid).await
             })
-            .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer_cid))
-            .await;
+            .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer_cid));
+        let res = citadel_io::tokio::select! {
+            res = res => res,
+            _ = stream_ended => {
+                log::warn!(target: "citadel", "[DC_SIGNAL:inbound] stream ended; handlers still in flight after {STREAM_END_GRACE:?} dropped | is_server: {is_server}");
+                Ok(())
+            }
+        };
 
         match res {
             Ok(ok) => Ok(ok),
