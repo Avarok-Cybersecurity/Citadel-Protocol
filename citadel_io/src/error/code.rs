@@ -1110,4 +1110,27 @@ pub enum ErrorCode {
     /// The server reported it could not route a P2P signal for this connect attempt (reason).
     #[form = "P2P signal routing failed: {}"]
     RemoteP2pSignalRoutingFailed = 333,
+
+    // --- citadel_user: host_sql RE-VFS ---
+    /// No RE-VFS object is stored at the virtual path (path).
+    #[form = "No RE-VFS file is stored at {}"]
+    RevfsFileNotFound = 334,
+    /// An upload would take the backend past its storage quota (quota bytes).
+    #[form = "Storage full: this upload would exceed the server's storage quota of {} bytes"]
+    RevfsStorageFull = 335,
+    /// The object stream closed before every group arrived (received, expected).
+    #[form = "RE-VFS upload ended after {} of {} groups; nothing was stored"]
+    RevfsUploadIncomplete = 336,
+    /// The staged upload was removed (e.g. its account was deleted) before it completed.
+    #[form = "RE-VFS upload to {} was removed before it completed"]
+    RevfsUploadVanished = 337,
+    /// A stored object's chunk was missing while it was read back (path).
+    #[form = "RE-VFS file {} changed while it was being read"]
+    RevfsChangedDuringRead = 338,
+    /// The backend stores RE-VFS objects only; a plain file transfer into it is refused.
+    #[form = "This server stores RE-VFS files only; a plain file transfer to it is refused"]
+    HostSqlPlainFileTransferUnsupported = 339,
+    /// The host could not say how much storage the backend may use (reason).
+    #[form = "The host did not provide a storage quota: {}"]
+    HostSqlStorageQuotaUnavailable = 340,
 }
