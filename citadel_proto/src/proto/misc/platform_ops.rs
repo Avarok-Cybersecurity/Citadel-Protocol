@@ -10,7 +10,7 @@ use citadel_io::time::SystemTime;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ProtocolIO;
@@ -143,12 +143,6 @@ pub trait PlatformOps: ProtocolIO {
     ) -> Result<TransferMetadata, NetworkError> {
         let _ = (source_path, expected_metadata);
         Err(error!(ErrorCode::FileTransferPlatformUnsupported))
-    }
-
-    /// Asynchronously delete a file after transfer.
-    /// Default: no-op.
-    fn async_delete_file(source: PathBuf) {
-        let _ = source;
     }
 
     // ── UDP session ──

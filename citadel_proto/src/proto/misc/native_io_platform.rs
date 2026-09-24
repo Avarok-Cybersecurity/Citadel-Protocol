@@ -6,7 +6,7 @@
 #![allow(clippy::manual_async_fn)]
 
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use citadel_crypt::ratchets::Ratchet;
@@ -202,10 +202,6 @@ impl PlatformOps for NativeIO {
         file.metadata()
             .map(Into::into)
             .map_err(|err| NetworkError::generic(err.to_string()))
-    }
-
-    fn async_delete_file(source: PathBuf) {
-        spawn!(citadel_io::tokio::fs::remove_file(source));
     }
 
     fn spawn_udp_socket_loader<R: Ratchet>(

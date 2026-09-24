@@ -88,6 +88,12 @@ pub trait ObjectSource: Send + Sync + 'static {
     fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError>;
     fn get_source_name(&self) -> Result<String, CryptError>;
     fn path(&self) -> Option<PathBuf>;
+    /// The group size this source must be sent in. A stored RE-VFS object is data its owner
+    /// encrypted group by group, which decrypts only in the groups it was encrypted in; any
+    /// other source may be split as the sender chooses.
+    fn required_group_size(&self) -> Option<usize> {
+        None
+    }
 }
 
 macro_rules! impl_file_src {

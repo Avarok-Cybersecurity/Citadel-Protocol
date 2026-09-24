@@ -277,13 +277,15 @@ pub fn process_file_packet<R: Ratchet, T: PlatformOps>(
                             let revfs_cid = header.session_cid.get();
                             let resp_target_cid = get_resp_target_cid_from_header(&header);
                             let delete_on_pull = packet.delete_on_pull;
+                            let virtual_path = packet.virtual_path.clone();
+                            let pers = session.account_manager.get_persistence_handler().clone();
 
                             // get the real_path and security level used from the backend
                             let task = async move {
                                 let response_payload = match session
                                     .account_manager
                                     .get_persistence_handler()
-                                    .revfs_get_file_info(revfs_cid, packet.virtual_path)
+                                    .revfs_get_file_info(revfs_cid, packet.virtual_path.clone())
                                     .await
                                 {
                                     Ok((source, metadata)) => {
@@ -304,9 +306,20 @@ pub fn process_file_packet<R: Ratchet, T: PlatformOps>(
                                             transfer_type,
                                             Some(local_encryption_level),
                                             Some(metadata),
-                                            move |source| {
+                                            // `take`: once sent, delete it as a RE-VFS delete
+                                            // would, through the backend that holds it (the
+                                            // object may have no path, and a file's metadata
+                                            // must go with it).
+                                            move || {
                                                 if delete_on_pull {
-                                                    T::async_delete_file(source);
+                                                    spawn!(async move {
+                                                        if let Err(err) = pers
+                                                            .revfs_delete(revfs_cid, virtual_path)
+                                                            .await
+                                                        {
+                                                            log::error!(target: "citadel", "RE-VFS take: the pulled object was not deleted: {err}");
+                                                        }
+                                                    });
                                                 }
                                             },
                                         ) {
