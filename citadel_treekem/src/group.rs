@@ -89,11 +89,26 @@ impl GroupState {
 
     /// Add a new member from their [`KeyPackage`] and commit. Returns the `Commit` (broadcast to existing
     /// members) and the `Welcome` (sent only to the joiner).
+    ///
+    /// A cid holds at most one leaf. If `key_package`'s cid already has one — a member whose session
+    /// ended took its leaf secret with it and is joining again — that stale leaf is removed in the same
+    /// commit (`Remove` then `Add`), so there is one epoch change, one ordering for every member, and no
+    /// second leaf that `leaf_of_cid` could seal to instead of the live one.
     pub fn add_member(
         &mut self,
         key_package: &KeyPackage,
         fresh_leaf_secret: Secret,
     ) -> Result<(Commit, Welcome), Error> {
+        let mut proposals = Vec::with_capacity(2);
+        if let Some(stale) = self.tree.leaf_index_of_cid(key_package.leaf.cid) {
+            if stale == self.own_leaf {
+                return Err(Error::generic(
+                    "treekem: the committer cannot re-add itself",
+                ));
+            }
+            self.tree.remove_leaf(stale);
+            proposals.push(Proposal::Remove { leaf_index: stale });
+        }
         let joiner_index = self.tree.add_leaf(key_package.leaf.clone());
         // Capture the previous epoch's init secret BEFORE advancing — the joiner needs it for the schedule.
         let prev_init = self.secrets.init_secret;
@@ -114,13 +129,11 @@ impl GroupState {
             .get(&lca)
             .ok_or_else(|| Error::generic("treekem: committer is missing the LCA path secret"))?;
 
-        let commit = Commit {
-            proposals: vec![Proposal::Add {
-                key_package: key_package.clone(),
-                leaf_index: joiner_index,
-            }],
-            path,
-        };
+        proposals.push(Proposal::Add {
+            key_package: key_package.clone(),
+            leaf_index: joiner_index,
+        });
+        let commit = Commit { proposals, path };
         self.advance_epoch(&root_secret, &commit);
 
         // Seal `lca_secret || prev_init` to the joiner's leaf KEM key.
@@ -402,6 +415,67 @@ mod tests {
                 || b_after.encryption_secret() != a.encryption_secret(),
             "a removed member must not reach the post-removal epoch secret",
         );
+    }
+
+    /// A member that lost its state (its session ended) publishes a fresh KeyPackage under the same
+    /// cid. Re-adding it must replace its stale leaf in one commit: the other members follow that single
+    /// commit, everyone lands on one epoch secret, the cid has exactly one leaf, and the lost state
+    /// cannot follow into the new epoch.
+    #[test]
+    fn re_adding_a_cid_replaces_its_stale_leaf_in_one_commit() {
+        let a_secret = [11u8; 32];
+        let mut a = GroupState::create(member_leaf(1, &a_secret), a_secret);
+        let (b_secret, c_secret) = ([22u8; 32], [33u8; 32]);
+        let (_, welcome_b) = a
+            .add_member(&KeyPackage::generate(2, &b_secret).unwrap(), [0xA1; 32])
+            .unwrap();
+        let mut b_lost = GroupState::join_from_welcome(&welcome_b, b_secret).unwrap();
+        let (commit_c, welcome_c) = a
+            .add_member(&KeyPackage::generate(3, &c_secret).unwrap(), [0xA2; 32])
+            .unwrap();
+        b_lost.process_commit(&commit_c).unwrap();
+        let mut c = GroupState::join_from_welcome(&welcome_c, c_secret).unwrap();
+
+        // B comes back with a fresh leaf secret under the same cid.
+        let b2_secret = [44u8; 32];
+        let (commit_b2, welcome_b2) = a
+            .add_member(&KeyPackage::generate(2, &b2_secret).unwrap(), [0xA3; 32])
+            .unwrap();
+        assert_eq!(
+            commit_b2.proposals.len(),
+            2,
+            "the stale leaf's removal travels in the same commit as the add"
+        );
+        c.process_commit(&commit_b2).unwrap();
+        let b2 = GroupState::join_from_welcome(&welcome_b2, b2_secret).unwrap();
+
+        assert_eq!(a.epoch, 3);
+        assert_eq!(c.epoch, 3);
+        assert_eq!(b2.epoch, 3);
+        assert_eq!(c.encryption_secret(), a.encryption_secret());
+        assert_eq!(b2.encryption_secret(), a.encryption_secret());
+        let leaves_for_b = (0..a.tree.num_leaves())
+            .filter(|&i| matches!(a.tree.get(leaf_to_node(i)), crate::tree::node::Node::Leaf(l) if l.cid == 2))
+            .count();
+        assert_eq!(leaves_for_b, 1, "a cid must hold exactly one leaf");
+        assert_eq!(
+            c.tree, a.tree,
+            "every member's tree agrees after the replacement"
+        );
+
+        let ct = a.encrypt_message(b"after the rejoin").unwrap();
+        assert_eq!(b2.decrypt_message(&ct).unwrap(), b"after the rejoin");
+        assert_eq!(c.decrypt_message(&ct).unwrap(), b"after the rejoin");
+        assert!(
+            b_lost.process_commit(&commit_b2).is_err()
+                || b_lost.encryption_secret() != a.encryption_secret(),
+            "the lost state must not reach the epoch that replaced it",
+        );
+
+        // The committer's own cid is never re-added over itself.
+        assert!(a
+            .add_member(&KeyPackage::generate(1, &[55u8; 32]).unwrap(), [0xA4; 32])
+            .is_err());
     }
 
     #[test]
