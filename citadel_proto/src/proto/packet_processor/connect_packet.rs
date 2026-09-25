@@ -542,7 +542,13 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
             session.time_tracker.get_global_time_ns(),
             security_level,
         );
-        session.send_to_primary_stream(Some(ticket), packet)?;
+        // One group's packet failing to craft must not stop the others, or the connect.
+        match packet {
+            Ok(packet) => session.send_to_primary_stream(Some(ticket), packet)?,
+            Err(err) => {
+                log::warn!(target: "citadel", "Unable to ask {cid} to RestoreOwnership {key:?}: {err}")
+            }
+        }
     }
     let groups = peer_layer.list_message_groups_with_member(cid).await;
     for key in groups {
@@ -555,7 +561,13 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
             session.time_tracker.get_global_time_ns(),
             security_level,
         );
-        session.send_to_primary_stream(Some(ticket), packet)?;
+        // One group's packet failing to craft must not stop the others, or the connect.
+        match packet {
+            Ok(packet) => session.send_to_primary_stream(Some(ticket), packet)?,
+            Err(err) => {
+                log::warn!(target: "citadel", "Unable to ask {cid} to RestoreMembership {key:?}: {err}")
+            }
+        }
     }
     Ok(())
 }

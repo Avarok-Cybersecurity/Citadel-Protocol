@@ -258,10 +258,15 @@ impl<R: Ratchet> StateContainerInner<R> {
                                             reason.clone(),
                                             object_id,
                                         );
-                                    send_with_error_logging(
-                                        &preferred_primary_stream,
-                                        error_packet,
-                                    );
+                                    match error_packet {
+                                        Ok(error_packet) => send_with_error_logging(
+                                            &preferred_primary_stream,
+                                            error_packet,
+                                        ),
+                                        Err(err) => {
+                                            log::warn!(target: "citadel", "Unable to craft the file error packet: {err}")
+                                        }
+                                    }
                                     let state_container = inner_state!(state_container);
                                     let _ = state_container.inbound_files.remove(&key);
                                     let _ = state_container.file_transfer_handles.remove(&key);

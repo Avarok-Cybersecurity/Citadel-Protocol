@@ -1315,7 +1315,7 @@ fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
         C2S_IDENTITY_CID,
         timestamp,
         security_level,
-    );
+    )?;
     session.send_to_primary_stream(Some(ticket), packet)?;
     Ok(PrimaryProcessorResult::Void)
 }
