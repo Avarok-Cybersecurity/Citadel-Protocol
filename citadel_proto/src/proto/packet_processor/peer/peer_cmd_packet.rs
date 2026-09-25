@@ -387,6 +387,14 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     }
                                 };
                             } else {
+                                // Our dial was refused: it is no longer an attempt. Left in place,
+                                // the entry makes the peer's own later dial look simultaneous, and
+                                // the higher CID defers to a dial of its own that already ended --
+                                // the peer's attempt then waits forever (seen live: "Resume" after a
+                                // declined redial never reconnected).
+                                inner_mut_state!(session.state_container)
+                                    .outgoing_peer_connect_attempts
+                                    .remove(&conn.get_original_session_cid());
                                 // Send error to kernel for peer connect fail. Reason: did not accept
                                 session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                     event: PeerSignal::SignalError {

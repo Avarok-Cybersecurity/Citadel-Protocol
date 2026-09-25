@@ -233,9 +233,10 @@ impl<R: Ratchet> StateContainerInner<R> {
                                     );
 
                                     match wave_ack {
-                                        Ok(wave_ack) => {
-                                            send_with_error_logging(&preferred_primary_stream, wave_ack)
-                                        }
+                                        Ok(wave_ack) => send_with_error_logging(
+                                            &preferred_primary_stream,
+                                            wave_ack,
+                                        ),
                                         Err(err) => {
                                             log::warn!(target: "citadel", "Unable to craft the final wave ack: {err}")
                                         }
