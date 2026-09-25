@@ -85,43 +85,6 @@ mod tests {
         socket.listen(1024).unwrap()
     }
 
-    /// The server going away ends this node's session; wait until the node has seen that, so
-    /// the reconnect below is a new session and not a race with the old one's teardown.
-    async fn session_ended(events: &mut Events, who: &str) {
-        tokio::time::timeout(REJOIN_DEADLINE, async {
-            loop {
-                match events.recv().await {
-                    Some(NodeResult::Disconnect(_)) => return,
-                    Some(other) => {
-                        log::info!(target: "citadel", "[{who}] event while waiting for the session to end: {other:?}")
-                    }
-                    None => panic!("[{who}] event stream ended"),
-                }
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("[{who}] never saw its session end when the server stopped"))
-    }
-
-    /// Reconnect with credentials only, retrying while the old session is still being torn down
-    /// and while the restarted server comes up.
-    async fn reconnect(
-        remote: &NodeRemote<StackedRatchet>,
-        username: &str,
-    ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
-        let started = std::time::Instant::now();
-        loop {
-            match connect(remote, username).await {
-                Ok(conn) => return Ok(conn),
-                Err(err) if started.elapsed() < REJOIN_DEADLINE => {
-                    log::info!(target: "citadel", "[{username}] reconnect after the server restart: {err}");
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-                }
-                Err(err) => return Err(err),
-            }
-        }
-    }
-
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_group_survives_a_server_restart() {
         citadel_logging::setup_log();

@@ -185,6 +185,55 @@ pub async fn send_until(
     Ok(())
 }
 
+/// The server going away ends this node's session; wait until the node has seen that, so
+/// the reconnect below is a new session and not a race with the old one's teardown.
+pub async fn session_ended(events: &mut Events, who: &str) {
+    tokio::time::timeout(REJOIN_DEADLINE, async {
+        loop {
+            match events.recv().await {
+                Some(NodeResult::Disconnect(_)) => return,
+                Some(other) => {
+                    log::info!(target: "citadel", "[{who}] event while waiting for the session to end: {other:?}")
+                }
+                None => panic!("[{who}] event stream ended"),
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("[{who}] never saw its session end when the server stopped"))
+}
+
+/// How long a client may take to reconnect once its server is back. A restarted server holds
+/// no session for anyone, so a reconnect is refused only by something the restart left behind
+/// (the "Session Already Connected" loop an agent saw after a Durable Object reset).
+pub const RECONNECT_WITHIN: Duration = Duration::from_secs(10);
+
+/// Reconnect with credentials only, retrying while the old session is still being torn down
+/// and while the restarted server comes up; fails if that takes longer than [`RECONNECT_WITHIN`].
+pub async fn reconnect(
+    remote: &NodeRemote<StackedRatchet>,
+    username: &str,
+) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
+    let started = std::time::Instant::now();
+    loop {
+        match connect(remote, username).await {
+            Ok(conn) => {
+                log::info!(target: "citadel", "[{username}] reconnected after {:?}", started.elapsed());
+                return Ok(conn);
+            }
+            Err(err) if started.elapsed() < RECONNECT_WITHIN => {
+                log::info!(target: "citadel", "[{username}] reconnect after the server restart: {err}");
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(err) => {
+                return Err(NetworkError::msg(format!(
+                    "[{username}] could not reconnect within {RECONNECT_WITHIN:?}: {err}"
+                )))
+            }
+        }
+    }
+}
+
 /// Run the server and two client nodes to completion, failing on timeout.
 pub async fn run_pair<S, A, B, SX, AX, BX>(server: S, a: A, b: B)
 where
