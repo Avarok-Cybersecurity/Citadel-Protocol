@@ -893,7 +893,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 transfer_type,
                 local_encryption_level,
                 None,
-                |_| {},
+                || {},
             )
         } else {
             Err(error!(

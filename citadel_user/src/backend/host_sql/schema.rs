@@ -108,7 +108,7 @@ pub(super) const DELETE_REVFS_UPLOAD: &str =
 pub(super) const DELETE_REVFS_UPLOAD_CHUNKS: &str =
     "DELETE FROM citadel_revfs_chunks WHERE upload = ?";
 pub(super) const SELECT_REVFS_FILE: &str =
-    "SELECT upload, size, chunks, metadata FROM citadel_revfs_files WHERE cid = ? AND path = ?";
+    "SELECT upload, size, chunks, group_bytes, metadata FROM citadel_revfs_files WHERE cid = ? AND path = ?";
 pub(super) const SELECT_REVFS_CHUNK: &str =
     "SELECT bin FROM citadel_revfs_chunks WHERE upload = ? AND idx = ?";
 pub(super) const DELETE_REVFS_FILE_CHUNKS: &str = "DELETE FROM citadel_revfs_chunks WHERE upload IN (SELECT upload FROM citadel_revfs_files WHERE cid = ? AND path = ?)";
