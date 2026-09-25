@@ -97,6 +97,10 @@ async-trait = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+# tests/wasm_crypto.rs drives the file scrambler directly (the path every outbound file takes).
+citadel_crypt = { workspace = true }
+citadel_pqcrypto = { workspace = true }
+bytes = { workspace = true }
 wasm-bindgen = "0.2"
 web-sys = { workspace = true, features = ["console"] }
 

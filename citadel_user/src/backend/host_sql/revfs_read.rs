@@ -7,11 +7,14 @@ use super::{
 };
 use crate::misc::{prepare_virtual_path, validate_virtual_path, AccountError};
 use crate::serialization::SyncIO;
+use citadel_crypt::misc::CryptError;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_crypt::scramble::streaming_crypt_scrambler::{BytesSource, ObjectSource};
+use citadel_crypt::scramble::streaming_crypt_scrambler::{
+    BytesSource, FixedSizedSource, ObjectSource,
+};
 use citadel_io::ErrorCode;
 use citadel_types::proto::VirtualObjectMetadata;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Where an object lives: its owner and its normalized virtual path.
 pub(super) struct ObjectKey {
@@ -55,7 +58,9 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
         let size = usize::try_from(read_integer(&row, 1)?)
             .map_err(|_| op_error("stored object size out of range"))?;
         let chunks = read_integer(&row, 2)?;
-        let metadata = VirtualObjectMetadata::deserialize_from_owned_vector(read_blob(row, 3)?)?;
+        let group_bytes = usize::try_from(read_integer(&row, 3)?)
+            .map_err(|_| op_error("stored group size out of range"))?;
+        let metadata = VirtualObjectMetadata::deserialize_from_owned_vector(read_blob(row, 4)?)?;
 
         let changed = || citadel_io::error!(ErrorCode::RevfsChangedDuringRead, key.path.clone());
         let mut bytes = Vec::with_capacity(size);
@@ -74,7 +79,11 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
         if bytes.len() != size {
             return Err(changed());
         }
-        Ok((Box::new(BytesSource::from(bytes)), metadata))
+        let source = StoredObject {
+            bytes: BytesSource::from(bytes),
+            group_bytes,
+        };
+        Ok((Box::new(source), metadata))
     }
 
     pub(super) async fn delete_object(
@@ -99,5 +108,30 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
             return Err(citadel_io::error!(ErrorCode::RevfsFileNotFound, key.path));
         }
         Ok(())
+    }
+}
+
+/// A stored object on its way back to its owner: its bytes, and the size of the groups it must
+/// be sent in, which are the groups its owner encrypted it in.
+struct StoredObject {
+    bytes: BytesSource,
+    group_bytes: usize,
+}
+
+impl ObjectSource for StoredObject {
+    fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError> {
+        self.bytes.try_get_stream()
+    }
+
+    fn get_source_name(&self) -> Result<String, CryptError> {
+        self.bytes.get_source_name()
+    }
+
+    fn path(&self) -> Option<PathBuf> {
+        None
+    }
+
+    fn required_group_size(&self) -> Option<usize> {
+        Some(self.group_bytes)
     }
 }

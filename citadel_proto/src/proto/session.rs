@@ -1592,14 +1592,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         transfer_type: TransferType,
         local_encryption_level: Option<SecurityLevel>,
         virtual_object_metadata: Option<VirtualObjectMetadata>,
-        post_close_hook: impl FnOnce(PathBuf) + Send + 'static,
+        post_close_hook: impl FnOnce() + Send + 'static,
     ) -> Result<(), NetworkError> {
-        let source_path = source
-            .path()
-            .ok_or_else(|| error!(ErrorCode::FileTransferSourceMissingPath))?;
-
-        let file_metadata =
-            T::open_and_validate_for_transfer(&source_path, virtual_object_metadata.as_ref())?;
+        // A source with no path (an object a backend holds, or bytes in memory) has nothing on
+        // disk to validate; it reports its own length when read.
+        let max_group_size = source.required_group_size().or(max_group_size);
+        let created = match source.path() {
+            Some(source_path) => {
+                T::open_and_validate_for_transfer(&source_path, virtual_object_metadata.as_ref())?
+                    .created
+            }
+            None => None,
+        };
 
         {
             let this = self;
@@ -1674,7 +1678,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     )
                     .map_err(|err| NetworkError::generic(err.to_string()))?;
 
-                    let date_created = file_metadata.created.unwrap_or_else(SystemTime::now);
+                    let date_created = created.unwrap_or_else(SystemTime::now);
 
                     let file_metadata = VirtualObjectMetadata {
                         object_id,
@@ -1783,7 +1787,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     )
                     .map_err(|err| NetworkError::generic(err.to_string()))?;
 
-                    let date_created = file_metadata.created.unwrap_or_else(SystemTime::now);
+                    let date_created = created.unwrap_or_else(SystemTime::now);
 
                     let file_metadata = VirtualObjectMetadata {
                         object_id,
@@ -2061,7 +2065,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 }
 
                 // we finished pulling. Now, execute the hook if present
-                post_close_hook(source_path);
+                post_close_hook();
             };
 
             spawn!(future);
