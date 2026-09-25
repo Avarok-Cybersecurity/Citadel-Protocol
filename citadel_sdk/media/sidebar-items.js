@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["RECOMMENDED_FRAGMENT_PAYLOAD","RECOMMENDED_UDP_PAYLOAD_BUDGET"],"enum":["MediaEvent","MediaTransportKind"],"mod":["error"],"struct":["MediaEndpoint","MediaEndpointParts","MediaReceiver","MediaSender","MediaTransportConfig","ReliableSink"],"trait":["MediaDatagramSink","MediaDatagramSource"]};

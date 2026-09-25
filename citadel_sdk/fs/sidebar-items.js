@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["delete","read","read_with_security_level","take","take_with_security_level","write","write_with_security_level"]};
