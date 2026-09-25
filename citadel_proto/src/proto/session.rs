@@ -2386,6 +2386,40 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     invitee_response,
                     session_security_settings,
                     udp_mode,
+                    session_password: _,
+                } if matches!(invitee_response, Some(PeerResponse::Decline)) => {
+                    // A refusal is not a dial. It used to fall into the arm below and be
+                    // recorded as an outgoing attempt -- an entry only a created channel
+                    // consumes, and a refusal creates none. The entry then outlived the
+                    // refusal indefinitely, and the client-side simultaneous-connect rule
+                    // in peer_cmd_packet.rs reads exactly that entry: when the refused
+                    // peer dialled again, the LOWER-CID side took the leftover for "we
+                    // are both dialling" and auto-accepted at protocol level, without
+                    // forwarding the request to its kernel. One decline was enough to
+                    // make the next attempt succeed with nobody asked (seen live: a
+                    // paused contact reconnected ~18s after being declined).
+                    //
+                    // Refusing also withdraws any dial of our own to that peer: having
+                    // declined them, a pending attempt of ours must not be read as consent.
+                    state_container
+                        .outgoing_peer_connect_attempts
+                        .remove(&peer_conn_type.get_original_target_cid());
+                    PeerSignal::PostConnect {
+                        peer_conn_type,
+                        ticket_opt,
+                        invitee_response,
+                        session_security_settings,
+                        udp_mode,
+                        session_password: None,
+                    }
+                }
+
+                PeerSignal::PostConnect {
+                    peer_conn_type,
+                    ticket_opt,
+                    invitee_response,
+                    session_security_settings,
+                    udp_mode,
                     session_password,
                 } => {
                     let session_password = session_password.unwrap_or_default();
