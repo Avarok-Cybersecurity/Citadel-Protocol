@@ -835,6 +835,22 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                     ..
                 }) => {}
 
+                // The server's refusal (no such file, or it cannot send it) carries its reason.
+                NodeResult::ReVFS(ReVFSResult {
+                    error_message: Some(error),
+                    ..
+                }) => {
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::RemoteFileTransferFailed,
+                        error
+                    ));
+                }
+
+                NodeResult::ReVFS(ReVFSResult {
+                    error_message: None,
+                    ..
+                }) => {}
+
                 res => {
                     log::error!(target: "citadel", "Invalid NodeResult for REVFS FileTransfer request received: {res:?}");
                     return Err(citadel_io::error!(
