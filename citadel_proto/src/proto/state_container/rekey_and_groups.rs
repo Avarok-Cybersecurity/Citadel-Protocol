@@ -104,6 +104,12 @@ impl<R: Ratchet> StateContainerInner<R> {
     ) -> Result<(), NetworkError> {
         if !self.state.is_connected() {
             log::warn!(target: "citadel", "Unable to execute group command since session is not connected");
+            // A message has a sender waiting on its outcome: tell it, rather than let a send that
+            // returned `Ok` vanish. Other commands from an ended session (e.g. the `LeaveRoom` a
+            // dropped channel sends) must not reach the server, and nobody awaits them.
+            if let GroupBroadcast::Message { key, .. } = command {
+                self.report_group_message_not_delivered(*key);
+            }
             return Ok(());
         }
 
@@ -160,10 +166,10 @@ impl<R: Ratchet> StateContainerInner<R> {
                 key,
                 message,
             } => {
-                let cgka = self
-                    .group_cgka
-                    .get_mut(key)
-                    .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+                let Some(cgka) = self.group_cgka.get_mut(key) else {
+                    self.report_group_message_not_delivered(*key);
+                    return Err(error!(ErrorCode::ProtoGroupCgkaNoState));
+                };
                 let ciphertext = cgka.encrypt_message(message.as_ref())?;
                 Some(GroupBroadcast::Message {
                     sender: *sender,
@@ -267,6 +273,21 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
 
         Ok(())
+    }
+
+    /// Tells the group channel of `key` that a message sent on it never left this node, with the
+    /// same `MessageResponse { success: false }` the server sends when it cannot deliver one.
+    fn report_group_message_not_delivered(&self, key: MessageGroupKey) {
+        log::warn!(target: "citadel", "A group message for {key:?} was not sent; reporting it to the sender");
+        if let Some(tx) = self.group_channels.get(&key) {
+            let refusal = GroupBroadcast::MessageResponse {
+                key,
+                success: false,
+            };
+            if let Err(err) = tx.unbounded_send(refusal.into()) {
+                log::error!(target: "citadel", "Unable to report an undelivered group message for {key:?}: {err:?}");
+            }
+        }
     }
 
     pub(crate) fn setup_group_channel_endpoints<T: PlatformOps>(

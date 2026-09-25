@@ -13,6 +13,7 @@
 //! and silently turning a group whose members may read only their subordinates into one where
 //! everyone reads everything would be a confidentiality downgrade nobody agreed to.
 
+use crate::proto::peer::group_persistence::store_hold;
 use crate::proto::peer::peer_layer::CitadelNodePeerLayer;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::{GroupHierarchyMode, MessageGroupKey};
@@ -39,8 +40,14 @@ pub struct OwnerDeparture {
 impl<R: Ratchet> CitadelNodePeerLayer<R> {
     /// Called when `owner`'s session ends. `replaced` is true when a newer session already holds
     /// this cid (a lingering session being cleaned up after its replacement connected): the
-    /// groups belong to the live session, so nothing is touched.
-    pub async fn on_owner_departure(&self, owner: u64, replaced: bool) -> OwnerDeparture {
+    /// groups belong to the live session, so nothing is touched. `now_ns` (ns since the Unix
+    /// epoch) is recorded as the start of the hold, so a server restart keeps only what is left.
+    pub async fn on_owner_departure(
+        &self,
+        owner: u64,
+        replaced: bool,
+        now_ns: i64,
+    ) -> OwnerDeparture {
         if replaced {
             return OwnerDeparture::default();
         }
@@ -74,7 +81,16 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             let _ = this.ownerless_groups.insert(owner, token);
             Some(token)
         };
-        OwnerDeparture { dissolved, held }
+        let departure = OwnerDeparture { dissolved, held };
+        for (key, _) in &departure.dissolved {
+            this.persist_group_or_log(*key).await;
+        }
+        if held.is_some() {
+            if let Err(err) = store_hold(&this.persistence_handler, owner, Some(now_ns)).await {
+                log::error!(target: "citadel", "{err}: a restart will give {owner}'s groups a fresh grace period");
+            }
+        }
+        departure
     }
 
     /// After the grace period: if `owner` has not reconnected since the departure that issued
@@ -85,7 +101,8 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             return Vec::new();
         }
         let _ = this.ownerless_groups.remove(&owner);
-        this.message_groups
+        let expired: Vec<DissolvedGroup> = this
+            .message_groups
             .remove(&owner)
             .unwrap_or_default()
             .into_iter()
@@ -97,7 +114,14 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                     .collect();
                 (MessageGroupKey { cid: owner, mgid }, members)
             })
-            .collect()
+            .collect();
+        for (key, _) in &expired {
+            this.persist_group_or_log(*key).await;
+        }
+        if let Err(err) = store_hold(&this.persistence_handler, owner, None).await {
+            log::error!(target: "citadel", "{err}: a stale hold for {owner} remains");
+        }
+        expired
     }
 }
 
@@ -155,7 +179,7 @@ mod tests {
     #[tokio::test]
     async fn a_departed_owners_flat_group_is_held_and_survives_a_reconnect() {
         let (layer, keys) = layer_with_groups(&[flat()]).await;
-        let departure = layer.on_owner_departure(OWNER, false).await;
+        let departure = layer.on_owner_departure(OWNER, false, 0).await;
         assert!(departure.dissolved.is_empty());
         let token = departure.held.expect("a flat group is held");
         assert!(layer.message_group_exists(keys[0]).await);
@@ -169,7 +193,11 @@ mod tests {
     #[tokio::test]
     async fn an_owner_who_never_returns_loses_the_group_and_members_are_named() {
         let (layer, keys) = layer_with_groups(&[flat()]).await;
-        let token = layer.on_owner_departure(OWNER, false).await.held.unwrap();
+        let token = layer
+            .on_owner_departure(OWNER, false, 0)
+            .await
+            .held
+            .unwrap();
         let expired = layer.expire_ownerless_groups(OWNER, token).await;
         assert_eq!(expired, vec![(keys[0], vec![MEMBER])]);
         assert!(!layer.message_group_exists(keys[0]).await);
@@ -178,9 +206,17 @@ mod tests {
     #[tokio::test]
     async fn an_earlier_departures_timer_cannot_expire_a_later_one() {
         let (layer, keys) = layer_with_groups(&[flat()]).await;
-        let first = layer.on_owner_departure(OWNER, false).await.held.unwrap();
+        let first = layer
+            .on_owner_departure(OWNER, false, 0)
+            .await
+            .held
+            .unwrap();
         let _ = layer.register_peer(OWNER).await.unwrap();
-        let second = layer.on_owner_departure(OWNER, false).await.held.unwrap();
+        let second = layer
+            .on_owner_departure(OWNER, false, 0)
+            .await
+            .held
+            .unwrap();
         assert!(layer.expire_ownerless_groups(OWNER, first).await.is_empty());
         assert!(layer.message_group_exists(keys[0]).await);
         assert_eq!(layer.expire_ownerless_groups(OWNER, second).await.len(), 1);
@@ -189,7 +225,7 @@ mod tests {
     #[tokio::test]
     async fn a_hierarchy_group_is_dissolved_at_departure_not_held() {
         let (layer, keys) = layer_with_groups(&[hierarchical(), flat()]).await;
-        let departure = layer.on_owner_departure(OWNER, false).await;
+        let departure = layer.on_owner_departure(OWNER, false, 0).await;
         assert_eq!(departure.dissolved, vec![(keys[0], vec![MEMBER])]);
         assert!(departure.held.is_some(), "the flat group is still held");
         assert!(!layer.message_group_exists(keys[0]).await);
@@ -200,7 +236,7 @@ mod tests {
     async fn a_lingering_sessions_shutdown_leaves_the_replacements_groups_alone() {
         let (layer, keys) = layer_with_groups(&[hierarchical()]).await;
         assert_eq!(
-            layer.on_owner_departure(OWNER, true).await,
+            layer.on_owner_departure(OWNER, true, 0).await,
             OwnerDeparture::default()
         );
         assert!(layer.message_group_exists(keys[0]).await);

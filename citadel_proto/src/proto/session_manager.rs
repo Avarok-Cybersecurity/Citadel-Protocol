@@ -661,7 +661,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let time_tracker = sess.time_tracker;
                 let task = async move {
                     peer_layer.on_session_shutdown(session_cid).await?;
-                    let departure = peer_layer.on_owner_departure(session_cid, replaced).await;
+                    let departure = peer_layer
+                        .on_owner_departure(
+                            session_cid,
+                            replaced,
+                            time_tracker.get_global_time_ns(),
+                        )
+                        .await;
                     group_notifier
                         .notify_groups_dissolved(
                             departure.dissolved,
@@ -670,18 +676,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         )
                         .await;
                     if let Some(token) = departure.held {
-                        citadel_io::time::sleep(
-                            crate::proto::peer::group_retention::OWNERLESS_GROUP_GRACE,
-                        )
-                        .await;
-                        let expired = peer_layer.expire_ownerless_groups(session_cid, token).await;
-                        if !expired.is_empty() {
-                            log::warn!(target: "citadel", "Owner {session_cid} did not reconnect within the grace period; dissolving {} group(s)", expired.len());
-                        }
                         group_notifier
-                            .notify_groups_dissolved(
-                                expired,
-                                time_tracker.get_global_time_ns(),
+                            .expire_ownerless_groups_after(
+                                session_cid,
+                                token,
+                                crate::proto::peer::group_retention::OWNERLESS_GROUP_GRACE,
                                 security_level,
                             )
                             .await;
@@ -1351,6 +1350,63 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         Ok(true)
     }
 
+    /// Server start-up: loads the persisted group registry before any client can connect, tells
+    /// the members of groups that are not held (command hierarchies) that they are gone, and arms
+    /// the expiry of every held owner's groups.
+    pub async fn restore_message_groups(&self) -> Result<(), NetworkError> {
+        let (peer_layer, time_tracker) = {
+            let this = inner!(self);
+            (this.hypernode_peer_layer.clone(), this.time_tracker)
+        };
+        let restored = peer_layer
+            .restore_persisted_groups(time_tracker.get_global_time_ns())
+            .await?;
+        // No session exists yet, so there is no negotiated level to inherit. Standard is what a
+        // departing session without security settings falls back to (see the shutdown path).
+        let security_level = SecurityLevel::Standard;
+        self.notify_groups_dissolved(
+            restored.dissolved,
+            time_tracker.get_global_time_ns(),
+            security_level,
+        )
+        .await;
+        for hold in restored.held {
+            let this = self.clone();
+            spawn!(async move {
+                this.expire_ownerless_groups_after(
+                    hold.owner,
+                    hold.token,
+                    hold.expires_in,
+                    security_level,
+                )
+                .await
+            });
+        }
+        Ok(())
+    }
+
+    /// After `after`, dissolves `owner`'s held groups unless it reconnected since the departure
+    /// that issued `token`, and tells their members.
+    pub(crate) async fn expire_ownerless_groups_after(
+        &self,
+        owner: u64,
+        token: u64,
+        after: Duration,
+        security_level: SecurityLevel,
+    ) {
+        citadel_io::time::sleep(after).await;
+        let (peer_layer, time_tracker) = {
+            let this = inner!(self);
+            (this.hypernode_peer_layer.clone(), this.time_tracker)
+        };
+        let expired = peer_layer.expire_ownerless_groups(owner, token).await;
+        if !expired.is_empty() {
+            log::warn!(target: "citadel", "Owner {owner} did not reconnect within the grace period; dissolving {} group(s)", expired.len());
+        }
+        self.notify_groups_dissolved(expired, time_tracker.get_global_time_ns(), security_level)
+            .await;
+    }
+
     /// Tells each member of each dissolved group that the group is gone (`Disconnected`), so no
     /// member goes on sending into a group that no longer exists without knowing.
     pub async fn notify_groups_dissolved(
@@ -1367,7 +1423,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     timestamp,
                     Ticket(0),
                     members.into_iter().zip(std::iter::repeat_n(true, len)),
-                    false,
+                    // An offline member is told when it next connects; at a server start every
+                    // member is offline, and without the mailbox none of them would ever know.
+                    true,
                     GroupBroadcast::Disconnected { key },
                     security_level,
                 )

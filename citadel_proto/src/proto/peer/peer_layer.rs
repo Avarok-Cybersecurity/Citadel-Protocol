@@ -34,6 +34,7 @@ use crate::error::NetworkError;
 use crate::macros::SyncContextRequirements;
 use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::proto::peer::group_persistence;
 use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::remote::Ticket;
@@ -159,7 +160,9 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                 HashMap::new()
             });
             // If this cid owns groups held since its last session ended, they are its again.
-            this_orig.ownerless_groups.remove(&cid);
+            if this_orig.ownerless_groups.remove(&cid).is_some() {
+                group_persistence::store_hold(&this_orig.persistence_handler, cid, None).await?;
+            }
 
             let mut this = this_orig.inner.write();
 
@@ -239,10 +242,18 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                 );
 
                 e.insert(message_group);
-                Some(MessageGroupKey {
+                let key = MessageGroupKey {
                     cid: session_cid,
                     mgid,
-                })
+                };
+                // A group the server cannot keep would vanish at its next restart with nobody
+                // told, so refuse it now, where the creator is told (`CreateResponse { key: None }`).
+                if let Err(err) = this.persist_group(key).await {
+                    log::error!(target: "citadel", "Refusing to create {key:?}: {err}");
+                    let _ = this.message_groups.get_mut(&session_cid)?.remove(&mgid);
+                    return None;
+                }
+                Some(key)
             } else {
                 None
             }
@@ -256,7 +267,11 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     pub async fn remove_message_group(&self, key: MessageGroupKey) -> Option<MessageGroup> {
         let mut this = self.inner.write().await;
         let map = this.message_groups.get_mut(&key.cid)?;
-        map.remove(&key.mgid)
+        let removed = map.remove(&key.mgid);
+        if removed.is_some() {
+            this.persist_group_or_log(key).await;
+        }
+        removed
     }
 
     #[allow(unused_results)]
@@ -268,6 +283,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                     let insert = MessageGroupPeer { peer_cid };
                     entry.pending_peers.insert(peer_cid, insert);
                 }
+                this.persist_group_or_log(key).await;
             } else {
                 log::warn!(target: "citadel", "Unable to locate MGID. Peers will not be able to accept");
             }
@@ -282,6 +298,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             if let Some(entry) = map.get_mut(&key.mgid) {
                 if let Some(peer) = entry.pending_peers.remove(&peer_cid) {
                     entry.concurrent_peers.insert(peer_cid, peer);
+                    this.persist_group_or_log(key).await;
                     return true;
                 }
             }
@@ -301,6 +318,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         if let Some(map) = this.message_groups.get_mut(&key.cid) {
             if let Some(entry) = map.get_mut(&key.mgid) {
                 if entry.pending_peers.remove(&peer_cid).is_some() {
+                    this.persist_group_or_log(key).await;
                     return true;
                 }
             }
@@ -356,6 +374,9 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             .cloned()
             .collect::<Vec<u64>>();
         let peers_successfully_removed = peers;
+        if !peers_successfully_removed.is_empty() {
+            this.persist_group_or_log(key).await;
+        }
 
         Ok((peers_successfully_removed, peers_remaining))
     }
@@ -406,6 +427,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             let _ = group
                 .concurrent_peers
                 .insert(peer_cid, MessageGroupPeer { peer_cid });
+            write.persist_group_or_log(key).await;
             Some(true)
         } else {
             Some(false)

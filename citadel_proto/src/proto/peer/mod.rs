@@ -46,6 +46,12 @@ pub mod group_cgka;
 /// Server-side retention of a departed owner's message groups.
 pub mod group_retention;
 
+/// The server's group registry, persisted through the account backend
+pub mod group_persistence;
+
+/// Loading the group registry at server start, and keeping its durable copy in step
+pub mod group_restart;
+
 pub mod peer_crypt;
 
 pub mod message_group;
