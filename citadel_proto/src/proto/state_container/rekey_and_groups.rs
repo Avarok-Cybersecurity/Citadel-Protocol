@@ -209,7 +209,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
-                )
+                )?
             }
 
             n => {
@@ -246,7 +246,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         C2S_IDENTITY_CID,
                         timestamp,
                         security_level,
-                    );
+                    )?;
                     to_primary_stream
                         .unbounded_send(commit_packet)
                         .map_err(|err| NetworkError::generic(err.to_string()))?;

@@ -373,7 +373,12 @@ pub(crate) mod native_p2p {
                                     timestamp,
                                     security_level,
                                 );
-                                if let Err(err) = to_primary_stream.unbounded_send(packet) {
+                                let sent = packet.and_then(|packet| {
+                                    to_primary_stream
+                                        .unbounded_send(packet)
+                                        .map_err(|err| NetworkError::msg(err.to_string()))
+                                });
+                                if let Err(err) = sent {
                                     log::warn!(target: "citadel", "Failed to send P2P disconnect signal via C2S: {err:?}");
                                 } else {
                                     log::trace!(target: "citadel", "Sent PeerSignal::Disconnect via C2S for peer {}", signal.peer_cid);
