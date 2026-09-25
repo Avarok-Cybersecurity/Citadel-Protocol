@@ -1376,7 +1376,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                             ticket,
                             timestamp,
                             security_level,
-                        );
+                        )
+                        .map_err(|err| err.into_string())?;
                         to_primary_stream
                             .unbounded_send(packet)
                             .map_err(|err| err.to_string())
@@ -1404,7 +1405,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         &self,
         session_cid: u64,
         peer_cid: u64,
-        on_internal_disconnect: impl FnOnce(&R) -> BytesMut,
+        on_internal_disconnect: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
     ) -> Result<(), String> {
         if session_cid == peer_cid {
             return Err("Implicated CID cannot equal peer cid".to_string());
@@ -1426,7 +1427,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         state_container.active_virtual_connections.get(&session_cid)
                     {
                         vconn.is_active.store(false, Ordering::SeqCst);
-                        let packet = on_internal_disconnect(hr);
+                        let packet = on_internal_disconnect(hr).map_err(|err| err.into_string())?;
                         to_primary
                             .unbounded_send(packet)
                             .map_err(|err| err.to_string())
@@ -1443,7 +1444,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     pub fn route_packet_to(
         &self,
         target_cid: u64,
-        packet: impl FnOnce(&R) -> BytesMut,
+        packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
     ) -> Result<(), String> {
         let lock = inner!(self);
         let (_, sess_ref) = lock
@@ -1454,7 +1455,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
         accessor.borrow_hr(None, |hr, _| {
             log::trace!(target: "citadel", "Routing packet through primary stream -> {target_cid}");
-            let packet = packet(hr);
+            let packet = packet(hr).map_err(|err| err.into_string())?;
             peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
         }).map_err(|err| err.into_string())?
     }
@@ -1469,7 +1470,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         target_cid: u64,
         ticket: Ticket,
         signal: PeerSignal,
-        packet: impl FnOnce(&R) -> BytesMut,
+        packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
         timeout: Duration,
         on_timeout: impl Fn(PeerSignal) + SyncContextRequirements,
     ) -> Result<(), String> {
@@ -1503,7 +1504,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                 accessor.borrow_hr(None, |hr, _| {
                     log::trace!(target: "citadel", "Routing packet through primary stream ({session_cid} -> {target_cid})");
-                    let packet = packet(hr);
+                    let packet = packet(hr).map_err(|err| err.into_string())?;
                     peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
                 }).map_err(|err| err.into_string())?
             } else {
@@ -1633,7 +1634,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         target_cid: u64,
         ticket: Ticket,
         session: &CitadelSession<R, T>,
-        packet: impl FnOnce(&R) -> BytesMut,
+        packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
         post_send: impl FnOnce(
             &CitadelSession<R, T>,
             PeerSignal,
@@ -1660,7 +1661,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                 accessor
                     .borrow_hr(None, |hr, _| {
-                        let packet = packet(hr);
+                        let packet = packet(hr).map_err(|err| err.into_string())?;
                         peer_sender
                             .unbounded_send(packet)
                             .map_err(|err| err.to_string())
@@ -1700,7 +1701,7 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
     pub fn send_signal_to_peer_direct(
         &self,
         target_cid: u64,
-        packet: impl FnOnce(&R) -> BytesMut,
+        packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
     ) -> Result<(), NetworkError> {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
             let peer_sess = &peer_sess.1;
@@ -1711,7 +1712,7 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
             let accessor = EndpointCryptoAccessor::C2S(peer_sess.state_container.clone());
 
             accessor.borrow_hr(None, |hr, _| {
-                let packet = packet(hr);
+                let packet = packet(hr)?;
                 peer_sender
                     .unbounded_send(packet)
                     .map_err(|err| NetworkError::msg(err.to_string()))

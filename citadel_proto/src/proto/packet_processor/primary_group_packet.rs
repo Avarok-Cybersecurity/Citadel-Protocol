@@ -163,7 +163,7 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                         timestamp,
                         err.into_string(),
                         object_id,
-                    );
+                    )?;
                     Ok(PrimaryProcessorResult::ReplyToSender(error_packet))
                 }
             }
