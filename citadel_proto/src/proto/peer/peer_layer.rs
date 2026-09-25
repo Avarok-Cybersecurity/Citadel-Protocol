@@ -366,6 +366,29 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         )
     }
 
+    /// The groups, owned by someone else, that list `cid` as a member.
+    ///
+    /// Membership is recorded here (by owner) and outlives the member's session, but the member's
+    /// group keys do not, so a re-established session uses this to find the groups it must rejoin.
+    pub async fn list_message_groups_with_member(&self, cid: u64) -> Vec<MessageGroupKey> {
+        self.inner
+            .read()
+            .await
+            .message_groups
+            .iter()
+            .filter(|(owner, _)| **owner != cid)
+            .flat_map(|(owner, groups)| {
+                groups
+                    .iter()
+                    .filter(|(_, group)| group.concurrent_peers.contains_key(&cid))
+                    .map(|(mgid, _)| MessageGroupKey {
+                        cid: *owner,
+                        mgid: *mgid,
+                    })
+            })
+            .collect()
+    }
+
     /// returns true if auto-accepted, false if requires the owner to accept
     /// returns None if the key does not match an active group
     pub async fn request_join(&self, peer_cid: u64, key: MessageGroupKey) -> Option<bool> {

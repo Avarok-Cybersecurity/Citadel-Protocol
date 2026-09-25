@@ -270,6 +270,25 @@ pub enum GroupBroadcast {
         /// Group key
         key: MessageGroupKey,
     },
+    /// Server → member, when the member's session is (re-)established while the server still lists
+    /// it in `key`. A new session holds no TreeKEM state, so the member answers by publishing a fresh
+    /// [`Self::KeyPackage`]; the owner re-adds it (replacing its stale leaf) and returns a Welcome. The
+    /// relay handles only the same opaque KeyPackage/Welcome as an ordinary join.
+    RestoreMembership {
+        /// Group key
+        key: MessageGroupKey,
+    },
+    /// Local notice (never sent on the wire) that a group message addressed to this session was
+    /// dropped because it could not be decrypted here, e.g. it arrived before this session's Welcome.
+    /// Delivered to the group channel if one is open, otherwise to the kernel as a [`GroupEvent`].
+    MessageDropped {
+        /// Group key
+        key: MessageGroupKey,
+        /// The sender of the dropped message
+        sender: u64,
+        /// Why it could not be delivered
+        reason: String,
+    },
 }
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -534,18 +553,31 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 let plaintext = {
                     let state = inner_state!(session.state_container);
                     match state.group_cgka.get(&key) {
+                        Some(cgka) if cgka.is_pending_join() => None,
                         Some(cgka) => match cgka.decrypt_message(message.as_ref()) {
-                            Ok(plaintext) => plaintext,
+                            Ok(plaintext) => Some(plaintext),
                             Err(err) => {
                                 log::trace!(target: "citadel", "Dropping group message for {key:?}: not a permitted reader ({err})");
                                 return Ok(PrimaryProcessorResult::Void);
                             }
                         },
-                        None => {
-                            log::warn!(target: "citadel", "Dropping group message for {key:?}: no CGKA state");
-                            return Ok(PrimaryProcessorResult::Void);
-                        }
+                        None => None,
                     }
+                };
+                // No state, or a join still waiting for its Welcome: this session cannot read the
+                // message, and a silent drop here is invisible at both ends. Tell the application.
+                let Some(plaintext) = plaintext else {
+                    log::warn!(target: "citadel", "Dropping group message for {key:?} from {username}: this session holds no group key yet");
+                    return forward_signal(
+                        session,
+                        ticket,
+                        Some(key),
+                        GroupBroadcast::MessageDropped {
+                            key,
+                            sender: username,
+                            reason: "this session holds no key for the group yet (it has not received its Welcome)".to_string(),
+                        },
+                    );
                 };
                 forward_signal(
                     session,
@@ -1075,6 +1107,29 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 }
                 Ok(PrimaryProcessorResult::Void)
             }
+        }
+
+        GroupBroadcast::RestoreMembership { key } => {
+            if session.is_server || key.cid == session_cid {
+                log::warn!(target: "citadel", "Ignoring RestoreMembership for {key:?}: only a non-owner member acts on it");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            // A fresh session has no state for the group, so this publishes a new KeyPackage. If this
+            // session is already a member it is a no-op.
+            cgka_joiner_publish_key_package(
+                session,
+                sess_ratchet,
+                key,
+                session_cid,
+                ticket,
+                timestamp,
+                security_level,
+            )
+        }
+
+        GroupBroadcast::MessageDropped { key, .. } => {
+            log::warn!(target: "citadel", "Ignoring a MessageDropped notice for {key:?} from the wire; it is local-only");
+            Ok(PrimaryProcessorResult::Void)
         }
 
         // Promote/Demote are owner-local admin requests handled entirely on the outbound path

@@ -38,6 +38,7 @@ use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
+use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
@@ -488,6 +489,8 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                         .take()
                         .ok_or(error!(ErrorCode::ConnectChannelSignalMissing))?;
                     session.send_to_kernel(signal)?;
+                    prompt_member_to_restore_groups(session, &ratchet, ticket, security_level)
+                        .await?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
                     Err(error!(ErrorCode::ConnectSuccessAckAsClient))
@@ -502,4 +505,41 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
     };
 
     to_concurrent_processor!(task)
+}
+
+/// Server side, once the client has acknowledged its connect (so it is ready to process group
+/// packets): ask it to rejoin every group that still lists it as a member.
+///
+/// Group keys live only in the member's session state, so a re-established session has none, while
+/// the membership recorded here outlives the old session and the relay keeps forwarding the group's
+/// ciphertext to it. Without this prompt every such message is undecryptable, and the owner is told
+/// the send succeeded. The member answers with a fresh KeyPackage and the owner re-adds it, so the
+/// relay sees nothing it does not see on an ordinary join.
+async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    ratchet: &R,
+    ticket: Ticket,
+    security_level: SecurityLevel,
+) -> Result<(), NetworkError> {
+    let cid = session
+        .session_cid
+        .get()
+        .ok_or_else(|| error!(ErrorCode::StateImplicatedCidNotLoaded))?;
+    let groups = session
+        .hypernode_peer_layer
+        .list_message_groups_with_member(cid)
+        .await;
+    for key in groups {
+        log::info!(target: "citadel", "Asking {cid} to restore its membership of {key:?} after (re)connecting");
+        let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+            ratchet,
+            &GroupBroadcast::RestoreMembership { key },
+            ticket,
+            C2S_IDENTITY_CID,
+            session.time_tracker.get_global_time_ns(),
+            security_level,
+        );
+        session.send_to_primary_stream(Some(ticket), packet)?;
+    }
+    Ok(())
 }
