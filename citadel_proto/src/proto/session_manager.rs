@@ -648,15 +648,48 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             // if this is the case, ignore safe-shutdown of the session since no possible vconns
             // exist
             if let Some(session_cid) = sess.session_cid.get() {
-                let task = async move { peer_layer.on_session_shutdown(session_cid).await };
-
-                spawn!(task);
-
                 let timestamp = sess.time_tracker.get_global_time_ns();
                 let security_level = state_container
                     .session_security_settings
                     .map(|r| r.security_level)
                     .unwrap_or(SecurityLevel::Standard);
+
+                // This session was already removed from the map, so an entry for the cid is a
+                // newer incarnation: its groups are not this session's to release.
+                let replaced = sess_mgr.sessions.contains_key(&session_cid);
+                let group_notifier = session_manager.clone();
+                let time_tracker = sess.time_tracker;
+                let task = async move {
+                    peer_layer.on_session_shutdown(session_cid).await?;
+                    let departure = peer_layer.on_owner_departure(session_cid, replaced).await;
+                    group_notifier
+                        .notify_groups_dissolved(
+                            departure.dissolved,
+                            time_tracker.get_global_time_ns(),
+                            security_level,
+                        )
+                        .await;
+                    if let Some(token) = departure.held {
+                        citadel_io::time::sleep(
+                            crate::proto::peer::group_retention::OWNERLESS_GROUP_GRACE,
+                        )
+                        .await;
+                        let expired = peer_layer.expire_ownerless_groups(session_cid, token).await;
+                        if !expired.is_empty() {
+                            log::warn!(target: "citadel", "Owner {session_cid} did not reconnect within the grace period; dissolving {} group(s)", expired.len());
+                        }
+                        group_notifier
+                            .notify_groups_dissolved(
+                                expired,
+                                time_tracker.get_global_time_ns(),
+                                security_level,
+                            )
+                            .await;
+                    }
+                    Ok::<_, NetworkError>(())
+                };
+
+                spawn!(task);
 
                 // Stop all UDP tasks before draining vconns to prevent race conditions
                 for peer_id in state_container
@@ -1316,6 +1349,33 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             .map_err(NetworkError::generic)?;
 
         Ok(true)
+    }
+
+    /// Tells each member of each dissolved group that the group is gone (`Disconnected`), so no
+    /// member goes on sending into a group that no longer exists without knowing.
+    pub async fn notify_groups_dissolved(
+        &self,
+        dissolved: Vec<crate::proto::peer::group_retention::DissolvedGroup>,
+        timestamp: i64,
+        security_level: SecurityLevel,
+    ) {
+        for (key, members) in dissolved {
+            log::info!(target: "citadel", "Group {key:?} dissolved; notifying {} member(s)", members.len());
+            let len = members.len();
+            if let Err(err) = self
+                .send_group_broadcast_signal_to(
+                    timestamp,
+                    Ticket(0),
+                    members.into_iter().zip(std::iter::repeat_n(true, len)),
+                    false,
+                    GroupBroadcast::Disconnected { key },
+                    security_level,
+                )
+                .await
+            {
+                log::error!(target: "citadel", "Unable to tell the members of dissolved group {key:?}: {err}");
+            }
+        }
     }
 
     /// Broadcasts a message to a target group

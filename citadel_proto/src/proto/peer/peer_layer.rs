@@ -70,6 +70,10 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     // When a signal is routed to the target destination, the server needs to keep track of the state while awaiting
     pub(crate) persistence_handler: PersistenceHandler<R, R>,
     pub(crate) message_groups: HashMap<u64, HashMap<u128, MessageGroup>>,
+    /// Owners whose session ended while they still held groups, with the token of that departure
+    /// (see `group_retention`). Cleared when the owner reconnects.
+    pub(crate) ownerless_groups: HashMap<u64, u64>,
+    pub(crate) next_departure_token: u64,
     pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
     waker: Arc<AtomicWaker>,
     inner: Arc<citadel_io::RwLock<SharedInner>>,
@@ -129,6 +133,8 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             simultaneous_ticket_mappings: Default::default(),
             persistence_handler,
             message_groups: HashMap::new(),
+            ownerless_groups: HashMap::new(),
+            next_departure_token: 0,
         };
         let inner = Arc::new(citadel_io::tokio::sync::RwLock::new(inner));
 
@@ -152,6 +158,8 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                 log::trace!(target: "citadel", "Adding message group hashmap for {cid}");
                 HashMap::new()
             });
+            // If this cid owns groups held since its last session ended, they are its again.
+            this_orig.ownerless_groups.remove(&cid);
 
             let mut this = this_orig.inner.write();
 
@@ -180,12 +188,12 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         }
     }
 
-    /// Cleans up the internal entries
+    /// Cleans up the internal entries. The cid's owned message groups are NOT removed here: they
+    /// outlive the session for a grace period (see `group_retention::on_owner_departure`).
     #[allow(unused_results)]
     pub async fn on_session_shutdown(&self, session_cid: u64) -> Result<(), NetworkError> {
         let pers = {
-            let mut this = self.inner.write().await;
-            this.message_groups.remove(&session_cid);
+            let this = self.inner.write().await;
             this.inner.write().observed_postings.remove(&session_cid);
             this.persistence_handler.clone()
         };

@@ -43,6 +43,9 @@ pub mod group_channel;
 /// Client-side coordinator for the zero-trust post-quantum TreeKEM group CGKA.
 pub mod group_cgka;
 
+/// Server-side retention of a departed owner's message groups.
+pub mod group_retention;
+
 pub mod peer_crypt;
 
 pub mod message_group;

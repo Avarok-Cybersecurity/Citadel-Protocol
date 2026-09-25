@@ -179,8 +179,20 @@ impl<R: Ratchet> StateContainerInner<R> {
                 if matches!(options.hierarchy, GroupHierarchyMode::Flat) {
                     None
                 } else {
+                    // The rank table (who holds which command path) stays owner-local. The relay
+                    // is told only that the group IS a command hierarchy, and its read policy, so
+                    // that it never holds such a group for a returning owner, who could re-found
+                    // it only as flat (see `group_retention`).
                     let mut wire_options = options.clone();
-                    wire_options.hierarchy = GroupHierarchyMode::Flat;
+                    wire_options.hierarchy = match &options.hierarchy {
+                        GroupHierarchyMode::CommandHierarchy { read_policy, .. } => {
+                            GroupHierarchyMode::CommandHierarchy {
+                                read_policy: *read_policy,
+                                ranks: Default::default(),
+                            }
+                        }
+                        GroupHierarchyMode::Flat => GroupHierarchyMode::Flat,
+                    };
                     Some(GroupBroadcast::Create {
                         initial_invitees: initial_invitees.clone(),
                         options: wire_options,

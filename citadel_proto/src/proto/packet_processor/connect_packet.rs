@@ -525,10 +525,26 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
         .session_cid
         .get()
         .ok_or_else(|| error!(ErrorCode::StateImplicatedCidNotLoaded))?;
-    let groups = session
-        .hypernode_peer_layer
-        .list_message_groups_with_member(cid)
-        .await;
+    let peer_layer = &session.hypernode_peer_layer;
+    // Groups this cid owns that were held while it was away: the owner re-founds each one first,
+    // and the members are prompted once it has (see `RestoreOwnership`).
+    let owned = peer_layer
+        .list_message_groups_for(cid)
+        .await
+        .unwrap_or_default();
+    for key in owned {
+        log::info!(target: "citadel", "Asking {cid} to restore its ownership of {key:?} after (re)connecting");
+        let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+            ratchet,
+            &GroupBroadcast::RestoreOwnership { key },
+            ticket,
+            C2S_IDENTITY_CID,
+            session.time_tracker.get_global_time_ns(),
+            security_level,
+        );
+        session.send_to_primary_stream(Some(ticket), packet)?;
+    }
+    let groups = peer_layer.list_message_groups_with_member(cid).await;
     for key in groups {
         log::info!(target: "citadel", "Asking {cid} to restore its membership of {key:?} after (re)connecting");
         let packet = packet_crafter::peer_cmd::craft_group_message_packet(
