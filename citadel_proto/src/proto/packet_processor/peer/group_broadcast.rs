@@ -354,7 +354,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
-            );
+            )?;
             Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
         }
 
@@ -390,7 +390,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                             C2S_IDENTITY_CID,
                             timestamp,
                             security_level,
-                        );
+                        )?;
                         Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
                     }
 
@@ -405,7 +405,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                             C2S_IDENTITY_CID,
                             timestamp,
                             security_level,
-                        );
+                        )?;
                         Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
                     }
 
@@ -430,7 +430,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                             C2S_IDENTITY_CID,
                             timestamp,
                             security_level,
-                        );
+                        )?;
                         Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
                     }
                 }
@@ -460,7 +460,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
-            );
+            )?;
             Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
         }
 
@@ -496,7 +496,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
-            );
+            )?;
             Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
         }
 
@@ -557,7 +557,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                     C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
-                );
+                )?;
                 Ok(PrimaryProcessorResult::ReplyToSender(packet))
             } else {
                 // Client: decrypt the E2E CGKA ciphertext to plaintext before handing it to the app. In
@@ -652,7 +652,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
-            );
+            )?;
             Ok(PrimaryProcessorResult::ReplyToSender(packet))
         }
 
@@ -687,7 +687,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                     C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
-                );
+                )?;
 
                 Ok(PrimaryProcessorResult::ReplyToSender(packet))
             } else {
@@ -771,7 +771,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
-            );
+            )?;
             Ok(PrimaryProcessorResult::ReplyToSender(packet))
         }
 
@@ -847,7 +847,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                     C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
-                );
+                )?;
                 Ok(PrimaryProcessorResult::ReplyToSender(packet))
             } else {
                 // Send error message
@@ -859,7 +859,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                     C2S_IDENTITY_CID,
                     timestamp,
                     security_level,
-                );
+                )?;
                 Ok(PrimaryProcessorResult::ReplyToSender(packet))
             }
         }
@@ -904,7 +904,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 C2S_IDENTITY_CID,
                 timestamp,
                 security_level,
-            );
+            )?;
             Ok(PrimaryProcessorResult::ReplyToSender(packet))
         }
 
@@ -1278,7 +1278,7 @@ fn cgka_joiner_publish_key_package<R: Ratchet, T: PlatformOps>(
         C2S_IDENTITY_CID,
         timestamp,
         security_level,
-    );
+    )?;
     session.send_to_primary_stream(Some(ticket), packet)?;
     Ok(PrimaryProcessorResult::Void)
 }
@@ -1411,7 +1411,7 @@ fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
         C2S_IDENTITY_CID,
         timestamp,
         security_level,
-    );
+    )?;
     session.send_to_primary_stream(Some(ticket), welcome_packet)?;
 
     // Commit -> the existing members (the relay fans out, excluding the owner).
@@ -1427,7 +1427,7 @@ fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
         C2S_IDENTITY_CID,
         timestamp,
         security_level,
-    );
+    )?;
     session.send_to_primary_stream(Some(ticket), commit_packet)?;
 
     Ok(PrimaryProcessorResult::Void)
@@ -1457,7 +1457,7 @@ fn send_hierarchy_assign<R: Ratchet, T: PlatformOps>(
         C2S_IDENTITY_CID,
         timestamp,
         security_level,
-    );
+    )?;
     session.send_to_primary_stream(Some(ticket), packet)?;
     Ok(())
 }

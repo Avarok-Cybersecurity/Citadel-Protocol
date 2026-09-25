@@ -375,7 +375,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 ticket,
                                                 timestamp,
                                                 security_level,
-                                            );
+                                            )?;
                                         log::trace!(target: "citadel", "Sent peer KEM stage 0 outbound");
                                         // send to central server
                                         Ok(PrimaryProcessorResult::ReplyToSender(stage0_peer_kem))
@@ -508,7 +508,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         ticket,
                                         timestamp,
                                         security_level,
-                                    );
+                                    )?;
                                     log::trace!(target: "citadel", "Sent stage 1 peer KEM");
                                     Ok(PrimaryProcessorResult::ReplyToSender(stage1_kem))
                                 }
@@ -579,7 +579,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                     ticket,
                                                     timestamp,
                                                     security_level,
-                                                );
+                                                )?;
                                             return Ok(PrimaryProcessorResult::ReplyToSender(
                                                 error_packet,
                                             ));
@@ -684,7 +684,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 ticket,
                                                 timestamp,
                                                 security_level,
-                                            );
+                                            )?;
                                         log::trace!(target: "citadel", "Sent stage 2 peer KEM");
 
                                         session.send_to_primary_stream(None, stage2_kem_packet)?;
@@ -1020,7 +1020,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         ticket,
                                         timestamp,
                                         security_level,
-                                    );
+                                    )?;
                                     return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                                 } else {
                                     log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} deferring to {peer_cid} (lower CID)");
@@ -1268,7 +1268,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                 ticket,
                                 timestamp,
                                 security_level,
-                            );
+                            )?;
                             Ok(PrimaryProcessorResult::ReplyToSender(rebound_accept))
                         } else {
                             let to_primary_stream =
@@ -1374,7 +1374,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                 ticket,
                                 timestamp,
                                 security_level,
-                            );
+                            )?;
                             Ok(PrimaryProcessorResult::ReplyToSender(rebound_packet))
                         }
 
@@ -1395,7 +1395,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                 ticket,
                                 timestamp,
                                 security_level,
-                            );
+                            )?;
                             Ok(PrimaryProcessorResult::ReplyToSender(error_packet))
                         }
                     }
@@ -1887,7 +1887,7 @@ fn reply_to_sender<R: Ratchet>(
         ticket,
         timestamp,
         security_level,
-    );
+    )?;
     Ok(PrimaryProcessorResult::ReplyToSender(packet))
 }
 
@@ -1900,7 +1900,7 @@ fn reply_to_sender_err<E: ToString, R: Ratchet>(
     peer_cid: u64,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     Ok(PrimaryProcessorResult::ReplyToSender(
-        construct_error_signal(err, ratchet, ticket, timestamp, security_level, peer_cid),
+        construct_error_signal(err, ratchet, ticket, timestamp, security_level, peer_cid)?,
     ))
 }
 
@@ -1911,7 +1911,7 @@ fn construct_error_signal<E: ToString, R: Ratchet>(
     timestamp: i64,
     security_level: SecurityLevel,
     peer_cid: u64,
-) -> BytesMut {
+) -> Result<BytesMut, NetworkError> {
     let err_signal = PeerSignal::SignalError {
         ticket,
         error: err.to_string(),
@@ -1953,8 +1953,12 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, T: Pla
         // on timeout, run this
         // TODO: Use latest ratchet, otherwise, may expire
         log::warn!(target: "citadel", "Running timeout closure. Sending error message to {session_cid}");
-        let error_packet = packet_crafter::peer_cmd::craft_peer_signal(&sess_ratchet_2, stale_signal, ticket, timestamp, security_level);
-        let _ = to_primary_stream.unbounded_send(error_packet);
+        match packet_crafter::peer_cmd::craft_peer_signal(&sess_ratchet_2, stale_signal, ticket, timestamp, security_level) {
+            Ok(error_packet) => {
+                let _ = to_primary_stream.unbounded_send(error_packet);
+            }
+            Err(err) => log::warn!(target: "citadel", "Unable to craft the timeout notice for {session_cid}: {err}"),
+        }
     }).await;
 
     // Then, we tell the session_cid's node that we have handled the message. However, the peer has yet to respond
@@ -2015,14 +2019,20 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
             timeout,
             move |stale_signal| {
                 log::warn!(target: "citadel", "Running timeout closure. Sending error message to {session_cid}");
-                let error_packet = packet_crafter::peer_cmd::craft_peer_signal(
+                match packet_crafter::peer_cmd::craft_peer_signal(
                     &sess_ratchet_2,
                     stale_signal,
                     ticket,
                     timestamp,
                     security_level,
-                );
-                let _ = to_primary_stream.unbounded_send(error_packet);
+                ) {
+                    Ok(error_packet) => {
+                        let _ = to_primary_stream.unbounded_send(error_packet);
+                    }
+                    Err(err) => {
+                        log::warn!(target: "citadel", "Unable to craft the timeout notice for {session_cid}: {err}")
+                    }
+                }
             },
         )
         .await;

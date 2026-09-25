@@ -106,7 +106,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             C2S_IDENTITY_CID,
             timestamp,
             security_level,
-        );
+        )?;
         to_primary_stream
             .unbounded_send(packet)
             .map_err(|err| NetworkError::generic(err.to_string()))
@@ -137,7 +137,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             C2S_IDENTITY_CID,
             timestamp,
             security_level,
-        );
+        )?;
         to_primary_stream
             .unbounded_send(packet)
             .map_err(|err| NetworkError::generic(err.to_string()))

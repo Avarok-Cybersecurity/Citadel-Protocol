@@ -881,9 +881,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         // reset the toolset's ARA
         let static_aux_hr = &cnac.refresh_static_ratchet();
         // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
+        let registered_level = static_aux_hr.get_default_security_level();
         let _ = static_aux_hr
             .verify_level(Some(session_security_settings.security_level))
-            .map_err(|_| error!(ErrorCode::SessionSecurityExceedsRegistration))?;
+            .map_err(|_| {
+                error!(
+                    ErrorCode::SessionSecurityExceedsRegistration,
+                    citadel_io::Dbg(session_security_settings.security_level),
+                    citadel_io::Dbg(registered_level),
+                    citadel_io::Dbg(registered_level)
+                )
+            })?;
         let opts = static_aux_hr
             .get_next_constructor_opts()
             .into_iter()
@@ -895,8 +903,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let transfer = alice_constructor
             .stage0_alice()
             .ok_or(error!(ErrorCode::SessionAliceToBobTransferFailed))?;
-        // encrypts the entire connect process with the highest possible security level
-        let max_usable_level = static_aux_hr.get_default_security_level();
         let nat_type = session.local_nat_type.clone();
 
         if udp_mode == UdpMode::Enabled {
@@ -913,7 +919,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             udp_mode,
             timestamp,
             state_container.keep_alive_timeout_ns,
-            max_usable_level,
+            // SYN and SYN_ACK use the static ratchet at its full, registered depth
+            registered_level,
             session_security_settings,
             peer_only_connect_mode,
             connect_mode,
@@ -1475,7 +1482,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     C2S_IDENTITY_CID,
                     virtual_path,
                     delete_on_pull,
-                );
+                )?;
                 self.send_to_primary_stream(Some(ticket), packet)
             }
             VirtualConnectionType::LocalGroupPeer {
@@ -1495,7 +1502,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     target_cid,
                     virtual_path,
                     delete_on_pull,
-                );
+                )?;
                 let primary_stream = endpoint_container
                     .get_direct_p2p_primary_stream()
                     .unwrap_or_else(|| self.to_primary_stream.as_ref().unwrap());
@@ -1536,7 +1543,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     ts,
                     C2S_IDENTITY_CID,
                     virtual_path,
-                );
+                )?;
                 self.send_to_primary_stream(Some(ticket), packet)
             }
             VirtualConnectionType::LocalGroupPeer {
@@ -1555,7 +1562,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     ts,
                     target_cid,
                     virtual_path,
-                );
+                )?;
                 let primary_stream = endpoint_container
                     .get_direct_p2p_primary_stream()
                     .unwrap_or_else(|| self.to_primary_stream.as_ref().unwrap());
@@ -1710,7 +1717,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         file_metadata.clone(),
                         timestamp,
                         local_encryption_level,
-                    );
+                    )?;
                     (
                         to_primary_stream,
                         file_header,
@@ -1814,7 +1821,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         file_metadata.clone(),
                         timestamp,
                         local_encryption_level,
-                    );
+                    )?;
 
                     // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                     let amt_to_reserve = groups_needed.saturating_sub(1);
@@ -2426,7 +2433,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 ticket,
                 timestamp,
                 security_level,
-            );
+            )?;
 
             to_primary_stream
                 .unbounded_send(packet)

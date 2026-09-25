@@ -576,7 +576,7 @@ pub enum ErrorCode {
     #[form = "Connect mode not loaded"]
     SessionConnectModeNotLoaded = 168,
     /// The requested session security setting exceeds the registration setting.
-    #[form = "The specified security setting for the session exceeds the registration security setting"]
+    #[form = "The session security level {} exceeds this account's registered level {}. Log in at {} or lower, or register an account at the higher level"]
     SessionSecurityExceedsRegistration = 169,
     /// The session's primary stream closed unexpectedly.
     #[form = "Primary stream closed"]
