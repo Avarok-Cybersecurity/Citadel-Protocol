@@ -90,6 +90,10 @@ rustls = { workspace = true }
 # never reaches production or wasm builds.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 sha256 = { workspace = true }
+# The host_sql RE-VFS test's server storage (tests/host_sql_revfs.rs), the in-memory SQLite host
+# citadel_user's backend suite uses. 0.32 shares libsqlite3-sys with sqlx, as it does there.
+rusqlite = { version = "0.32", features = ["bundled"] }
+async-trait = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test = "0.3"

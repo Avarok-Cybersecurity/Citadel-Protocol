@@ -124,7 +124,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                             let local_uses_file_system = session
                                 .account_manager
                                 .get_backend_type()
-                                .is_filesystem_backend();
+                                .stores_streamed_objects();
                             session
                                 .file_transfer_compatible
                                 .set_once(local_uses_file_system && stage0_packet.uses_filesystem);
@@ -331,7 +331,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     let local_uses_file_system = session
                         .account_manager
                         .get_backend_type()
-                        .is_filesystem_backend();
+                        .stores_streamed_objects();
                     session
                         .file_transfer_compatible
                         .set_once(local_uses_file_system && remote_uses_filesystem);

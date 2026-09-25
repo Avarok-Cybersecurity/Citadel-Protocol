@@ -2,25 +2,31 @@
 //! `ctx.storage.sql` runs, so the backend's statements are exercised as the host will run them.
 
 use async_trait::async_trait;
-use citadel_user::backend::host_sql::{HostSqlHandle, SqlHost, SqlRow, SqlStatement, SqlValue};
+use citadel_user::backend::host_sql::{
+    HostSqlHandle, SqlHost, SqlRow, SqlStatement, SqlValue, StorageQuota,
+};
 use rusqlite::types::{Value, ValueRef};
 use std::sync::Mutex;
 
 pub struct SqliteHost {
     conn: Mutex<rusqlite::Connection>,
+    quota: StorageQuota,
 }
 
 impl SqliteHost {
-    pub fn in_memory() -> Self {
+    pub fn in_memory(quota: StorageQuota) -> Self {
         Self {
             conn: Mutex::new(
                 rusqlite::Connection::open_in_memory().expect("open in-memory sqlite"),
             ),
+            quota,
         }
     }
 
+    /// Unlimited: the suites using this handle test accounts, pairs and byte maps, which no
+    /// storage quota governs; the RE-VFS tests choose their quota with `in_memory`.
     pub fn handle() -> HostSqlHandle {
-        HostSqlHandle::new(Self::in_memory())
+        HostSqlHandle::new(Self::in_memory(StorageQuota::Unlimited))
     }
 }
 
@@ -75,5 +81,9 @@ impl SqlHost for SqliteHost {
             .collect::<Result<Vec<_>, String>>()?;
         tx.commit().map_err(|e| e.to_string())?;
         Ok(results)
+    }
+
+    fn storage_quota(&self) -> Result<StorageQuota, String> {
+        Ok(self.quota)
     }
 }

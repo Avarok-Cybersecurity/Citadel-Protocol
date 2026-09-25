@@ -14,6 +14,8 @@ mod accounts;
 mod backend;
 mod bytemap;
 mod peers;
+mod revfs;
+mod revfs_read;
 mod schema;
 
 pub use backend::HostSqlBackend;
@@ -55,6 +57,20 @@ pub trait SqlHost: Send + Sync + 'static {
     /// Runs `statements` in order as one transaction: either every one applies or none does.
     /// Returns each statement's rows, in the same order. An `Err` carries the host's reason.
     async fn execute(&self, statements: Vec<SqlStatement>) -> Result<Vec<Vec<SqlRow>>, String>;
+
+    /// The most RE-VFS bytes this backend may hold, summed over every account. Asked at the
+    /// start of each upload, so a host whose entitlements change answers with the current value.
+    /// An `Err` refuses the upload: a host that cannot say is not taken to mean "no limit".
+    fn storage_quota(&self) -> Result<StorageQuota, String>;
+}
+
+/// How much RE-VFS storage a [`SqlHost`] grants.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum StorageQuota {
+    /// No limit beyond what the host's storage itself allows
+    Unlimited,
+    /// At most this many bytes of stored objects
+    Bytes(u64),
 }
 
 /// The [`SqlHost`] a [`crate::backend::BackendType::HostSql`] carries. Two handles are equal

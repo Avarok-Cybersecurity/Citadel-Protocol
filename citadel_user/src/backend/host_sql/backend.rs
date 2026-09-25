@@ -1,18 +1,19 @@
 //! [`BackendConnection`] over a [`SqlHost`]. Each method is one host call — one transaction —
-//! built in `accounts`, `peers` or `bytemap`; this file only routes to them.
+//! built in `accounts`, `peers`, `bytemap` or `revfs`; this file only routes to them.
 
-use super::{schema, HostSqlHandle, SqlRow, SqlStatement, SqlValue};
-use crate::backend::memory::no_backend_streaming;
+use super::{schema, HostSqlHandle, SqlRow, SqlStatement, SqlValue, StorageQuota};
 use crate::backend::BackendConnection;
 use crate::client_account::ClientNetworkAccount;
 use crate::misc::{AccountError, CNACMetadata};
 use async_trait::async_trait;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use citadel_types::proto::{ObjectTransferStatus, VirtualObjectMetadata};
 use citadel_types::user::MutualPeer;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 
 /// Accounts, peer pairs and byte maps stored through the host's SQL storage.
 pub struct HostSqlBackend<R: Ratchet, Fcm: Ratchet> {
@@ -50,6 +51,16 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
         Ok(results)
     }
 
+    /// The host's current RE-VFS quota; a host that cannot say refuses the upload asking.
+    pub(super) fn storage_quota(&self) -> Result<StorageQuota, AccountError> {
+        self.host.0.storage_quota().map_err(|reason| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::HostSqlStorageQuotaUnavailable,
+                reason
+            )
+        })
+    }
+
     /// Runs one statement and returns its rows.
     pub(super) async fn query(
         &self,
@@ -66,6 +77,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for HostSqlBackend<R, F
     async fn connect(&mut self) -> Result<(), AccountError> {
         let ddl = schema::CREATE_TABLES
             .iter()
+            .chain(schema::DISCARD_ABANDONED_UPLOADS.iter())
             .map(|sql| SqlStatement {
                 sql,
                 params: Vec::new(),
@@ -280,7 +292,19 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for HostSqlBackend<R, F
         sink_metadata: &VirtualObjectMetadata,
         status_tx: UnboundedSender<ObjectTransferStatus>,
     ) -> Result<(), AccountError> {
-        no_backend_streaming(source, sink_metadata, status_tx).await
+        self.store_object(source, sink_metadata, status_tx).await
+    }
+
+    async fn revfs_get_file_info(
+        &self,
+        cid: u64,
+        virtual_path: PathBuf,
+    ) -> Result<(Box<dyn ObjectSource>, VirtualObjectMetadata), AccountError> {
+        self.load_object(cid, &virtual_path).await
+    }
+
+    async fn revfs_delete(&self, cid: u64, virtual_path: PathBuf) -> Result<(), AccountError> {
+        self.delete_object(cid, &virtual_path).await
     }
 }
 
