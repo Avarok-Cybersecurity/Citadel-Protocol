@@ -1024,10 +1024,14 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 // Joiner: bootstrap the group state from the Welcome, then open the group channel.
                 let channel_open = {
                     let mut state = inner_mut_state!(session.state_container);
-                    let cgka = state
-                        .group_cgka
-                        .get_mut(&key)
-                        .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+                    // A Welcome for a KeyPackage an earlier session of this cid published: the
+                    // state it would open died with that session. This session republishes when
+                    // the server prompts it (`RestoreMembership`), so the Welcome is stale, and
+                    // failing the session over it only starts the restore again.
+                    let Some(cgka) = state.group_cgka.get_mut(&key) else {
+                        log::warn!(target: "citadel", "Ignoring a Welcome for {key:?}: this session published no KeyPackage for it");
+                        return Ok(PrimaryProcessorResult::Void);
+                    };
                     // A Welcome sealed to a leaf this member has since replaced (two restore prompts
                     // crossed, each publishing a KeyPackage) cannot be opened; the Welcome for the
                     // current leaf follows it. That is not a reason to fail the session.
@@ -1366,10 +1370,14 @@ fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let (welcome_bytes, commit_bytes, epoch, assignment) = {
         let mut state = inner_mut_state!(session.state_container);
-        let cgka = state
-            .group_cgka
-            .get_mut(&key)
-            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+        // No state: this owner session has not re-founded the group yet. A member restoring
+        // after the same outage can publish before this session's `RestoreOwnership` lands;
+        // once it does, the server prompts the member again, and that KeyPackage is added.
+        // Failing the session here cut the owner's link, and its reconnect raced the same way.
+        let Some(cgka) = state.group_cgka.get_mut(&key) else {
+            log::warn!(target: "citadel", "Ignoring a KeyPackage for {key:?} from {joiner_cid}: this session holds no tree for the group yet");
+            return Ok(PrimaryProcessorResult::Void);
+        };
         cgka.add_member(key_package_bytes)?
     };
 
