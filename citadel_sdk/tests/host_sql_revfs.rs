@@ -123,12 +123,24 @@ mod tests {
                 Ok(())
             });
         let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
-        tokio::spawn(server);
-        tokio::spawn(client);
-        tokio::time::timeout(MUST_FINISH_WITHIN, rx)
-            .await
-            .expect("the client never finished: an upload or request was left waiting")
-            .expect("the client kernel ended without reporting")
+        // Polled here, not spawned: a node future is not `Send` in every feature set.
+        let mut rx = rx;
+        tokio::time::timeout(MUST_FINISH_WITHIN, async move {
+            tokio::pin!(server);
+            tokio::pin!(client);
+            tokio::select! {
+                out = &mut rx => return out.expect("the client kernel ended without reporting"),
+                res = &mut server => panic!("the server ended first: {:?}", res.map(|_| ())),
+                res = &mut client => {
+                    if let Err(err) = res {
+                        panic!("the client kernel failed: {err:?}");
+                    }
+                }
+            }
+            rx.await.expect("the client kernel ended without reporting")
+        })
+        .await
+        .expect("the client never finished: an upload or request was left waiting")
     }
 
     async fn push(
