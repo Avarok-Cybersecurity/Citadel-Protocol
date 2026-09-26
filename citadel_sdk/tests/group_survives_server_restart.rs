@@ -76,13 +76,26 @@ mod tests {
 
     /// The old server's accepted connections linger in TIME_WAIT on this port, so the restarted
     /// server binds with SO_REUSEADDR, as any server restarting in place must.
+    ///
+    /// Retried, bounded: the old server's LISTENING socket goes away when its task is torn down,
+    /// which is asynchronous, and on Linux SO_REUSEADDR does not let a second socket listen while it
+    /// exists -- CI failed here with "Address already in use (os error 98)" on an unchanged tree.
     fn rebind(addr: SocketAddr) -> tokio::net::TcpListener {
-        let socket = tokio::net::TcpSocket::new_v4().unwrap();
-        socket.set_reuseaddr(true).unwrap();
-        socket
-            .bind(addr)
-            .unwrap_or_else(|err| panic!("could not rebind {addr} for server v2: {err}"));
-        socket.listen(1024).unwrap()
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let socket = tokio::net::TcpSocket::new_v4().unwrap();
+            socket.set_reuseaddr(true).unwrap();
+            match socket.bind(addr).and_then(|()| socket.listen(1024)) {
+                Ok(listener) => return listener,
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::AddrInUse
+                        && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(err) => panic!("could not rebind {addr} for server v2: {err}"),
+            }
+        }
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]
