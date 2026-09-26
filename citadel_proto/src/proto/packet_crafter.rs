@@ -1256,6 +1256,25 @@ pub(crate) mod peer_cmd {
     /*
 
     */
+    /// The level a peer signal is protected at: the one asked for, capped at the depth of
+    /// the ratchet that carries it.
+    ///
+    /// A peer signal rides a C2S ratchet (the sender's to the server, the server's to the
+    /// target), which has only as many layers as that session's login level. The level
+    /// callers pass is the P2P channel's -- it also travels inside the signal's session
+    /// settings, and that copy is what the peer channel is built from. Protecting the
+    /// signal at a level above the carrying session's failed verify_level ("Only have max
+    /// 0 security levels") and ended the C2S session, so no chat could ask for more than
+    /// its login had.
+    fn signal_level<R: Ratchet>(ratchet: &R, requested: SecurityLevel) -> SecurityLevel {
+        let carried: SecurityLevel = ratchet.get_default_security_level();
+        if requested.value() > carried.value() {
+            carried
+        } else {
+            requested
+        }
+    }
+
     /// Peer signals, unlike channels, DO NOT get a target_cid because they require the central server's participation to increase security between the
     /// two nodes
     pub(crate) fn craft_peer_signal<T: SyncIO + Serialize, R: Ratchet>(
@@ -1265,6 +1284,7 @@ pub(crate) mod peer_cmd {
         timestamp: i64,
         security_level: SecurityLevel,
     ) -> Result<BytesMut, NetworkError> {
+        let security_level: SecurityLevel = signal_level(ratchet, security_level);
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
@@ -1302,6 +1322,7 @@ pub(crate) mod peer_cmd {
         target_cid: u64,
         security_level: SecurityLevel,
     ) -> BytesMut {
+        let security_level: SecurityLevel = signal_level(ratchet, security_level);
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
