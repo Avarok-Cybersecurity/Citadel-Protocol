@@ -62,10 +62,9 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
             .map_err(|_| op_error("stored group size out of range"))?;
         let metadata = VirtualObjectMetadata::deserialize_from_owned_vector(read_blob(row, 4)?)?;
 
-        let changed = || citadel_io::error!(ErrorCode::RevfsChangedDuringRead, key.path.clone());
         let mut bytes = Vec::with_capacity(size);
         for idx in 0..chunks {
-            let row = self
+            let Some(row) = self
                 .query(
                     schema::SELECT_REVFS_CHUNK,
                     vec![text_value(upload.clone()), SqlValue::Integer(idx)],
@@ -73,17 +72,34 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
                 .await?
                 .into_iter()
                 .next()
-                .ok_or_else(changed)?;
+            else {
+                return Err(self.interrupted_read(&key).await);
+            };
             bytes.extend_from_slice(&read_blob(row, 0)?);
         }
         if bytes.len() != size {
-            return Err(changed());
+            return Err(self.interrupted_read(&key).await);
         }
         let source = StoredObject {
             bytes: BytesSource::from(bytes),
             group_bytes,
         };
         Ok((Box::new(source), metadata))
+    }
+
+    /// Why a read found chunk rows that disagree with the file row it began from. A delete (a
+    /// take, once its transfer has gone out) removes the chunks and the file row in one
+    /// transaction, so if the file row is gone too the object no longer exists and is reported
+    /// missing, as a read begun a moment later would report it; this used to say it had changed.
+    /// Rows still there but disagreeing are a replacement or corruption, never spliced.
+    async fn interrupted_read(&self, key: &ObjectKey) -> AccountError {
+        match self.query(schema::SELECT_REVFS_FILE, key.params()).await {
+            Ok(rows) if rows.is_empty() => {
+                citadel_io::error!(ErrorCode::RevfsFileNotFound, key.path.clone())
+            }
+            Ok(_) => citadel_io::error!(ErrorCode::RevfsChangedDuringRead, key.path.clone()),
+            Err(err) => err,
+        }
     }
 
     pub(super) async fn delete_object(

@@ -57,6 +57,53 @@ impl SqlHost for RefusingHost {
     }
 }
 
+/// A SQLite host that, once armed, deletes an object the moment a read asks for its first chunk
+/// row, as a take committing between a read's file-row query and its chunk queries would.
+pub struct VanishingHost {
+    inner: SqliteHost,
+    armed: Arc<AtomicBool>,
+}
+
+impl VanishingHost {
+    pub fn handle() -> (HostSqlHandle, Arc<AtomicBool>) {
+        let armed = Arc::new(AtomicBool::new(false));
+        let host = Self {
+            inner: SqliteHost::in_memory(StorageQuota::Unlimited),
+            armed: armed.clone(),
+        };
+        (HostSqlHandle::new(host), armed)
+    }
+}
+
+#[async_trait]
+impl SqlHost for VanishingHost {
+    async fn execute(&self, statements: Vec<SqlStatement>) -> Result<Vec<Vec<SqlRow>>, String> {
+        let chunk_read = statements[0]
+            .sql
+            .starts_with("SELECT bin FROM citadel_revfs_chunks");
+        if chunk_read && self.armed.swap(false, Ordering::SeqCst) {
+            let upload = vec![statements[0].params[0].clone()];
+            self.inner
+                .execute(vec![
+                    SqlStatement {
+                        sql: "DELETE FROM citadel_revfs_chunks WHERE upload = ?",
+                        params: upload.clone(),
+                    },
+                    SqlStatement {
+                        sql: "DELETE FROM citadel_revfs_files WHERE upload = ?",
+                        params: upload,
+                    },
+                ])
+                .await?;
+        }
+        self.inner.execute(statements).await
+    }
+
+    fn storage_quota(&self) -> Result<StorageQuota, String> {
+        self.inner.storage_quota()
+    }
+}
+
 pub async fn connected(host: &HostSqlHandle) -> Backend {
     let mut backend = Backend::new(host.clone());
     BackendConnection::<StackedRatchet, StackedRatchet>::connect(&mut backend)

@@ -214,3 +214,22 @@ async fn a_stored_object_whose_rows_disagree_is_an_error_not_a_splice() {
     let err = read_back(&backend, "/b").await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::RevfsChangedDuringRead);
 }
+
+#[tokio::test]
+async fn an_object_deleted_while_it_is_being_read_is_not_found() {
+    // A take deletes the object once its transfer has gone out; a read that had already fetched
+    // the file row then found no chunk rows and reported the object as changed, where a read
+    // started a moment later reports it missing (macOS CI, host_sql_revfs_pull).
+    let (host, armed) = VanishingHost::handle();
+    let backend = connected(&host).await;
+    store(&backend, "/a", &[bytes(10, 1)]).await.unwrap();
+    armed.store(true, Ordering::SeqCst);
+
+    let err = read_back(&backend, "/a").await.unwrap_err();
+    assert_eq!(err.code(), ErrorCode::RevfsFileNotFound);
+    assert!(!armed.load(Ordering::SeqCst), "the delete never ran");
+    assert_eq!(
+        (rows(&host, CHUNKS).await, rows(&host, FILES).await),
+        (0, 0)
+    );
+}
