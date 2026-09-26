@@ -236,6 +236,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         let peer_container = CitadelSessionManager::run_peer_container(session_manager);
 
         let server_future = async move {
+            // The group registry must be back before the first client connects: a connect is
+            // what prompts an owner or member to restore its groups.
+            if node_type.is_server() {
+                sess_mgr.restore_message_groups().await?;
+            }
             let res = if let Some(primary_stream_listener) = primary_stream_listener {
                 citadel_io::tokio::select! {
                     res0 = outbound_kernel_request_handler => {

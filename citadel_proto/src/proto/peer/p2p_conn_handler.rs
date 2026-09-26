@@ -373,7 +373,12 @@ pub(crate) mod native_p2p {
                                     timestamp,
                                     security_level,
                                 );
-                                if let Err(err) = to_primary_stream.unbounded_send(packet) {
+                                let sent = packet.and_then(|packet| {
+                                    to_primary_stream
+                                        .unbounded_send(packet)
+                                        .map_err(|err| NetworkError::msg(err.to_string()))
+                                });
+                                if let Err(err) = sent {
                                     log::warn!(target: "citadel", "Failed to send P2P disconnect signal via C2S: {err:?}");
                                 } else {
                                     log::trace!(target: "citadel", "Sent PeerSignal::Disconnect via C2S for peer {}", signal.peer_cid);
@@ -449,6 +454,8 @@ pub(crate) mod native_p2p {
                 }
 
                 state_container.active_virtual_connections.remove(&peer_cid);
+                let _ = state_container
+                    .fail_transfers_with_peer(peer_cid, "the connection to this peer ended");
 
                 // Only clean up the kem_state if it belongs to the old
                 // connection. A new connect_to_peer() may have already

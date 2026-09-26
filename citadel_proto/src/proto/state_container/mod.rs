@@ -272,6 +272,9 @@ pub(crate) struct InboundFileTransfer {
 pub(crate) struct OutboundFileTransfer {
     pub metadata: VirtualObjectMetadata,
     pub ticket: Ticket,
+    /// Who the file is going to (C2S_IDENTITY_CID for the server), so a dropped
+    /// P2P link can end the transfers riding it; see `fail_transfers_with_peer`.
+    pub target_cid: u64,
     // for alerting the group sender to begin sending the next group
     pub next_gs_alerter: UnboundedSender<()>,
     // for alerting the async task to begin creating GroupSenders

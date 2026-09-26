@@ -543,7 +543,7 @@ pub mod prelude {
     pub use citadel_user::account_manager::AccountManager;
     pub use citadel_user::auth::proposed_credentials::ProposedCredentials;
     pub use citadel_user::backend::host_sql::{
-        HostSqlHandle, SqlHost, SqlRow, SqlStatement, SqlValue,
+        HostSqlHandle, SqlHost, SqlRow, SqlStatement, SqlValue, StorageQuota,
     };
     pub use citadel_user::backend::BackendType;
     pub use citadel_user::external_services::{RtdbConfig, ServicesConfig, ServicesObject};

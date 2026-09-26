@@ -881,9 +881,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         // reset the toolset's ARA
         let static_aux_hr = &cnac.refresh_static_ratchet();
         // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
+        let registered_level = static_aux_hr.get_default_security_level();
         let _ = static_aux_hr
             .verify_level(Some(session_security_settings.security_level))
-            .map_err(|_| error!(ErrorCode::SessionSecurityExceedsRegistration))?;
+            .map_err(|_| {
+                error!(
+                    ErrorCode::SessionSecurityExceedsRegistration,
+                    citadel_io::Dbg(session_security_settings.security_level),
+                    citadel_io::Dbg(registered_level),
+                    citadel_io::Dbg(registered_level)
+                )
+            })?;
         let opts = static_aux_hr
             .get_next_constructor_opts()
             .into_iter()
@@ -895,8 +903,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let transfer = alice_constructor
             .stage0_alice()
             .ok_or(error!(ErrorCode::SessionAliceToBobTransferFailed))?;
-        // encrypts the entire connect process with the highest possible security level
-        let max_usable_level = static_aux_hr.get_default_security_level();
         let nat_type = session.local_nat_type.clone();
 
         if udp_mode == UdpMode::Enabled {
@@ -913,7 +919,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             udp_mode,
             timestamp,
             state_container.keep_alive_timeout_ns,
-            max_usable_level,
+            // SYN and SYN_ACK use the static ratchet at its full, registered depth
+            registered_level,
             session_security_settings,
             peer_only_connect_mode,
             connect_mode,
@@ -1475,7 +1482,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     C2S_IDENTITY_CID,
                     virtual_path,
                     delete_on_pull,
-                );
+                )?;
                 self.send_to_primary_stream(Some(ticket), packet)
             }
             VirtualConnectionType::LocalGroupPeer {
@@ -1495,7 +1502,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     target_cid,
                     virtual_path,
                     delete_on_pull,
-                );
+                )?;
                 let primary_stream = endpoint_container
                     .get_direct_p2p_primary_stream()
                     .unwrap_or_else(|| self.to_primary_stream.as_ref().unwrap());
@@ -1536,7 +1543,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     ts,
                     C2S_IDENTITY_CID,
                     virtual_path,
-                );
+                )?;
                 self.send_to_primary_stream(Some(ticket), packet)
             }
             VirtualConnectionType::LocalGroupPeer {
@@ -1555,7 +1562,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     ts,
                     target_cid,
                     virtual_path,
-                );
+                )?;
                 let primary_stream = endpoint_container
                     .get_direct_p2p_primary_stream()
                     .unwrap_or_else(|| self.to_primary_stream.as_ref().unwrap());
@@ -1592,14 +1599,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         transfer_type: TransferType,
         local_encryption_level: Option<SecurityLevel>,
         virtual_object_metadata: Option<VirtualObjectMetadata>,
-        post_close_hook: impl FnOnce(PathBuf) + Send + 'static,
+        post_close_hook: impl FnOnce() + Send + 'static,
     ) -> Result<(), NetworkError> {
-        let source_path = source
-            .path()
-            .ok_or_else(|| error!(ErrorCode::FileTransferSourceMissingPath))?;
-
-        let file_metadata =
-            T::open_and_validate_for_transfer(&source_path, virtual_object_metadata.as_ref())?;
+        // A source with no path (an object a backend holds, or bytes in memory) has nothing on
+        // disk to validate; it reports its own length when read.
+        let max_group_size = source.required_group_size().or(max_group_size);
+        let created = match source.path() {
+            Some(source_path) => {
+                T::open_and_validate_for_transfer(&source_path, virtual_object_metadata.as_ref())?
+                    .created
+            }
+            None => None,
+        };
 
         {
             let this = self;
@@ -1674,7 +1685,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     )
                     .map_err(|err| NetworkError::generic(err.to_string()))?;
 
-                    let date_created = file_metadata.created.unwrap_or_else(SystemTime::now);
+                    let date_created = created.unwrap_or_else(SystemTime::now);
 
                     let file_metadata = VirtualObjectMetadata {
                         object_id,
@@ -1706,7 +1717,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         file_metadata.clone(),
                         timestamp,
                         local_encryption_level,
-                    );
+                    )?;
                     (
                         to_primary_stream,
                         file_header,
@@ -1783,7 +1794,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     )
                     .map_err(|err| NetworkError::generic(err.to_string()))?;
 
-                    let date_created = file_metadata.created.unwrap_or_else(SystemTime::now);
+                    let date_created = created.unwrap_or_else(SystemTime::now);
 
                     let file_metadata = VirtualObjectMetadata {
                         object_id,
@@ -1810,7 +1821,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         file_metadata.clone(),
                         timestamp,
                         local_encryption_level,
-                    );
+                    )?;
 
                     // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                     let amt_to_reserve = groups_needed.saturating_sub(1);
@@ -1860,6 +1871,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 stop_tx: Some(stop_tx),
                 metadata,
                 ticket,
+                target_cid,
                 next_gs_alerter: next_gs_alerter.clone(),
                 start: Some(start),
             };
@@ -2061,7 +2073,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 }
 
                 // we finished pulling. Now, execute the hook if present
-                post_close_hook(source_path);
+                post_close_hook();
             };
 
             spawn!(future);
@@ -2375,6 +2387,40 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     invitee_response,
                     session_security_settings,
                     udp_mode,
+                    session_password: _,
+                } if matches!(invitee_response, Some(PeerResponse::Decline)) => {
+                    // A refusal is not a dial. It used to fall into the arm below and be
+                    // recorded as an outgoing attempt -- an entry only a created channel
+                    // consumes, and a refusal creates none. The entry then outlived the
+                    // refusal indefinitely, and the client-side simultaneous-connect rule
+                    // in peer_cmd_packet.rs reads exactly that entry: when the refused
+                    // peer dialled again, the LOWER-CID side took the leftover for "we
+                    // are both dialling" and auto-accepted at protocol level, without
+                    // forwarding the request to its kernel. One decline was enough to
+                    // make the next attempt succeed with nobody asked (seen live: a
+                    // paused contact reconnected ~18s after being declined).
+                    //
+                    // Refusing also withdraws any dial of our own to that peer: having
+                    // declined them, a pending attempt of ours must not be read as consent.
+                    state_container
+                        .outgoing_peer_connect_attempts
+                        .remove(&peer_conn_type.get_original_target_cid());
+                    PeerSignal::PostConnect {
+                        peer_conn_type,
+                        ticket_opt,
+                        invitee_response,
+                        session_security_settings,
+                        udp_mode,
+                        session_password: None,
+                    }
+                }
+
+                PeerSignal::PostConnect {
+                    peer_conn_type,
+                    ticket_opt,
+                    invitee_response,
+                    session_security_settings,
+                    udp_mode,
                     session_password,
                 } => {
                     let session_password = session_password.unwrap_or_default();
@@ -2422,7 +2468,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 ticket,
                 timestamp,
                 security_level,
-            );
+            )?;
 
             to_primary_stream
                 .unbounded_send(packet)
@@ -2735,28 +2781,32 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
     }
 }
 
-impl<R: Ratchet, T: PlatformOps> Drop for CitadelSession<R, T> {
+// On the inner value, not the `CitadelSession` handle: this runs exactly once, when the last
+// reference goes. The handle's Drop checked `strong_count() == 1`, which is not atomic with the
+// decrement that follows it, so under `multi-threaded` two handles released at once on two
+// threads could each see 2 and neither send the signal. The node then never learned the session
+// had ended (CI on PR #318: "[member] never saw its session end when the server stopped", and a
+// 1 ms pause after that check reproduces it on every run).
+impl<R: Ratchet, T: PlatformOps> Drop for CitadelSessionInner<R, T> {
     fn drop(&mut self) {
-        if self.strong_count() == 1 {
-            log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());
-            // Only send disconnect signal for sessions that were actually connected (have a CID)
-            // and are not provisional
-            if self.is_provisional() || self.session_cid.get().is_none() {
-                log::trace!(target: "citadel", "Session dropped without D/C signal | provisional: {} | has_cid: {}",
-                    self.is_provisional(), self.session_cid.get().is_some());
-                self.disable_dc_signal();
-            } else {
-                log::warn!(target: "citadel", "[DC_SIGNAL:Drop] Session being dropped | cid: {:?} | strong_count: {} | is_provisional: {}",
-                    self.session_cid.get(), self.strong_count(), self.is_provisional());
-                self.send_session_dc_signal(None, false, "Session dropped");
-            }
-
-            if self.on_drop.unbounded_send(()).is_err() {
-                //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
-            }
-
-            let _ = inner!(self.stopper_tx).send(());
+        log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());
+        // Only send disconnect signal for sessions that were actually connected (have a CID)
+        // and are not provisional
+        if self.is_provisional() || self.session_cid.get().is_none() {
+            log::trace!(target: "citadel", "Session dropped without D/C signal | provisional: {} | has_cid: {}",
+                self.is_provisional(), self.session_cid.get().is_some());
+            self.disable_dc_signal();
+        } else {
+            log::warn!(target: "citadel", "[DC_SIGNAL:Drop] Session being dropped | cid: {:?} | is_provisional: {}",
+                self.session_cid.get(), self.is_provisional());
+            self.send_session_dc_signal(None, false, "Session dropped");
         }
+
+        if self.on_drop.unbounded_send(()).is_err() {
+            //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
+        }
+
+        let _ = inner!(self.stopper_tx).send(());
     }
 }
 
