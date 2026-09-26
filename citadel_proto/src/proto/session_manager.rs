@@ -648,15 +648,47 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             // if this is the case, ignore safe-shutdown of the session since no possible vconns
             // exist
             if let Some(session_cid) = sess.session_cid.get() {
-                let task = async move { peer_layer.on_session_shutdown(session_cid).await };
-
-                spawn!(task);
-
                 let timestamp = sess.time_tracker.get_global_time_ns();
                 let security_level = state_container
                     .session_security_settings
                     .map(|r| r.security_level)
                     .unwrap_or(SecurityLevel::Standard);
+
+                // This session was already removed from the map, so an entry for the cid is a
+                // newer incarnation: its groups are not this session's to release.
+                let replaced = sess_mgr.sessions.contains_key(&session_cid);
+                let group_notifier = session_manager.clone();
+                let time_tracker = sess.time_tracker;
+                let task = async move {
+                    peer_layer.on_session_shutdown(session_cid).await?;
+                    let departure = peer_layer
+                        .on_owner_departure(
+                            session_cid,
+                            replaced,
+                            time_tracker.get_global_time_ns(),
+                        )
+                        .await;
+                    group_notifier
+                        .notify_groups_dissolved(
+                            departure.dissolved,
+                            time_tracker.get_global_time_ns(),
+                            security_level,
+                        )
+                        .await;
+                    if let Some(token) = departure.held {
+                        group_notifier
+                            .expire_ownerless_groups_after(
+                                session_cid,
+                                token,
+                                crate::proto::peer::group_retention::OWNERLESS_GROUP_GRACE,
+                                security_level,
+                            )
+                            .await;
+                    }
+                    Ok::<_, NetworkError>(())
+                };
+
+                spawn!(task);
 
                 // Stop all UDP tasks before draining vconns to prevent race conditions
                 for peer_id in state_container
@@ -893,7 +925,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 transfer_type,
                 local_encryption_level,
                 None,
-                |_| {},
+                || {},
             )
         } else {
             Err(error!(
@@ -1318,6 +1350,92 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         Ok(true)
     }
 
+    /// Server start-up: loads the persisted group registry before any client can connect, tells
+    /// the members of groups that are not held (command hierarchies) that they are gone, and arms
+    /// the expiry of every held owner's groups.
+    pub async fn restore_message_groups(&self) -> Result<(), NetworkError> {
+        let (peer_layer, time_tracker) = {
+            let this = inner!(self);
+            (this.hypernode_peer_layer.clone(), this.time_tracker)
+        };
+        let restored = peer_layer
+            .restore_persisted_groups(time_tracker.get_global_time_ns())
+            .await?;
+        // No session exists yet, so there is no negotiated level to inherit. Standard is what a
+        // departing session without security settings falls back to (see the shutdown path).
+        let security_level = SecurityLevel::Standard;
+        self.notify_groups_dissolved(
+            restored.dissolved,
+            time_tracker.get_global_time_ns(),
+            security_level,
+        )
+        .await;
+        for hold in restored.held {
+            let this = self.clone();
+            spawn!(async move {
+                this.expire_ownerless_groups_after(
+                    hold.owner,
+                    hold.token,
+                    hold.expires_in,
+                    security_level,
+                )
+                .await
+            });
+        }
+        Ok(())
+    }
+
+    /// After `after`, dissolves `owner`'s held groups unless it reconnected since the departure
+    /// that issued `token`, and tells their members.
+    pub(crate) async fn expire_ownerless_groups_after(
+        &self,
+        owner: u64,
+        token: u64,
+        after: Duration,
+        security_level: SecurityLevel,
+    ) {
+        citadel_io::time::sleep(after).await;
+        let (peer_layer, time_tracker) = {
+            let this = inner!(self);
+            (this.hypernode_peer_layer.clone(), this.time_tracker)
+        };
+        let expired = peer_layer.expire_ownerless_groups(owner, token).await;
+        if !expired.is_empty() {
+            log::warn!(target: "citadel", "Owner {owner} did not reconnect within the grace period; dissolving {} group(s)", expired.len());
+        }
+        self.notify_groups_dissolved(expired, time_tracker.get_global_time_ns(), security_level)
+            .await;
+    }
+
+    /// Tells each member of each dissolved group that the group is gone (`Disconnected`), so no
+    /// member goes on sending into a group that no longer exists without knowing.
+    pub async fn notify_groups_dissolved(
+        &self,
+        dissolved: Vec<crate::proto::peer::group_retention::DissolvedGroup>,
+        timestamp: i64,
+        security_level: SecurityLevel,
+    ) {
+        for (key, members) in dissolved {
+            log::info!(target: "citadel", "Group {key:?} dissolved; notifying {} member(s)", members.len());
+            let len = members.len();
+            if let Err(err) = self
+                .send_group_broadcast_signal_to(
+                    timestamp,
+                    Ticket(0),
+                    members.into_iter().zip(std::iter::repeat_n(true, len)),
+                    // An offline member is told when it next connects; at a server start every
+                    // member is offline, and without the mailbox none of them would ever know.
+                    true,
+                    GroupBroadcast::Disconnected { key },
+                    security_level,
+                )
+                .await
+            {
+                log::error!(target: "citadel", "Unable to tell the members of dissolved group {key:?}: {err}");
+            }
+        }
+    }
+
     /// Broadcasts a message to a target group
     /// Note: uses mail_if_offline: true. This allows a member to disconnect, but to still receive messages later-on
     pub async fn broadcast_signal_to_group(
@@ -1376,7 +1494,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                             ticket,
                             timestamp,
                             security_level,
-                        );
+                        )
+                        .map_err(|err| err.into_string())?;
                         to_primary_stream
                             .unbounded_send(packet)
                             .map_err(|err| err.to_string())
@@ -1404,7 +1523,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         &self,
         session_cid: u64,
         peer_cid: u64,
-        on_internal_disconnect: impl FnOnce(&R) -> BytesMut,
+        on_internal_disconnect: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
     ) -> Result<(), String> {
         if session_cid == peer_cid {
             return Err("Implicated CID cannot equal peer cid".to_string());
@@ -1426,7 +1545,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         state_container.active_virtual_connections.get(&session_cid)
                     {
                         vconn.is_active.store(false, Ordering::SeqCst);
-                        let packet = on_internal_disconnect(hr);
+                        let packet = on_internal_disconnect(hr).map_err(|err| err.into_string())?;
                         to_primary
                             .unbounded_send(packet)
                             .map_err(|err| err.to_string())
@@ -1443,7 +1562,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     pub fn route_packet_to(
         &self,
         target_cid: u64,
-        packet: impl FnOnce(&R) -> BytesMut,
+        packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
     ) -> Result<(), String> {
         let lock = inner!(self);
         let (_, sess_ref) = lock
@@ -1454,7 +1573,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
         accessor.borrow_hr(None, |hr, _| {
             log::trace!(target: "citadel", "Routing packet through primary stream -> {target_cid}");
-            let packet = packet(hr);
+            let packet = packet(hr).map_err(|err| err.into_string())?;
             peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
         }).map_err(|err| err.into_string())?
     }
@@ -1469,7 +1588,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         target_cid: u64,
         ticket: Ticket,
         signal: PeerSignal,
-        packet: impl FnOnce(&R) -> BytesMut,
+        packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
         timeout: Duration,
         on_timeout: impl Fn(PeerSignal) + SyncContextRequirements,
     ) -> Result<(), String> {
@@ -1503,7 +1622,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                 accessor.borrow_hr(None, |hr, _| {
                     log::trace!(target: "citadel", "Routing packet through primary stream ({session_cid} -> {target_cid})");
-                    let packet = packet(hr);
+                    let packet = packet(hr).map_err(|err| err.into_string())?;
                     peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
                 }).map_err(|err| err.into_string())?
             } else {
@@ -1633,7 +1752,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         target_cid: u64,
         ticket: Ticket,
         session: &CitadelSession<R, T>,
-        packet: impl FnOnce(&R) -> BytesMut,
+        packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
         post_send: impl FnOnce(
             &CitadelSession<R, T>,
             PeerSignal,
@@ -1660,7 +1779,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                 accessor
                     .borrow_hr(None, |hr, _| {
-                        let packet = packet(hr);
+                        let packet = packet(hr).map_err(|err| err.into_string())?;
                         peer_sender
                             .unbounded_send(packet)
                             .map_err(|err| err.to_string())
@@ -1700,7 +1819,7 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
     pub fn send_signal_to_peer_direct(
         &self,
         target_cid: u64,
-        packet: impl FnOnce(&R) -> BytesMut,
+        packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
     ) -> Result<(), NetworkError> {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
             let peer_sess = &peer_sess.1;
@@ -1711,7 +1830,7 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
             let accessor = EndpointCryptoAccessor::C2S(peer_sess.state_container.clone());
 
             accessor.borrow_hr(None, |hr, _| {
-                let packet = packet(hr);
+                let packet = packet(hr)?;
                 peer_sender
                     .unbounded_send(packet)
                     .map_err(|err| NetworkError::msg(err.to_string()))

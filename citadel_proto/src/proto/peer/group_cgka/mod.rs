@@ -334,6 +334,27 @@ mod tests {
         );
     }
 
+    /// A member whose session ended comes back as a fresh joiner under the same cid (what a
+    /// `RestoreMembership` prompt produces). The owner re-adds it and it reads the group again; the
+    /// state it lost cannot read what is sent after.
+    #[test]
+    fn a_member_that_lost_its_state_rejoins_under_the_same_cid() {
+        let mut owner = GroupCgkaState::new_owner(1, GroupHierarchyMode::Flat).unwrap();
+        let (mut lost, kp) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();
+        let (welcome, _commit, _e, _a) = owner.add_member(&kp).unwrap();
+        lost.join(&welcome).unwrap();
+
+        let (mut back, kp_again) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();
+        let (welcome_again, commit_again, epoch_again, _a) = owner.add_member(&kp_again).unwrap();
+        // The member's own pending state ignores the commit that re-adds it.
+        back.process_commit(&commit_again, epoch_again).unwrap();
+        back.join(&welcome_again).unwrap();
+
+        let wire = owner.encrypt_message(b"welcome back").unwrap();
+        assert_eq!(back.decrypt_message(&wire).unwrap(), b"welcome back");
+        assert!(lost.decrypt_message(&wire).is_err());
+    }
+
     #[test]
     fn non_owner_cannot_commit() {
         let (mut b, _kp) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();

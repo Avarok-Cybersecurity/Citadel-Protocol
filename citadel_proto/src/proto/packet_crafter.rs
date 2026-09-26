@@ -153,7 +153,7 @@ impl<R: Ratchet> ObjectTransmitter<R> {
         &mut self,
         virtual_target: VirtualTargetType,
     ) -> Result<(), NetworkError> {
-        let header = self.generate_group_header(virtual_target);
+        let header = self.generate_group_header(virtual_target)?;
         self.to_primary_stream
             .unbounded_send(header)
             .map_err(|err| error!(ErrorCode::GroupHeaderTransmitFailed, format!("{err:?}")))
@@ -161,7 +161,10 @@ impl<R: Ratchet> ObjectTransmitter<R> {
 
     /// Generates the group header for this set using the pre-allocated slab. Since the group header is always sent through the primary port,
     /// and the wave ports are what receive the packet stream, this should be ran BEFORE streaming self
-    pub fn generate_group_header(&mut self, virtual_target: VirtualTargetType) -> BytesMut {
+    pub fn generate_group_header(
+        &mut self,
+        virtual_target: VirtualTargetType,
+    ) -> Result<BytesMut, NetworkError> {
         group::craft_group_header_packet(self, virtual_target)
     }
 
@@ -200,6 +203,7 @@ impl<R: Ratchet> ObjectTransmitter<R> {
 }
 
 pub(crate) mod group {
+    use crate::error::NetworkError;
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U128, U32, U64};
 
@@ -222,7 +226,7 @@ pub(crate) mod group {
     pub(super) fn craft_group_header_packet<R: Ratchet>(
         processor: &mut ObjectTransmitter<R>,
         virtual_target: VirtualTargetType,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let target_cid = virtual_target.get_target_cid();
 
         let header = HdpHeader {
@@ -268,16 +272,13 @@ pub(crate) mod group {
         header.inscribe_into(&mut packet);
         group_header.serialize_into_buf(&mut packet).unwrap();
 
-        processor
-            .ratchet
-            .protect_message_packet(
-                Some(processor.security_level),
-                HDP_HEADER_BYTE_LEN,
-                &mut packet,
-            )
-            .unwrap();
+        processor.ratchet.protect_message_packet(
+            Some(processor.security_level),
+            HDP_HEADER_BYTE_LEN,
+            &mut packet,
+        )?;
 
-        packet
+        Ok(packet)
     }
 
     /// Crafts a group header acknowledgement packet for a given group transmitter and virtual target
@@ -370,7 +371,7 @@ pub(crate) mod group {
         timestamp: i64,
         range: Option<RangeInclusive<u32>>,
         security_level: SecurityLevel,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
@@ -392,10 +393,8 @@ pub(crate) mod group {
         header.inscribe_into(&mut packet);
         wave_ack.serialize_into_buf(&mut packet).unwrap();
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
-        packet
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
+        Ok(packet)
     }
 }
 
@@ -404,6 +403,7 @@ pub(crate) mod do_connect {
     use zerocopy::{I64, U128, U32, U64};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
+    use crate::error::NetworkError;
     use crate::prelude::Ticket;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::peer::peer_layer::MailboxTransfer;
@@ -431,7 +431,7 @@ pub(crate) mod do_connect {
         security_level: SecurityLevel,
         backend_type: &BackendType,
         ticket: Ticket,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_CONNECT,
@@ -448,7 +448,7 @@ pub(crate) mod do_connect {
             target_cid: U64::new(0),
         };
 
-        let uses_filesystem = backend_type.is_filesystem_backend();
+        let uses_filesystem = backend_type.stores_streamed_objects();
 
         let payload = DoConnectStage0Packet {
             proposed_credentials,
@@ -460,10 +460,8 @@ pub(crate) mod do_connect {
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
-        packet
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
+        Ok(packet)
     }
 
     /// Crafts a do-connect final status packet for a given mailbox transfer, peers, and post-login object
@@ -514,7 +512,7 @@ pub(crate) mod do_connect {
             packet_flags::cmd::aux::do_connect::FAILURE
         };
 
-        let is_filesystem = backend_type.is_filesystem_backend();
+        let is_filesystem = backend_type.stores_streamed_objects();
 
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -615,6 +613,7 @@ pub(crate) mod keep_alive {
 }
 
 pub(crate) mod do_register {
+    use crate::error::NetworkError;
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U128, U32, U64};
 
@@ -722,7 +721,7 @@ pub(crate) mod do_register {
         credentials: &ProposedCredentials,
         security_level: SecurityLevel,
         ticket: Ticket,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
@@ -746,11 +745,9 @@ pub(crate) mod do_register {
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
 
-        packet
+        Ok(packet)
     }
 
     /// Crafts a do-register success packet for a given success message and timestamp
@@ -976,6 +973,7 @@ pub(crate) mod pre_connect {
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U128, U32, U64};
 
+    use crate::error::NetworkError;
     use citadel_wire::hypernode_type::NodeType;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -1115,7 +1113,7 @@ pub(crate) mod pre_connect {
         node_type: NodeType,
         security_level: SecurityLevel,
         ticket: Ticket,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
@@ -1138,11 +1136,9 @@ pub(crate) mod pre_connect {
             .serialize_into_buf(&mut packet)
             .unwrap();
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
 
-        packet
+        Ok(packet)
     }
 
     /// Crafts a pre-connect final packet for a given success flag, TCP-only flag, timestamp, and security level
@@ -1153,7 +1149,7 @@ pub(crate) mod pre_connect {
         timestamp: i64,
         security_level: SecurityLevel,
         ticket: Ticket,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let cmd_aux = if success {
             packet_flags::cmd::aux::do_preconnect::SUCCESS
         } else {
@@ -1183,10 +1179,8 @@ pub(crate) mod pre_connect {
 
         let mut packet = header.as_packet();
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
-        packet
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
+        Ok(packet)
     }
 
     /// Crafts a pre-connect begin connect packet for a given timestamp and security level
@@ -1195,7 +1189,7 @@ pub(crate) mod pre_connect {
         timestamp: i64,
         security_level: SecurityLevel,
         ticket: Ticket,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
@@ -1212,10 +1206,8 @@ pub(crate) mod pre_connect {
         };
 
         let mut packet = header.as_packet();
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
-        packet
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
+        Ok(packet)
     }
 
     /// Crafts a pre-connect halt packet for a given previous header and fail reason
@@ -1246,6 +1238,7 @@ pub(crate) mod pre_connect {
 
 pub(crate) mod peer_cmd {
     use crate::constants::HDP_HEADER_BYTE_LEN;
+    use crate::error::NetworkError;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
     use crate::proto::peer::peer_layer::ChannelPacket;
@@ -1263,6 +1256,25 @@ pub(crate) mod peer_cmd {
     /*
 
     */
+    /// The level a peer signal is protected at: the one asked for, capped at the depth of
+    /// the ratchet that carries it.
+    ///
+    /// A peer signal rides a C2S ratchet (the sender's to the server, the server's to the
+    /// target), which has only as many layers as that session's login level. The level
+    /// callers pass is the P2P channel's -- it also travels inside the signal's session
+    /// settings, and that copy is what the peer channel is built from. Protecting the
+    /// signal at a level above the carrying session's failed verify_level ("Only have max
+    /// 0 security levels") and ended the C2S session, so no chat could ask for more than
+    /// its login had.
+    fn signal_level<R: Ratchet>(ratchet: &R, requested: SecurityLevel) -> SecurityLevel {
+        let carried: SecurityLevel = ratchet.get_default_security_level();
+        if requested.value() > carried.value() {
+            carried
+        } else {
+            requested
+        }
+    }
+
     /// Peer signals, unlike channels, DO NOT get a target_cid because they require the central server's participation to increase security between the
     /// two nodes
     pub(crate) fn craft_peer_signal<T: SyncIO + Serialize, R: Ratchet>(
@@ -1271,7 +1283,8 @@ pub(crate) mod peer_cmd {
         ticket: Ticket,
         timestamp: i64,
         security_level: SecurityLevel,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
+        let security_level: SecurityLevel = signal_level(ratchet, security_level);
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
@@ -1294,11 +1307,9 @@ pub(crate) mod peer_cmd {
         header.inscribe_into(&mut packet);
         peer_command.serialize_into_buf(&mut packet).unwrap();
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
 
-        packet
+        Ok(packet)
     }
 
     /// Crafts a peer signal endpoint packet for a given peer command, ticket, timestamp, target CID, and security level
@@ -1311,6 +1322,7 @@ pub(crate) mod peer_cmd {
         target_cid: u64,
         security_level: SecurityLevel,
     ) -> BytesMut {
+        let security_level: SecurityLevel = signal_level(ratchet, security_level);
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
@@ -1387,7 +1399,7 @@ pub(crate) mod peer_cmd {
         proxy_target_cid: u64,
         timestamp: i64,
         security_level: SecurityLevel,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
@@ -1409,15 +1421,14 @@ pub(crate) mod peer_cmd {
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
-        packet
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
+        Ok(packet)
     }
 }
 
 pub(crate) mod file {
     use crate::constants::HDP_HEADER_BYTE_LEN;
+    use crate::error::NetworkError;
     use crate::proto::packet_processor::includes::{packet_flags, HdpHeader};
     use crate::proto::remote::Ticket;
     use crate::proto::state_container::VirtualTargetType;
@@ -1446,7 +1457,7 @@ pub(crate) mod file {
         timestamp: i64,
         error_message: String,
         object_id: ObjectId,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::FILE,
@@ -1471,11 +1482,9 @@ pub(crate) mod file {
 
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
 
-        packet
+        Ok(packet)
     }
 
     /// Crafts a file header packet for a given file metadata, virtual target, local encryption level, group start, ticket, security level, timestamp, and transfer type
@@ -1496,7 +1505,7 @@ pub(crate) mod file {
         file_metadata: VirtualObjectMetadata,
         timestamp: i64,
         local_encryption_level: Option<SecurityLevel>,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::FILE,
@@ -1522,11 +1531,9 @@ pub(crate) mod file {
 
         payload.serialize_into_buf(&mut packet).unwrap();
 
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
 
-        packet
+        Ok(packet)
     }
 
     /// Crafts a file header acknowledgement packet for a given success flag, object ID, target CID, ticket, security level, virtual target, timestamp, and transfer type
@@ -1600,7 +1607,7 @@ pub(crate) mod file {
         target_cid: u64,
         virtual_path: PathBuf,
         delete_on_pull: bool,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::FILE,
@@ -1626,11 +1633,9 @@ pub(crate) mod file {
         };
 
         payload.serialize_into_buf(&mut packet).unwrap();
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
 
-        packet
+        Ok(packet)
     }
 
     /// Crafts a ReVFSDelete packet for a given virtual path, ticket, timestamp, and target CID
@@ -1646,7 +1651,7 @@ pub(crate) mod file {
         timestamp: i64,
         target_cid: u64,
         virtual_path: PathBuf,
-    ) -> BytesMut {
+    ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::FILE,
@@ -1668,11 +1673,9 @@ pub(crate) mod file {
         let payload = ReVFSDeletePacket { virtual_path };
 
         payload.serialize_into_buf(&mut packet).unwrap();
-        ratchet
-            .protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)
-            .unwrap();
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
 
-        packet
+        Ok(packet)
     }
 
     /// Crafts a ReVFSAck packet for a given success flag, error message, ticket, timestamp, and target CID

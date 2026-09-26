@@ -208,6 +208,16 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     "SESS Cnac not loaded"
                 ));
                 let session_cid = header.session_cid.get();
+                // The header's level is the static auxiliary ratchet's, which protects only SYN
+                // and SYN_ACK. Every later packet uses the new session ratchet, which has exactly
+                // the session level's layers: an account registered above its session level
+                // would otherwise ask the session ratchet for layers it does not have.
+                let security_level = return_if_none!(
+                    inner_state!(session.state_container)
+                        .session_security_settings
+                        .map(|settings| settings.security_level),
+                    "Session security settings not loaded"
+                );
 
                 let (stream, new_ratchet) = {
                     let mut state_container = inner_mut_state!(session.state_container);
@@ -243,7 +253,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                         local_node_type,
                                         security_level,
                                         ticket,
-                                    );
+                                    )?;
                                 state_container.pre_connect_state.last_stage =
                                     packet_flags::cmd::aux::do_preconnect::SUCCESS;
                                 return Ok(PrimaryProcessorResult::ReplyToSender(
@@ -278,7 +288,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                     local_node_type,
                                     security_level,
                                     ticket,
-                                );
+                                )?;
                             let to_primary_stream = return_if_none!(
                                 session.to_primary_stream.clone(),
                                 "Primary stream not loaded"
@@ -363,7 +373,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                     timestamp,
                                     security_level,
                                     ticket,
-                                );
+                                )?;
                                 return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                             } // .. otherwise, continue logic below to punch a hole through the firewall
 
@@ -512,7 +522,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             timestamp,
                             security_level,
                             ticket,
-                        );
+                        )?;
                         return Ok(PrimaryProcessorResult::ReplyToSender(begin_connect));
                     }
 
@@ -556,7 +566,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             timestamp,
                             security_level,
                             ticket,
-                        );
+                        )?;
                         Ok(PrimaryProcessorResult::ReplyToSender(begin_connect))
                     }
                 } else {
@@ -639,7 +649,7 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
         security_level,
         session.account_manager.get_backend_type(),
         ticket,
-    );
+    )?;
     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::STAGE1;
     // we now store the pqc temporarily in the state container
     //session.post_quantum = Some(new_pqc);
@@ -671,7 +681,7 @@ fn send_success_as_initiator<R: Ratchet, T: PlatformOps>(
         session.time_tracker.get_global_time_ns(),
         security_level,
         ticket,
-    );
+    )?;
     Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
 }
 

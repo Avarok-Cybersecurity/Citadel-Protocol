@@ -358,6 +358,16 @@ jobs:
   citadel_sdk_release:
     runs-on: macos-latest
     timeout-minutes: 80
+    # What this job exists to test is release SEMANTICS: debug_assertions off and
+    # opt-level 3 (protocol constants once differed by build type; see
+    # MAX_RATCHETS_IN_MEMORY). The workspace's shipping profile also asks for fat
+    # LTO with one codegen unit, which buys nothing for a test and is paid once per
+    # test binary, twice (single- and multi-threaded): at 34 binaries the compile
+    # alone took 48 of the 80 minutes and the job timed out with every test green.
+    # Overridden here only; the shipped binaries keep the profile in Cargo.toml.
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "off"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
       - name: Setup dependencies
         id: deps

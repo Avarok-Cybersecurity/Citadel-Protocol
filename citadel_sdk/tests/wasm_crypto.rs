@@ -91,3 +91,94 @@ fn test_mono_ratchet_availability() {
     _assert_ratchet::<MonoRatchet>();
     _assert_ratchet::<StackedRatchet>();
 }
+
+/// Scrambling a source into groups is how a node sends any file. It ran each group on
+/// `tokio::task::spawn_blocking`, which has no pool on wasm and panics, so a wasm node (a
+/// Durable Object serving a RE-VFS pull) crashed on its first outbound file.
+#[wasm_bindgen_test]
+async fn a_source_scrambles_into_groups_that_reassemble_byte_for_byte() {
+    // A node runs its tasks in a LocalSet (the scrambler spawns its streamer onto it).
+    citadel_io::tokio::task::LocalSet::new()
+        .run_until(scramble_and_reassemble())
+        .await;
+}
+
+async fn scramble_and_reassemble() {
+    use bytes::{BufMut, BytesMut};
+    use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
+    use citadel_crypt::packet_vector::PacketVector;
+    use citadel_crypt::ratchets::entropy_bank::EntropyBank;
+    use citadel_crypt::scramble::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
+    use citadel_crypt::scramble::streaming_crypt_scrambler::{
+        scramble_encrypt_source, BytesSource,
+    };
+    use citadel_types::proto::{ObjectId, TransferType};
+
+    const HEADER_LEN: usize = 52;
+    fn header_inscribe(_: &PacketVector, _: &EntropyBank, _: ObjectId, _: u64, p: &mut BytesMut) {
+        for x in 0..HEADER_LEN {
+            p.put_u8(x as u8)
+        }
+    }
+
+    fn pair(params: CryptoParameters) -> (StackedRatchet, StackedRatchet) {
+        use citadel_pqcrypto::constructor_opts::ConstructorOpts;
+        let opts = || ConstructorOpts::new_vec_init(Some(params), SecurityLevel::Standard);
+        let psks: &[&[u8]] = &[b"psk"];
+        let mut alice = <StackedRatchet as Ratchet>::Constructor::new_alice(opts(), 1, 0).unwrap();
+        let mut bob = <StackedRatchet as Ratchet>::Constructor::new_bob(
+            1,
+            opts(),
+            alice.stage0_alice().unwrap(),
+            psks,
+        )
+        .expect("bob");
+        alice.stage1_alice(bob.stage0_bob().unwrap(), psks).unwrap();
+        (alice.finish().unwrap(), bob.finish().unwrap())
+    }
+
+    let params = KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256;
+    let (alice, bob) = pair(params);
+    let (aux, _) = pair(params);
+    let plaintext: Vec<u8> = (0..200 * 1024).map(|i| (i % 251) as u8).collect();
+    let (tx, mut rx) = citadel_io::tokio::sync::mpsc::channel(1);
+    let (_stop_tx, stop_rx) = citadel_io::tokio::sync::oneshot::channel();
+    let (len, groups, _) = scramble_encrypt_source::<_, _, HEADER_LEN, _>(
+        BytesSource::from(plaintext.clone()),
+        Some(64 * 1024),
+        ObjectId::zero(),
+        tx,
+        stop_rx,
+        SecurityLevel::Standard,
+        alice,
+        aux,
+        HEADER_LEN,
+        bob.get_cid(),
+        0,
+        TransferType::FileTransfer,
+        header_inscribe,
+    )
+    .expect("scramble_encrypt_source");
+    assert_eq!((len, groups), (plaintext.len(), 4));
+
+    let mut out = Vec::new();
+    for _ in 0..groups {
+        let mut device = rx.recv().await.expect("a group").expect("group scrambled");
+        let config = device.get_receiver_config();
+        let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
+        while let Some(packet) = device.get_next_packet() {
+            let status = receiver.on_packet_received(
+                config.group_id,
+                packet.vector.true_sequence,
+                packet.vector.wave_id,
+                &bob,
+                packet.payload,
+            );
+            if let GroupReceiverStatus::GROUP_COMPLETE(_) = status {
+                out.extend_from_slice(receiver.finalize().as_slice());
+                break;
+            }
+        }
+    }
+    assert_eq!(out, plaintext);
+}

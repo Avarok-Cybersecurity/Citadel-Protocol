@@ -228,7 +228,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         proposed_credentials,
                         security_level,
                         ticket,
-                    );
+                    )?;
 
                     let mut state_container = inner_mut_state!(session.state_container);
                     state_container.register_state.created_ratchet = Some(new_ratchet);

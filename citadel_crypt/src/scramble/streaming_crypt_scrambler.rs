@@ -48,7 +48,6 @@ use futures::Future;
 use num_integer::Integer;
 use std::sync::Arc;
 use std::task::Poll;
-use tokio::task::{JoinError, JoinHandle};
 use zeroize::Zeroizing;
 
 /// 3Mb per group
@@ -89,6 +88,12 @@ pub trait ObjectSource: Send + Sync + 'static {
     fn try_get_stream(&mut self) -> Result<Box<dyn FixedSizedSource>, CryptError>;
     fn get_source_name(&self) -> Result<String, CryptError>;
     fn path(&self) -> Option<PathBuf>;
+    /// The group size this source must be sent in. A stored RE-VFS object is data its owner
+    /// encrypted group by group, which decrypts only in the groups it was encrypted in; any
+    /// other source may be split as the sender chooses.
+    fn required_group_size(&self) -> Option<usize> {
+        None
+    }
 }
 
 macro_rules! impl_file_src {
@@ -317,7 +322,29 @@ struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ra
     poll_amt: usize,
     buffer: Arc<Mutex<Vec<u8>>>,
     header_inscriber: Arc<F>,
-    cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError>>>,
+    cur_task: Option<GroupTask<N>>,
+}
+
+/// One group being scrambled off the async task: on a blocking thread natively, inline on wasm,
+/// which has no blocking pool (`tokio::task::spawn_blocking` panics there).
+type GroupTask<const N: usize> =
+    Pin<Box<dyn Future<Output = Result<Result<GroupSenderDevice<N>, CryptError>, String>> + Send>>;
+
+fn scramble_off_task<const N: usize>(
+    work: impl FnOnce() -> Result<GroupSenderDevice<N>, CryptError> + Send + 'static,
+) -> GroupTask<N> {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        Box::pin(async move {
+            citadel_io::spawn_blocking(work)
+                .await
+                .map_err(|err| err.to_string())
+        })
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        Box::pin(citadel_io::spawn_blocking(work))
+    }
 }
 
 impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScrambler<F, R, N, Ra> {
@@ -325,11 +352,10 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScram
         groups_rendered: &mut usize,
         read_cursor: &mut usize,
         poll_amt: usize,
-        cur_task: &mut Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError>>>,
+        cur_task: &mut Option<GroupTask<N>>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<GroupSenderDevice<N>>> {
-        let res: Result<Result<GroupSenderDevice<N>, CryptError>, JoinError> =
-            futures::ready!(Pin::new(cur_task.as_mut().unwrap()).poll(cx));
+        let res = futures::ready!(cur_task.as_mut().unwrap().as_mut().poll(cx));
         if let Ok(Ok(sender)) = res {
             *groups_rendered += 1;
             *read_cursor += poll_amt;
@@ -395,7 +421,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScram
                 let object_id = *object_id;
                 let transfer_type = transfer_type.clone();
 
-                let task = tokio::task::spawn_blocking(move || {
+                let task = scramble_off_task(move || {
                     par_scramble_encrypt_group(
                         &buffer.lock()[..poll_len],
                         security_level,

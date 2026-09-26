@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_io::tokio;
 use citadel_user::backend::host_sql::{
-    HostSqlBackend, HostSqlHandle, SqlHost, SqlRow, SqlStatement, SqlValue,
+    HostSqlBackend, HostSqlHandle, SqlHost, SqlRow, SqlStatement, SqlValue, StorageQuota,
 };
 use citadel_user::backend::BackendConnection;
 use sqlite_host::SqliteHost;
@@ -219,6 +219,10 @@ impl SqlHost for FailingHost {
     async fn execute(&self, _: Vec<SqlStatement>) -> Result<Vec<Vec<SqlRow>>, String> {
         Err("storage unavailable".into())
     }
+
+    fn storage_quota(&self) -> Result<StorageQuota, String> {
+        Err("storage unavailable".into())
+    }
 }
 
 struct ShortHost;
@@ -227,6 +231,10 @@ struct ShortHost;
 impl SqlHost for ShortHost {
     async fn execute(&self, _: Vec<SqlStatement>) -> Result<Vec<Vec<SqlRow>>, String> {
         Ok(Vec::new())
+    }
+
+    fn storage_quota(&self) -> Result<StorageQuota, String> {
+        Ok(StorageQuota::Unlimited)
     }
 }
 

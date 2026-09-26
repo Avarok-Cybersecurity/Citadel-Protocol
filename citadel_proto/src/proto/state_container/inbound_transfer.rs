@@ -196,7 +196,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         if accepted {
                             // local user accepts the file transfer. Alert the adjacent end
                             // and get ready to begin streaming
-                            match pers
+                            let outcome = match pers
                                 .stream_object_to_backend(
                                     stream_to_hd_rx,
                                     &metadata,
@@ -208,41 +208,75 @@ impl<R: Ratchet> StateContainerInner<R> {
                                     // TODO: Consider adding a function that waits for the actual file size to be equal to the metadata plaintext length
                                     // in order to not allow the kernel logic to prematurely read the file contents while still syncing.
                                     log::info!(target: "citadel", "Successfully synced file to backend | revfs_pull: {is_revfs_pull} | is_server: {is_server}");
-                                    let status = match success_receiving_rx.await {
-                                        Ok(header) => {
-                                            // write the header
-                                            let wave_ack = packet_crafter::group::craft_wave_ack(
-                                                &ratchet,
-                                                object_id,
-                                                get_resp_target_cid_from_header(&header),
-                                                header.group.get(),
-                                                header.wave_id.get(),
-                                                tt.get_global_time_ns(),
-                                                None,
-                                                header.security_level.into(),
-                                            );
-
-                                            send_with_error_logging(
-                                                &preferred_primary_stream,
-                                                wave_ack,
-                                            );
-
-                                            ObjectTransferStatus::ReceptionComplete
-                                        }
-
-                                        Err(_) => ObjectTransferStatus::Fail(
-                                            "An unknown error occurred while receiving file"
-                                                .to_string(),
-                                        ),
-                                    };
-
-                                    if let Err(err) = tx_status.send(status) {
-                                        log::error!(target: "citadel", "Unable to send object transfer status to handle: {err:?}");
-                                    }
+                                    success_receiving_rx.await.map_err(|_| {
+                                        "An unknown error occurred while receiving file".to_string()
+                                    })
                                 }
                                 Err(err) => {
                                     log::error!(target: "citadel", "Unable to sync file to backend: {err:?}");
+                                    Err(err.into_string())
                                 }
+                            };
+
+                            let status = match outcome {
+                                Ok(header) => {
+                                    // write the header
+                                    let wave_ack = packet_crafter::group::craft_wave_ack(
+                                        &ratchet,
+                                        object_id,
+                                        get_resp_target_cid_from_header(&header),
+                                        header.group.get(),
+                                        header.wave_id.get(),
+                                        tt.get_global_time_ns(),
+                                        None,
+                                        header.security_level.into(),
+                                    );
+
+                                    match wave_ack {
+                                        Ok(wave_ack) => send_with_error_logging(
+                                            &preferred_primary_stream,
+                                            wave_ack,
+                                        ),
+                                        Err(err) => {
+                                            log::warn!(target: "citadel", "Unable to craft the final wave ack: {err}")
+                                        }
+                                    }
+
+                                    ObjectTransferStatus::ReceptionComplete
+                                }
+
+                                Err(reason) => {
+                                    // The sender finishes on the final wave ACK, which only a
+                                    // stored object earns. Without this it is never told, and
+                                    // waits for an ACK that will not come.
+                                    let error_packet =
+                                        packet_crafter::file::craft_file_error_packet(
+                                            &ratchet,
+                                            ticket,
+                                            security_level_rebound,
+                                            v_target_flipped,
+                                            tt.get_global_time_ns(),
+                                            reason.clone(),
+                                            object_id,
+                                        );
+                                    match error_packet {
+                                        Ok(error_packet) => send_with_error_logging(
+                                            &preferred_primary_stream,
+                                            error_packet,
+                                        ),
+                                        Err(err) => {
+                                            log::warn!(target: "citadel", "Unable to craft the file error packet: {err}")
+                                        }
+                                    }
+                                    let state_container = inner_state!(state_container);
+                                    let _ = state_container.inbound_files.remove(&key);
+                                    let _ = state_container.file_transfer_handles.remove(&key);
+                                    ObjectTransferStatus::Fail(reason)
+                                }
+                            };
+
+                            if let Err(err) = tx_status.send(status) {
+                                log::error!(target: "citadel", "Unable to send object transfer status to handle: {err:?}");
                             }
                         } else {
                             if let Err(err) = tx_status.send(ObjectTransferStatus::Fail(
@@ -369,22 +403,27 @@ impl<R: Ratchet> StateContainerInner<R> {
                 // Snapshot the fields we need from the inbound-file entry, then release the `Ref` so the
                 // `inbound_files.remove` below cannot self-deadlock. `stream_to_hd` is an
                 // `UnboundedSender` — cheap to clone.
+                // Group ids are drawn from a per-session counter, so a session's second file does
+                // not start at 0: completion is counted in groups rendered, not read off the id.
                 let (
                     stream_to_hd,
+                    groups_rendered,
                     total_groups,
                     plaintext_length,
                     local_encryption_level,
                     last_group_finish_time,
                 ) = {
-                    let fc = self.inbound_files.get(&file_key).ok_or_else(|| {
+                    let mut fc = self.inbound_files.get_mut(&file_key).ok_or_else(|| {
                         (
                             error!(ErrorCode::InboundFileKeyMissing, Dbg(file_key)),
                             ticket,
                             object_id,
                         )
                     })?;
+                    fc.groups_rendered += 1;
                     (
                         fc.stream_to_hd.clone(),
+                        fc.groups_rendered,
                         fc.total_groups,
                         fc.metadata.plaintext_length,
                         fc.local_encryption_level,
@@ -410,7 +449,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
                 send_wave_ack = true;
 
-                if group_id as usize >= total_groups.saturating_sub(1) {
+                if groups_rendered >= total_groups {
                     complete = true;
                     let file_container = self
                         .inbound_files
@@ -453,7 +492,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         fc.last_group_finish_time = now;
                     }
                     let status = ObjectTransferStatus::ReceptionTick(
-                        group_id as usize,
+                        groups_rendered - 1,
                         total_groups,
                         mb_per_sec as f32,
                     );
@@ -498,7 +537,8 @@ impl<R: Ratchet> StateContainerInner<R> {
                     ts,
                     None,
                     header.security_level.into(),
-                );
+                )
+                .map_err(|err| (err, ticket, object_id))?;
                 return Ok(PrimaryProcessorResult::ReplyToSender(wave_ack));
             }
         }

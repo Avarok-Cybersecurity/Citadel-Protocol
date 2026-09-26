@@ -35,9 +35,13 @@ use crate::ratchets::Ratchet;
 /// The maximum number of ratchets to store in memory. Note that, most of the time, the true number in memory
 /// will be the max - 1, since the max is only reached when the most recent ratchet is added and the toolset
 /// is in the state of pending synchronization/truncation
-#[cfg(debug_assertions)]
-pub const MAX_RATCHETS_IN_MEMORY: usize = 6;
-#[cfg(not(debug_assertions))]
+///
+/// ONE value for every build. It was 6 under `debug_assertions` and 32 otherwise, which made it
+/// protocol state that depended on how each side was compiled: a debug client asked a release
+/// server to truncate at version 5, the server's window was not full and refused
+/// (`ToolsetDeregisterNotMaxed`), the round was abandoned, and the client's usable version never
+/// advanced again -- five rekeys later its session died with "Ratchet missing" (measured live,
+/// debug agent against the Durable Object's release wasm server).
 pub const MAX_RATCHETS_IN_MEMORY: usize = 32;
 
 /// The reserved version for the static aux ratchet

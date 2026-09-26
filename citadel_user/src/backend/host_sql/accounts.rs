@@ -54,7 +54,8 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
         Ok(!rows.is_empty())
     }
 
-    /// The account, every pair it is part of (either side) and its byte map, in one transaction.
+    /// The account, every pair it is part of (either side), its byte map and its RE-VFS objects
+    /// (stored and staged), in one transaction.
     pub(super) async fn delete_account(&self, cid: u64) -> Result<(), AccountError> {
         let statement = |sql, params| SqlStatement { sql, params };
         let results = self
@@ -66,6 +67,12 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
                     vec![cid_value(cid), cid_value(cid)],
                 ),
                 statement(schema::DELETE_BYTEMAP_OF_CNAC, vec![cid_value(cid)]),
+                statement(
+                    schema::DELETE_REVFS_CHUNKS_OF_CNAC,
+                    vec![cid_value(cid), cid_value(cid)],
+                ),
+                statement(schema::DELETE_REVFS_FILES_OF_CNAC, vec![cid_value(cid)]),
+                statement(schema::DELETE_REVFS_UPLOADS_OF_CNAC, vec![cid_value(cid)]),
             ])
             .await?;
         if results[0].is_empty() {
@@ -84,6 +91,9 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
                 statement(schema::COUNT_CNACS),
                 statement(schema::DELETE_ALL_PEERS),
                 statement(schema::DELETE_ALL_BYTEMAP),
+                statement(schema::DELETE_ALL_REVFS_CHUNKS),
+                statement(schema::DELETE_ALL_REVFS_FILES),
+                statement(schema::DELETE_ALL_REVFS_UPLOADS),
                 statement(schema::DELETE_ALL_CNACS),
             ])
             .await?;
