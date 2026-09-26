@@ -11,8 +11,10 @@ use citadel_io::tokio::sync::mpsc::unbounded_channel;
 use citadel_io::{tokio, ErrorCode};
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::ObjectTransferStatus;
+use citadel_user::backend::host_sql::SqlValue;
 use citadel_user::backend::host_sql::StorageQuota;
 use citadel_user::backend::BackendConnection;
+use citadel_user::misc::prepare_virtual_path;
 use sqlite_host::SqliteHost;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -198,12 +200,17 @@ async fn a_stored_object_whose_rows_disagree_is_an_error_not_a_splice() {
     let err = read_back(&backend, "/a").await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::RevfsChangedDuringRead);
 
-    let _ = sql(
+    // The row is keyed by the path as the backend normalizes it, which on Windows is `\b`: a
+    // literal `'/b'` matched no row there, the update did nothing and the read rightly succeeded.
+    // Key it the way the backend does, and require that the update really changed a row.
+    let stored_path = prepare_virtual_path("/b").display().to_string();
+    let updated = sql(
         &host,
-        "UPDATE citadel_revfs_files SET size = size + 1 WHERE path = '/b'",
-        vec![],
+        "UPDATE citadel_revfs_files SET size = size + 1 WHERE path = ? RETURNING path",
+        vec![SqlValue::Text(stored_path)],
     )
     .await;
+    assert_eq!(updated.len(), 1, "the corruption was not applied");
     let err = read_back(&backend, "/b").await.unwrap_err();
     assert_eq!(err.code(), ErrorCode::RevfsChangedDuringRead);
 }
