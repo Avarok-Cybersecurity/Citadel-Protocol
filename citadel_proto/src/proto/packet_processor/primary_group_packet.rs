@@ -191,14 +191,7 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                     let ticket = header.context_info.get().into();
                                     // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
                                     // let v_conn = get_v_conn_from_header(&header);
-                                    let target_cid =
-                                        if let Some((original_session_cid, _original_target_cid)) =
-                                            proxy_cid_info
-                                        {
-                                            original_session_cid
-                                        } else {
-                                            0
-                                        };
+                                    let target_cid = ordered_channel_cid(proxy_cid_info);
 
                                     if let Err(err) = state_container
                                         .forward_data_to_ordered_channel(
@@ -228,26 +221,15 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                 }
 
                                 GroupHeader::Standard(group_receiver_config, virtual_target) => {
-                                    // This group id is being consumed by an
-                                    // object transfer, so it will never reach
-                                    // the ordered channel as a message. Say so,
-                                    // or every later message on this vconn
-                                    // head-of-line blocks behind an id that
-                                    // does not exist -- silently, with the
-                                    // sender's send still reporting success.
-                                    {
-                                        let resp_target_cid =
-                                            if let Some((original_session_cid, _)) = proxy_cid_info
-                                            {
-                                                original_session_cid
-                                            } else {
-                                                0
-                                            };
-                                        state_container.skip_non_message_group(
-                                            resp_target_cid,
-                                            header.group.get(),
-                                        );
-                                    }
+                                    // No skip here. The one messaging id a transfer
+                                    // consumes is stepped over when its FILE HEADER
+                                    // arrives (file_packet.rs), which does not wait
+                                    // for the recipient to accept. Every OTHER group
+                                    // id -- a peer transfer's later groups, and all of
+                                    // a C2S transfer's -- comes from the file-transfer
+                                    // counter and is also some real message's id, so
+                                    // stepping over it here dropped that message as a
+                                    // duplicate when it arrived after this header.
                                     // Mutating (file header) branch: escalate read → write.
                                     drop(state_container);
                                     let mut state_container =
@@ -580,6 +562,17 @@ pub fn get_resp_target_cid(virtual_target: &VirtualConnectionType) -> Option<u64
             None
         }
     }
+}
+
+/// The endpoint whose ordered channel an inbound message group belongs to.
+///
+/// One definition, because two places must agree on it exactly: where a message
+/// is forwarded into the channel, and where a transfer's consumed id is stepped
+/// over. Stepping over an id on the wrong channel releases nothing.
+pub(crate) fn ordered_channel_cid(proxy_cid_info: Option<(u64, u64)>) -> u64 {
+    proxy_cid_info
+        .map(|(original_session_cid, _original_target_cid)| original_session_cid)
+        .unwrap_or(C2S_IDENTITY_CID)
 }
 
 pub fn get_resp_target_cid_from_header(header: &HdpHeader) -> u64 {
