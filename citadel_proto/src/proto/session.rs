@@ -2781,28 +2781,32 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
     }
 }
 
-impl<R: Ratchet, T: PlatformOps> Drop for CitadelSession<R, T> {
+// On the inner value, not the `CitadelSession` handle: this runs exactly once, when the last
+// reference goes. The handle's Drop checked `strong_count() == 1`, which is not atomic with the
+// decrement that follows it, so under `multi-threaded` two handles released at once on two
+// threads could each see 2 and neither send the signal. The node then never learned the session
+// had ended (CI on PR #318: "[member] never saw its session end when the server stopped", and a
+// 1 ms pause after that check reproduces it on every run).
+impl<R: Ratchet, T: PlatformOps> Drop for CitadelSessionInner<R, T> {
     fn drop(&mut self) {
-        if self.strong_count() == 1 {
-            log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());
-            // Only send disconnect signal for sessions that were actually connected (have a CID)
-            // and are not provisional
-            if self.is_provisional() || self.session_cid.get().is_none() {
-                log::trace!(target: "citadel", "Session dropped without D/C signal | provisional: {} | has_cid: {}",
-                    self.is_provisional(), self.session_cid.get().is_some());
-                self.disable_dc_signal();
-            } else {
-                log::warn!(target: "citadel", "[DC_SIGNAL:Drop] Session being dropped | cid: {:?} | strong_count: {} | is_provisional: {}",
-                    self.session_cid.get(), self.strong_count(), self.is_provisional());
-                self.send_session_dc_signal(None, false, "Session dropped");
-            }
-
-            if self.on_drop.unbounded_send(()).is_err() {
-                //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
-            }
-
-            let _ = inner!(self.stopper_tx).send(());
+        log::trace!(target: "citadel", "*** Dropping HdpSession {:?} ***", self.session_cid.get());
+        // Only send disconnect signal for sessions that were actually connected (have a CID)
+        // and are not provisional
+        if self.is_provisional() || self.session_cid.get().is_none() {
+            log::trace!(target: "citadel", "Session dropped without D/C signal | provisional: {} | has_cid: {}",
+                self.is_provisional(), self.session_cid.get().is_some());
+            self.disable_dc_signal();
+        } else {
+            log::warn!(target: "citadel", "[DC_SIGNAL:Drop] Session being dropped | cid: {:?} | is_provisional: {}",
+                self.session_cid.get(), self.is_provisional());
+            self.send_session_dc_signal(None, false, "Session dropped");
         }
+
+        if self.on_drop.unbounded_send(()).is_err() {
+            //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
+        }
+
+        let _ = inner!(self.stopper_tx).send(());
     }
 }
 
