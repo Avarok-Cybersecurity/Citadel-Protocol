@@ -1871,6 +1871,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 stop_tx: Some(stop_tx),
                 metadata,
                 ticket,
+                target_cid,
                 next_gs_alerter: next_gs_alerter.clone(),
                 start: Some(start),
             };

@@ -179,6 +179,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 state_container.stale_p2p_ratchets.insert(target, ratchet);
                             }
                             state_container.active_virtual_connections.remove(&target);
+                            let _ = state_container
+                                .fail_transfers_with_peer(target, "the peer disconnected");
 
                             session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
                                 event: signal,

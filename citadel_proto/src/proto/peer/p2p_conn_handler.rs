@@ -454,6 +454,8 @@ pub(crate) mod native_p2p {
                 }
 
                 state_container.active_virtual_connections.remove(&peer_cid);
+                let _ = state_container
+                    .fail_transfers_with_peer(peer_cid, "the connection to this peer ended");
 
                 // Only clean up the kem_state if it belongs to the old
                 // connection. A new connect_to_peer() may have already
