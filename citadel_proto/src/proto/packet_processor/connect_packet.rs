@@ -41,8 +41,10 @@ use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_crypt::toolset::Toolset;
 use citadel_io::{error, ErrorCode};
 use citadel_types::proto::ConnectMode;
+use citadel_user::client_account::ClientNetworkAccount;
 use citadel_user::external_services::ServicesObject;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
@@ -118,7 +120,22 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     }
                 }
                 let task = {
-                    match validation::do_connect::validate_stage0_packet(&cnac, &payload).await {
+                    let validated =
+                        match validation::do_connect::validate_stage0_packet(&cnac, &payload).await
+                        {
+                            Ok(stage0_packet) => {
+                                if session.kernel_ticket.get() != ticket {
+                                    const REASON: &str = "Ticket mismatch";
+                                    return Ok(PrimaryProcessorResult::EndSession(REASON));
+                                }
+                                // Fully authenticated from here on, and only from here on.
+                                admit_authenticated_login(session, &cnac, ratchet.get_cid())
+                                    .await
+                                    .map(|()| stage0_packet)
+                            }
+                            Err(err) => Err(err),
+                        };
+                    match validated {
                         Ok(stage0_packet) => {
                             // Compute inexpensive values and perform checks before taking the lock
                             let local_uses_file_system = session
@@ -133,11 +150,6 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                             let addr = session.remote_peer;
                             let is_personal = !session.is_server;
                             let kernel_ticket = session.kernel_ticket.get();
-
-                            if kernel_ticket != ticket {
-                                const REASON: &str = "Ticket mismatch";
-                                return Ok(PrimaryProcessorResult::EndSession(REASON));
-                            }
 
                             // Acquire lock only for short, critical state updates; release before awaits
                             let (udp_channel_rx, channel, session_security_settings) = {
@@ -569,5 +581,46 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
             }
         }
     }
+    Ok(())
+}
+
+/// Admits a login that has just passed connect STAGE0 — the static device key at SYN, the fresh
+/// session key exchange, and the account credentials — into the account's session crypto.
+///
+/// First, a session the server still holds for the account is displaced if, and only if, the
+/// client asked for it with `force_login` (see
+/// [`CitadelSessionManager::displace_session_for_authenticated_login`](crate::proto::session_manager::CitadelSessionManager::displace_session_for_authenticated_login)).
+/// Then the toolset negotiated at SYN is installed. That install is deferred to here, rather than
+/// done at SYN, because the session crypto is shared with any session of the account the server
+/// already holds, and a SYN on its own proves only possession of a replayable device key.
+async fn admit_authenticated_login<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    cnac: &ClientNetworkAccount<R, R>,
+    cid: u64,
+) -> Result<(), NetworkError> {
+    let (force_login, generated_ratchet) = {
+        let state_container = inner_state!(session.state_container);
+        let connect_mode = state_container
+            .connect_state
+            .connect_mode
+            .ok_or_else(|| NetworkError::msg("Connect mode not loaded at connect STAGE0"))?;
+        let generated_ratchet = state_container
+            .pre_connect_state
+            .generated_ratchet
+            .clone()
+            .ok_or_else(|| NetworkError::msg("Session ratchet not generated at connect STAGE0"))?;
+        (connect_mode.force_login(), generated_ratchet)
+    };
+
+    session
+        .session_manager
+        .displace_session_for_authenticated_login(cid, force_login)
+        .await
+        .map_err(NetworkError::msg)?;
+
+    cnac.on_session_init(Toolset::from((
+        cnac.get_static_auxiliary_ratchet(),
+        generated_ratchet,
+    )));
     Ok(())
 }

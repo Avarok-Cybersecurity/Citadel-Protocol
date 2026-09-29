@@ -137,6 +137,26 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     disconnect_tracker: DisconnectSignalTracker,
 }
 
+/// The reason given to a login refused because the server already holds a session for the account.
+pub(crate) const SESSION_ALREADY_CONNECTED: &str = "Session Already Connected, or, is in the process of disconnection and an earlier connection attempt beat this connection. Not allowing this connection";
+
+/// How long an authenticated `force_login` waits for the session it displaces to finish its
+/// teardown before removing it from the map regardless. Matches the wait for a disconnecting
+/// session in [`CitadelSessionManager::can_proceed_with_new_incoming_connection`].
+const DISPLACED_SESSION_STOP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The server's answer to an incoming SYN for a CID, before the SYN is authenticated.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CidAdmission {
+    /// No session holds the CID; it is now reserved for this attempt.
+    Free,
+    /// A connected session holds the CID; the CID is reserved for this attempt, which may only
+    /// proceed if its authenticated SYN requests `force_login`.
+    HeldByConnectedSession,
+    /// Another attempt for the CID is in flight, or (client side) a session exists.
+    Refused,
+}
+
 /// Safety-net lifetime for a provisional CID reservation. Reservations are released explicitly on
 /// SYN commit and on connection failure; this bounds how long an unexpectedly-dropped attempt can
 /// block a CID. It only needs to outlive the (fast) window between clearing `can_proceed` and the
@@ -200,7 +220,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// commit/failure. When false (the client-side outgoing-connect pre-check), this only *checks* for
     /// an existing/connecting session and never takes a reservation — taking one there would leak
     /// (nothing releases it) and block legitimate reconnects until the TTL expires.
-    pub async fn can_proceed_with_new_incoming_connection(&self, cid: u64, reserve: bool) -> bool {
+    ///
+    /// On the server path a firmly connected session does not refuse outright: it yields
+    /// [`CidAdmission::HeldByConnectedSession`] (with the reservation taken), and the SYN handler
+    /// refuses unless the authenticated SYN asks for `force_login`. The session itself is only
+    /// displaced later, by [`Self::displace_session_for_authenticated_login`].
+    pub async fn can_proceed_with_new_incoming_connection(
+        &self,
+        cid: u64,
+        reserve: bool,
+    ) -> CidAdmission {
         let await_for_drop_rx = {
             let mut this = inner_mut!(self);
 
@@ -218,14 +247,26 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let current_state = sess.state.get();
                 if current_state == SessionState::Connected {
                     citadel_logging::warn!(target: "citadel", "Session {cid} is already connected");
-                    // Session is firmly connected, and not in the process of disconnecting
-                    return false;
+                    // Session is firmly connected, and not in the process of disconnecting.
+                    // Only an incoming SYN may go on to displace it, and only one at a time: a
+                    // concurrent attempt for the same CID (reserved, or already provisional) wins.
+                    let competing_attempt = this.provisional_cid_reservations.contains_key(&cid)
+                        || this
+                            .provisional_connections
+                            .values()
+                            .any(|(_, _, sess)| sess.session_cid.get() == Some(cid));
+                    if !reserve || competing_attempt {
+                        return CidAdmission::Refused;
+                    }
+                    this.provisional_cid_reservations
+                        .insert(cid, Instant::now());
+                    return CidAdmission::HeldByConnectedSession;
                 }
 
                 // If the session is not connected (implied per above), and, the session is not disconnecting, it is in the process of connecting
                 if current_state != SessionState::Disconnecting {
                     citadel_logging::warn!(target: "citadel", "Session {cid} is already in the process of connecting (i.e., provisional)");
-                    return false;
+                    return CidAdmission::Refused;
                 }
 
                 // If the drop listener is already some, that means the session is in the process of disconnecting,
@@ -241,7 +282,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     .is_some()
                 {
                     citadel_logging::warn!(target: "citadel", "Session {cid} is already in the process of disconnecting, however, must yield to earlier connection attempt");
-                    return false;
+                    return CidAdmission::Refused;
                 }
 
                 await_for_drop_rx
@@ -253,12 +294,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 if reserve {
                     if this.provisional_cid_reservations.contains_key(&cid) {
                         citadel_logging::warn!(target: "citadel", "A concurrent connection attempt for {cid} is already in progress; yielding");
-                        return false;
+                        return CidAdmission::Refused;
                     }
                     this.provisional_cid_reservations
                         .insert(cid, Instant::now());
                 }
-                return true;
+                return CidAdmission::Free;
             }
         };
 
@@ -275,7 +316,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
         // Wait for the session to disconnect or timeout
         citadel_io::tokio::select! {
-            _ = wait_for_drop => true,
+            _ = wait_for_drop => CidAdmission::Free,
             _ = timeout => {
                 citadel_logging::warn!(target: "citadel", "Session attempt for {cid} failed to disconnect within the timeout. Force clearing");
                 let mut this = inner_mut!(self);
@@ -293,9 +334,60 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 }
                 this.provisional_connections.retain(|_, sess| sess.2.session_cid.get().unwrap_or(0) != cid);
                 this.provisional_cid_reservations.remove(&cid);
-                true
+                CidAdmission::Free
             },
         }
+    }
+
+    /// Called at connect STAGE0 once the incoming login for `cid` has fully authenticated, and
+    /// before it is admitted. If the server still holds another session for `cid` — typically one
+    /// whose client vanished without a FIN or RST reaching this side, so it looks connected until
+    /// the keep-alive expires — that session is stopped and its teardown awaited, so its peers
+    /// receive the ordinary disconnect signal before the new session registers.
+    ///
+    /// `force_login` is the client's own, authenticated request (carried in its SYN). Without it,
+    /// an existing session is left untouched and the login is refused.
+    ///
+    /// Returns `Err(reason)` when the login must be refused.
+    pub async fn displace_session_for_authenticated_login(
+        &self,
+        cid: u64,
+        force_login: bool,
+    ) -> Result<(), &'static str> {
+        let (displaced, stopped) = {
+            let this = inner!(self);
+            let Some((_, existing)) = this.sessions.get(&cid) else {
+                return Ok(());
+            };
+            if !force_login {
+                return Err(SESSION_ALREADY_CONNECTED);
+            }
+            let (stopped_tx, stopped_rx) = citadel_io::tokio::sync::oneshot::channel();
+            if existing
+                .drop_listener
+                .atomic_set_if_none(stopped_tx)
+                .is_some()
+            {
+                // Another login is already waiting on this session's teardown; it came first.
+                return Err(SESSION_ALREADY_CONNECTED);
+            }
+            // Its teardown must not reset the account's session crypto under the new session.
+            existing.do_static_hr_refresh_atexit.set(false);
+            (existing.clone(), stopped_rx)
+        };
+
+        citadel_logging::warn!(target: "citadel", "Session {cid} is displaced by a newer, authenticated login that requested force_login");
+        displaced.shutdown();
+
+        if citadel_io::time::timeout(DISPLACED_SESSION_STOP_TIMEOUT, stopped)
+            .await
+            .is_err()
+        {
+            citadel_logging::warn!(target: "citadel", "Displaced session {cid} did not stop within {DISPLACED_SESSION_STOP_TIMEOUT:?}; removing it from the session map");
+            inner_mut!(self).clear_session(cid, displaced.init_time);
+        }
+
+        Ok(())
     }
 
     /// Releases the provisional CID reservation taken by
@@ -417,9 +509,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                     // Wait for any disconnecting session to clean up before proceeding
                     if let Some(cid) = cnac.as_ref().map(|c| c.get_cid()) {
-                        if !self
+                        if self
                             .can_proceed_with_new_incoming_connection(cid, false)
                             .await
+                            != CidAdmission::Free
                         {
                             return Err(error!(ErrorCode::SessionManagerSessionAlreadyExists, cid));
                         }
@@ -621,6 +714,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let pers = sess.account_manager.get_persistence_handler().clone();
         let peer_layer = sess_mgr.hypernode_peer_layer.clone();
         let mut state_container = inner_mut_state!(sess.state_container);
+        let admitted = sess.admitted.get();
 
         if let Some(cnac) = state_container.cnac.as_ref() {
             // we do not need to save here. When the ratchet is reloaded, it will be zeroed out anyways.
@@ -628,7 +722,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             // don't cause false-positives on the anti-replay-attack container
             // Especially needed for FCM
             // The only time the static HR won't get refreshed if a lingering connection gets cleaned-up
-            if sess.do_static_hr_refresh_atexit.get() {
+            if admitted && sess.do_static_hr_refresh_atexit.get() {
                 let _ = cnac.refresh_static_ratchet();
             }
 
@@ -642,8 +736,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         }
 
         // the following shutdown sequence is valid for only for the HyperLAN server
-        // This final sequence alerts all CIDs in the network
-        if sess.is_server {
+        // This final sequence alerts all CIDs in the network. A login that never got past
+        // provisional has nothing to alert anyone about, and the account's peer-layer state
+        // belongs to whichever session was admitted.
+        if sess.is_server && admitted {
             // if the account was newly registered, it is possible that session_cid is none
             // if this is the case, ignore safe-shutdown of the session since no possible vconns
             // exist
@@ -782,7 +878,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     }
                 });
             }
-        } else {
+        } else if !sess.is_server {
             // if we are ending a client session, we just need to ensure that the P2P streams go-down
             log::trace!(target: "citadel", "Ending any active P2P connections");
             //sess.queue_worker.signal_shutdown();
@@ -1110,6 +1206,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let mut this = inner_mut!(self);
         if let Some((_, stopper, session)) = this.provisional_connections.remove(key) {
             //let _ = this.hypernode_peer_layer.register_peer(session_cid, true);
+            session.admitted.set(true);
             if let Some(lingering_conn) = this.sessions.insert(session_cid, (stopper, session)) {
                 // sometimes (especially on cellular networks), when the network changes due to
                 // changing cell towers (or between WIFI/Cellular modes), the session lingers

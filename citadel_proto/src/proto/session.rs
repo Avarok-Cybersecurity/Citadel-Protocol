@@ -274,6 +274,11 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) remote_node_type: Option<NodeType>,
     pub(super) local_bind_addr: SocketAddr,
     pub(super) do_static_hr_refresh_atexit: DualCell<bool>,
+    /// Set once this session is upgraded from provisional into the session map, i.e. it has
+    /// authenticated and owns its CID. A session that never got that far must not run the
+    /// account-level teardown: it would reset the session crypto and peer-layer state of the
+    /// account's admitted session, which it shares.
+    pub(super) admitted: DualCell<bool>,
     pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<NodeResult<R>>>>,
     pub(super) is_server: bool,
     pub(super) stopper_tx: DualRwLock<citadel_io::tokio::sync::broadcast::Sender<()>>,
@@ -502,6 +507,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             local_nat_type,
             adjacent_nat_type: DualLateInit::default(),
             do_static_hr_refresh_atexit: true.into(),
+            admitted: false.into(),
             dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
             peer_only_connect_protocol,
             on_drop,

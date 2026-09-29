@@ -46,6 +46,7 @@ use super::includes::*;
 use crate::prelude::Ticket;
 use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
+use crate::proto::session_manager::{CidAdmission, SESSION_ALREADY_CONNECTED};
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 
 /// How long the preconnect SUCCESS handler will wait for this side's own hole
@@ -100,15 +101,14 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     // TODO: protocol translations for inter-version compatibility
                 }
                 // first make sure the cid isn't already connected
-                let can_proceed_with_connection = session
+                let admission = session
                     .session_manager
                     .can_proceed_with_new_incoming_connection(header.session_cid.get(), true)
                     .await;
                 let account_manager = session.account_manager.clone();
 
-                if !can_proceed_with_connection {
-                    const REASON: &str = "Session Already Connected, or, is in the process of disconnection and an earlier connection attempt beat this connection. Not allowing this connection";
-                    return send_error_and_end_session(&header, None, REASON);
+                if admission == CidAdmission::Refused {
+                    return send_error_and_end_session(&header, None, SESSION_ALREADY_CONNECTED);
                 }
 
                 if let Some(cnac) = account_manager
@@ -140,7 +140,23 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             kat,
                             nat_type,
                             new_ratchet,
+                            connect_mode,
                         )) => {
+                            // A connected session holds this account. Going on requires the
+                            // client's own, authenticated request to displace it; even then it is
+                            // displaced only at connect STAGE0, once the credentials check out.
+                            if admission == CidAdmission::HeldByConnectedSession
+                                && !connect_mode.force_login()
+                            {
+                                session
+                                    .session_manager
+                                    .release_provisional_cid_reservation(header.session_cid.get());
+                                return send_error_and_end_session(
+                                    &header,
+                                    None,
+                                    SESSION_ALREADY_CONNECTED,
+                                );
+                            }
                             // Prepare response and set non-state items
                             session.adjacent_nat_type.set_once(Some(nat_type));
                             session.kernel_ticket.set(ticket);
@@ -165,6 +181,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                     packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                                 sc.keep_alive_timeout_ns = kat;
                                 sc.udp_mode = udp_mode;
+                                sc.connect_state.connect_mode = Some(connect_mode);
                                 sc.cnac = Some(cnac);
                                 session.session_cid.set(Some(header.session_cid.get()));
                                 sc.session_security_settings = Some(session_security_settings);
