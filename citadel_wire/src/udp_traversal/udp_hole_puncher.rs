@@ -727,3 +727,7 @@ mod routable_candidate_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "attempt_pairing_tests.rs"]
+mod attempt_pairing_tests;
