@@ -2,8 +2,21 @@
 //! lookup, direct-P2P upgrade, and stream selection.
 
 use super::includes::*;
+use crate::proto::peer::direct_journal::DirectJournal;
+use crate::proto::peer::direct_route;
 use crate::proto::peer::p2p_path::P2pPathCell;
 use citadel_io::{error, ErrorCode};
+
+/// What happened when a direct route ended.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum RouteEnd {
+    /// The route had already been replaced or detached, or the connection is gone.
+    NotCurrent,
+    /// The connection is closing: tear it down as before.
+    ConnectionClosed,
+    /// The connection is live and now runs over the server relay.
+    FellBack,
+}
 
 impl<R: Ratchet> StateContainerInner<R> {
     /// Attempts to find the direct p2p stream. If not found, will use the default
@@ -48,7 +61,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     /// to forward the disconnect signal to the kernel. Pass None for C2S connections.
     pub(crate) fn insert_direct_p2p_connection(
         &mut self,
-        mut provisional: DirectP2PRemote,
+        provisional: DirectP2PRemote,
         peer_cid: u64,
         implcid: u64,
         p2p_disconnect_notifier: Option<
@@ -57,60 +70,22 @@ impl<R: Ratchet> StateContainerInner<R> {
     ) -> Result<(), NetworkError> {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
-                log::trace!(target: "citadel", "UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
-
-                // CID-based tie-breaker for simultaneous P2P connections (defense-in-depth).
-                // Rule: Keep connection where the higher-CID peer is the client.
-                // This ensures both peers converge on the SAME underlying connection.
-                if let Some(existing) = endpoint_container.direct_p2p_remote.as_ref() {
-                    // Determine which connection type we should have based on CIDs
-                    // If implcid < peer_cid, we should be the listener (peer is client)
-                    let should_be_listener = implcid != 0 && implcid < peer_cid;
-
-                    if existing.from_listener == should_be_listener {
-                        // Existing connection is the correct type, discard provisional
-                        log::info!(target: "citadel",
-                            "P2P already has correct {} connection for peer {peer_cid}, discarding duplicate {} connection",
-                            existing.from_listener.if_eq(true, "listener").if_false("client"),
-                            provisional.from_listener.if_eq(true, "listener").if_false("client")
-                        );
-                        // Stop the provisional's handler cleanly
-                        if let Some(stopper) = provisional.stopper.take() {
-                            let _ = stopper.send(());
-                        }
-                        return Ok(());
-                    } else if provisional.from_listener == should_be_listener {
-                        // Provisional is the correct type, replace existing
-                        log::info!(target: "citadel",
-                            "Replacing {} with correct {} P2P connection for peer {peer_cid} (CID tie-breaker: implcid={}, peer={})",
-                            existing.from_listener.if_eq(true, "listener").if_false("client"),
-                            provisional.from_listener.if_eq(true, "listener").if_false("client"),
-                            implcid, peer_cid
-                        );
-                        // Stop the existing handler cleanly before replacing
-                        if let Some(mut old) = endpoint_container.direct_p2p_remote.take() {
-                            if let Some(stopper) = old.stopper.take() {
-                                let _ = stopper.send(());
-                            }
-                        }
-                    } else {
-                        // Neither matches expected type (edge case) - keep existing
-                        log::warn!(target: "citadel",
-                            "Neither connection matches expected type for peer {peer_cid}, keeping existing {} (expected {})",
-                            existing.from_listener.if_eq(true, "listener").if_false("client"),
-                            should_be_listener.if_eq(true, "listener").if_false("client")
-                        );
-                        if let Some(stopper) = provisional.stopper.take() {
-                            let _ = stopper.send(());
-                        }
-                        return Ok(());
-                    }
+                let installed = direct_route::attach(
+                    &mut endpoint_container.direct_p2p_remote,
+                    provisional,
+                    implcid,
+                    peer_cid,
+                    &mut endpoint_container.direct_journal.lock(),
+                );
+                if !installed {
+                    return Ok(());
                 }
-
                 // By setting the below value, all outbound packets will use
                 // this direct conn over the proxied TURN-like connection
-                vconn.sender = Some((None, provisional.p2p_primary_stream.clone())); // setting this will allow the UDP stream to be upgraded too
-                endpoint_container.direct_p2p_remote = Some(provisional);
+                vconn.sender = endpoint_container
+                    .direct_p2p_remote
+                    .as_ref()
+                    .map(|remote| (None, remote.p2p_primary_stream.clone())); // setting this will allow the UDP stream to be upgraded too
 
                 // Set the P2P disconnect notifier for bidirectional disconnect propagation (P2P only)
                 if let Some(notifier) = p2p_disconnect_notifier {
@@ -125,6 +100,67 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
 
         Err(error!(ErrorCode::StateVconnUpgradeFailed))
+    }
+
+    /// The unacknowledged-message journal of `peer_cid`'s direct route, when its traffic runs over
+    /// one. `None` on the server relay and for the C2S connection, neither of which needs one.
+    pub(crate) fn direct_journal_for(
+        &self,
+        peer_cid: u64,
+    ) -> Option<&citadel_io::Mutex<DirectJournal>> {
+        if peer_cid == C2S_IDENTITY_CID {
+            return None;
+        }
+        let endpoint = self
+            .active_virtual_connections
+            .get(&peer_cid)?
+            .endpoint_container
+            .as_ref()?;
+        endpoint.direct_p2p_remote.as_ref()?;
+        Some(&endpoint.direct_journal)
+    }
+
+    /// The direct route `route_id` to `peer_cid` ended. When it is still the connection's route
+    /// and the connection is live, traffic falls back to the server relay: the route is detached,
+    /// every message it had not delivered is re-sent over the relay ahead of anything new, and the
+    /// path cell reports [`P2pPath::ServerRelay`](crate::proto::peer::p2p_path::P2pPath) so the
+    /// campaign can retry. The channel stays open throughout.
+    pub(crate) fn fall_back_to_server_relay(&mut self, peer_cid: u64, route_id: u64) -> RouteEnd {
+        let is_current = self
+            .active_virtual_connections
+            .get(&peer_cid)
+            .and_then(|vconn| vconn.endpoint_container.as_ref())
+            .and_then(|endpoint| endpoint.direct_p2p_remote.as_ref())
+            .is_some_and(|remote| remote.route_id == route_id);
+        if !is_current {
+            return RouteEnd::NotCurrent;
+        }
+        let is_active = self
+            .active_virtual_connections
+            .get(&peer_cid)
+            .is_some_and(|vconn| vconn.is_active.load(Ordering::SeqCst));
+        if !is_active {
+            return RouteEnd::ConnectionClosed;
+        }
+
+        self.remove_udp_channel(peer_cid);
+        let Some(relay) = self.get_preferred_stream(C2S_IDENTITY_CID).cloned() else {
+            return RouteEnd::ConnectionClosed;
+        };
+        let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) else {
+            return RouteEnd::NotCurrent;
+        };
+        vconn.sender = None;
+        let Some(endpoint) = vconn.endpoint_container.as_mut() else {
+            return RouteEnd::NotCurrent;
+        };
+        // Dropping the remote fires its stopper; its handler is already on its way out.
+        drop(endpoint.direct_p2p_remote.take());
+        let resent = endpoint.direct_journal.lock().drain_onto(&relay);
+        endpoint.p2p_path.fall_back_to_server_relay();
+        log::warn!(target: "citadel", "Direct route to peer {peer_cid} ended; fell back to the server relay and re-sent {resent} unacknowledged message(s)");
+        let _ = self.fail_transfers_with_peer(peer_cid, "the direct path to this peer was lost");
+        RouteEnd::FellBack
     }
 
     #[allow(unused_results)]
@@ -275,6 +311,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         let endpoint_container = Some(EndpointChannelContainer {
             direct_p2p_remote: None,
             p2p_path,
+            direct_journal: Default::default(),
             ratchet_manager,
             channel_signal: None,
             to_ordered_local_channel: to_channel,

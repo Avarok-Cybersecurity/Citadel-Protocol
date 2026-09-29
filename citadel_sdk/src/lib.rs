@@ -69,6 +69,12 @@
 //! their central server to relay their packets to each other using endpoint-to-endpoint encryption, preventing the central server from
 //! decrypting the packets.
 //!
+//! Applications never wait for NAT traversal: a peer connection is delivered, and usable, as soon as the keys are exchanged, with its
+//! traffic on the central server's relay. Hole punching runs in the background, and when a direct path is established the channel
+//! upgrades in place (and falls back to the relay if that path is later lost), with every message delivered once and in order across
+//! the switch. `PeerChannel::ensure_direct` waits for the direct path when an application needs one (e.g. for UDP), and
+//! `PeerChannel::path_changes` reports each change.
+//!
 #![cfg_attr(
     feature = "doc-images",
     doc = ::embed_doc_image::embed_image!(

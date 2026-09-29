@@ -152,6 +152,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 .clone()
                 .expect("Should be set at beginning of session or on first SYN packet"),
             from_listener: false,
+            route_id: crate::proto::peer::p2p_conn_handler::next_route_id(),
         };
 
         // C2S connections don't have simultaneous connect races, so pass implcid=0

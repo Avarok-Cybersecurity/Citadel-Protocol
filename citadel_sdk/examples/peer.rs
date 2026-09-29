@@ -35,6 +35,9 @@ async fn main() {
         agg,
         |mut connection, remote| async move {
             let mut connection = connection.recv().await.unwrap()?;
+            // Usable at once over the server relay; UDP needs the P2P path, which attaches in
+            // the background.
+            connection.channel.ensure_direct().await?;
             let chan = connection.udp_channel_rx.take();
             citadel_io::tokio::task::spawn(citadel_sdk::test_common::udp_mode_assertions(
                 UdpMode::Enabled,

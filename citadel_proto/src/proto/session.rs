@@ -2209,6 +2209,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     ticket,
                     time_tracker,
                     v_conn,
+                    state_container.direct_journal_for(v_conn.get_target_cid()),
                 )
                 .map_err(|err| (err, attributed_ticket, original_payload))?;
 

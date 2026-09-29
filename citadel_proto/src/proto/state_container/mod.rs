@@ -38,6 +38,7 @@
 //! - File transfers are encrypted end-to-end
 
 use self::includes::*;
+use crate::proto::peer::direct_journal::DirectJournal;
 use crate::proto::peer::p2p_path::P2pPathCell;
 use citadel_wire::udp_traversal::turn_relay::TurnRelayConfig;
 
@@ -72,7 +73,6 @@ pub(crate) mod includes {
         MAX_OUTGOING_UNPROCESSED_REQUESTS,
     };
     pub(crate) use crate::error::NetworkError;
-    pub(crate) use crate::functional::IfEqConditional;
     pub(crate) use crate::prelude::{InternalServerError, ReKeyResult, ReKeyReturnType};
     pub(crate) use crate::proto::misc::dual_cell::DualCell;
     pub(crate) use crate::proto::misc::dual_late_init::DualLateInit;
@@ -153,6 +153,7 @@ mod outbound_transfer;
 mod rekey_and_groups;
 mod transfer_error;
 mod virtual_connections;
+pub(crate) use virtual_connections::RouteEnd;
 
 /// For keeping track of the stages
 pub struct StateContainerInner<R: Ratchet> {
@@ -370,6 +371,8 @@ pub struct EndpointChannelContainer<R: Ratchet> {
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
     /// Shared with the application's `PeerChannel`.
     pub(crate) p2p_path: P2pPathCell,
+    /// Messages sent over the direct route and not yet acknowledged, re-sent when that route ends.
+    pub(crate) direct_journal: citadel_io::Mutex<DirectJournal>,
     pub(crate) ratchet_manager: ProtocolRatchetManager<R>,
     pub(crate) channel_signal: Option<NodeResult<R>>,
     to_ordered_local_channel:
@@ -406,6 +409,7 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
     fn drop(&mut self) {
         self.is_active.store(false, Ordering::SeqCst);
         if let Some(endpoint_container) = self.endpoint_container.as_mut() {
+            endpoint_container.p2p_path.close();
             let _ = endpoint_container.ratchet_manager.shutdown();
             // Trigger P2P disconnect notification if not already triggered (exactly-once via .take())
             if let Some(notifier) = endpoint_container.take_p2p_disconnect_notifier() {

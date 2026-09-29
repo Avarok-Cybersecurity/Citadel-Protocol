@@ -7,7 +7,6 @@
 
 use std::net::SocketAddr;
 use std::path::Path;
-use std::time::Duration;
 
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
@@ -27,7 +26,6 @@ use super::udp_internal_interface::{
 };
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
-use crate::proto::node_result::NodeResult;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::p2p_conn_handler;
 use crate::proto::peer::p2p_path::P2pPlan;
@@ -102,78 +100,55 @@ impl PlatformOps for NativeIO {
         peer_connection_type: PeerConnectionType,
         ticket: Ticket,
         peer_nat_info: PeerNatInfo,
-        channel_signal: NodeResult<R>,
-        hole_punch_compat_stream: ReliableOrderedCompatStream<R>,
+        app: NetworkEndpoint,
         endpoint_ratchet: R,
         peer_cid: u64,
         sync_instant: citadel_io::time::Instant,
-        node_type: RelativeNodeType,
+        _node_type: RelativeNodeType,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
-        cancel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
         plan: P2pPlan,
-    ) -> impl std::future::Future<Output = Result<(), NetworkError>> + ContextRequirements {
+    ) -> impl std::future::Future<Output = bool> + ContextRequirements {
         async move {
             let (attempt_direct, relay) = match plan {
                 P2pPlan::DirectOnly => (true, None),
                 P2pPlan::DirectThenRelay(cfg) => (true, Some(cfg)),
                 P2pPlan::RelayOnly(cfg) => (false, Some(cfg)),
-                P2pPlan::ServerOnly => {
-                    session.send_to_kernel(channel_signal)?;
-                    return Ok(());
-                }
+                P2pPlan::ServerOnly => return false,
             };
-            let stun_servers = session.stun_servers.clone();
+            let encrypted_config_container = generate_hole_punch_crypt_container(
+                endpoint_ratchet,
+                SecurityLevel::Standard,
+                peer_cid,
+                session.stun_servers.clone(),
+            );
             let session_cid = session.session_cid.clone();
             let kernel_tx = session.kernel_tx.clone();
             let session_alive = session.alive_tracker();
             let client_config = session.client_config.clone();
-
-            const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
-            match citadel_io::time::timeout(
-                REGISTER_TIMEOUT,
-                NetworkEndpoint::register(node_type, hole_punch_compat_stream),
+            match p2p_conn_handler::attempt_simultaneous_hole_punch(
+                peer_connection_type,
+                ticket,
+                session,
+                peer_nat_info,
+                session_cid,
+                kernel_tx,
+                sync_instant,
+                app,
+                encrypted_config_container,
+                client_config,
+                udp_mode,
+                session_security_settings,
+                session_alive,
+                attempt_direct,
+                relay,
             )
             .await
             {
-                Ok(Ok(app)) => {
-                    let encrypted_config_container = generate_hole_punch_crypt_container(
-                        endpoint_ratchet,
-                        SecurityLevel::Standard,
-                        peer_cid,
-                        stun_servers,
-                    );
-                    let _ = p2p_conn_handler::attempt_simultaneous_hole_punch(
-                        peer_connection_type,
-                        ticket,
-                        session,
-                        peer_nat_info,
-                        session_cid,
-                        kernel_tx,
-                        channel_signal,
-                        sync_instant,
-                        app,
-                        encrypted_config_container,
-                        client_config,
-                        udp_mode,
-                        session_security_settings,
-                        cancel_rx,
-                        session_alive,
-                        attempt_direct,
-                        relay,
-                    )
-                    .await;
-                    Ok(())
-                }
-                Ok(Err(err)) => {
-                    log::warn!(target: "citadel", "NetworkEndpoint register failed: {err}, sending TCP-only channel");
-                    session.send_to_kernel(channel_signal)?;
-                    Ok(())
-                }
-                Err(_) => {
-                    log::warn!(target: "citadel", "NetworkEndpoint register timed out after {REGISTER_TIMEOUT:?}, sending TCP-only channel");
-                    session.send_to_kernel(channel_signal)?;
-                    Ok(())
+                Ok(attached) => attached,
+                Err(err) => {
+                    log::warn!(target: "citadel", "P2P upgrade attempt failed: {err}");
+                    false
                 }
             }
         }

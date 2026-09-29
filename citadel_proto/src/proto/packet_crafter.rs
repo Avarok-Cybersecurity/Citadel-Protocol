@@ -46,6 +46,7 @@
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
+use crate::proto::peer::direct_journal::DirectJournal;
 use crate::proto::remote::Ticket;
 use crate::proto::session::UserMessage;
 use crate::proto::state_container::VirtualTargetType;
@@ -129,6 +130,7 @@ impl<R: Ratchet> ObjectTransmitter<R> {
         ticket: Ticket,
         time_tracker: TimeTracker,
         virtual_target_type: VirtualTargetType,
+        direct_journal: Option<&citadel_io::Mutex<DirectJournal>>,
     ) -> Result<(), NetworkError> {
         // Gets the latest entropy_bank version by default for this operation
         log::trace!(target: "citadel", "Will use {ratchet:?} to encrypt group {group_id}");
@@ -146,7 +148,13 @@ impl<R: Ratchet> ObjectTransmitter<R> {
             time_tracker,
         };
 
-        this.transmit_group_header(virtual_target_type)
+        let header = this.generate_group_header(virtual_target_type)?;
+        if let Some(journal) = direct_journal {
+            journal.lock().record(group_id, &header);
+        }
+        this.to_primary_stream
+            .unbounded_send(header)
+            .map_err(|err| error!(ErrorCode::GroupHeaderTransmitFailed, format!("{err:?}")))
     }
 
     pub fn transmit_group_header(

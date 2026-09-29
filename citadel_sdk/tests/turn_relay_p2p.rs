@@ -136,6 +136,14 @@ mod tests {
                 peer.add(),
                 move |mut results, remote| async move {
                     let mut conn = results.recv().await.unwrap().unwrap();
+                    // The channel arrives over the server relay; the P2P path (if any) attaches
+                    // in the background. Wait for the campaign's outcome before asserting it.
+                    let upgraded = conn.channel.ensure_direct().await;
+                    if expect.path == P2pPath::ServerRelay {
+                        assert!(upgraded.is_err(), "peer {me}: {upgraded:?}");
+                    } else {
+                        assert_eq!(upgraded.unwrap(), expect.path, "peer {me} upgrade");
+                    }
                     assert_eq!(conn.channel.p2p_path(), expect.path, "peer {me} path");
                     assert_eq!(
                         conn.channel.p2p_relayed_both(),

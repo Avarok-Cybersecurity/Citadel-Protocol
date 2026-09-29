@@ -61,6 +61,10 @@ mod tests {
             let kernel =
                 PeerConnectionKernel::new(settings, agg, move |mut results, remote| async move {
                     let conn = results.recv().await.unwrap().unwrap();
+                    if udp_mode == UdpMode::Enabled {
+                        // UDP media needs the P2P path, which attaches in the background.
+                        assert_eq!(conn.channel.ensure_direct().await.unwrap(), P2pPath::Direct);
+                    }
                     let cfg: MediaTransportConfig = test_media_config();
                     let (endpoint, _peer_remote) = MediaEndpoint::from_peer_connection(conn, cfg)
                         .await

@@ -60,6 +60,12 @@ pub mod p2p_conn_handler;
 
 pub mod p2p_path;
 
+pub(crate) mod direct_journal;
+
+pub(crate) mod direct_route;
+
+pub(crate) mod p2p_campaign;
+
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod turn_p2p;
 #[cfg(not(target_family = "wasm"))]

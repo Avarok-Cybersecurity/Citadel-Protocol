@@ -1430,6 +1430,11 @@ mod tests {
         Fut: Future<Output = PeerConnectSuccess<R>> + Send,
     {
         let task = async move {
+            if udp_mode == UdpMode::Enabled {
+                // A UDP channel exists only on a P2P path, which attaches in the background.
+                let path = conn.channel.ensure_direct().await;
+                assert!(path.is_ok(), "no direct path: {path:?}");
+            }
             let chan = conn.udp_channel_rx.take();
             crate::test_common::p2p_assertions(session_cid, &conn).await;
             crate::test_common::udp_mode_assertions(udp_mode, chan).await;

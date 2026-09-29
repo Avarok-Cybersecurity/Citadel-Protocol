@@ -1133,4 +1133,7 @@ pub enum ErrorCode {
     /// The host could not say how much storage the backend may use (reason).
     #[form = "The host did not provide a storage quota: {}"]
     HostSqlStorageQuotaUnavailable = 340,
+    /// A peer connection has no direct (P2P) path and will not get one (reason).
+    #[form = "No direct P2P path: {}"]
+    P2pDirectPathUnavailable = 341,
 }
