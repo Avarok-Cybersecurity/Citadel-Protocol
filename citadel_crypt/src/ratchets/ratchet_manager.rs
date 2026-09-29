@@ -464,7 +464,7 @@ where
             let metadata = self.get_rekey_metadata();
             let next_version = metadata.next_version;
 
-            let (constructor, earliest_ratchet_version, latest_ratchet_version) = {
+            let (source_ratchet, earliest_ratchet_version, latest_ratchet_version) = {
                 // Check if the version has already advanced (background loop completed a rekey)
                 let current_version = self.session_crypto_state.latest_usable_version();
                 if current_version > version_at_entry {
@@ -478,7 +478,7 @@ where
                     return Ok(attached_payload);
                 }
 
-                let constructor = self.session_crypto_state.get_next_constructor();
+                let source_ratchet = self.session_crypto_state.claim_next_constructor_source();
                 let earliest_ratchet_version = self
                     .session_crypto_state
                     .toolset()
@@ -486,10 +486,31 @@ where
                     .get_oldest_ratchet_version();
                 let latest_ratchet_version = self.session_crypto_state.latest_usable_version();
                 (
-                    constructor,
+                    source_ratchet,
                     earliest_ratchet_version,
                     latest_ratchet_version,
                 )
+            };
+
+            // Offload the keygen (new_alice), stage0_alice and serialization: the
+            // KEM work stalls every task sharing this thread when run inline.
+            let prepared = match source_ratchet {
+                Some(source_ratchet) => citadel_io::spawn_blocking(move || {
+                    let Some(constructor) = source_ratchet.next_alice_constructor() else {
+                        return Ok(None);
+                    };
+                    let transfer = constructor.stage0_alice().ok_or_else(|| {
+                        citadel_io::error!(citadel_io::ErrorCode::RekeyInitialTransferFailed)
+                    })?;
+                    let payload = bincode::serialize(&transfer)
+                        .map_err(|err| CryptError::rekey_update(format!("{err:?}")))?;
+                    Ok::<_, CryptError>(Some((constructor, payload)))
+                })
+                .await
+                .map_err(|_| {
+                    citadel_io::error!(citadel_io::ErrorCode::RekeyJoinError, "stage0_alice")
+                })??,
+                None => None,
             };
 
             // CBD: Version snapshot before sending AliceToBob
@@ -498,23 +519,9 @@ where
 
             // CBD: Checkpoint RKT-3
             log::info!(target: "citadel", "[CBD-RKT-3] Client {} got constructor (is_some={}): elapsed={}ms",
-            self.cid, constructor.is_some(), rkt_start.elapsed().as_millis());
+            self.cid, prepared.is_some(), rkt_start.elapsed().as_millis());
 
-            if let Some(constructor) = constructor {
-                // Offload stage0_alice + serialize
-                let (constructor, payload) = citadel_io::spawn_blocking(move || {
-                    let transfer = constructor.stage0_alice().ok_or_else(|| {
-                        citadel_io::error!(citadel_io::ErrorCode::RekeyInitialTransferFailed)
-                    })?;
-                    let payload = bincode::serialize(&transfer)
-                        .map_err(|err| CryptError::rekey_update(format!("{err:?}")))?;
-                    Ok::<_, CryptError>((constructor, payload))
-                })
-                .await
-                .map_err(|_| {
-                    citadel_io::error!(citadel_io::ErrorCode::RekeyJoinError, "stage0_alice")
-                })??;
-
+            if let Some((constructor, payload)) = prepared {
                 // For wait_for_completion=true, register listener BEFORE sending to avoid missing notification
                 let rx = if wait_for_completion {
                     // CBD: Checkpoint RKT-6
@@ -1069,21 +1076,23 @@ where
                         log::info!(target: "citadel", "[CBD-RKT-PROC-1b] Client {} validation passed, local_meta={:?}", self.cid, metadata);
                         // Create Bob constructor
                         log::info!(target: "citadel", "[CBD-RKT-PROC-2] Client {} creating Bob constructor after validation", self.cid);
-                        let bob_constructor =
-                            <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
-                                self.cid, next_opts, transfer, &self.psks,
-                            )
-                            .ok_or_else(|| {
-                                citadel_io::error!(citadel_io::ErrorCode::RekeyBobConstructorFailed)
-                            })?;
-
-                        // Offload update_sync_safe
-                        log::info!(target: "citadel", "[CBD-RKT-PROC-3] Client {} calling spawn_blocking for update_sync_safe", self.cid);
+                        // Offload new_bob (KEM encapsulation) and update_sync_safe
+                        log::info!(target: "citadel", "[CBD-RKT-PROC-3] Client {} calling spawn_blocking for new_bob + update_sync_safe", self.cid);
                         let status_result = citadel_io::spawn_blocking({
                             let session_crypto_state = self.session_crypto_state.clone();
+                            let psks = self.psks.clone();
                             let cid = self.cid;
                             move || {
                                 log::info!(target: "citadel", "[CBD-RKT-PROC-4] Client {} entered spawn_blocking thread", cid);
+                                let bob_constructor =
+                                    <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
+                                        cid, next_opts, transfer, &psks,
+                                    )
+                                    .ok_or_else(|| {
+                                        citadel_io::error!(
+                                            citadel_io::ErrorCode::RekeyBobConstructorFailed
+                                        )
+                                    })?;
                                 let result = session_crypto_state.update_sync_safe(bob_constructor, false);
                                 log::info!(target: "citadel", "[CBD-RKT-PROC-5] Client {} update_sync_safe returned in spawn_blocking", cid);
                                 result
@@ -1289,11 +1298,14 @@ where
                             CryptError::rekey_update(format!("Failed to deserialize transfer: {e}"))
                         })?;
 
-                        alice_constructor.stage1_alice(transfer, &self.psks)?;
-                        // Offload update_sync_safe
+                        // Offload stage1_alice (KEM decapsulation) and update_sync_safe
                         let status = citadel_io::spawn_blocking({
                             let session_crypto_state = self.session_crypto_state.clone();
-                            move || session_crypto_state.update_sync_safe(alice_constructor, true)
+                            let psks = self.psks.clone();
+                            move || {
+                                alice_constructor.stage1_alice(transfer, &psks)?;
+                                session_crypto_state.update_sync_safe(alice_constructor, true)
+                            }
                         })
                         .await
                         .map_err(|_| {
@@ -2351,3 +2363,7 @@ pub(crate) mod tests {
         );
     }
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "ratchet_manager_offload_tests.rs"]
+mod offload_tests;

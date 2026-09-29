@@ -333,8 +333,16 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     }
 
     pub fn get_next_constructor(&self) -> Option<R::Constructor> {
+        self.claim_next_constructor_source()?
+            .next_alice_constructor()
+    }
+
+    /// Claims the update toggle and returns the ratchet the next Alice
+    /// constructor derives from, leaving the KEM keygen
+    /// (`next_alice_constructor`) to the caller so it can run off the executor.
+    pub fn claim_next_constructor_source(&self) -> Option<R> {
         if self.update_in_progress.toggle_on_if_untoggled() == CurrentToggleState::JustToggled {
-            self.get_ratchet(None)?.next_alice_constructor()
+            self.get_ratchet(None)
         } else {
             None
         }
