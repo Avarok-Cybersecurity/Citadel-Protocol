@@ -60,7 +60,7 @@ impl<R: Ratchet> NetKernel<R> for ServerlessKernel<R> {
             let connect_success = remote
                 .connect(
                     auth,
-                    Default::default(),
+                    ConnectMode::Standard { force_login: false },
                     UdpMode::Disabled,
                     None,
                     Default::default(),

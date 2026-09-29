@@ -431,13 +431,17 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
 
     /// Connects with the default settings
     /// If FCM keys were created during the registration phase, then those keys will be used for the session. If new FCM keys need to be used, consider using [`Self::connect`]
+    ///
+    /// Never displaces a session the server already holds for the account
+    /// (`ConnectMode::Standard { force_login: false }`). A client reconnecting after its link
+    /// dropped should use [`Self::connect`] with `force_login: true`: see [`ConnectMode`].
     async fn connect_with_defaults(
         &self,
         auth: AuthenticationRequest,
     ) -> Result<CitadelClientServerConnection<R>, NetworkError> {
         self.connect(
             auth,
-            Default::default(),
+            ConnectMode::Standard { force_login: false },
             Default::default(),
             None,
             Default::default(),

@@ -239,7 +239,7 @@ where
         let mut connect_success = remote
             .connect(
                 auth,
-                Default::default(),
+                ConnectMode::Standard { force_login: false },
                 self.udp_mode,
                 None,
                 self.session_security_settings,

@@ -222,6 +222,7 @@ pub(crate) mod pre_connect {
     use citadel_crypt::ratchets::Ratchet;
     use citadel_io::{error, ErrorCode};
     use citadel_types::crypto::PreSharedKey;
+    use citadel_types::proto::ConnectMode;
     use citadel_types::proto::SessionSecuritySettings;
     use citadel_types::proto::UdpMode;
     use citadel_user::prelude::ConnectProtocol;
@@ -237,8 +238,16 @@ pub(crate) mod pre_connect {
         i64,
         NatType,
         R,
+        ConnectMode,
     );
 
+    /// Validates a SYN WITHOUT touching the account's session crypto.
+    ///
+    /// That state is shared with any session the server already holds for this
+    /// account, and a SYN proves only possession of the static device key — which
+    /// a recorded SYN replays, since the anti-replay window is reset right here.
+    /// Installing the new toolset is therefore left to connect STAGE0, after the
+    /// credentials are verified: see `connect_packet.rs`.
     pub(crate) fn validate_syn<R: Ratchet>(
         cnac: &ClientNetworkAccount<R, R>,
         packet: HdpPacket,
@@ -250,12 +259,13 @@ pub(crate) mod pre_connect {
         >,
         NetworkError,
     > {
-        // refresh_static_ratchet() resets the static auxiliary ratchet's transient state, including
-        // its anti-replay container. This MUST happen before validating the SYN: a legitimate
-        // reconnect reuses low packet IDs (starting at 0), so validating against the previous
-        // connection's anti-replay window would reject it. (An attacker cannot exploit this without
-        // already possessing the static device key required to pass the AEAD check below.)
-        let static_auxiliary_ratchet = cnac.refresh_static_ratchet();
+        // Reset the static auxiliary ratchet's anti-replay container. This MUST happen before
+        // validating the SYN: a legitimate reconnect reuses low packet IDs (starting at 0), so
+        // validating against the previous connection's anti-replay window would reject it. Only
+        // the anti-replay state is reset — not the session crypto's rekey/group counters, which a
+        // live session of this account is using.
+        let static_auxiliary_ratchet = cnac.get_static_auxiliary_ratchet();
+        static_auxiliary_ratchet.reset_ara();
         let (header, payload, _, _) = packet.decompose();
         // After this point, we validate that the other end had the right static symmetric key. This proves device identity, thought not necessarily account identity
         let (header, payload) =
@@ -270,6 +280,7 @@ pub(crate) mod pre_connect {
         let nat_type = transfer.nat_type;
         let udp_mode = transfer.udp_mode;
         let kat = transfer.keep_alive_timeout;
+        let connect_mode = transfer.connect_mode;
         let _ = static_auxiliary_ratchet
             .verify_level(Some(transfer.session_security_settings.security_level))
             .map_err(|err| NetworkError::generic(err.into_string()))?;
@@ -295,10 +306,6 @@ pub(crate) mod pre_connect {
         let _ = new_ratchet
             .verify_level(transfer.security_level().into())
             .map_err(|err| NetworkError::generic(err.into_string()))?;
-        // below, we need to ensure the hyper ratchet stays constant throughout transformations
-        let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_ratchet.clone()));
-
-        cnac.on_session_init(toolset);
         Ok((
             static_auxiliary_ratchet,
             transfer,
@@ -308,6 +315,7 @@ pub(crate) mod pre_connect {
             kat,
             nat_type,
             new_ratchet,
+            connect_mode,
         ))
     }
 

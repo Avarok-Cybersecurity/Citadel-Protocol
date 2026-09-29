@@ -13,16 +13,38 @@ use uuid::Uuid;
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
-/// If force_login is true, the protocol will disconnect any previously existent sessions in the session manager attributed to the account logging-in (so long as login succeeds)
-/// The default is a Standard login that will with force_login set to false
+/// How a client asks the server to treat a login for an account that the server
+/// already holds a session for.
+///
+/// `force_login: false` — the server refuses the login ("Session Already
+/// Connected") while it holds a session for the account.
+///
+/// `force_login: true` — once, and only once, the new connection has completed
+/// full authentication (the static device key at SYN, the fresh session key
+/// exchange, and the account credentials at connect STAGE0), the server stops the
+/// session it holds for the account — its peers receive the ordinary disconnect
+/// signal — and admits the new one with the same CID. Last authenticated login
+/// wins. An attempt that fails any step never touches the existing session.
+///
+/// The server cannot tell a half-open session (the client vanished without a FIN
+/// or RST reaching it) from a live one until its keep-alive expires — by default
+/// up to an hour (a 45-minute timeout checked every 15 minutes) — so a client
+/// that reconnects after losing its link should send `force_login: true`, or it
+/// is locked out until then.
+///
+/// There is deliberately no `Default`: whether a login may displace another is a
+/// decision every caller makes explicitly.
 pub enum ConnectMode {
     Standard { force_login: bool },
     Fetch { force_login: bool },
 }
 
-impl Default for ConnectMode {
-    fn default() -> Self {
-        Self::Standard { force_login: false }
+impl ConnectMode {
+    /// Whether this login may displace a session the server holds for the account.
+    pub fn force_login(&self) -> bool {
+        match self {
+            Self::Standard { force_login } | Self::Fetch { force_login } => *force_login,
+        }
     }
 }
 

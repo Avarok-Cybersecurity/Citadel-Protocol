@@ -42,7 +42,7 @@ mod tests {
         remote
             .connect(
                 AuthenticationRequest::credentialed(username.to_string(), PASSWORD),
-                ConnectMode::default(),
+                ConnectMode::Standard { force_login: false },
                 UdpMode::default(),
                 None,
                 settings_at(level),
