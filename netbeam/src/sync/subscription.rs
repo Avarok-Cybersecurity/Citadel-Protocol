@@ -102,6 +102,11 @@ pub trait Subscribable: Send + Sync + Sized {
     }
 
     fn get_next_prereserved(&self) -> Option<Self::BorrowedSubscriptionType>;
+    /// Registers `id` so packets for it are buffered before anyone holds its
+    /// subscription. Idempotent.
+    fn reserve(&self, id: Self::ID);
+    /// Takes the subscription for an id registered by [`Self::reserve`].
+    fn claim_reserved(&self, id: Self::ID) -> Option<Self::BorrowedSubscriptionType>;
     fn subscribe(&self, id: Self::ID) -> Self::BorrowedSubscriptionType;
     fn owned_subscription(&self, id: Self::ID) -> Self::SubscriptionType;
     fn get_next_id(&self) -> Self::ID;

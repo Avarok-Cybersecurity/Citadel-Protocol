@@ -351,6 +351,33 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
         Some(sub.into())
     }
 
+    fn reserve(&self, id: Self::ID) {
+        self.subscribers.write().entry(id).or_insert_with(|| {
+            let (tx, pre_reserved_rx) = unbounded_channel();
+            MemorySender {
+                tx,
+                pre_reserved_rx: Some(pre_reserved_rx),
+            }
+        });
+    }
+
+    fn claim_reserved(&self, id: Self::ID) -> Option<Self::BorrowedSubscriptionType> {
+        let receiver = self
+            .subscribers
+            .write()
+            .get_mut(&id)?
+            .pre_reserved_rx
+            .take()?;
+        let sub = MultiplexedSubscription {
+            ptr: self,
+            receiver: Some(Mutex::new(receiver)),
+            id,
+        };
+        // as in `subscribe`: the peer drives the id
+        let _ = K::catch_up_to(&self.current_latest_subscribed, id);
+        Some(sub.into())
+    }
+
     fn subscribe(&self, id: Self::ID) -> Self::BorrowedSubscriptionType {
         let mut lock = self.subscribers.write();
         let (tx, receiver) = unbounded_channel();
