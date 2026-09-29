@@ -67,20 +67,19 @@ use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 // other attempt is abandoned" IS the intended meaning. It is NOT the intended
 // meaning for the sender/reader pair -- see the comment there.
 use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
+use coordination::Coordination;
 use futures::future::select_ok;
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
-use netbeam::multiplex::MultiplexedConn;
-use netbeam::sync::channel::bi_channel::{ChannelRecvHalf, ChannelSendHalf};
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
+
+mod coordination;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -89,14 +88,6 @@ pub struct DualStackUdpHolePuncher {
     // the key is the local bind addr
     future:
         Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'static>>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-#[allow(variant_size_differences)]
-enum DualStackCandidateSignal {
-    Winner(HolePunchID, HolePunchID),
-    WinnerCanEnd,
-    AllFailed,
 }
 
 impl DualStackUdpHolePuncher {
@@ -189,9 +180,7 @@ async fn drive(
 
     log::trace!(target: "citadel", "Initiating subscription ...");
     // initiate a dedicated channel for sending packets for coordination
-    let conn = app.bi_channel::<DualStackCandidateSignal>().await?;
-    let (ref conn_tx, conn_rx) = conn.split();
-    let conn_rx = &citadel_io::tokio::sync::Mutex::new(conn_rx);
+    let coord = &Coordination::open(&app).await?;
 
     log::trace!(target: "citadel", "Initiating NetMutex ...");
     // setup a mutex for handling contentions
@@ -253,7 +242,7 @@ async fn drive(
     let finished_count = &citadel_io::Mutex::new(0);
     let hole_puncher_count = futures.len();
 
-    let commanded_winner = &citadel_io::tokio::sync::Mutex::new(None);
+    let commanded_winner = &coord.commanded_winner;
 
     let (done_tx, done_rx) = citadel_io::tokio::sync::oneshot::channel::<()>();
     let done_tx = citadel_io::Mutex::new(Some(done_tx));
@@ -265,23 +254,6 @@ async fn drive(
             .ok_or_else(|| anyhow::Error::msg("signal_done has already been called"))?;
         tx.send(())
             .map_err(|_| anyhow::Error::msg("signal_done oneshot sender failed to send"))
-    };
-
-    let failure_occurred = &AtomicBool::new(false);
-    let set_failure_occurred = || async move {
-        let no_failure_yet = !failure_occurred.fetch_or(true, Ordering::SeqCst);
-        if no_failure_yet {
-            log::trace!(target: "citadel", "All hole-punchers have failed locally. Will send AllFailed signal");
-            send(DualStackCandidateSignal::AllFailed, conn_tx).await?;
-            Ok(())
-        } else {
-            // In this case, remote already set_failure_occurred, so we know that since they
-            // failed, and now that we failed, we can end.
-            log::error!(target: "citadel", "Remote has already failed, and locally failed, therefore returning");
-            Err(anyhow::Error::msg(
-                "All local and remote hold punchers failed",
-            ))
-        }
     };
 
     // This is called to scan currently-running tasks to terminate, and, returning the rebuilt
@@ -373,8 +345,9 @@ async fn drive(
             Err(err) => {
                 // The only way an error can occur is if the total number of failures is equal to the number of hole-punchers
                 // In this case, while remote claimed a winner, we were unable to create/find the winner (this should be unreachable)
+                // Failing here hangs up on the winner, which fails it too, so both sides retry.
                 log::error!(target: "citadel", "Rebuilder task failed. Please contact developers on Github: {err:?}");
-                set_failure_occurred().await
+                Err(err)
             }
 
             Ok(hole_punched_socket) => {
@@ -440,11 +413,7 @@ async fn drive(
                         // resolver received a completed future; since in variable NAT setups, the adjacent side may fail
                         // entirely, it could never finish, thus never trigger the code that sets the commanded_winner
                         // and thus prompts the background code to return the socket on the adjacent node.
-                        send(
-                            DualStackCandidateSignal::Winner(peer_unique_id, local_id),
-                            conn_tx,
-                        )
-                        .await?;
+                        coord.announce_winner(peer_unique_id, local_id).await?;
                         while let Some(socket) = current_enqueued_set.lock().await.pop() {
                             if socket.local_id != local_id {
                                 log::warn!(target: "citadel", "*** Winner: socket ID mismatch. Expected {local_id:?}, got {:?}. Looping ...", socket.local_id);
@@ -481,10 +450,8 @@ async fn drive(
                     };
 
                     if fail_count == hole_puncher_count {
-                        // All failed locally, but, remote may claim that it has a valid socket/
-                        // Run the function below to exit if remote already set_failure_occurred
                         log::warn!(target: "citadel", "All hole-punchers have failed locally");
-                        set_failure_occurred().await?;
+                        coord.on_local_all_failed().await?;
                     }
                 }
             }
@@ -494,32 +461,7 @@ async fn drive(
         Ok(())
     };
 
-    let reader = async move {
-        let mut conn_rx = conn_rx.lock().await;
-        loop {
-            match receive(&mut conn_rx).await? {
-                DualStackCandidateSignal::Winner(local_id, peer_id) => {
-                    log::trace!(target: "citadel", "[READER] Remote commanded local to use peer={peer_id:?} and local={local_id:?}");
-                    *commanded_winner.lock().await = Some((local_id, peer_id));
-                }
-                DualStackCandidateSignal::AllFailed => {
-                    // All failed locally, but, remote may claim that it has a valid socket/
-                    // Run the function below to exit if remote already set_failure_occurred
-                    log::warn!(target: "citadel", "Remote claims all hole punchers failed");
-                    set_failure_occurred().await?;
-                    // If we reach here, it implies this node is still resolving futures. Do not return
-                    // until the other joined future resolves itself
-                }
-
-                DualStackCandidateSignal::WinnerCanEnd => {
-                    /*winner_can_end_tx.send(()).map_err(|_| {
-                        anyhow::Error::msg("Unable to send through winner_can_end_tx")
-                    })?;*/
-                    return Ok::<_, anyhow::Error>(());
-                }
-            }
-        }
-    };
+    let reader = coord.read_signals();
 
     log::trace!(target: "citadel", "[DualStack] Executing hole-puncher ....");
     let sender_reader_combo = async move {
@@ -532,9 +474,10 @@ async fn drive(
         // attempt times out. That is precisely the asymmetric-NAT recovery this
         // protocol exists for.
         //
-        // This arm intentionally never completes (it ends in `pending`); its job
-        // is to keep BOTH futures polled. Termination belongs to the `select!`
-        // below, via `done_rx` or the rebuilder.
+        // This arm completes only when both sides have failed, since then no
+        // winner can appear. Otherwise it ends in `pending`: its job is to keep
+        // BOTH futures polled, and termination belongs to the `select!` below,
+        // via `done_rx` or the rebuilder.
         let (resolver, reader) = futures::future::join(futures_resolver, reader).await;
         if let Err(err) = resolver {
             log::warn!(target: "citadel", "Hole-puncher resolver future failed: {err:?}")
@@ -543,13 +486,19 @@ async fn drive(
             log::warn!(target: "citadel", "Hole-puncher reader future failed: {err:?}")
         }
 
+        if coord.both_failed() {
+            // Fail now, so the caller's retry starts now rather than at its timeout.
+            return anyhow::Error::msg("All local and remote hole punchers failed");
+        }
+
         // Just wait for the background process to finish up
         futures::future::pending().await
     };
 
     citadel_io::tokio::select! {
-        _res0 = sender_reader_combo => {
-            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished");
+        err = sender_reader_combo => {
+            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished: {err:?}");
+            return Err(err)
         },
         res1 = done_rx => {
             log::trace!(target: "citadel", "[DualStack] Done signal received {res1:?}");
@@ -562,19 +511,9 @@ async fn drive(
     }
 
     if commanded_winner.lock().await.is_none() {
-        // We are the "winner"
-        log::trace!(target: "citadel", "Winner: awaiting WinnerCanEnd signal");
-        let mut conn_rx = conn_rx.lock().await;
-        let signal = receive(&mut conn_rx).await?;
-        if let DualStackCandidateSignal::WinnerCanEnd = signal {
-            log::trace!(target: "citadel", "Received WinnerCanEnd signal");
-        } else {
-            log::warn!(target: "citadel", "Received unexpected signal: {signal:?}");
-        }
+        coord.await_winner_can_end().await?;
     } else {
-        // We are the "loser"
-        log::trace!(target: "citadel", "Loser: sending WinnerCanEnd signal");
-        send(DualStackCandidateSignal::WinnerCanEnd, conn_tx).await?;
+        coord.release_winner().await;
     }
 
     log::trace!(target: "citadel", "*** ENDING DualStack ***");
@@ -585,20 +524,9 @@ async fn drive(
     Ok(sock)
 }
 
-async fn send(
-    input: DualStackCandidateSignal,
-    conn: &ChannelSendHalf<DualStackCandidateSignal, MultiplexedConn>,
-) -> Result<(), anyhow::Error> {
-    conn.send_item(input).await
-}
-
-async fn receive(
-    conn: &mut ChannelRecvHalf<DualStackCandidateSignal, MultiplexedConn>,
-) -> Result<DualStackCandidateSignal, anyhow::Error> {
-    conn.recv()
-        .await
-        .ok_or_else(|| anyhow::Error::msg("recv from bichannel failed: stream ended"))?
-}
+#[cfg(test)]
+#[path = "drive_tests.rs"]
+mod drive_tests;
 
 #[cfg(test)]
 mod sender_reader_combo_tests {
