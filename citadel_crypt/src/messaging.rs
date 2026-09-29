@@ -620,6 +620,59 @@ mod tests {
         .await;
     }
 
+    /// A send that never commits must not consume an ordered id.
+    ///
+    /// `send` allocates the message's id before its first await. If the send
+    /// future is dropped at any await after that (a caller's `timeout` or
+    /// `select!` firing during a scheduler stall is enough), the message is gone
+    /// but its id is spent. The peer's OrderedChannel then waits for that id
+    /// forever and buffers every later message behind it: the session's
+    /// messaging stops without an error on either side.
+    ///
+    /// The queue lock is held here only to make the first await pend
+    /// deterministically; it is the lock the drainer takes in normal operation.
+    /// Paused clock: the timeout fires only once every task is idle, so it
+    /// asserts "never delivered", not a latency.
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_send_dropped_before_it_commits_does_not_stall_later_messages() {
+        citadel_logging::setup_log();
+        let (alice, bob) = create_messengers::<StackedRatchet, u64>(SecrecyMode::Perfect);
+        let (mut alice_tx, _alice_rx) = alice.split();
+        let (_bob_tx, mut bob_rx) = bob.split();
+
+        {
+            let queue = alice_tx.enqueued_messages.clone();
+            let held = queue.lock().await;
+            let send = alice_tx.send(0u64);
+            futures::pin_mut!(send);
+            assert!(
+                futures::poll!(send.as_mut()).is_pending(),
+                "the send must be parked at an await for this test to cancel it"
+            );
+            drop(held);
+        } // the send future is dropped here: message 0 is never sent
+
+        for x in 1..=3u64 {
+            alice_tx.send(x).await.unwrap();
+        }
+
+        let mut received = Vec::new();
+        while received.len() < 3 {
+            match citadel_io::time::timeout(Duration::from_secs(600), bob_rx.next()).await {
+                Ok(Some(message)) => received.push(message),
+                Ok(None) | Err(_) => break,
+            }
+        }
+
+        assert_eq!(
+            received,
+            vec![1, 2, 3],
+            "messages sent after a cancelled send were never delivered: the \
+             cancelled send consumed an ordered id the receiver waits on forever"
+        );
+    }
+
     #[rstest]
     #[timeout(std::time::Duration::from_secs(180))]
     #[cfg_attr(not(target_family = "wasm"), tokio::test(flavor = "multi_thread"))]
