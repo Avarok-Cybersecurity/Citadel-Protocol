@@ -492,6 +492,68 @@ mod tests {
         }
     }
 
+    /// Both sides on one current-thread runtime that is stalled periodically, as
+    /// a loaded machine stalls it. A stall longer than the loser's 100 ms kill
+    /// resend, or one that lands between the winner's `done` and its reader,
+    /// used to fail one side while both held a working socket; the other side
+    /// had already returned, so the retry could not recover either.
+    #[cfg(not(target_os = "windows"))]
+    #[cfg_attr(coverage, ignore)]
+    #[tokio::test]
+    async fn test_dual_hole_puncher_survives_executor_stalls() {
+        use rand::Rng;
+        use std::time::Duration;
+        citadel_logging::setup_log();
+
+        let (server_stream, client_stream) = create_streams_with_addrs_and_lag(0).await;
+        // Random, so that repeated runs land stalls in different windows.
+        let staller = citadel_io::tokio::spawn(async move {
+            loop {
+                let (between, stall) = {
+                    let mut rng = rand::thread_rng();
+                    (rng.gen_range(0..60), rng.gen_range(50..3500))
+                };
+                citadel_io::tokio::time::sleep(Duration::from_millis(between)).await;
+                // Deliberately blocks the executor, and with it both punchers.
+                std::thread::sleep(Duration::from_millis(stall));
+            }
+        });
+
+        let server = async move {
+            server_stream
+                .begin_udp_hole_punch(Default::default())
+                .await
+                .map_err(|e| e.to_string())
+        };
+        let client = async move {
+            client_stream
+                .begin_udp_hole_punch(Default::default())
+                .await
+                .map_err(|e| e.to_string())
+        };
+        // One attempt's budget: a punch that needed the retry path has already
+        // failed in the way this test is about.
+        let (res0, res1) =
+            citadel_io::tokio::time::timeout(super::DEFAULT_TIMEOUT, async move {
+                citadel_io::tokio::join!(server, client)
+            })
+            .await
+            .expect("a hole punch attempt hung until its timeout");
+        staller.abort();
+        let (s0, s1) = (
+            res0.expect("server punch err"),
+            res1.expect("client punch err"),
+        );
+
+        let dummy = b"Hello, world!";
+        s0.send_to(dummy as &[u8], s0.addr.send_address)
+            .await
+            .unwrap();
+        let buf = &mut [0u8; 4096];
+        let (len, _) = s1.recv_from(buf).await.unwrap();
+        assert_ne!(len, 0);
+    }
+
     /// Regression test for the hole-punch consensus under high coordination-channel lag — and, since
     /// the retry-desync fix, for the RETRY-RECOVERY path itself. `NetworkConnSimulator` adds a random
     /// 1x..2x delay per message, so 450 ms here means up to 900 ms/msg. That puts a single consensus

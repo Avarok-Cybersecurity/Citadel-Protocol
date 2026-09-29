@@ -339,3 +339,7 @@ pub mod nat_payloads {
     pub const SYN_ACK: &[u8] = b"SYN_ACK";
     pub const ACK: &[u8] = b"ACK";
 }
+
+#[cfg(test)]
+#[path = "kill_switch_tests.rs"]
+mod kill_switch_tests;
