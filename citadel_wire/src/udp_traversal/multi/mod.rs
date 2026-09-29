@@ -94,7 +94,7 @@ impl DualStackUdpHolePuncher {
     /// `peer_internal_port`: Required for determining the internal socket addr
     #[cfg_attr(
         feature = "localhost-testing",
-        tracing::instrument(level = "trace", target = "citadel", skip_all, err(Debug))
+        tracing::instrument(level = "trace", target = "citadel", skip_all, err(Display))
     )]
     pub fn new(
         relative_node_type: RelativeNodeType,
@@ -163,7 +163,7 @@ impl Future for DualStackUdpHolePuncher {
 
 #[cfg_attr(
     feature = "localhost-testing",
-    tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
+    tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Display))
 )]
 async fn drive(
     hole_punchers: Vec<SingleUDPHolePuncher>,
@@ -346,7 +346,7 @@ async fn drive(
                 // The only way an error can occur is if the total number of failures is equal to the number of hole-punchers
                 // In this case, while remote claimed a winner, we were unable to create/find the winner (this should be unreachable)
                 // Failing here hangs up on the winner, which fails it too, so both sides retry.
-                log::error!(target: "citadel", "Rebuilder task failed. Please contact developers on Github: {err:?}");
+                log::error!(target: "citadel", "Rebuilder task failed. Please contact developers on Github: {err:#}");
                 Err(err)
             }
 
@@ -480,10 +480,10 @@ async fn drive(
         // via `done_rx` or the rebuilder.
         let (resolver, reader) = futures::future::join(futures_resolver, reader).await;
         if let Err(err) = resolver {
-            log::warn!(target: "citadel", "Hole-puncher resolver future failed: {err:?}")
+            log::warn!(target: "citadel", "Hole-puncher resolver future failed: {err:#}")
         }
         if let Err(err) = reader {
-            log::warn!(target: "citadel", "Hole-puncher reader future failed: {err:?}")
+            log::warn!(target: "citadel", "Hole-puncher reader future failed: {err:#}")
         }
 
         if coord.both_failed() {
@@ -497,7 +497,7 @@ async fn drive(
 
     citadel_io::tokio::select! {
         err = sender_reader_combo => {
-            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished: {err:?}");
+            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished: {err:#}");
             return Err(err)
         },
         res1 = done_rx => {
@@ -505,7 +505,11 @@ async fn drive(
             res1?
         },
         res2 = loser_rebuilder_task => {
-            log::trace!(target: "citadel", "[DualStack] Loser rebuilder task finished {res2:?}");
+            if let Err(err) = &res2 {
+                log::trace!(target: "citadel", "[DualStack] Loser rebuilder task failed: {err:#}");
+            } else {
+                log::trace!(target: "citadel", "[DualStack] Loser rebuilder task finished");
+            }
             res2?
         }
     }

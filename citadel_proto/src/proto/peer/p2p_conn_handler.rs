@@ -636,7 +636,7 @@ pub(crate) mod native_p2p {
             }
             Ok(Err(err)) => {
                 if attempt_direct {
-                    log::warn!(target: "citadel", "[Hole-punch/Err] {err:?}");
+                    log::warn!(target: "citadel", "[Hole-punch/Err] {err}");
                 }
                 false
             }

@@ -97,7 +97,7 @@ const MAX_RETRIES: usize = 3;
 
 #[cfg_attr(
     feature = "localhost-testing",
-    tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
+    tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Display))
 )]
 async fn driver(
     conn: &NetworkEndpoint,
@@ -117,7 +117,7 @@ async fn driver(
                 return Ok(res);
             }
             Ok(Err(err)) => {
-                log::warn!(target: "citadel", "[driver] Attempt {}/{} failed with error: {err:?}", retries + 1, MAX_RETRIES);
+                log::warn!(target: "citadel", "[driver] Attempt {}/{} failed with error: {err:#}", retries + 1, MAX_RETRIES);
             }
             Err(_) => {
                 log::warn!(target: "citadel", "[driver] Attempt {}/{} timed-out after {:?}", retries + 1, MAX_RETRIES, timeout);
@@ -148,7 +148,7 @@ async fn driver_inner(
             s
         }
         Err(e) => {
-            log::error!(target: "citadel", "[driver] Step 1 FAILED: Subscription error: {e:?}");
+            log::error!(target: "citadel", "[driver] Step 1 FAILED: Subscription error: {e:#}");
             return Err(e);
         }
     };
@@ -223,7 +223,7 @@ async fn driver_inner(
             candidates
         }
         Err(e) => {
-            log::error!(target: "citadel", "[driver] Step 4 FAILED: Sync exchange error: {e:?}");
+            log::error!(target: "citadel", "[driver] Step 4 FAILED: Sync exchange error: {e:#}");
             return Err(e);
         }
     };
@@ -254,7 +254,7 @@ async fn driver_inner(
             hp
         }
         Err(e) => {
-            log::error!(target: "citadel", "[driver] Step 5 FAILED: DualStackUdpHolePuncher creation error: {e:?}");
+            log::error!(target: "citadel", "[driver] Step 5 FAILED: DualStackUdpHolePuncher creation error: {e:#}");
             return Err(e);
         }
     };
@@ -262,11 +262,14 @@ async fn driver_inner(
     log::trace!(target: "citadel", "[driver] Step 5b: Awaiting hole punch result...");
     let res = hole_puncher.await;
 
-    log::info!(target: "citadel", "Hole Punch Status: {res:?}");
+    match &res {
+        Ok(socket) => log::info!(target: "citadel", "Hole Punch Status: Ok({socket:?})"),
+        Err(err) => log::info!(target: "citadel", "Hole Punch Status: Err({err:#})"),
+    }
 
     res.map_err(|err| {
         anyhow::Error::msg(format!(
-            "**HOLE-PUNCH-ERR**: {err:?} | local_nat_type: {local_nat_type:?} | peer_nat_type: {peer_nat_type:?}",
+            "**HOLE-PUNCH-ERR**: {err:#} | local_nat_type: {local_nat_type:?} | peer_nat_type: {peer_nat_type:?}",
         ))
     })
 }
