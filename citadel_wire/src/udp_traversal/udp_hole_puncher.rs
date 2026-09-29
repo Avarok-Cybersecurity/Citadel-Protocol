@@ -533,12 +533,11 @@ mod tests {
         };
         // One attempt's budget: a punch that needed the retry path has already
         // failed in the way this test is about.
-        let (res0, res1) =
-            citadel_io::tokio::time::timeout(super::DEFAULT_TIMEOUT, async move {
-                citadel_io::tokio::join!(server, client)
-            })
-            .await
-            .expect("a hole punch attempt hung until its timeout");
+        let (res0, res1) = citadel_io::tokio::time::timeout(super::DEFAULT_TIMEOUT, async move {
+            citadel_io::tokio::join!(server, client)
+        })
+        .await
+        .expect("a hole punch attempt hung until its timeout");
         staller.abort();
         let (s0, s1) = (
             res0.expect("server punch err"),

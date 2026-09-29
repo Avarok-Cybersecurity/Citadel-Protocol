@@ -40,7 +40,7 @@ async fn pair() -> Pair {
 async fn a_release_consumed_by_the_reader_still_releases_the_winner() {
     let Pair { winner, loser, .. } = pair().await;
 
-    loser.release_winner().await.unwrap();
+    loser.release_winner().await;
     tokio::time::timeout(DEADLINE, winner.read_signals())
         .await
         .expect("the reader never received the release")
@@ -64,7 +64,7 @@ async fn a_commanded_loser_does_not_report_all_failed() {
     *loser.commanded_winner.lock().await = Some((HolePunchID::new(), HolePunchID::new()));
 
     loser.on_local_all_failed().await.unwrap();
-    loser.release_winner().await.unwrap();
+    loser.release_winner().await;
 
     let first = tokio::time::timeout(DEADLINE, receive(&mut *winner.conn_rx.lock().await))
         .await
@@ -94,7 +94,7 @@ async fn a_winner_waits_past_a_crossing_all_failed() {
         "the winner finished on AllFailed, before the loser released it"
     );
 
-    loser.release_winner().await.unwrap();
+    loser.release_winner().await;
     tokio::time::timeout(DEADLINE, wait)
         .await
         .expect("the winner hung after being released")
@@ -115,11 +115,11 @@ async fn a_loser_holding_its_socket_is_not_failed_by_a_departed_winner() {
         .expect("the loser never saw the winner hang up");
     assert!(read.is_err());
 
-    let res = loser.release_winner().await;
-    assert!(
-        res.is_ok(),
-        "the loser failed while holding its socket: {res:?}"
-    );
+    // Returns `()`: there is no longer a way for it to fail the loser. What it
+    // must still do is return, rather than wait on a winner that is gone.
+    tokio::time::timeout(DEADLINE, loser.release_winner())
+        .await
+        .expect("the loser hung on a departed winner");
 }
 
 /// The failure path stays a failure: a loser that hangs up without releasing
@@ -135,4 +135,41 @@ async fn a_winner_fails_when_the_loser_hangs_up_unreleased() {
         .await
         .expect("the winner hung after the loser left");
     assert!(res.is_err());
+}
+
+/// Found by the stall loop: receiving `AllFailed` used to echo `AllFailed`
+/// back from a side that had not failed. The failed side read the echo as
+/// "both failed" and ended its reader, so the `Winner` the other side sent once
+/// one of its punchers succeeded was never taken, and both sat until timeout.
+#[tokio::test]
+async fn a_remote_failure_is_not_echoed_so_the_failed_side_can_still_be_commanded() {
+    let Pair {
+        winner: eventual_winner,
+        loser: failed_side,
+        ..
+    } = pair().await;
+
+    failed_side.on_local_all_failed().await.unwrap();
+    assert!(
+        tokio::time::timeout(WRONG_EXIT_WINDOW, eventual_winner.read_signals())
+            .await
+            .is_err(),
+        "a side that has not failed stopped reading on the remote's AllFailed"
+    );
+
+    let command = (HolePunchID::new(), HolePunchID::new());
+    eventual_winner
+        .announce_winner(command.0, command.1)
+        .await
+        .unwrap();
+    let read = tokio::time::timeout(WRONG_EXIT_WINDOW, failed_side.read_signals()).await;
+    assert!(
+        read.is_err(),
+        "the failed side stopped reading before the Winner: {read:?}"
+    );
+    assert_eq!(
+        *failed_side.commanded_winner.lock().await,
+        Some(command),
+        "the failed side never took the Winner"
+    );
 }

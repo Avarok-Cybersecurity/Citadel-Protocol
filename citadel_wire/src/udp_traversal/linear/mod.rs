@@ -172,16 +172,7 @@ impl SingleUDPHolePuncher {
                         .await
                 };
 
-                let kill_listener = async move {
-                    if let Ok((local_id, peer_id)) = kill_switch.recv().await {
-                        log::trace!(target: "citadel", "[Kill Listener] Received signal. {local_id:?} must == {this_local_id:?}");
-                        if local_id == this_local_id {
-                            return Some((local_id, peer_id));
-                        }
-                    }
-
-                    None
-                };
+                let kill_listener = await_kill_command(&mut kill_switch, this_local_id);
 
                 let res = citadel_io::tokio::select! {
                     res0 = process => Either::Right(res0?),
@@ -297,6 +288,32 @@ impl SingleUDPHolePuncher {
             socket,
             local_id: self.unique_id,
         })
+    }
+}
+
+/// Resolves with the command if it names this puncher, and `None` if it names
+/// another one or the sender is gone.
+///
+/// The sender re-sends the same command every tick into a channel that holds
+/// one message per puncher, so a puncher that was not polled in between sees
+/// `Lagged`. That means the command was sent, not that it named someone else,
+/// and the newest copy is still queued.
+async fn await_kill_command(
+    kill_switch: &mut citadel_io::tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID)>,
+    this_local_id: HolePunchID,
+) -> Option<(HolePunchID, HolePunchID)> {
+    use citadel_io::tokio::sync::broadcast::error::RecvError;
+    loop {
+        match kill_switch.recv().await {
+            Ok((local_id, peer_id)) => {
+                log::trace!(target: "citadel", "[Kill Listener] Received signal. {local_id:?} must == {this_local_id:?}");
+                return (local_id == this_local_id).then_some((local_id, peer_id));
+            }
+            Err(RecvError::Lagged(skipped)) => {
+                log::trace!(target: "citadel", "[Kill Listener] Missed {skipped} copies of the command; reading the newest");
+            }
+            Err(RecvError::Closed) => return None,
+        }
     }
 }
 

@@ -7,6 +7,21 @@
 //! `WinnerCanEnd`. The other side, the loser, is "commanded" by that `Winner`,
 //! finds or rebuilds the named socket, and releases the winner with
 //! `WinnerCanEnd`. `AllFailed` says that every local puncher has failed.
+//!
+//! Every rule below exists because breaking it fails one side while both hold
+//! a working socket. The other side has then already returned, so a retry
+//! cannot recover either:
+//!
+//! - A loser that has been commanded does not send `AllFailed`: its rebuilder
+//!   decides from then on, and usually recovers the commanded socket.
+//! - A winner waits for `WinnerCanEnd` itself, not merely the next signal.
+//!   `AllFailed` can cross a `Winner` in flight.
+//! - A `WinnerCanEnd` that the reader consumed still releases the winner.
+//! - A loser that could not deliver `WinnerCanEnd` still succeeds: it holds the
+//!   commanded socket, and the winner only leaves after committing its own.
+//! - Receiving `AllFailed` records that the remote failed. It is not echoed:
+//!   the echo claimed a local failure that had not happened, and ended the
+//!   remote's reader before it could take this side's `Winner`.
 
 use crate::udp_traversal::HolePunchID;
 use citadel_io::tokio::sync::Mutex;
@@ -32,7 +47,9 @@ pub(super) struct Coordination {
     conn_rx: Mutex<SignalRx>,
     /// `(local, remote)` as commanded by the remote winner. `Some` on the loser.
     pub(super) commanded_winner: Mutex<Option<(HolePunchID, HolePunchID)>>,
-    failure_occurred: AtomicBool,
+    local_failed: AtomicBool,
+    remote_failed: AtomicBool,
+    winner_can_end: AtomicBool,
 }
 
 impl Coordination {
@@ -42,7 +59,9 @@ impl Coordination {
             conn_tx,
             conn_rx: Mutex::new(conn_rx),
             commanded_winner: Mutex::new(None),
-            failure_occurred: AtomicBool::new(false),
+            local_failed: AtomicBool::new(false),
+            remote_failed: AtomicBool::new(false),
+            winner_can_end: AtomicBool::new(false),
         })
     }
 
@@ -56,28 +75,34 @@ impl Coordination {
             .await
     }
 
-    /// Records a failure on either side. The first one tells the remote with
-    /// `AllFailed`; the second one means both sides have failed.
-    pub(super) async fn signal_all_failed(&self) -> Result<(), anyhow::Error> {
-        let no_failure_yet = !self.failure_occurred.fetch_or(true, Ordering::SeqCst);
-        if no_failure_yet {
-            log::trace!(target: "citadel", "All hole-punchers have failed locally. Will send AllFailed signal");
-            self.send(DualStackCandidateSignal::AllFailed).await
-        } else {
-            // In this case, remote already failed, so we know that since they
-            // failed, and now that we failed, we can end.
+    /// Every local puncher has resolved with an error. Errors once both sides
+    /// have failed.
+    pub(super) async fn on_local_all_failed(&self) -> Result<(), anyhow::Error> {
+        if let Some(commanded) = *self.commanded_winner.lock().await {
+            log::trace!(target: "citadel", "All hole-punchers have failed locally, but remote commanded {commanded:?}; the rebuilder decides");
+            return Ok(());
+        }
+
+        self.local_failed.store(true, Ordering::SeqCst);
+        log::trace!(target: "citadel", "All hole-punchers have failed locally. Will send AllFailed signal");
+        self.send(DualStackCandidateSignal::AllFailed).await?;
+        self.fail_if_both_failed()
+    }
+
+    /// Neither side has a socket, so no winner can appear.
+    pub(super) fn both_failed(&self) -> bool {
+        self.local_failed.load(Ordering::SeqCst) && self.remote_failed.load(Ordering::SeqCst)
+    }
+
+    fn fail_if_both_failed(&self) -> Result<(), anyhow::Error> {
+        if self.both_failed() {
             log::error!(target: "citadel", "Remote has already failed, and locally failed, therefore returning");
             Err(anyhow::Error::msg(
                 "All local and remote hold punchers failed",
             ))
+        } else {
+            Ok(())
         }
-    }
-
-    /// Every local puncher has resolved with an error.
-    pub(super) async fn on_local_all_failed(&self) -> Result<(), anyhow::Error> {
-        // All failed locally, but, remote may claim that it has a valid socket.
-        // This exits if remote already failed too.
-        self.signal_all_failed().await
     }
 
     /// Consumes signals until the remote releases the winner.
@@ -91,10 +116,12 @@ impl Coordination {
                 }
                 DualStackCandidateSignal::AllFailed => {
                     log::warn!(target: "citadel", "Remote claims all hole punchers failed");
-                    self.signal_all_failed().await?;
-                    // If we reach here, this node is still resolving futures.
+                    self.remote_failed.store(true, Ordering::SeqCst);
+                    // Otherwise this node is still resolving, and may yet win.
+                    self.fail_if_both_failed()?;
                 }
                 DualStackCandidateSignal::WinnerCanEnd => {
+                    self.winner_can_end.store(true, Ordering::SeqCst);
                     return Ok(());
                 }
             }
@@ -105,19 +132,30 @@ impl Coordination {
     pub(super) async fn await_winner_can_end(&self) -> Result<(), anyhow::Error> {
         log::trace!(target: "citadel", "Winner: awaiting WinnerCanEnd signal");
         let mut conn_rx = self.conn_rx.lock().await;
-        let signal = receive(&mut conn_rx).await?;
-        if let DualStackCandidateSignal::WinnerCanEnd = signal {
-            log::trace!(target: "citadel", "Received WinnerCanEnd signal");
-        } else {
-            log::warn!(target: "citadel", "Received unexpected signal: {signal:?}");
+        if self.winner_can_end.load(Ordering::SeqCst) {
+            log::trace!(target: "citadel", "WinnerCanEnd was already received by the reader");
+            return Ok(());
         }
-        Ok(())
+
+        loop {
+            match receive(&mut conn_rx).await? {
+                DualStackCandidateSignal::WinnerCanEnd => {
+                    log::trace!(target: "citadel", "Received WinnerCanEnd signal");
+                    return Ok(());
+                }
+                signal => {
+                    log::trace!(target: "citadel", "Winner: ignoring {signal:?} while awaiting WinnerCanEnd");
+                }
+            }
+        }
     }
 
-    /// Loser only, after submitting its socket.
-    pub(super) async fn release_winner(&self) -> Result<(), anyhow::Error> {
+    /// Loser only, after submitting its socket. Cannot fail the loser.
+    pub(super) async fn release_winner(&self) {
         log::trace!(target: "citadel", "Loser: sending WinnerCanEnd signal");
-        self.send(DualStackCandidateSignal::WinnerCanEnd).await
+        if let Err(err) = self.send(DualStackCandidateSignal::WinnerCanEnd).await {
+            log::warn!(target: "citadel", "Loser: the winner had already ended ({err}); keeping the commanded socket");
+        }
     }
 
     async fn send(&self, signal: DualStackCandidateSignal) -> Result<(), anyhow::Error> {

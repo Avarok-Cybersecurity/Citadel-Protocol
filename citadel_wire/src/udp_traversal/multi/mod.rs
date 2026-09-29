@@ -67,9 +67,9 @@ use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 // other attempt is abandoned" IS the intended meaning. It is NOT the intended
 // meaning for the sender/reader pair -- see the comment there.
 use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
+use coordination::Coordination;
 use futures::future::select_ok;
 use futures::stream::FuturesUnordered;
-use coordination::Coordination;
 use futures::{Future, StreamExt};
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
@@ -345,8 +345,9 @@ async fn drive(
             Err(err) => {
                 // The only way an error can occur is if the total number of failures is equal to the number of hole-punchers
                 // In this case, while remote claimed a winner, we were unable to create/find the winner (this should be unreachable)
+                // Failing here hangs up on the winner, which fails it too, so both sides retry.
                 log::error!(target: "citadel", "Rebuilder task failed. Please contact developers on Github: {err:?}");
-                coord.signal_all_failed().await
+                Err(err)
             }
 
             Ok(hole_punched_socket) => {
@@ -473,9 +474,10 @@ async fn drive(
         // attempt times out. That is precisely the asymmetric-NAT recovery this
         // protocol exists for.
         //
-        // This arm intentionally never completes (it ends in `pending`); its job
-        // is to keep BOTH futures polled. Termination belongs to the `select!`
-        // below, via `done_rx` or the rebuilder.
+        // This arm completes only when both sides have failed, since then no
+        // winner can appear. Otherwise it ends in `pending`: its job is to keep
+        // BOTH futures polled, and termination belongs to the `select!` below,
+        // via `done_rx` or the rebuilder.
         let (resolver, reader) = futures::future::join(futures_resolver, reader).await;
         if let Err(err) = resolver {
             log::warn!(target: "citadel", "Hole-puncher resolver future failed: {err:?}")
@@ -484,13 +486,19 @@ async fn drive(
             log::warn!(target: "citadel", "Hole-puncher reader future failed: {err:?}")
         }
 
+        if coord.both_failed() {
+            // Fail now, so the caller's retry starts now rather than at its timeout.
+            return anyhow::Error::msg("All local and remote hole punchers failed");
+        }
+
         // Just wait for the background process to finish up
         futures::future::pending().await
     };
 
     citadel_io::tokio::select! {
-        _res0 = sender_reader_combo => {
-            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished");
+        err = sender_reader_combo => {
+            log::trace!(target: "citadel", "[DualStack] Sender/Reader combo finished: {err:?}");
+            return Err(err)
         },
         res1 = done_rx => {
             log::trace!(target: "citadel", "[DualStack] Done signal received {res1:?}");
@@ -505,7 +513,7 @@ async fn drive(
     if commanded_winner.lock().await.is_none() {
         coord.await_winner_can_end().await?;
     } else {
-        coord.release_winner().await?;
+        coord.release_winner().await;
     }
 
     log::trace!(target: "citadel", "*** ENDING DualStack ***");
@@ -515,6 +523,10 @@ async fn drive(
 
     Ok(sock)
 }
+
+#[cfg(test)]
+#[path = "drive_tests.rs"]
+mod drive_tests;
 
 #[cfg(test)]
 mod sender_reader_combo_tests {
