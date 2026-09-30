@@ -57,7 +57,7 @@ use crate::error::NetworkError;
 use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, UnboundedReceiver};
-use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell};
+use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::UserMessage;
@@ -129,10 +129,31 @@ impl<R: Ratchet> PeerChannel<R> {
     }
 
     /// The path this connection's traffic currently takes (direct, TURN relay, or the Citadel
-    /// server). Settled before the channel is delivered; it changes only when the P2P
-    /// connection is lost (it then reads [`P2pPath::ServerRelay`] or the vconn is torn down).
+    /// server). The channel is delivered as soon as it is usable, which is over the server relay:
+    /// NAT traversal runs in the background and the path changes in place, to
+    /// [`P2pPath::Direct`] or [`P2pPath::Turn`] when a P2P route attaches and back to
+    /// [`P2pPath::ServerRelay`] if it is lost. Messages keep flowing, in order and exactly once,
+    /// across every change. Use [`Self::ensure_direct`] to wait for a P2P route, or
+    /// [`Self::path_changes`] to follow the path without polling.
     pub fn p2p_path(&self) -> P2pPath {
         self.path.get()
+    }
+
+    /// Resolves once this connection runs over a P2P route, with that route's path
+    /// ([`P2pPath::Direct`], or [`P2pPath::Turn`] when a TURN config was supplied); resolves
+    /// `Err` (it never hangs) once the background campaign has ended without one — every attempt
+    /// failed, the NATs are incompatible and no TURN config was supplied, or the connection
+    /// closed. It has no timeout of its own. If a P2P route is later lost the connection falls
+    /// back to the relay and retries a bounded number of times; a new call waits for that retry.
+    pub fn ensure_direct(
+        &self,
+    ) -> impl std::future::Future<Output = Result<P2pPath, NetworkError>> + Send + 'static {
+        self.path.ensure_direct()
+    }
+
+    /// A receiver that wakes on every change of this connection's path or upgrade campaign.
+    pub fn path_changes(&self) -> citadel_io::tokio::sync::watch::Receiver<P2pPathStatus> {
+        self.path.subscribe()
     }
 
     /// On a [`P2pPath::Turn`] path, whether both peers relay through their own allocation

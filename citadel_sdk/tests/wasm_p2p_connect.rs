@@ -92,7 +92,9 @@ async fn test_wasm_p2p_connect() {
                 "Client A: P2P connected to peer cid={}",
                 conn.channel.get_peer_cid()
             );
-            web_sys::console::log_1(&"A: p2p connected, awaiting udp channel".into());
+            web_sys::console::log_1(&"A: p2p connected, awaiting the direct path".into());
+            // The channel arrives over the server relay; the DataChannel attaches in the background.
+            assert_eq!(conn.channel.ensure_direct().await?, P2pPath::Direct);
             // Raw UDP echo: prove the unordered DataChannel feeds a real UdpChannel.
             let chan = conn
                 .udp_channel_rx
@@ -158,6 +160,7 @@ async fn test_wasm_p2p_connect() {
                 "Client B: P2P connected to peer cid={}",
                 conn.channel.get_peer_cid()
             );
+            assert_eq!(conn.channel.ensure_direct().await?, P2pPath::Direct);
             let chan = conn
                 .udp_channel_rx
                 .take()

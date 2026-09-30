@@ -19,7 +19,6 @@ pub(super) fn on_datachannel_established<
     ticket: crate::proto::remote::Ticket,
     is_initiator: bool,
     session_security_settings: citadel_types::proto::SessionSecuritySettings,
-    channel_signal: crate::proto::node_result::NodeResult<R>,
 ) -> Result<(), crate::error::NetworkError> {
     let EstablishedChannels {
         reliable: dc,
@@ -32,16 +31,27 @@ pub(super) fn on_datachannel_established<
     let p2p_tx = crate::proto::outbound_sender::OutboundPrimaryStreamSender::from(p2p_tx);
     let p2p_rx = crate::proto::outbound_sender::OutboundPrimaryStreamReceiver::from(p2p_rx);
 
+    let route_id = crate::proto::peer::p2p_conn_handler::next_route_id();
     let direct_p2p_remote = crate::proto::peer::p2p_conn_handler::DirectP2PRemote {
         stopper: None,
         p2p_primary_stream: p2p_tx.clone(),
         from_listener: !is_initiator,
+        route_id,
     };
     let session_cid_val = session.session_cid.get().unwrap_or(0);
 
     {
         let mut state = inner_mut_state!(session.state_container);
         state.insert_direct_p2p_connection(direct_p2p_remote, peer_cid, session_cid_val, None)?;
+        if let Some(endpoint) = state
+            .active_virtual_connections
+            .get(&peer_cid)
+            .and_then(|vconn| vconn.endpoint_container.as_ref())
+        {
+            endpoint
+                .p2p_path
+                .set(crate::proto::peer::p2p_path::P2pRoute::Direct);
+        }
     }
 
     let header_obfuscator = crate::proto::packet::HeaderObfuscator::new(
@@ -78,6 +88,12 @@ pub(super) fn on_datachannel_established<
             log::error!(target: "citadel", "[WebRTC P2P] stream ending: {err}");
         }
         let mut state = inner_mut_state!(sess.state_container);
+        // A live connection outlives its DataChannel: it falls back to the server relay.
+        if state.fall_back_to_server_relay(peer_cid, route_id)
+            != crate::proto::state_container::RouteEnd::ConnectionClosed
+        {
+            return;
+        }
         if let Some(ratchet) = state
             .active_virtual_connections
             .get(&peer_cid)
@@ -103,6 +119,5 @@ pub(super) fn on_datachannel_established<
         T::spawn_udp_socket_loader(session.clone(), v_target, conn, peer_addr, ticket, None);
     }
 
-    session.send_to_kernel(channel_signal)?;
     Ok(())
 }

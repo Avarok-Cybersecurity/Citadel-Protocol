@@ -31,7 +31,8 @@
 //! - `StackedRatchet`: Cryptographic operations
 //! - `StateContainer`: State management
 
-use crate::proto::peer::p2p_path::{plan_p2p, P2pPlan};
+use crate::proto::peer::p2p_campaign;
+use crate::proto::peer::p2p_path::{plan_p2p, CampaignEndGuard};
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
@@ -736,6 +737,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         (ticket, kem_session_security_settings)
                                     };
 
+                                    let guard = CampaignEndGuard::start(channel.p2p_path_cell());
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: init_ticket,
@@ -747,30 +749,27 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         should_use_turn(needs_turn),
                                         take_turn_config(session, peer_cid),
                                     );
-                                    if let P2pPlan::ServerOnly = plan {
-                                        log::warn!(target: "citadel", "This p2p connection requires TURN, and no TURN config was supplied: staying server-relayed");
-                                        session.send_to_kernel(channel_signal)?;
-                                    } else {
-                                        T::p2p_hole_punch(
-                                            session.clone(),
-                                            conn.reverse(),
-                                            ticket,
-                                            bob_nat_info.clone(),
-                                            channel_signal,
-                                            hole_punch_compat_stream,
-                                            endpoint_ratchet,
-                                            peer_cid,
-                                            sync_instant,
-                                            RelativeNodeType::Initiator,
-                                            udp_mode,
-                                            session_security_settings,
-                                            Some(hole_punch_cancel_rx),
-                                            plan,
-                                        )
-                                        .await?;
-                                    }
+                                    // The channel is usable over the relay now; the campaign
+                                    // releases it (once the receiver's vconn provably exists) and
+                                    // upgrades it in the background.
+                                    p2p_campaign::spawn(p2p_campaign::Campaign {
+                                        session: session.clone(),
+                                        peer_connection_type: conn.reverse(),
+                                        ticket,
+                                        peer_nat_info: bob_nat_info.clone(),
+                                        channel_signal,
+                                        hole_punch_compat_stream,
+                                        endpoint_ratchet,
+                                        peer_cid,
+                                        sync_instant,
+                                        node_type: RelativeNodeType::Initiator,
+                                        udp_mode,
+                                        session_security_settings,
+                                        cancel_rx: hole_punch_cancel_rx,
+                                        plan,
+                                        guard,
+                                    });
 
-                                    //let _ = hole_punch_future.await;
                                     Ok(PrimaryProcessorResult::Void)
                                 }
 
@@ -865,9 +864,6 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         };
 
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
-                                        // We can now send the channel to the kernel, where TURN traversal is immediantly available.
-                                        // however, STUN-like traversal will proceed in the background
-                                        //state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
                                         let local_outgoing_connection_attempt_metadata =
                                             state_container
                                                 .outgoing_peer_connect_attempts
@@ -915,6 +911,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         (ticket, kem_session_security_settings)
                                     };
 
+                                    let guard = CampaignEndGuard::start(channel.p2p_path_cell());
                                     let channel_signal =
                                         NodeResult::PeerChannelCreated(PeerChannelCreated {
                                             ticket: init_ticket,
@@ -926,35 +923,32 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         should_use_turn(needs_turn),
                                         take_turn_config(session, peer_cid),
                                     );
-                                    if let P2pPlan::ServerOnly = plan {
-                                        log::warn!(target: "citadel", "This p2p connection requires TURN, and no TURN config was supplied: staying server-relayed");
-                                        session.send_to_kernel(channel_signal)?;
-                                    } else {
-                                        let diff = Duration::from_nanos(i64::abs(
-                                            timestamp - *sync_time_ns,
-                                        )
-                                            as u64);
-                                        let sync_instant = Instant::now() + diff;
-                                        T::p2p_hole_punch(
-                                            session.clone(),
-                                            conn.reverse(),
-                                            ticket,
-                                            alice_nat_info.clone(),
-                                            channel_signal,
-                                            hole_punch_compat_stream,
-                                            endpoint_ratchet,
-                                            peer_cid,
-                                            sync_instant,
-                                            RelativeNodeType::Receiver,
-                                            udp_mode,
-                                            session_security_settings,
-                                            Some(hole_punch_cancel_rx),
-                                            plan,
-                                        )
-                                        .await?;
-                                    }
+                                    let diff = Duration::from_nanos(i64::abs(
+                                        timestamp - *sync_time_ns,
+                                    )
+                                        as u64);
+                                    let sync_instant = Instant::now() + diff;
+                                    // The initiator's vconn already exists, so the campaign
+                                    // releases this channel at once and upgrades it in the
+                                    // background.
+                                    p2p_campaign::spawn(p2p_campaign::Campaign {
+                                        session: session.clone(),
+                                        peer_connection_type: conn.reverse(),
+                                        ticket,
+                                        peer_nat_info: alice_nat_info.clone(),
+                                        channel_signal,
+                                        hole_punch_compat_stream,
+                                        endpoint_ratchet,
+                                        peer_cid,
+                                        sync_instant,
+                                        node_type: RelativeNodeType::Receiver,
+                                        udp_mode,
+                                        session_security_settings,
+                                        cancel_rx: hole_punch_cancel_rx,
+                                        plan,
+                                        guard,
+                                    });
 
-                                    //let _ = hole_punch_future.await;
                                     Ok(PrimaryProcessorResult::Void)
                                 }
 

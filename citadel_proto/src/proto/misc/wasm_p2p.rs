@@ -20,31 +20,22 @@ impl super::platform_ops::PlatformOps for WasmIO {
         peer_connection_type: crate::proto::peer::peer_layer::PeerConnectionType,
         ticket: crate::proto::remote::Ticket,
         peer_nat_info: crate::proto::peer::peer_crypt::PeerNatInfo,
-        channel_signal: crate::proto::node_result::NodeResult<R>,
-        hole_punch_compat_stream: crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream<R>,
+        app: netbeam::sync::network_endpoint::NetworkEndpoint,
         endpoint_ratchet: R,
         peer_cid: u64,
         sync_instant: citadel_io::time::Instant,
         node_type: netbeam::sync::RelativeNodeType,
         udp_mode: citadel_types::proto::UdpMode,
         session_security_settings: citadel_types::proto::SessionSecuritySettings,
-        cancel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
         plan: crate::proto::peer::p2p_path::P2pPlan,
-    ) -> impl std::future::Future<Output = Result<(), crate::error::NetworkError>>
-           + crate::macros::ContextRequirements {
+    ) -> impl std::future::Future<Output = bool> + crate::macros::ContextRequirements {
         use crate::proto::peer::peer_layer::PeerSignal;
 
         SendFuture(async move {
             // The browser's ICE agent owns relaying (its TURN servers come from the node's
-            // `with_turn_servers`); the native TURN plan does not apply here.
-            let _ = (
-                peer_nat_info,
-                hole_punch_compat_stream,
-                endpoint_ratchet,
-                sync_instant,
-                cancel_rx,
-                plan,
-            );
+            // `with_turn_servers`); the native TURN plan does not apply here. The ICE exchange
+            // rides its own signaling, so the registered endpoint is not needed either.
+            let _ = (peer_nat_info, app, endpoint_ratchet, sync_instant, plan);
 
             let is_initiator = node_type == netbeam::sync::RelativeNodeType::Initiator;
             let ice_servers = session.p2p_ice_servers();
@@ -96,22 +87,23 @@ impl super::platform_ops::PlatformOps for WasmIO {
             }
 
             match result {
-                Ok(channels) => {
-                    on_datachannel_established::<R, Self>(
-                        session,
-                        channels,
-                        peer_cid,
-                        ticket,
-                        is_initiator,
-                        session_security_settings,
-                        channel_signal,
-                    )?;
-                    Ok(())
-                }
+                Ok(channels) => match on_datachannel_established::<R, Self>(
+                    session,
+                    channels,
+                    peer_cid,
+                    ticket,
+                    is_initiator,
+                    session_security_settings,
+                ) {
+                    Ok(()) => true,
+                    Err(err) => {
+                        log::warn!(target: "citadel", "WebRTC DataChannel could not be attached: {err}; staying on the relay");
+                        false
+                    }
+                },
                 Err(err) => {
-                    log::warn!(target: "citadel", "WebRTC hole punch failed: {err}, falling back to relay");
-                    session.send_to_kernel(channel_signal)?;
-                    Ok(())
+                    log::warn!(target: "citadel", "WebRTC hole punch failed: {err}; staying on the relay");
+                    false
                 }
             }
         })

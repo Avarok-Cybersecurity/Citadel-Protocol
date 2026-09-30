@@ -367,6 +367,14 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                         vconn
                                             .last_delivered_message_timestamp
                                             .set(Some(Instant::now()));
+                                        if fast_msg {
+                                            // Delivered: no route change needs to re-send it.
+                                            if let Some(endpoint) =
+                                                vconn.endpoint_container.as_ref()
+                                            {
+                                                endpoint.direct_journal.lock().ack(group_id);
+                                            }
+                                        }
                                     }
 
                                     // TODO: make the below function return a result, not bools

@@ -82,6 +82,10 @@ hyper = { workspace = true, features = ["client", "server", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
 http-body-util = { workspace = true }
 
+[target.'cfg(unix)'.dev-dependencies]
+# relay_first_peer_channel cuts a direct path at the OS level
+libc = { workspace = true }
+
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 # TURN relay tests: coturn harness (self-signed TLS cert generation, test-only trust).
 rcgen = { workspace = true, features = ["pem", "crypto", "ring"] }

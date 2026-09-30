@@ -21,12 +21,12 @@ use citadel_wire::exports::Connection;
 use citadel_wire::hypernode_type::NodeType;
 use citadel_wire::nat_identification::NatType;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
+use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
 
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
 use crate::proto::misc::udp_internal_interface::UdpSplittableTypes;
-use crate::proto::node_result::NodeResult;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
@@ -112,26 +112,27 @@ pub trait PlatformOps: ProtocolIO {
         }
     }
 
-    /// Orchestrate P2P hole punch: register endpoint, punch, establish
-    /// connection, send `channel_signal` to kernel.
-    /// On failure (or on WASM), sends `channel_signal` as TCP-only fallback.
+    /// One attempt to move an established peer connection off the server relay: hole punch,
+    /// then TURN when the plan allows, attaching the resulting route to the virtual connection.
+    /// Resolves to whether a P2P route was attached. The application already holds the channel
+    /// (it works over the relay from the start); this runs in the background, inside the
+    /// connection's campaign (`p2p_campaign`), which cancels it by dropping the future.
+    /// `app` is the endpoint both peers registered over the relay, used to coordinate the punch.
     #[allow(clippy::too_many_arguments)]
     fn p2p_hole_punch<R: Ratchet>(
         session: CitadelSession<R, Self>,
         peer_connection_type: PeerConnectionType,
         ticket: Ticket,
         peer_nat_info: PeerNatInfo,
-        channel_signal: NodeResult<R>,
-        hole_punch_compat_stream: ReliableOrderedCompatStream<R>,
+        app: NetworkEndpoint,
         endpoint_ratchet: R,
         peer_cid: u64,
         sync_instant: citadel_io::time::Instant,
         node_type: RelativeNodeType,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
-        cancel_rx: Option<citadel_io::tokio::sync::oneshot::Receiver<()>>,
         plan: crate::proto::peer::p2p_path::P2pPlan,
-    ) -> impl Future<Output = Result<(), NetworkError>> + ContextRequirements;
+    ) -> impl Future<Output = bool> + ContextRequirements;
 
     // ── File I/O ──
 

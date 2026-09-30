@@ -917,10 +917,11 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
     ) -> Result<PeerConnectSuccess<R>, NetworkError> {
         use std::time::Duration;
 
-        // Timeout for the entire P2P connection process.
-        // This prevents indefinite hangs when the server never responds with PeerChannelCreated.
-        // The timeout should be long enough for normal hole punching (which has its own 30s timeout)
-        // plus key exchange, but short enough to fail fast when something is stuck.
+        // Bounds the wait for the peer to accept and for the key exchange to finish: the
+        // channel is delivered as soon as it works over the server relay, so NAT traversal is no
+        // longer inside this wait (it runs in the background; see `PeerChannel::ensure_direct`).
+        // What remains is the peer's answer — it has to be online and accept — plus two relayed
+        // key-exchange round trips; this prevents an indefinite hang when neither arrives.
         const P2P_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
 
         let session_cid = self.user().get_session_cid();

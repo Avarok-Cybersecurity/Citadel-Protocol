@@ -52,7 +52,7 @@ use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
 use crate::proto::session::{CitadelSession, SessionAliveTracker};
-use crate::proto::state_container::{P2PDisconnectSignal, VirtualConnectionType};
+use crate::proto::state_container::{P2PDisconnectSignal, RouteEnd, VirtualConnectionType};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
@@ -67,6 +67,15 @@ pub struct DirectP2PRemote {
     pub(crate) stopper: Option<Sender<()>>,
     pub p2p_primary_stream: OutboundPrimaryStreamSender,
     pub from_listener: bool,
+    /// Identifies this route among every route a node attaches, so the handler of a route that
+    /// ended can tell whether it is still the connection's route.
+    pub(crate) route_id: u64,
+}
+
+/// A fresh [`DirectP2PRemote::route_id`].
+pub(crate) fn next_route_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl Debug for DirectP2PRemote {
@@ -88,6 +97,7 @@ impl DirectP2PRemote {
             stopper: Some(stopper),
             p2p_primary_stream,
             from_listener,
+            route_id: next_route_id(),
         }
     }
 }
@@ -268,6 +278,7 @@ pub(crate) mod native_p2p {
 
         let direct_p2p_remote =
             DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx, from_listener);
+        let route_id = direct_p2p_remote.route_id;
         let sess = session;
 
         let (p2p_dc_tx, p2p_dc_rx) = channel::<P2PDisconnectSignal>();
@@ -294,7 +305,13 @@ pub(crate) mod native_p2p {
             .get(&peer_cid)
             .and_then(|vconn| vconn.endpoint_container.as_ref())
         {
-            endpoint.p2p_path.set(path);
+            let is_current = endpoint
+                .direct_p2p_remote
+                .as_ref()
+                .is_some_and(|remote| remote.route_id == route_id);
+            if is_current {
+                endpoint.p2p_path.set(path);
+            }
         }
 
         if udp_mode == UdpMode::Enabled {
@@ -436,13 +453,19 @@ pub(crate) mod native_p2p {
 
             let mut state_container = inner_mut_state!(sess.state_container);
 
-            let is_current_connection = state_container
-                .active_virtual_connections
-                .get(&peer_cid)
-                .map(|vconn| vconn.p2p_connection_id == cleanup_connection_id)
-                .unwrap_or(false);
+            // A live connection outlives its direct route: it falls back to the server relay.
+            // Only a connection that is already closing is torn down here.
+            let route_end = state_container.fall_back_to_server_relay(peer_cid, route_id);
+            let is_current_connection = route_end == RouteEnd::ConnectionClosed
+                && state_container
+                    .active_virtual_connections
+                    .get(&peer_cid)
+                    .map(|vconn| vconn.p2p_connection_id == cleanup_connection_id)
+                    .unwrap_or(false);
 
-            if is_current_connection {
+            if route_end == RouteEnd::FellBack {
+                log::info!(target: "citadel", "[P2P-stream] Direct route to peer {peer_cid} ended; the channel continues over the server relay");
+            } else if is_current_connection {
                 state_container.remove_udp_channel(peer_cid);
 
                 if let Some(ratchet) = state_container
@@ -497,12 +520,10 @@ pub(crate) mod native_p2p {
         Ok(())
     }
 
-    /// Both sides need to begin this process at `sync_time`
-    ///
-    /// # Parameters
-    /// - `cancel_rx`: Optional cancellation signal. When the sender is dropped (e.g., on session
-    ///   disconnect), the hole punch operation will be cancelled gracefully. This prevents orphaned
-    ///   hole punch operations from interfering with reconnection attempts.
+    /// One upgrade attempt: hole punch (unless the plan skips it), then TURN when a relay is
+    /// configured and the punch did not succeed. Both sides begin at `sync_time`. Returns whether
+    /// a P2P route was attached. The caller cancels by dropping the future (the campaign does, on
+    /// session shutdown).
     #[cfg_attr(feature = "localhost-testing", tracing::instrument(
         level = "trace",
         target = "citadel",
@@ -520,18 +541,16 @@ pub(crate) mod native_p2p {
         peer_nat_info: PeerNatInfo,
         session_cid: DualRwLock<Option<u64>>,
         kernel_tx: UnboundedSender<NodeResult<R>>,
-        channel_signal: NodeResult<R>,
         sync_time: Instant,
         app: NetworkEndpoint,
         encrypted_config_container: HolePunchConfigContainer,
         client_config: T::ClientConfig,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
-        cancel_rx: Option<Receiver<()>>,
         session_alive: SessionAliveTracker<R, T>,
         attempt_direct: bool,
         relay: Option<TurnRelayConfig>,
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<bool> {
         let client_config: Arc<rustls::ClientConfig> = T::client_config_to_any(&client_config)
             .and_then(|c| c.downcast::<Arc<rustls::ClientConfig>>().ok())
             .map(|c| *c)
@@ -544,7 +563,6 @@ pub(crate) mod native_p2p {
         let relay_session_cid = session_cid.clone();
         let relay_nat_info = peer_nat_info.clone();
         let relay_tls = client_config.clone();
-        let mut cancel_rx = cancel_rx;
 
         let process = async move {
             if !session_alive.alive() {
@@ -624,14 +642,6 @@ pub(crate) mod native_p2p {
         let result = if !attempt_direct {
             log::info!(target: "citadel", "[Hole-punch] skipped: TURN relay-only plan");
             Ok(Err(generic_error("direct path skipped")))
-        } else if let Some(cancel_rx) = cancel_rx.as_mut() {
-            citadel_io::tokio::select! {
-                res = timed_process => res,
-                _ = cancel_rx => {
-                    log::info!(target: "citadel", "[Hole-punch/Cancelled] Hole punch cancelled by session shutdown");
-                    return Ok(());
-                }
-            }
         } else {
             timed_process.await
         };
@@ -653,6 +663,7 @@ pub(crate) mod native_p2p {
             }
         };
 
+        let mut relay_established = false;
         if let (false, Some(relay)) = (direct_established, relay) {
             let relayed = crate::proto::peer::turn_p2p::establish_relayed_p2p(
                 &relay_app,
@@ -666,21 +677,12 @@ pub(crate) mod native_p2p {
                 session_security_settings,
                 relay_tls,
             );
-            let timed =
-                citadel_io::time::timeout(crate::proto::peer::turn_p2p::RELAY_TIMEOUT, relayed);
-            let outcome = if let Some(cancel_rx) = cancel_rx.as_mut() {
-                citadel_io::tokio::select! {
-                    res = timed => res,
-                    _ = cancel_rx => {
-                        log::info!(target: "citadel", "[TURN/Cancelled] relay attempt cancelled by session shutdown");
-                        return Ok(());
-                    }
-                }
-            } else {
-                timed.await
-            };
+            let outcome =
+                citadel_io::time::timeout(crate::proto::peer::turn_p2p::RELAY_TIMEOUT, relayed)
+                    .await;
             match outcome {
                 Ok(Ok(())) => {
+                    relay_established = true;
                     log::info!(target: "citadel", "[TURN] P2P connection established over the relay")
                 }
                 Ok(Err(err)) => {
@@ -692,12 +694,7 @@ pub(crate) mod native_p2p {
             }
         }
 
-        log::trace!(target: "citadel", "Sending channel to kernel");
-        kernel_tx
-            .unbounded_send(channel_signal)
-            .map_err(|_| generic_error("Unable to send signal to kernel"))?;
-
-        Ok(())
+        Ok(direct_established || relay_established)
     }
 }
 
