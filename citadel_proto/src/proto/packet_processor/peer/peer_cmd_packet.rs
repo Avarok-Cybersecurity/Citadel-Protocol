@@ -369,6 +369,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 *udp_enabled,
                                                 p2p_connection_id,
                                             ),
+                                            sender_protocol_version: Some(
+                                                *crate::constants::PROTOCOL_VERSION,
+                                            ),
                                         };
 
                                         let stage0_peer_kem =
@@ -414,6 +417,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                         PeerSignal::Kex {
                             peer_conn_type: conn,
                             kex_payload: kep,
+                            sender_protocol_version: peer_protocol_version,
                         } => {
                             return match kep {
                                 KeyExchangeProcess::Stage0(
@@ -498,6 +502,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             None,
                                             local_is_file_transfer_compat,
                                             *p2p_connection_id,
+                                        ),
+                                        sender_protocol_version: Some(
+                                            *crate::constants::PROTOCOL_VERSION,
                                         ),
                                     };
 
@@ -639,6 +646,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 local_is_file_transfer_compat
                                                     && *peer_file_transfer_compat,
                                                 p2p_connection_id,
+                                                *peer_protocol_version,
                                             ) {
                                             Ok(ch) => ch,
                                             Err(err) => {
@@ -669,6 +677,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 sync_time_ns,
                                                 None,
                                                 local_is_file_transfer_compat,
+                                            ),
+                                            sender_protocol_version: Some(
+                                                *crate::constants::PROTOCOL_VERSION,
                                             ),
                                         };
 
@@ -855,6 +866,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 local_is_file_transfer_compat
                                                     && *peer_file_transfer_compat,
                                                 p2p_connection_id,
+                                                *peer_protocol_version,
                                             ) {
                                             Ok(ch) => ch,
                                             Err(err) => {
@@ -1104,6 +1116,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
         PeerSignal::Kex {
             peer_conn_type: conn,
             kex_payload: mut kep,
+            sender_protocol_version,
         } => {
             // before just routing the signals, we also need to add socket information into intercepted stage1 and stage2 signals
             // to allow for STUN-like NAT traversal
@@ -1140,6 +1153,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             let signal_to = PeerSignal::Kex {
                 peer_conn_type: conn,
                 kex_payload: kep,
+                sender_protocol_version,
             };
             if sess_ratchet.get_cid() == conn.get_original_target_cid() {
                 log::error!(target: "citadel", "Error (equivalent CIDs)");

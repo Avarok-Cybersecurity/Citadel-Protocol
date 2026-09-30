@@ -1,21 +1,15 @@
 use super::config::MediaTransportConfig;
-use super::error::MediaResultExt;
+use super::negotiation::agree_on_udp;
 use super::receiver::MediaReceiver;
 use super::sender::MediaSender;
-use super::transport::{
-    BoxedSink, BoxedSource, MediaDatagramSink, MediaTransportKind, ReliableSink,
-};
+use super::transport::{BoxedSink, BoxedSource, MediaTransportKind, ReliableSink};
 use crate::prelude::{CitadelClientServerConnection, PeerChannel, UdpChannel};
 use crate::remote_ext::remote_specialization::PeerRemote;
 use crate::remote_ext::results::PeerConnectSuccess;
-use bytes::BytesMut;
 use citadel_io::time::{timeout, Instant};
 use citadel_io::tokio::sync::oneshot::Receiver;
 use citadel_io::ErrorCode;
-use citadel_media::wire::{self, encode_control, WireMessage};
-use citadel_media::ControlMessage;
 use citadel_proto::prelude::{NetworkError, OutboundUdpSender, PeerChannelRecvHalf, Ratchet};
-use futures::StreamExt;
 
 /// A media session bound to one connection. Build with
 /// [`MediaEndpoint::from_peer_connection`] or [`MediaEndpoint::from_c2s`],
@@ -48,8 +42,21 @@ impl MediaEndpoint {
     /// receiver with `get_incoming_file_transfer_handle` beforehand).
     /// Waits `cfg.udp_wait` for UDP, then exchanges transport offers with the
     /// peer over the reliable channel: UDP is used only if both sides hold
-    /// it, otherwise both fall back to reliable mode. The peer must build its
-    /// endpoint too; this returns once its offer arrives.
+    /// it, otherwise both fall back to reliable mode.
+    ///
+    /// The peer must build its endpoint too. The wait for its offer has no
+    /// timer: it lasts until the offer arrives or the channel closes
+    /// (`MediaTransportClosed`), however long the peer takes to build. A
+    /// timer here could not be made safe, because this side's offer is
+    /// already sent: a late peer would act on it while this side had
+    /// already fallen back. Bound the call yourself if the peer may never
+    /// build; dropping the future drops the channel, which the peer then
+    /// sees as closed.
+    ///
+    /// A peer whose protocol version predates transport offers
+    /// ([`citadel_proto::constants::MEDIA_TRANSPORT_OFFER_SINCE`], or unknown because the peer or the
+    /// server relaying its key exchange predates carrying the version) is
+    /// sent none and never waited on: this side uses reliable mode.
     pub async fn from_peer_connection<R: Ratchet>(
         conn: PeerConnectSuccess<R>,
         cfg: MediaTransportConfig,
@@ -89,6 +96,7 @@ impl MediaEndpoint {
     ) -> Result<Self, NetworkError> {
         cfg.validate()?;
         let start = Instant::now();
+        let peer_protocol_version = channel.peer_protocol_version();
         let (reliable_tx, reliable_rx) = channel.split();
         let mut control_sink = ReliableSink::spawn(reliable_tx);
         let mut control_src: BoxedSource = Box::pin(reliable_rx);
@@ -106,9 +114,13 @@ impl MediaEndpoint {
                 ));
             }
         }
-        let peer_udp =
-            exchange_transport_offer(&mut control_sink, &mut control_src, local_udp.is_some())
-                .await?;
+        let peer_udp = agree_on_udp(
+            peer_protocol_version,
+            local_udp.is_some(),
+            &mut control_sink,
+            &mut control_src,
+        )
+        .await?;
 
         match local_udp.filter(|_| peer_udp) {
             Some((udp_tx, udp_rx)) => Self::assemble(
@@ -170,41 +182,6 @@ impl MediaEndpoint {
             sender: self.sender,
             receiver: self.receiver,
         }
-    }
-}
-
-/// Sends this side's transport offer as the first reliable message and reads
-/// the peer's, which is likewise the first message on the ordered lane.
-/// Returns whether the peer holds UDP. Each side's own UDP decision is local
-/// and timer-bound, so only the pair of offers yields an agreed transport.
-async fn exchange_transport_offer(
-    sink: &mut ReliableSink,
-    src: &mut BoxedSource,
-    local_udp: bool,
-) -> Result<bool, NetworkError> {
-    let body = ControlMessage::TransportOffer { udp: local_udp }
-        .encode()
-        .net()?;
-    sink.send_datagram(BytesMut::from(encode_control(&body).as_slice()))?;
-    let reply = src.next().await.ok_or_else(|| {
-        citadel_io::error!(
-            ErrorCode::MediaTransportClosed,
-            "reliable channel closed before the peer's transport offer"
-        )
-    })?;
-    let malformed = |err| citadel_io::error!(ErrorCode::MediaControlDecode, err);
-    match wire::parse(reply.as_ref()).map_err(malformed)? {
-        WireMessage::Control(body) => match ControlMessage::decode(body).map_err(malformed)? {
-            ControlMessage::TransportOffer { udp } => Ok(udp),
-            other => Err(citadel_io::error!(
-                ErrorCode::MediaControlDecode,
-                format!("expected the peer's transport offer, got {other:?}")
-            )),
-        },
-        WireMessage::Fragment { .. } => Err(citadel_io::error!(
-            ErrorCode::MediaControlDecode,
-            "expected the peer's transport offer, got a media fragment"
-        )),
     }
 }
 

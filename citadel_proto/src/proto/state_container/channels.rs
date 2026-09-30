@@ -125,6 +125,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         channel_ticket: Ticket,
         session_cid: u64,
         session: &CitadelSession<R, T>,
+        adjacent_protocol_version: u32,
     ) -> PeerChannel<R> {
         let security_settings = self
             .session_security_settings
@@ -142,6 +143,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 session,
                 true,
                 Ticket(0), // C2S connections don't need P2P connection IDs
+                Some(adjacent_protocol_version),
             )
             .expect("C2S connections never hit simultaneous connect guard");
 

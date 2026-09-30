@@ -86,6 +86,14 @@ mod tests {
             let kernel =
                 PeerConnectionKernel::new(settings, agg, move |mut results, remote| async move {
                     let conn = results.recv().await.unwrap().unwrap();
+                    // Each side learns the other's version from its key-exchange stage
+                    // (the initiator from Stage1, the responder from Stage2); without it the
+                    // endpoint would not negotiate at all.
+                    assert_eq!(
+                        conn.channel.peer_protocol_version(),
+                        Some(*citadel_proto::constants::PROTOCOL_VERSION),
+                        "side {idx}: the peer's protocol version did not reach the channel"
+                    );
                     let cfg = test_media_config();
                     let real_udp_rx = conn.udp_channel_rx;
                     let _peer_remote = conn.remote;

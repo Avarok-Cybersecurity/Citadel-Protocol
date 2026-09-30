@@ -203,6 +203,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                     kernel_ticket,
                                     header.session_cid.get(),
                                     session,
+                                    header.protocol_version.get(),
                                 );
                                 let session_security_settings = state_container
                                     .session_security_settings
@@ -385,6 +386,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 kernel_ticket,
                                 header.session_cid.get(),
                                 session,
+                                header.protocol_version.get(),
                             );
                             let session_security_settings = state_container
                                 .session_security_settings

@@ -189,4 +189,5 @@ fn closing_media_lane_reports_closed_once_drained() {
 }
 
 mod eos;
+mod negotiation;
 mod policy;

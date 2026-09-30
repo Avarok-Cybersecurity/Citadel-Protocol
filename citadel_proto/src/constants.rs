@@ -37,7 +37,24 @@ pub const MAJOR_VERSION: u8 = 0;
 // (citadel_crypt entropy_bank::get_nonce). This is wire-breaking — a peer on the old derivation
 // produces different nonces, so cross-version traffic must not interoperate.
 pub const MINOR_VERSION: u8 = 10;
-pub const PATCH_VERSION: u8 = 0;
+// Bumped 0 -> 1: key-exchange signals carry the sender's protocol version, and media endpoints
+// exchange transport offers (see `MEDIA_TRANSPORT_OFFER_SINCE`). Both are additive: an older
+// node ignores the appended version field and never needs the offers, so 0.10.x interoperate.
+pub const PATCH_VERSION: u8 = 1;
+
+/// The first protocol version whose media endpoints send and expect a transport offer as the
+/// first message on the reliable lane. A peer below it, or of unknown version, gets none.
+pub const MEDIA_TRANSPORT_OFFER_SINCE: (u8, u8, u8) = (0, 10, 1);
+
+/// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
+/// unparseable version is not.
+pub fn protocol_version_at_least(version: Option<u32>, since: (u8, u8, u8)) -> bool {
+    let Some(version) = version.and_then(|v| Semver::from_u32(v).ok()) else {
+        return false;
+    };
+    let since = (since.0 as usize, since.1 as usize, since.2 as usize);
+    (version.major, version.minor, version.patch) >= since
+}
 
 lazy_static! {
     pub static ref PROTOCOL_VERSION: u32 =
@@ -109,3 +126,56 @@ pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from
 pub const TCP_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 
 pub const MAX_OUTGOING_UNPROCESSED_REQUESTS: usize = 512;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn version(major: usize, minor: usize, patch: usize) -> Option<u32> {
+        Some(Semver::new(major, minor, patch).to_u32().unwrap())
+    }
+
+    #[test]
+    fn this_node_supports_media_transport_offers() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            MEDIA_TRANSPORT_OFFER_SINCE
+        ));
+    }
+
+    #[test]
+    fn an_older_or_unknown_version_is_not_at_least() {
+        assert!(!protocol_version_at_least(
+            version(0, 10, 0),
+            MEDIA_TRANSPORT_OFFER_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 9, 7),
+            MEDIA_TRANSPORT_OFFER_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            None,
+            MEDIA_TRANSPORT_OFFER_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            Some(u32::MAX),
+            MEDIA_TRANSPORT_OFFER_SINCE
+        ));
+    }
+
+    #[test]
+    fn a_newer_version_is_at_least() {
+        assert!(protocol_version_at_least(
+            version(0, 10, 1),
+            MEDIA_TRANSPORT_OFFER_SINCE
+        ));
+        assert!(protocol_version_at_least(
+            version(0, 11, 0),
+            MEDIA_TRANSPORT_OFFER_SINCE
+        ));
+        assert!(protocol_version_at_least(
+            version(1, 0, 0),
+            MEDIA_TRANSPORT_OFFER_SINCE
+        ));
+    }
+}

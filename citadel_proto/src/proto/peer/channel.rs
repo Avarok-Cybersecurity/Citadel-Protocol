@@ -81,6 +81,7 @@ pub struct PeerChannel<R: Ratchet> {
     send_half: PeerChannelSendHalf<R>,
     recv_half: PeerChannelRecvHalf<R>,
     path: P2pPathCell,
+    peer_protocol_version: Option<u32>,
 }
 
 impl<R: Ratchet> PeerChannel<R> {
@@ -95,6 +96,7 @@ impl<R: Ratchet> PeerChannel<R> {
         messenger: ProtocolMessenger<R>,
         disconnect_token: Option<DisconnectToken>,
         path: P2pPathCell,
+        peer_protocol_version: Option<u32>,
     ) -> Self {
         let session_cid = vconn_type.get_session_cid();
 
@@ -125,7 +127,15 @@ impl<R: Ratchet> PeerChannel<R> {
             send_half,
             recv_half,
             path,
+            peer_protocol_version,
         }
+    }
+
+    /// The other end's `PROTOCOL_VERSION`: from the connect packet on a client-server channel,
+    /// and from the peer's key-exchange signal on a P2P channel. `None` when the peer (or a
+    /// server relaying for it) predates carrying it.
+    pub fn peer_protocol_version(&self) -> Option<u32> {
+        self.peer_protocol_version
     }
 
     /// The path this connection's traffic currently takes (direct, TURN relay, or the Citadel
