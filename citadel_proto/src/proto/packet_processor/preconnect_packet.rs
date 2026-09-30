@@ -299,6 +299,28 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             );
                             to_primary_stream.unbounded_send(stage0_preconnect_packet)?;
 
+                            // SUCCESS goes out now, not after the punch. The punch may
+                            // take up to `MAX_RETRIES` attempts of the puncher's
+                            // per-attempt timeout, longer than `LOGIN_EXPIRATION_TIME`,
+                            // and a session not connected by then is ended. Login needs
+                            // only TCP: the UDP one-shot pair installed at session start
+                            // is handed out at connect, and the punch completes it
+                            // afterwards (`handle_success_as_receiver` below): the loader
+                            // sends the channel on success, and the fallback drops the
+                            // sender on failure. The server treats its own pending punch
+                            // the same way (`install_udp_channel_pair_if_punch_pending`).
+                            let success_packet = packet_crafter::pre_connect::craft_stage_final(
+                                &new_ratchet,
+                                true,
+                                false,
+                                timestamp,
+                                security_level,
+                                ticket,
+                            )?;
+                            to_primary_stream.unbounded_send(success_packet)?;
+                            state_container.pre_connect_state.last_stage =
+                                packet_flags::cmd::aux::do_preconnect::SUCCESS;
+
                             let stream = ReliableOrderedCompatStream::<R>::new(
                                 to_primary_stream,
                                 &mut state_container,
@@ -331,14 +353,11 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     .await
                     .ok()
                     .flatten();
-                    send_success_as_initiator(
+                    handle_success_as_receiver(
                         udp,
-                        &new_ratchet,
                         session,
-                        security_level,
                         session_cid,
                         &mut inner_mut_state!(session.state_container),
-                        ticket,
                     )
                 }
             }
