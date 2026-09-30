@@ -46,7 +46,7 @@
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
-use crate::proto::peer::direct_journal::DirectJournal;
+use crate::proto::peer::direct_journal::{DirectJournal, JournaledMessage};
 use crate::proto::remote::Ticket;
 use crate::proto::session::UserMessage;
 use crate::proto::state_container::VirtualTargetType;
@@ -148,10 +148,19 @@ impl<R: Ratchet> ObjectTransmitter<R> {
             time_tracker,
         };
 
-        let header = this.generate_group_header(virtual_target_type)?;
-        if let Some(journal) = direct_journal {
-            journal.lock().record(group_id, &header);
-        }
+        let header = match direct_journal {
+            // Journaled as plaintext: a re-send is sealed afresh (current ratchet, new
+            // anti-replay id), so it is never refused as stale.
+            Some(journal) => {
+                let plaintext = group::craft_group_header_plaintext(&mut this, virtual_target_type);
+                journal.lock().record(
+                    group_id,
+                    JournaledMessage::new(plaintext.clone(), security_level),
+                );
+                group::seal(&this.ratchet, security_level, plaintext)?
+            }
+            None => this.generate_group_header(virtual_target_type)?,
+        };
         this.to_primary_stream
             .unbounded_send(header)
             .map_err(|err| error!(ErrorCode::GroupHeaderTransmitFailed, format!("{err:?}")))
@@ -235,6 +244,46 @@ pub(crate) mod group {
         processor: &mut ObjectTransmitter<R>,
         virtual_target: VirtualTargetType,
     ) -> Result<BytesMut, NetworkError> {
+        let security_level = processor.security_level;
+        let packet = craft_group_header_plaintext(processor, virtual_target);
+        seal(&processor.ratchet, security_level, packet)
+    }
+
+    /// AEAD-protects a crafted, not yet protected group header in place.
+    pub(crate) fn seal<R: Ratchet>(
+        ratchet: &R,
+        security_level: SecurityLevel,
+        mut packet: BytesMut,
+    ) -> Result<BytesMut, NetworkError> {
+        ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet)?;
+        Ok(packet)
+    }
+
+    /// Seals a journaled (unprotected) group header again for a re-send: under `ratchet` (the
+    /// connection's current one) with a fresh timestamp, and so with a fresh anti-replay id. The
+    /// group id, and so the message's place in the receiver's ordered channel, is unchanged.
+    pub(crate) fn reseal<R: Ratchet>(
+        ratchet: &R,
+        timestamp: i64,
+        security_level: SecurityLevel,
+        plaintext: &BytesMut,
+    ) -> Result<BytesMut, NetworkError> {
+        let mut packet = plaintext.clone();
+        {
+            let mut header =
+                zerocopy::Ref::<&mut [u8], HdpHeader>::new(&mut packet[..HDP_HEADER_BYTE_LEN])
+                    .ok_or_else(|| NetworkError::msg("journaled group header is truncated"))?;
+            header.entropy_bank_version = U32::new(ratchet.version());
+            header.timestamp = I64::new(timestamp);
+        }
+        seal(ratchet, security_level, packet)
+    }
+
+    /// The HDP header and serialized group header, before AEAD protection.
+    pub(crate) fn craft_group_header_plaintext<R: Ratchet>(
+        processor: &mut ObjectTransmitter<R>,
+        virtual_target: VirtualTargetType,
+    ) -> BytesMut {
         let target_cid = virtual_target.get_target_cid();
 
         let header = HdpHeader {
@@ -279,14 +328,7 @@ pub(crate) mod group {
         let mut packet = BytesMut::with_capacity(capacity);
         header.inscribe_into(&mut packet);
         group_header.serialize_into_buf(&mut packet).unwrap();
-
-        processor.ratchet.protect_message_packet(
-            Some(processor.security_level),
-            HDP_HEADER_BYTE_LEN,
-            &mut packet,
-        )?;
-
-        Ok(packet)
+        packet
     }
 
     /// Crafts a group header acknowledgement packet for a given group transmitter and virtual target

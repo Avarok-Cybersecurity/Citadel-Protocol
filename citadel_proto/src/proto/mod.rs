@@ -58,6 +58,7 @@ pub(crate) mod packet_crafter;
 pub(crate) mod packet_processor;
 pub(crate) mod peer;
 pub mod remote;
+mod reseal_tests;
 /// Each CID gets a session
 pub(crate) mod session;
 /// Manages multiple sessions

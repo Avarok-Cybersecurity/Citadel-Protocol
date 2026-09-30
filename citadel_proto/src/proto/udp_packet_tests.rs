@@ -11,7 +11,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_types::crypto::{CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
 
-fn connected_pair(max_level: SecurityLevel) -> (StackedRatchet, StackedRatchet) {
+pub(crate) fn connected_pair(max_level: SecurityLevel) -> (StackedRatchet, StackedRatchet) {
     let params: CryptoParameters = KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256;
     let params = Some(params);
     let psks = vec![b"udp".to_vec(), b"test".to_vec()];

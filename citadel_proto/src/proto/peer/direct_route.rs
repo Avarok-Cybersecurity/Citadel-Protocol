@@ -7,8 +7,9 @@
 //! already delivered, so nothing is lost and nothing arrives twice.
 
 use crate::functional::IfEqConditional;
-use crate::proto::peer::direct_journal::DirectJournal;
+use crate::proto::peer::direct_journal::{DirectJournal, JournaledMessage};
 use crate::proto::peer::p2p_conn_handler::DirectP2PRemote;
+use bytes::BytesMut;
 
 /// Attaches `provisional` into `slot` unless the tie-breaker keeps the existing route. Returns
 /// whether `provisional` is now the route.
@@ -20,6 +21,7 @@ pub(crate) fn attach(
     implcid: u64,
     peer_cid: u64,
     journal: &mut DirectJournal,
+    reseal: impl Fn(&JournaledMessage) -> Option<BytesMut>,
 ) -> bool {
     log::trace!(target: "citadel", "UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
 
@@ -73,7 +75,7 @@ pub(crate) fn attach(
 
     // A replaced route took its queued and in-flight messages with it; send every one the peer
     // has not acknowledged again, ahead of anything new, on the survivor.
-    let replayed = journal.replay_onto(&provisional.p2p_primary_stream);
+    let replayed = journal.replay_onto(&provisional.p2p_primary_stream, reseal);
     if replayed > 0 {
         log::info!(target: "citadel", "Re-sent {replayed} unacknowledged message(s) to peer {peer_cid} on the surviving direct route");
     }
@@ -87,8 +89,8 @@ mod tests {
     use crate::proto::outbound_sender::{
         unbounded, OutboundPacket, OutboundPrimaryStreamSender, UnboundedReceiver,
     };
+    use crate::proto::peer::direct_journal::tests::{first_bytes, message, tag};
     use crate::proto::peer::p2p_conn_handler::next_route_id;
-    use bytes::BytesMut;
 
     fn route(
         from_listener: bool,
@@ -108,14 +110,6 @@ mod tests {
         (remote, rx, stop_rx)
     }
 
-    fn drain(rx: &mut UnboundedReceiver<OutboundPacket>) -> Vec<u8> {
-        std::iter::from_fn(|| match rx.try_recv().ok()? {
-            OutboundPacket::Contiguous(buf) => Some(buf[0]),
-            other => panic!("unexpected {other:?}"),
-        })
-        .collect()
-    }
-
     /// This node (CID 5) is below its peer (CID 9), so the route it keeps is the one it listens
     /// on. The client-side route attached first and carried messages; the listener-side one
     /// replaces it.
@@ -126,22 +120,36 @@ mod tests {
         let mut journal = DirectJournal::default();
 
         let (first, _first_rx, mut first_stop) = route(false);
-        assert!(attach(&mut slot, first, implcid, peer_cid, &mut journal));
+        assert!(attach(
+            &mut slot,
+            first,
+            implcid,
+            peer_cid,
+            &mut journal,
+            tag
+        ));
         for id in 1u8..=4 {
-            journal.record(id as u64, &BytesMut::from(&[id][..]));
+            journal.record(id as u64, message(id));
         }
         journal.ack(1);
 
         let (survivor, mut survivor_rx, _survivor_stop) = route(true);
         let survivor_id = survivor.route_id;
-        assert!(attach(&mut slot, survivor, implcid, peer_cid, &mut journal));
+        assert!(attach(
+            &mut slot,
+            survivor,
+            implcid,
+            peer_cid,
+            &mut journal,
+            tag
+        ));
         assert!(
             first_stop.try_recv().is_ok(),
             "the replaced route is stopped"
         );
         assert_eq!(slot.as_ref().unwrap().route_id, survivor_id);
         assert_eq!(
-            drain(&mut survivor_rx),
+            first_bytes(&mut survivor_rx),
             vec![2, 3, 4],
             "every unacknowledged message is re-sent on the survivor, in order"
         );
@@ -154,8 +162,15 @@ mod tests {
         let mut journal = DirectJournal::default();
         let (keeper, mut keeper_rx, _keeper_stop) = route(true);
         let keeper_id = keeper.route_id;
-        assert!(attach(&mut slot, keeper, implcid, peer_cid, &mut journal));
-        journal.record(1, &BytesMut::from(&[1u8][..]));
+        assert!(attach(
+            &mut slot,
+            keeper,
+            implcid,
+            peer_cid,
+            &mut journal,
+            tag
+        ));
+        journal.record(1, message(1));
 
         let (duplicate, mut duplicate_rx, mut duplicate_stop) = route(false);
         assert!(!attach(
@@ -163,11 +178,12 @@ mod tests {
             duplicate,
             implcid,
             peer_cid,
-            &mut journal
+            &mut journal,
+            tag
         ));
         assert!(duplicate_stop.try_recv().is_ok());
         assert_eq!(slot.as_ref().unwrap().route_id, keeper_id);
-        assert!(drain(&mut keeper_rx).is_empty());
-        assert!(drain(&mut duplicate_rx).is_empty());
+        assert!(first_bytes(&mut keeper_rx).is_empty());
+        assert!(first_bytes(&mut duplicate_rx).is_empty());
     }
 }

@@ -2,10 +2,31 @@
 //! lookup, direct-P2P upgrade, and stream selection.
 
 use super::includes::*;
-use crate::proto::peer::direct_journal::DirectJournal;
+use crate::proto::peer::direct_journal::{DirectJournal, JournaledMessage};
 use crate::proto::peer::direct_route;
 use crate::proto::peer::p2p_path::P2pPathCell;
+use bytes::BytesMut;
 use citadel_io::{error, ErrorCode};
+
+/// Seals journaled messages again, under the connection's current ratchet, for a re-send.
+fn resealer<R: Ratchet>(
+    ratchet: Option<R>,
+    time_tracker: TimeTracker,
+) -> impl Fn(&JournaledMessage) -> Option<BytesMut> {
+    move |message| {
+        let ratchet = ratchet.as_ref()?;
+        crate::proto::packet_crafter::group::reseal(
+            ratchet,
+            time_tracker.get_global_time_ns(),
+            message.security_level,
+            &message.plaintext,
+        )
+        .inspect_err(|err| {
+            log::error!(target: "citadel", "Could not seal a journaled message for re-send: {err}")
+        })
+        .ok()
+    }
+}
 
 /// What happened when a direct route ended.
 #[derive(Debug, PartialEq, Eq)]
@@ -68,14 +89,20 @@ impl<R: Ratchet> StateContainerInner<R> {
             citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>,
         >,
     ) -> Result<(), NetworkError> {
+        let time_tracker = self.time_tracker;
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
+                let reseal = resealer(
+                    endpoint_container.ratchet_manager.get_ratchet(None),
+                    time_tracker,
+                );
                 let installed = direct_route::attach(
                     &mut endpoint_container.direct_p2p_remote,
                     provisional,
                     implcid,
                     peer_cid,
                     &mut endpoint_container.direct_journal.lock(),
+                    reseal,
                 );
                 if !installed {
                     return Ok(());
@@ -126,6 +153,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     /// path cell reports [`P2pPath::ServerRelay`](crate::proto::peer::p2p_path::P2pPath) so the
     /// campaign can retry. The channel stays open throughout.
     pub(crate) fn fall_back_to_server_relay(&mut self, peer_cid: u64, route_id: u64) -> RouteEnd {
+        let time_tracker = self.time_tracker;
         let is_current = self
             .active_virtual_connections
             .get(&peer_cid)
@@ -156,7 +184,8 @@ impl<R: Ratchet> StateContainerInner<R> {
         };
         // Dropping the remote fires its stopper; its handler is already on its way out.
         drop(endpoint.direct_p2p_remote.take());
-        let resent = endpoint.direct_journal.lock().drain_onto(&relay);
+        let reseal = resealer(endpoint.ratchet_manager.get_ratchet(None), time_tracker);
+        let resent = endpoint.direct_journal.lock().drain_onto(&relay, reseal);
         endpoint.p2p_path.fall_back_to_server_relay();
         log::warn!(target: "citadel", "Direct route to peer {peer_cid} ended; fell back to the server relay and re-sent {resent} unacknowledged message(s)");
         // Transfers are NOT failed here: C2S is up, so a transfer's completion (its final ack
