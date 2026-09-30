@@ -33,6 +33,8 @@ fn video() -> MediaTrackDescriptor {
 #[case(ControlMessage::AcceptTracks(vec![video()]))]
 #[case(ControlMessage::EndOfStream { track: TrackId(200), frames_sent: 0 })]
 #[case(ControlMessage::EndOfStream { track: TrackId(7), frames_sent: u32::MAX })]
+#[case(ControlMessage::TransportOffer { udp: true })]
+#[case(ControlMessage::TransportOffer { udp: false })]
 fn roundtrip(#[case] msg: ControlMessage) {
     let body = msg.encode().unwrap();
     assert_eq!(ControlMessage::decode(&body).unwrap(), msg);
@@ -78,6 +80,9 @@ fn name_over_64_bytes_rejected_on_encode_and_decode() {
 #[case::eos_no_track(vec![3])]
 #[case::eos_short(vec![3, 1, 2])]
 #[case::eos_extra(vec![3, 1, 0, 0, 0, 13, 9])]
+#[case::offer_empty(vec![4])]
+#[case::offer_not_bool(vec![4, 2])]
+#[case::offer_extra(vec![4, 1, 0])]
 fn malformed_bodies(#[case] body: Vec<u8>) {
     assert!(matches!(
         ControlMessage::decode(&body),

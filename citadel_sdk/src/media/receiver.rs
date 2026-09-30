@@ -213,6 +213,10 @@ impl MediaReceiver {
                 Ok(ControlMessage::EndOfStream { track, frames_sent }) => {
                     self.eos.record(track, frames_sent, now)
                 }
+                Ok(ControlMessage::TransportOffer { .. }) => {
+                    self.stats.fragments_rejected += 1;
+                    log::warn!(target: "citadel", "media: transport offer after negotiation ignored");
+                }
                 Err(err) => {
                     self.stats.fragments_rejected += 1;
                     log::warn!(target: "citadel", "{err}");

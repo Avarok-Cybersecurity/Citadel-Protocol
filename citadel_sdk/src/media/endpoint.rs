@@ -1,14 +1,21 @@
 use super::config::MediaTransportConfig;
+use super::error::MediaResultExt;
 use super::receiver::MediaReceiver;
 use super::sender::MediaSender;
-use super::transport::{BoxedSink, BoxedSource, MediaTransportKind, ReliableSink};
+use super::transport::{
+    BoxedSink, BoxedSource, MediaDatagramSink, MediaTransportKind, ReliableSink,
+};
 use crate::prelude::{CitadelClientServerConnection, PeerChannel, UdpChannel};
 use crate::remote_ext::remote_specialization::PeerRemote;
 use crate::remote_ext::results::PeerConnectSuccess;
+use bytes::BytesMut;
 use citadel_io::time::{timeout, Instant};
 use citadel_io::tokio::sync::oneshot::Receiver;
 use citadel_io::ErrorCode;
+use citadel_media::wire::{self, encode_control, WireMessage};
+use citadel_media::ControlMessage;
 use citadel_proto::prelude::{NetworkError, OutboundUdpSender, PeerChannelRecvHalf, Ratchet};
+use futures::StreamExt;
 
 /// A media session bound to one connection. Build with
 /// [`MediaEndpoint::from_peer_connection`] or [`MediaEndpoint::from_c2s`],
@@ -39,7 +46,10 @@ impl MediaEndpoint {
     /// Consumes a P2P connection's channels and returns the endpoint together
     /// with the connection's [`PeerRemote`] (take any file-transfer handle
     /// receiver with `get_incoming_file_transfer_handle` beforehand).
-    /// Waits `cfg.udp_wait` for UDP; falls back to reliable mode.
+    /// Waits `cfg.udp_wait` for UDP, then exchanges transport offers with the
+    /// peer over the reliable channel: UDP is used only if both sides hold
+    /// it, otherwise both fall back to reliable mode. The peer must build its
+    /// endpoint too; this returns once its offer arrives.
     pub async fn from_peer_connection<R: Ratchet>(
         conn: PeerConnectSuccess<R>,
         cfg: MediaTransportConfig,
@@ -80,31 +90,36 @@ impl MediaEndpoint {
         cfg.validate()?;
         let start = Instant::now();
         let (reliable_tx, reliable_rx) = channel.split();
-        let control_sink = ReliableSink::spawn(reliable_tx);
-        let control_src: BoxedSource = Box::pin(reliable_rx);
+        let mut control_sink = ReliableSink::spawn(reliable_tx);
+        let mut control_src: BoxedSource = Box::pin(reliable_rx);
 
-        match await_udp(udp_rx, &cfg).await {
-            Some((udp_tx, udp_rx)) => {
-                if cfg.udp_payload_budget > udp_tx.max_payload_len() {
-                    return Err(citadel_io::error!(
-                        ErrorCode::MediaConfigInvalid,
-                        format!(
-                            "udp_payload_budget {} exceeds the UDP channel's max payload {}",
-                            cfg.udp_payload_budget,
-                            udp_tx.max_payload_len()
-                        )
-                    ));
-                }
-                Self::assemble(
-                    MediaTransportKind::Unreliable,
-                    Box::new(udp_tx),
-                    Box::new(control_sink),
-                    Box::pin(udp_rx),
-                    Some(control_src),
-                    cfg,
-                    start,
-                )
+        let local_udp = await_udp(udp_rx, &cfg).await;
+        if let Some((udp_tx, _)) = &local_udp {
+            if cfg.udp_payload_budget > udp_tx.max_payload_len() {
+                return Err(citadel_io::error!(
+                    ErrorCode::MediaConfigInvalid,
+                    format!(
+                        "udp_payload_budget {} exceeds the UDP channel's max payload {}",
+                        cfg.udp_payload_budget,
+                        udp_tx.max_payload_len()
+                    )
+                ));
             }
+        }
+        let peer_udp =
+            exchange_transport_offer(&mut control_sink, &mut control_src, local_udp.is_some())
+                .await?;
+
+        match local_udp.filter(|_| peer_udp) {
+            Some((udp_tx, udp_rx)) => Self::assemble(
+                MediaTransportKind::Unreliable,
+                Box::new(udp_tx),
+                Box::new(control_sink),
+                Box::pin(udp_rx),
+                Some(control_src),
+                cfg,
+                start,
+            ),
             None => Self::assemble(
                 MediaTransportKind::Reliable,
                 Box::new(control_sink.clone()),
@@ -155,6 +170,41 @@ impl MediaEndpoint {
             sender: self.sender,
             receiver: self.receiver,
         }
+    }
+}
+
+/// Sends this side's transport offer as the first reliable message and reads
+/// the peer's, which is likewise the first message on the ordered lane.
+/// Returns whether the peer holds UDP. Each side's own UDP decision is local
+/// and timer-bound, so only the pair of offers yields an agreed transport.
+async fn exchange_transport_offer(
+    sink: &mut ReliableSink,
+    src: &mut BoxedSource,
+    local_udp: bool,
+) -> Result<bool, NetworkError> {
+    let body = ControlMessage::TransportOffer { udp: local_udp }
+        .encode()
+        .net()?;
+    sink.send_datagram(BytesMut::from(encode_control(&body).as_slice()))?;
+    let reply = src.next().await.ok_or_else(|| {
+        citadel_io::error!(
+            ErrorCode::MediaTransportClosed,
+            "reliable channel closed before the peer's transport offer"
+        )
+    })?;
+    let malformed = |err| citadel_io::error!(ErrorCode::MediaControlDecode, err);
+    match wire::parse(reply.as_ref()).map_err(malformed)? {
+        WireMessage::Control(body) => match ControlMessage::decode(body).map_err(malformed)? {
+            ControlMessage::TransportOffer { udp } => Ok(udp),
+            other => Err(citadel_io::error!(
+                ErrorCode::MediaControlDecode,
+                format!("expected the peer's transport offer, got {other:?}")
+            )),
+        },
+        WireMessage::Fragment { .. } => Err(citadel_io::error!(
+            ErrorCode::MediaControlDecode,
+            "expected the peer's transport offer, got a media fragment"
+        )),
     }
 }
 
