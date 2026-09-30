@@ -43,8 +43,8 @@ impl PlatformOps for NativeIO {
     ) -> impl std::future::Future<Output = std::io::Result<NatType>> + ContextRequirements {
         async {
             // A node must start without a NAT observation. This node-wide value only gates
-            // whether a direct path is attempted; each hole punch identifies afresh and
-            // aborts, rather than exchanging a guess, if identification fails there.
+            // whether a direct path is attempted; each hole punch identifies afresh and, if
+            // that fails, punches with local candidates under `NatType::unidentified`.
             Ok(NatType::identify(stun_servers).await.unwrap_or_else(|err| {
                 log::warn!(target: "citadel", "Unable to identify NAT type; attempting direct paths as if offline: {err}");
                 NatType::offline()

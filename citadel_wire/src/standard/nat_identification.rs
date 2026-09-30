@@ -74,6 +74,19 @@ impl NatType {
             is_ipv6_enabled: false,
         }
     }
+
+    /// A NAT that could not be identified: no translation model is claimed, and only what
+    /// is known locally is reported. A peer given this value predicts no external
+    /// addresses and punches towards the advertised local candidates instead, which is
+    /// what reaches a node on the same LAN or host when no STUN server is reachable.
+    pub fn unidentified(ip_info: Option<IpAddressInfo>) -> Self {
+        Self {
+            ip_translation: IpTranslation::Unpredictable,
+            port_translation: PortTranslation::Unpredictable,
+            ip_info,
+            is_ipv6_enabled: check_ipv6_enabled(),
+        }
+    }
 }
 
 pub struct SocketPair {
@@ -444,6 +457,19 @@ mod native {
             Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await
         }
 
+        /// The local NAT for one hole punch: the identified NAT, or, when identification
+        /// failed, [`NatType::unidentified`] carrying the host's real internal IP so the
+        /// punch can still proceed with local candidates.
+        pub async fn identified_or_local(identified: Result<Self, FirewallError>) -> Self {
+            match identified {
+                Ok(nat_type) => nat_type,
+                Err(err) => {
+                    log::warn!(target: "citadel", "Unable to identify NAT type; punching with local candidates only: {err:?}");
+                    Self::unidentified(local_ip_info().await)
+                }
+            }
+        }
+
         /// Identifies the NAT which the local node is behind
         pub async fn identify_timeout(
             _timeout: Duration,
@@ -559,6 +585,17 @@ mod native {
             .flatten()
     }
 
+    /// The IP information that needs no network: the internal IPv4 address, resolved by a
+    /// UDP `connect` from which no packet leaves the host. `None` without an IPv4 route.
+    async fn local_ip_info() -> Option<IpAddressInfo> {
+        async_ip::get_internal_ipv4()
+            .await
+            .map(|internal_ip| IpAddressInfo {
+                internal_ip,
+                external_ipv6: None,
+            })
+    }
+
     #[cfg_attr(
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
@@ -669,12 +706,7 @@ mod native {
                 // local fact, so a missed window leaves the former unobserved, not both.
                 Err(_) => {
                     log::warn!(target: "citadel", "External IP lookup missed its window; leaving it unobserved");
-                    Ok(async_ip::get_internal_ipv4()
-                        .await
-                        .map(|internal_ip| IpAddressInfo {
-                            internal_ip,
-                            external_ipv6: None,
-                        }))
+                    Ok(local_ip_info().await)
                 }
             }
         };
@@ -721,6 +753,49 @@ mod tests {
         let nat_type = NatType::identify(None).await.unwrap();
         let traversal_type = nat_type.traversal_type_required();
         log::trace!(target: "citadel", "NAT Type: {nat_type:?} | Reaching this node will require: {traversal_type:?} NAT traversal | Hypothetical connect scenario");
+    }
+
+    /// A failed identification yields no translation model but keeps the host's real
+    /// internal IP, so a hole punch can still proceed with local candidates.
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn a_failed_identification_is_unidentified_with_the_real_internal_ip() {
+        let expected = async_ip::get_internal_ipv4()
+            .await
+            .expect("this test needs a host with a default IPv4 route");
+        assert!(!expected.is_loopback());
+
+        let failed = Err(citadel_io::error!(
+            citadel_io::ErrorCode::FirewallNatIdentTimeout
+        ));
+        let nat = NatType::identified_or_local(failed).await;
+        assert!(
+            matches!(nat.ip_translation, IpTranslation::Unpredictable)
+                && matches!(nat.port_translation, PortTranslation::Unpredictable),
+            "an unidentified NAT must not claim a translation model: {nat:?}"
+        );
+        assert_eq!(
+            nat.ip_info.as_ref().map(|info| info.internal_ip),
+            Some(expected),
+            "the internal IP must be the host's, not a fabricated one: {nat:?}"
+        );
+        assert_eq!(nat.ip_info.and_then(|info| info.external_ipv6), None);
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn a_successful_identification_is_used_unchanged() {
+        let identified = NatType {
+            ip_translation: IpTranslation::Constant {
+                external: IpAddr::from_str("203.0.113.9").unwrap(),
+            },
+            port_translation: PortTranslation::Identity,
+            ip_info: None,
+            is_ipv6_enabled: false,
+        };
+        let nat = NatType::identified_or_local(Ok(identified)).await;
+        assert!(matches!(nat.ip_translation, IpTranslation::Constant { .. }));
+        assert!(matches!(nat.port_translation, PortTranslation::Identity));
     }
 
     /// Exercises `get_reflexive_addr` (and `stun_probe_socket`) end-to-end against a local

@@ -157,16 +157,12 @@ async fn driver_inner(
 
     // Step 2: NAT type identification
     log::trace!(target: "citadel", "[driver] Step 2: Identifying local NAT type...");
-    let local_nat_type = match NatType::identify(stun_servers.clone()).await {
-        Ok(nat) => {
-            log::trace!(target: "citadel", "[driver] Step 2: NAT identification successful: {nat:?}");
-            nat
-        }
-        Err(e) => {
-            log::error!(target: "citadel", "[driver] Step 2 FAILED: NAT identification error: {e:?}");
-            return Err(anyhow::Error::msg(e.to_string()));
-        }
-    };
+    // A failed identification is not fatal: the peers may still reach each other at their
+    // local addresses (same LAN or host, or no reachable STUN server), so the punch proceeds
+    // with an honest "unidentified" NAT carrying the real internal IP.
+    let local_nat_type =
+        NatType::identified_or_local(NatType::identify(stun_servers.clone()).await).await;
+    log::trace!(target: "citadel", "[driver] Step 2: local NAT type: {local_nat_type:?}");
     let local_nat_type = &local_nat_type;
 
     // Step 3: Exchange NAT types with peer

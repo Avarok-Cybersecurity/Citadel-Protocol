@@ -14,9 +14,10 @@
 //! responder frozen on the same runtime), which makes the outcome independent of how the
 //! scheduler orders the post-stall wakeups.
 //!
-//! Run: `cargo test -p citadel_wire --test nat_identify_under_stall`
-//! (without the `localhost-testing` feature, which short-circuits STUN entirely).
-#![cfg(not(feature = "localhost-testing"))]
+//! Run: `cargo test -p citadel_wire --test nat_identify_under_stall`. The first test needs
+//! the build without `localhost-testing`, which short-circuits `NatType::identify`; the
+//! second calls `NatType::identify_timeout`, which that feature does not bypass, so it runs
+//! under every feature set (including the coverage job's).
 
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -69,13 +70,17 @@ fn spawn_stun_responder(seen: Arc<AtomicUsize>, released: Arc<AtomicBool>) -> So
     addr
 }
 
-/// Runs `NatType::identify` against three local responders, freezing the runtime thread for
+/// Runs `identify` against three local responders, freezing the runtime thread for
 /// `stall` once all three requests have reached the responders. With `answer_after_stall`
 /// the responders answer only once the stall ends; otherwise they answer immediately.
-async fn identify_with_stall(
+async fn identify_with_stall<F>(
+    identify: impl FnOnce(Vec<String>) -> F,
     stall: Duration,
     answer_after_stall: bool,
-) -> Result<NatType, citadel_wire::error::FirewallError> {
+) -> Result<NatType, citadel_wire::error::FirewallError>
+where
+    F: std::future::Future<Output = Result<NatType, citadel_wire::error::FirewallError>>,
+{
     let seen = Arc::new(AtomicUsize::new(0));
     let released = Arc::new(AtomicBool::new(!answer_after_stall));
     let servers = (0..3)
@@ -92,16 +97,18 @@ async fn identify_with_stall(
         released.store(true, Ordering::SeqCst);
     };
 
-    let (identified, ()) = tokio::join!(NatType::identify(Some(servers)), stall_injector);
+    let (identified, ()) = tokio::join!(identify(servers), stall_injector);
     identified
 }
 
 /// A stall longer than `IDENTIFY_TIMEOUT` must yield an error (or the true classification),
 /// never `NatType::offline()` -- "no NAT, reachable at 127.0.0.1" -- presented as a fact.
+#[cfg(not(feature = "localhost-testing"))]
 #[tokio::test]
 async fn a_stall_past_the_identify_deadline_is_not_reported_as_offline() {
     let stall = IDENTIFY_TIMEOUT + Duration::from_millis(500);
-    match identify_with_stall(stall, true).await {
+    let identify = |servers| NatType::identify(Some(servers));
+    match identify_with_stall(identify, stall, true).await {
         Err(_) => {}
         // An Ok is acceptable only if it is the true classification.
         Ok(nat) => assert!(
@@ -127,7 +134,8 @@ async fn a_stall_past_the_ip_info_window_does_not_replace_the_internal_ip_with_l
     let stall = Duration::from_millis(2500);
     assert!(stall < IDENTIFY_TIMEOUT);
 
-    let nat = identify_with_stall(stall, false)
+    let identify = |servers| NatType::identify_timeout(IDENTIFY_TIMEOUT, Some(servers));
+    let nat = identify_with_stall(identify, stall, false)
         .await
         .expect("STUN answered before IDENTIFY_TIMEOUT, so identification must succeed");
     assert!(
