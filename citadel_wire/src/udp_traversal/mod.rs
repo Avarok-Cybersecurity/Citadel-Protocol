@@ -67,6 +67,8 @@ pub mod linear;
 #[cfg(not(target_family = "wasm"))]
 pub mod multi;
 #[cfg(not(target_family = "wasm"))]
+mod paired_attempts;
+#[cfg(not(target_family = "wasm"))]
 pub mod udp_hole_puncher;
 
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]

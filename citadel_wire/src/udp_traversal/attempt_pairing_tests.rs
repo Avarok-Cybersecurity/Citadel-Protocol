@@ -57,3 +57,33 @@ async fn a_one_sided_delay_shorter_than_an_attempt_does_not_fail_the_punch() {
         MAX_RETRIES - 1
     );
 }
+
+/// The attempts share one control stream, and each attempt runs a multiplexer
+/// of its own over it. When the punch returns, that inner multiplexer's reader
+/// ends; subscriptions still waiting on the peer's close signal then have to
+/// give up, or they hold the control stream, and through it the endpoint, for
+/// as long as the process lives.
+#[tokio::test]
+async fn a_finished_punch_releases_its_control_stream() {
+    use netbeam::sync::subscription::Subscribable;
+    use netbeam::sync::SymmetricConvID;
+    citadel_logging::setup_log();
+    let (a, b) = create_streams_with_addrs_and_lag(0).await;
+    let (res_a, res_b) = tokio::join!(punch(&a), punch(&b));
+    res_a.expect("A failed to punch");
+    res_b.expect("B failed to punch");
+
+    // Fresh endpoints: the control stream is the first subscription either opens.
+    let control = SymmetricConvID::from(1);
+    let open = |e: &netbeam::sync::network_endpoint::NetworkEndpoint| {
+        e.subscriptions().read().contains_key(&control)
+    };
+    // Only a hang guard; the close is an exchange with the peer, so it is polled.
+    tokio::time::timeout(ATTEMPT * MAX_RETRIES as u32, async {
+        while open(&a) || open(&b) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the control stream was never closed after the punch finished");
+}
