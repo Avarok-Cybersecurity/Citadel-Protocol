@@ -237,8 +237,16 @@ where
             ));
         }
 
+        // The id is only reserved here; `self.message_id` advances once the message
+        // has left or been queued. Advanced up front, a send that ends before that --
+        // an error, or its future dropped at one of the awaits below (a caller's
+        // timeout or select! firing during a stall) -- spent the id without the
+        // message. The peer's OrderedChannel then waited for that id forever and
+        // held back every later message. `&mut self` means no other send can take
+        // the id meanwhile, so the next send reuses it and the sequence stays dense.
+        let id = self.message_id;
         let message = MessengerLayerOrderedMessage {
-            id: self.get_and_increment_message_id(),
+            id,
             message: message.into(),
         };
 
@@ -258,11 +266,11 @@ where
                         .await
                         .map_err(|_| {
                             citadel_io::error!(citadel_io::ErrorCode::RatchetManagerStreamDied)
-                        })
-                } else {
-                    // Success; this message will trigger a simultaneous rekey
-                    Ok(())
+                        })?;
                 }
+                // Either sent alone, or it rode the rekey it triggered
+                self.message_id = id.wrapping_add(1);
+                Ok(())
             }
 
             SecrecyMode::Perfect => {
@@ -287,16 +295,11 @@ where
                 {
                     queue.push_back(message_not_sent);
                 }
-                // Success: either message was sent with rekey, or it's enqueued
+                // Either sent with the rekey it triggered, or queued behind a pending one
+                self.message_id = id.wrapping_add(1);
                 Ok(())
             }
         }
-    }
-
-    fn get_and_increment_message_id(&mut self) -> u64 {
-        let id = self.message_id;
-        self.message_id += 1;
-        id
     }
 }
 
