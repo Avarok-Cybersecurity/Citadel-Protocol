@@ -173,3 +173,62 @@ async fn a_remote_failure_is_not_echoed_so_the_failed_side_can_still_be_commande
         "the failed side never took the Winner"
     );
 }
+
+/// Stall sensitivity of the positive assertion in
+/// `a_remote_failure_is_not_echoed_so_the_failed_side_can_still_be_commanded`:
+/// it requires the Winner to be TAKEN inside `WRONG_EXIT_WINDOW`, a wall-clock
+/// window. Freeze the current_thread runtime for longer than that window just
+/// after the window is armed and before the announcer's writer has run, as a
+/// symbolizing backtrace or a laptop pause does. The product loses nothing: the
+/// Winner is on the wire and the reader takes it as soon as it runs again. The
+/// window's timer and the reader wake on the same tick, the timer is checked
+/// first, and the test fails although the ordering it means still held.
+#[tokio::test]
+async fn a_winner_announced_before_a_runtime_stall_is_still_taken() {
+    let Pair {
+        winner: eventual_winner,
+        loser: failed_side,
+        ..
+    } = pair().await;
+
+    failed_side.on_local_all_failed().await.unwrap();
+    let command = (HolePunchID::new(), HolePunchID::new());
+    eventual_winner
+        .announce_winner(command.0, command.1)
+        .await
+        .unwrap();
+
+    let stall = async {
+        std::thread::sleep(WRONG_EXIT_WINDOW + Duration::from_millis(200));
+    };
+    let (read, ()) = tokio::join!(
+        tokio::time::timeout(WRONG_EXIT_WINDOW, failed_side.read_signals()),
+        stall
+    );
+    assert!(
+        read.is_err(),
+        "the failed side stopped reading before the Winner: {read:?}"
+    );
+    let taken_in_window = *failed_side.commanded_winner.lock().await;
+
+    // The Winner was never lost: the next signal on the wire is it.
+    let late = tokio::time::timeout(DEADLINE, async {
+        loop {
+            match receive(&mut *failed_side.conn_rx.lock().await).await {
+                Ok(DualStackCandidateSignal::Winner(local, peer)) => return Some((local, peer)),
+                Ok(_) => continue,
+                Err(_) => return None,
+            }
+        }
+    })
+    .await
+    .ok()
+    .flatten();
+
+    assert_eq!(
+        taken_in_window,
+        Some(command),
+        "the Winner was taken only after the wall-clock window (late read: {late:?}), \
+         so the assertion measured the stall, not the protocol"
+    );
+}
