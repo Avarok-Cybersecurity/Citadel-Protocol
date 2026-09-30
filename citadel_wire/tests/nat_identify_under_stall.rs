@@ -16,6 +16,7 @@
 //!
 //! Run: `cargo test -p citadel_wire --test nat_identify_under_stall`
 //! (without the `localhost-testing` feature, which short-circuits STUN entirely).
+#![cfg(not(feature = "localhost-testing"))]
 
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;

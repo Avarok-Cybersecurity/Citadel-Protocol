@@ -238,6 +238,14 @@ jobs:
       - name: Run basic localhost NAT tests (windows only)
         if: startsWith(matrix.os, 'windows')
         run: cargo nextest run --release --package citadel_wire --features=localhost-testing,vendored
+      # localhost-testing short-circuits STUN, so NAT identification itself is only exercised
+      # without it (against local STUN responders; no external network needed).
+      - name: Run NAT identification tests
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: cargo nextest run --release --package citadel_wire --test nat_identify_under_stall
+      - name: Run NAT identification tests (windows only)
+        if: startsWith(matrix.os, 'windows')
+        run: cargo nextest run --release --package citadel_wire --features=vendored --test nat_identify_under_stall
 
   citadel_sdk:
     strategy:

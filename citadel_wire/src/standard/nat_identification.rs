@@ -426,7 +426,11 @@ mod native {
         citadel_io::Mutex::new(None);
 
     impl NatType {
-        /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
+        /// Identifies the NAT which the local node is behind, within [`IDENTIFY_TIMEOUT`].
+        ///
+        /// An identification that fails or misses the deadline is an error, never a
+        /// classification: the result is exchanged with the peer as an observation, so the
+        /// caller must decide what to do without one.
         #[cfg_attr(
             feature = "localhost-testing",
             tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
@@ -437,13 +441,7 @@ mod native {
                 return Ok(NatType::offline());
             }
 
-            match Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await {
-                Ok(nat_type) => Ok(nat_type),
-                Err(err) => {
-                    log::warn!(target: "citadel", "Unable to identify NAT type (will assume offline): {err:?}");
-                    Ok(NatType::offline())
-                }
-            }
+            Self::identify_timeout(IDENTIFY_TIMEOUT, stun_servers).await
         }
 
         /// Identifies the NAT which the local node is behind
@@ -667,7 +665,17 @@ mod native {
             {
                 Ok(Ok(ip_info)) => Ok(Some(ip_info)),
                 Ok(Err(err)) => Err(err),
-                Err(_) => Ok(None),
+                // Only the external IPv6 lookup needs the network; the internal IP is a
+                // local fact, so a missed window leaves the former unobserved, not both.
+                Err(_) => {
+                    log::warn!(target: "citadel", "External IP lookup missed its window; leaving it unobserved");
+                    Ok(async_ip::get_internal_ipv4()
+                        .await
+                        .map(|internal_ip| IpAddressInfo {
+                            internal_ip,
+                            external_ipv6: None,
+                        }))
+                }
             }
         };
 
