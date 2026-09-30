@@ -51,8 +51,8 @@
 
 use futures::Future;
 use quinn::{
-    Accept, AsyncUdpSocket, ClientConfig, Connection, Endpoint, EndpointConfig, RecvStream,
-    SendStream, ServerConfig, TokioRuntime, VarInt,
+    Accept, AsyncUdpSocket, ClientConfig, Connection, Endpoint, EndpointConfig, Incoming,
+    RecvStream, SendStream, ServerConfig, TokioRuntime, VarInt,
 };
 
 use crate::exports::{Certificate, PrivateKey};
@@ -136,19 +136,28 @@ pub trait QuicEndpointListener {
         Self: Sized + Send + Sync,
     {
         Box::pin(async move {
-            let connecting = self
+            let incoming = self
                 .listener()
                 .await
                 .ok_or_else(|| anyhow::Error::msg(QUIC_LISTENER_DIED))?;
-            let conn = connecting.await?;
-            let (sink, stream) = conn
-                .accept_bi()
-                .await
-                .map_err(|err| anyhow::Error::msg(err.to_string()))?;
-
-            Ok((conn, sink, stream))
+            accept_biconn(incoming).await
         })
     }
+}
+
+/// Completes one incoming connection: the handshake, then the peer's first
+/// bidirectional stream. A failure here belongs to that connection alone; the
+/// endpoint can keep accepting others.
+pub async fn accept_biconn(
+    incoming: Incoming,
+) -> Result<(Connection, SendStream, RecvStream), anyhow::Error> {
+    let conn = incoming.await?;
+    let (sink, stream) = conn
+        .accept_bi()
+        .await
+        .map_err(|err| anyhow::Error::msg(err.to_string()))?;
+
+    Ok((conn, sink, stream))
 }
 
 pub const QUIC_LISTENER_DIED: &str = "No QUIC connections available";
