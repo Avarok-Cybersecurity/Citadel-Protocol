@@ -42,5 +42,8 @@ async-recursion = { workspace = true }
 citadel_logging = { workspace = true }
 rstest = { workspace = true }
 
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
+
 [lib]
 doctest = false
