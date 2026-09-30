@@ -159,7 +159,10 @@ impl<R: Ratchet> StateContainerInner<R> {
         let resent = endpoint.direct_journal.lock().drain_onto(&relay);
         endpoint.p2p_path.fall_back_to_server_relay();
         log::warn!(target: "citadel", "Direct route to peer {peer_cid} ended; fell back to the server relay and re-sent {resent} unacknowledged message(s)");
-        let _ = self.fail_transfers_with_peer(peer_cid, "the direct path to this peer was lost");
+        // Transfers are NOT failed here: C2S is up, so a transfer's completion (its final ack
+        // travels over C2S) can still arrive, and failing on the direct stream's end used to beat
+        // it. A transfer that really stalls ends by its own group timeouts, or by the Disconnect
+        // rebound if the connection itself ends.
         RouteEnd::FellBack
     }
 
