@@ -105,6 +105,45 @@ where
 
 pub(crate) type LocalListener<R> = Arc<Mutex<Option<citadel_io::tokio::sync::oneshot::Sender<R>>>>;
 
+/// A trigger's claim on a rekey whose AliceToBob has not been sent: the
+/// `update_in_progress` toggle, the declared version, the stored constructor
+/// and the local listener. Nothing has reached the peer, so no round will ever
+/// conclude and release them; dropped before [`Self::sent`] -- a cancelled
+/// await, an error return, a stale-version retry -- it releases them itself.
+struct UnsentRekeyClaim<'a, S, I, R: Ratchet, P: AttachedPayload> {
+    manager: &'a RatchetManager<S, I, R, P>,
+    next_version: u32,
+    armed: bool,
+}
+
+impl<'a, S, I, R: Ratchet, P: AttachedPayload> UnsentRekeyClaim<'a, S, I, R, P> {
+    fn new(manager: &'a RatchetManager<S, I, R, P>, next_version: u32) -> Self {
+        Self {
+            manager,
+            next_version,
+            armed: true,
+        }
+    }
+
+    /// The AliceToBob is out: the round now owns the claim.
+    fn sent(mut self) {
+        self.armed = false;
+    }
+}
+
+impl<S, I, R: Ratchet, P: AttachedPayload> Drop for UnsentRekeyClaim<'_, S, I, R, P> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let manager = self.manager;
+        manager.session_crypto_state.sync_declared_version();
+        let _ = manager.constructors.lock().remove(&self.next_version);
+        let _ = manager.local_listener.lock().take();
+        manager.session_crypto_state.update_in_progress.toggle_off();
+    }
+}
+
 impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> {
     fn clone(&self) -> Self {
         Self {
@@ -492,6 +531,13 @@ where
                 )
             };
 
+            // Taken before the first await: the claim above already holds
+            // update_in_progress, and a drop at any await before the send
+            // must release it.
+            let unsent_claim = source_ratchet
+                .is_some()
+                .then(|| UnsentRekeyClaim::new(self, next_version));
+
             // Offload the keygen (new_alice), stage0_alice and serialization: the
             // KEM work stalls every task sharing this thread when run inline.
             let prepared = match source_ratchet {
@@ -586,14 +632,9 @@ where
                 if current_version != latest_ratchet_version {
                     log::info!(target: "citadel", "[CBD-RKT-STALE-RETRY] Client {} stale version detected ({} -> {}), retrying attempt {}/{}",
                     self.cid, latest_ratchet_version, current_version, stale_version_retry_count + 1, MAX_STALE_VERSION_RETRIES);
-                    // Reset declared version so next loop iteration can proceed
-                    self.session_crypto_state.sync_declared_version();
-                    // Clean up the constructor we stored
-                    let _ = self.constructors.lock().remove(&next_version);
-                    // Reset toggle
-                    self.session_crypto_state.update_in_progress.toggle_off();
-                    // Clear listener if we registered one
-                    let _ = self.local_listener.lock().take();
+                    // Release the declared version, constructor, toggle and
+                    // listener so the next iteration can proceed
+                    drop(unsent_claim);
                     // Small delay to let concurrent rekeys settle
                     citadel_io::time::sleep(Duration::from_millis(1)).await;
                     // Increment retry counter and loop back
@@ -615,6 +656,9 @@ where
                     .map_err(|_err| {
                         citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
                     })?;
+                if let Some(claim) = unsent_claim {
+                    claim.sent();
+                }
 
                 // CBD: Checkpoint RKT-5
                 log::info!(target: "citadel", "[CBD-RKT-5] Client {} sent AliceToBob: elapsed={}ms",
@@ -2367,3 +2411,7 @@ pub(crate) mod tests {
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "ratchet_manager_offload_tests.rs"]
 mod offload_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "ratchet_manager_cancel_tests.rs"]
+mod cancel_tests;
