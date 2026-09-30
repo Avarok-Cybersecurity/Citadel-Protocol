@@ -67,6 +67,11 @@ pub(crate) const INITIAL_CAPACITY: usize = 32;
 pub struct PreActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
     tx: citadel_io::tokio::sync::mpsc::Sender<K>,
     rx: Mutex<citadel_io::tokio::sync::mpsc::Receiver<K>>,
+    /// The id of a handshake whose caller was cancelled before it finished.
+    /// The peer has already been told (or has told us) about this id, so the
+    /// next subscription resumes it instead of starting a new one: starting
+    /// over would leave the peer paired with the abandoned id.
+    in_flight: citadel_io::Mutex<Option<K>>,
 }
 
 impl<K: MultiplexedConnKey> PreActionChannel<K> {
@@ -75,6 +80,7 @@ impl<K: MultiplexedConnKey> PreActionChannel<K> {
         Self {
             tx,
             rx: Mutex::new(rx),
+            in_flight: citadel_io::Mutex::new(None),
         }
     }
 }
@@ -305,44 +311,75 @@ async fn preaction_sync<
 >(
     ptr: &'a S,
 ) -> Result<<S as Subscribable>::BorrowedSubscriptionType, anyhow::Error> {
-    let mut recv_lock = ptr.pre_action_container().rx.lock().await;
+    let container = ptr.pre_action_container();
+    let mut recv_lock = container.rx.lock().await;
 
-    if let Some(subscription) = ptr.get_next_prereserved() {
-        return Ok(subscription);
+    // Every await below is a cancellation point (each hole-punch attempt runs
+    // under a timeout). An id goes into `in_flight` as soon as the peer knows
+    // it and leaves once the peer considers the pairing done, so a cancelled
+    // handshake is resumed by the next call rather than abandoned: abandoning
+    // it would leave the two sides paired with different ids from then on.
+    let resumed = *container.in_flight.lock();
+    if resumed.is_none() {
+        if let Some(subscription) = ptr.get_next_prereserved() {
+            return Ok(subscription);
+        }
     }
 
-    match ptr.node_type() {
+    let id = match ptr.node_type() {
         RelativeNodeType::Receiver => {
-            // generate the subscription to ensure local can begin receiving packet
-            let next_id = ptr.get_next_id();
-            let subscription = ptr.subscribe(next_id);
-            ptr.post_close_container().setup_channel(next_id).await;
+            let id = match resumed {
+                Some(id) => id,
+                None => {
+                    // Reserved before the peer learns the id, so what it sends
+                    // right after answering is buffered, not dropped.
+                    let id = ptr.get_next_id();
+                    ptr.reserve(id);
+                    ptr.post_close_container().setup_channel(id).await;
+                    *container.in_flight.lock() = Some(id);
+                    ptr.send_pre_open_signal(id).await?;
+                    id
+                }
+            };
 
-            ptr.send_pre_open_signal(next_id).await?;
-            let recvd_id = recv_lock
-                .recv()
-                .await
-                .ok_or_else(|| anyhow::Error::msg("rx dead"))?;
-
-            if recvd_id != next_id {
-                log::error!(target: "citadel", "Invalid sync ID received. {recvd_id:?} != {next_id:?}");
+            loop {
+                let recvd_id = recv_lock
+                    .recv()
+                    .await
+                    .ok_or_else(|| anyhow::Error::msg("rx dead"))?;
+                if recvd_id == id {
+                    break;
+                }
+                log::warn!(target: "citadel", "Discarding a stale sync ID: {recvd_id:?} != {id:?}");
             }
-
-            Ok(subscription)
+            id
         }
 
         RelativeNodeType::Initiator => {
-            let next_id = recv_lock
-                .recv()
-                .await
-                .ok_or_else(|| anyhow::Error::msg("rx dead"))?;
-            let subscription = ptr.subscribe(next_id);
-            ptr.post_close_container().setup_channel(next_id).await;
-            ptr.send_pre_open_signal(next_id).await?;
-            // we can safely return, knowing the adjacent node will still have the conv open to receive messages
-            Ok(subscription)
+            let id = match resumed {
+                Some(id) => id,
+                None => {
+                    let id = recv_lock
+                        .recv()
+                        .await
+                        .ok_or_else(|| anyhow::Error::msg("rx dead"))?;
+                    *container.in_flight.lock() = Some(id);
+                    id
+                }
+            };
+            ptr.reserve(id);
+            ptr.post_close_container().setup_channel(id).await;
+            ptr.send_pre_open_signal(id).await?;
+            id
         }
-    }
+    };
+
+    // No await from here on: the pairing is complete on both sides.
+    *container.in_flight.lock() = None;
+    // we can safely return, knowing the adjacent node will still have the conv open to receive messages
+    ptr.claim_reserved(id).ok_or_else(|| {
+        anyhow::Error::msg(format!("Subscription {id:?} was claimed by another caller"))
+    })
 }
 
 pub(crate) struct PostActionSync<'a> {
