@@ -156,7 +156,11 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         citadel_io::spawn(async move {
             while let Ok(ref packet) = conn_task.conn.recv().await {
                 if let Err(err) = conn_task.forward_packet(packet).await {
-                    log::trace!(target: "citadel", "Unable to forward packet: {err:?}");
+                    // `{err:#}`, not `{err:?}`: anyhow's Debug renders the captured
+                    // backtrace, and symbolizing it blocks this runtime thread for
+                    // seconds in a debug build. The error is routine (a packet for a
+                    // channel that has already closed).
+                    log::trace!(target: "citadel", "Unable to forward packet: {err:#}");
                 }
             }
         });
