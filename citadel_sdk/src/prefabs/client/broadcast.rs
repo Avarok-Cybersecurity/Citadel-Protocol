@@ -240,43 +240,14 @@ where
                     mgid: group_id.as_u128(),
                 };
 
-                // The server answers once the owner's group exists: now, or when the owner
-                // creates it. No deadline is imposed here; the owner may create it at any time.
-                let mut watch = connect_success
-                    .send_callback_subscription(NodeRequest::GroupBroadcastCommand(
-                        GroupBroadcastCommand {
-                            session_cid,
-                            command: GroupBroadcast::AwaitGroup {
-                                key: expected_message_group_key,
-                            },
-                        },
-                    ))
-                    .await?;
-                loop {
-                    let event = watch
-                        .next()
-                        .await
-                        .map(|evt| evt.into_result())
-                        .transpose()?;
-                    match event {
-                        Some(NodeResult::GroupEvent(GroupEvent {
-                            event: GroupBroadcast::GroupAvailable { key },
-                            ..
-                        })) if key == expected_message_group_key => break,
-                        Some(NodeResult::GroupEvent(GroupEvent {
-                            event: GroupBroadcast::GroupNonExists { .. },
-                            ..
-                        }))
-                        | None => {
-                            return Err(citadel_io::error!(
-                                citadel_io::ErrorCode::BroadcastOwnerGroupMissing,
-                                citadel_io::Dbg(owner),
-                                citadel_io::Dbg(group_id)
-                            ));
-                        }
-                        Some(_) => {}
-                    }
-                }
+                crate::prefabs::client::broadcast_join::wait_for_owner_group(
+                    &connect_success,
+                    &local_user,
+                    &owner,
+                    group_id,
+                    expected_message_group_key,
+                )
+                .await?;
 
                 GroupBroadcast::RequestJoin {
                     sender: local_user.get_cid(),

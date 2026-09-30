@@ -39,14 +39,19 @@ pub const MAJOR_VERSION: u8 = 0;
 // Bumped 10 -> 11: the hole-punch coordination stream now carries attempt-numbered frames
 // (citadel_wire udp_traversal::paired_attempts). A peer on 0.10 sends unframed attempts, so the
 // two cannot punch with each other. The same bump covers the additive changes that ship with it:
-// key-exchange signals carry the sender's protocol version, and media endpoints exchange
-// transport offers (see `MEDIA_TRANSPORT_OFFER_SINCE`).
+// key-exchange signals carry the sender's protocol version, media endpoints exchange
+// transport offers (see `MEDIA_TRANSPORT_OFFER_SINCE`), and servers answer
+// `GroupBroadcast::AwaitGroup` (see `AWAIT_GROUP_SINCE`).
 pub const MINOR_VERSION: u8 = 11;
 pub const PATCH_VERSION: u8 = 0;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
 pub const MEDIA_TRANSPORT_OFFER_SINCE: (u8, u8, u8) = (0, 10, 1);
+
+/// The first protocol version whose server answers `GroupBroadcast::AwaitGroup`. A joiner
+/// talking to a server below it, or of unknown version, polls for the owner's group instead.
+pub const AWAIT_GROUP_SINCE: (u8, u8, u8) = (0, 11, 0);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

@@ -50,6 +50,8 @@ use uuid::Uuid;
 
 /// A kernel that assists in creating and/or connecting to a group
 pub mod broadcast;
+/// How a broadcast joiner waits for its owner's group
+pub(crate) mod broadcast_join;
 /// A kernel that assists in allowing multiple possible peer-to-peer connections
 pub mod peer_connection;
 /// Internal kernel for serverless browser-to-browser connections
