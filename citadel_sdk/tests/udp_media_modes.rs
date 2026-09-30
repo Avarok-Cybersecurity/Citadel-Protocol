@@ -284,6 +284,39 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Several nextest processes (or `cargo test` threads) may find the cache cold at once. Each
+    /// must come back with the verified fixture: none may fail because another one's download
+    /// replaced, removed or renamed the file it was writing.
+    #[test]
+    fn concurrent_cold_cache_fetches_all_return_the_verified_fixture() {
+        const FETCHERS: usize = 8;
+        let dir =
+            std::env::temp_dir().join(format!("citadel_fixture_race_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _guard = EnvGuard(FIXTURE_DIR_ENV);
+        std::env::set_var(FIXTURE_DIR_ENV, &dir);
+        let start = std::sync::Arc::new(std::sync::Barrier::new(FETCHERS));
+        let fetchers: Vec<_> = (0..FETCHERS)
+            .map(|_| {
+                let start = start.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    ensure(Fixture::Vp8Ivf).map_err(|err| err.to_string())
+                })
+            })
+            .collect();
+        let failures: Vec<String> = fetchers
+            .into_iter()
+            .filter_map(|fetcher| match fetcher.join().unwrap() {
+                Ok(Some(_)) => None,
+                Ok(None) => Some("offline despite a cold cache".to_string()),
+                Err(err) => Some(err),
+            })
+            .collect();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(failures.is_empty(), "concurrent fetches failed: {failures:?}");
+    }
+
     #[test]
     fn fixture_offline_and_absent_returns_none() {
         let dir =
