@@ -443,9 +443,11 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                     }
 
                                     // the window is done. Since this node is the transmitter, we then make a call to begin sending the next wave
-                                    if !state_container
-                                        .on_wave_ack_received(ratchet.get_cid(), &header)
-                                    {
+                                    if !state_container.on_wave_ack_received(
+                                        ratchet.get_cid(),
+                                        &header,
+                                        range,
+                                    ) {
                                         if udp_mode == UdpMode::Disabled {
                                             log::error!(target: "citadel", "There was an error sending the TCP window; Cancelling connection");
                                         } else {

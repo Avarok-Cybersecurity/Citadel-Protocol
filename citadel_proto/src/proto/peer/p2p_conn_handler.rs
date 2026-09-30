@@ -454,8 +454,15 @@ pub(crate) mod native_p2p {
                 }
 
                 state_container.active_virtual_connections.remove(&peer_cid);
-                let _ = state_container
-                    .fail_transfers_with_peer(peer_cid, "the connection to this peer ended");
+                // While C2S is up, dropping the vconn sends a Disconnect over it (the notifier
+                // above), and the server answers down that same connection -- behind whatever
+                // the peer relayed first, such as the final ack of a transfer it has stored.
+                // That answer ends the transfers. Ending them here, on this stream's EOF, beat
+                // the ack whenever the peer closed this stream after finishing.
+                if !sess.state.is_connected() {
+                    let _ = state_container
+                        .fail_transfers_with_peer(peer_cid, "the connection to this peer ended");
+                }
 
                 // Only clean up the kem_state if it belongs to the old
                 // connection. A new connect_to_peer() may have already

@@ -152,6 +152,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         &mut self,
         session_cid: u64,
         header: &Ref<&[u8], HdpHeader>,
+        acked_waves: Option<RangeInclusive<u32>>,
     ) -> bool {
         let object_id = header.context_info.get().into();
         let group = header.group.get();
@@ -173,7 +174,13 @@ impl<R: Ratchet> StateContainerInner<R> {
                 .as_mut()
                 .expect("Transmitter not found");
             let relative_group_id = transmitter_container.relative_group_id;
-            if transmitter.on_wave_tail_ack_received(wave_id) {
+            // A range spanning every wave is the receiver's final ack: it has the whole group,
+            // whether or not the per-wave acks it sent on another stream were read yet.
+            let acks_whole_group = acked_waves.is_some_and(|waves| {
+                *waves.start() == 0
+                    && waves.end().saturating_add(1) >= transmitter.get_receiver_config().wave_count
+            });
+            if acks_whole_group || transmitter.on_wave_tail_ack_received(wave_id) {
                 // Group is finished. Delete it
                 let elapsed_sec = transmitter_container
                     .transmission_start_time

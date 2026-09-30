@@ -264,7 +264,8 @@ pub(crate) struct InboundFileTransfer {
     pub virtual_target: VirtualTargetType,
     pub metadata: VirtualObjectMetadata,
     pub stream_to_hd: UnboundedSender<Vec<u8>>,
-    pub reception_complete_tx: citadel_io::tokio::sync::oneshot::Sender<HdpHeader>,
+    /// The header of the packet that completed the object, and the wave count of its group.
+    pub reception_complete_tx: citadel_io::tokio::sync::oneshot::Sender<(HdpHeader, u32)>,
     pub local_encryption_level: Option<SecurityLevel>,
 }
 

@@ -160,6 +160,19 @@ impl<R: Ratchet> StateContainerInner<R> {
             }
 
             let is_server = self.is_server;
+            // The final ack goes on the queue the application's teardown goes on. Once
+            // `ReceptionComplete` is out, the application may drop its `PeerChannel`, whose
+            // `Disconnect` leaves over C2S; queued on the direct stream instead, the ack raced
+            // it, and a sender that handled the Disconnect first failed a stored transfer.
+            // Queued here first, the server relays it ahead of the Disconnect, down the same
+            // connection to the sender.
+            let final_ack_stream = match virtual_target {
+                VirtualConnectionType::LocalGroupPeer { .. } => self
+                    .get_preferred_stream(C2S_IDENTITY_CID)
+                    .cloned()
+                    .unwrap_or_else(|| preferred_primary_stream.clone()),
+                _ => preferred_primary_stream.clone(),
+            };
 
             let task = async move {
                 log::debug!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
@@ -219,8 +232,11 @@ impl<R: Ratchet> StateContainerInner<R> {
                             };
 
                             let status = match outcome {
-                                Ok(header) => {
-                                    // write the header
+                                Ok((header, waves_in_group)) => {
+                                    // It acks every wave of the group, not just the last: the
+                                    // other waves' acks left on the direct stream, and a sender
+                                    // that handles the Disconnect before reading them would
+                                    // otherwise still count the group unfinished.
                                     let wave_ack = packet_crafter::group::craft_wave_ack(
                                         &ratchet,
                                         object_id,
@@ -228,15 +244,14 @@ impl<R: Ratchet> StateContainerInner<R> {
                                         header.group.get(),
                                         header.wave_id.get(),
                                         tt.get_global_time_ns(),
-                                        None,
+                                        Some(0..=waves_in_group.saturating_sub(1)),
                                         header.security_level.into(),
                                     );
 
                                     match wave_ack {
-                                        Ok(wave_ack) => send_with_error_logging(
-                                            &preferred_primary_stream,
-                                            wave_ack,
-                                        ),
+                                        Ok(wave_ack) => {
+                                            send_with_error_logging(&final_ack_stream, wave_ack)
+                                        }
                                         Err(err) => {
                                             log::warn!(target: "citadel", "Unable to craft the final wave ack: {err}")
                                         }
@@ -397,6 +412,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     })?
                     .1
                     .receiver;
+                let waves_in_group = receiver.get_wave_count() as u32;
                 let mut chunk = receiver.finalize();
                 let bytes_in_group = chunk.len();
 
@@ -468,7 +484,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                     // TODO: Do not send the reception complete tx until after the backend streamer has finished
                     file_container
                         .reception_complete_tx
-                        .send(header.clone())
+                        .send((header.clone(), waves_in_group))
                         .map_err(|_| {
                             (
                                 error!(ErrorCode::InboundReceptionCompleteSendFailed),
