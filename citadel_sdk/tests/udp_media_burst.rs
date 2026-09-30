@@ -1,16 +1,14 @@
-//! The UDP media tests assert a guarantee the Unreliable transport does not make.
+//! An unpaced burst over the Unreliable transport: the case the UDP media tests used to
+//! hide behind 1 ms pacing sleeps. `send_frame` never blocks and reports zero evictions,
+//! so a burst is a legal use of the API. It loses datagrams for real: the UDP send queue
+//! evicts its oldest entries past `UDP_OUTBOUND_MAX_QUEUED`, and the loopback socket
+//! buffer overflows. The receiver must report every such loss as a `Gap`, the head too.
 //!
-//! `udp_media.rs` / `udp_media_modes.rs` panic on any `MediaEvent::Gap` and require
-//! every frame to arrive, and keep that true only by pacing the sender with 1 ms
-//! sleeps every four frames. Any hiccup that lets datagrams bunch up — a capture
-//! pipeline flushing after a stall, a receiver descheduled under load — overflows
-//! the loopback socket buffer or lets the reliable `EndOfStream` outrun the UDP tail
-//! by more than the jitter depth, and the receiver correctly reports a `Gap`.
-//!
-//! This test is the stock `udp_media.rs` assertion with the pacing crutch removed:
-//! the sender emits its frames as one burst, which is a legal use of the API
-//! (`send_frame` never blocks and reports zero evictions). It fails on master
-//! because the assertion, not the transport, is wrong.
+//! What it must never do is lose a frame silently or discard one it did receive. It
+//! locked onto the lowest arrival, so an evicted head vanished without a `Gap`; and when
+//! the reliable `EndOfStream` outran a UDP tail stalled behind a hole, its deadline
+//! reported the whole tail missing (`Gap 8..=159` with 136 of 160 frames completed) and
+//! left the received frames parked in the jitter buffer.
 #![cfg(not(target_family = "wasm"))]
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -41,7 +39,7 @@ mod tests {
     #[rstest]
     #[timeout(Duration::from_secs(150))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn p2p_udp_audio_burst_asserted_lossless() {
+    async fn p2p_udp_audio_burst_delivers_every_received_frame() {
         citadel_logging::setup_log();
         let Some(bytes) = ensure_bytes(Fixture::Wav).unwrap() else {
             return;
@@ -112,22 +110,21 @@ mod tests {
                         }
                         tx.end_of_stream(TRACK).await.unwrap();
                     } else {
-                        let mut got: Vec<(u32, Bytes)> = Vec::new();
+                        let mut ledger = DeliveryLedger::default();
                         loop {
                             match rx.next_event().await {
                                 MediaEvent::Tracks(t) => assert_eq!(t, vec![descriptor.clone()]),
                                 MediaEvent::Frame(frame) => {
-                                    got.push((frame.header.timestamp, frame.payload))
+                                    let (ts, payload) =
+                                        &frames[ledger.frame(frame.header.sequence)];
+                                    assert_eq!(frame.header.timestamp, *ts);
+                                    assert_eq!(&frame.payload, payload, "byte-exact reassembly");
                                 }
-                                // The stock assertion under test (udp_media.rs:104-110).
                                 MediaEvent::Gap {
                                     missing_from,
                                     missing_to,
                                     ..
-                                } => panic!(
-                                    "loss on loopback: frames {missing_from}..={missing_to}; {:?}",
-                                    rx.stats()
-                                ),
+                                } => ledger.gap(missing_from, missing_to),
                                 MediaEvent::EndOfStream(track) => {
                                     assert_eq!(track, TRACK);
                                     break;
@@ -135,8 +132,7 @@ mod tests {
                                 MediaEvent::Closed => panic!("closed before end of stream"),
                             }
                         }
-                        assert_eq!(got, frames, "every frame, in order, byte-exact");
-                        assert_eq!(rx.stats().frames_missing, 0);
+                        ledger.finish_unreliable(frames.len(), &rx.stats());
                     }
 
                     wait_for_peers().await;

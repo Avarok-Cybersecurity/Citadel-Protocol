@@ -5,6 +5,7 @@ use citadel_io::ErrorCode;
 use citadel_media::{
     ControlMessage, JitterBuffer, MediaConfig, MediaFrame, MediaInstant, MediaStats,
     MediaTrackDescriptor, PopResult, PushResult, ReassembleOutcome, Reassembler, TrackId,
+    FIRST_SEQUENCE,
 };
 use citadel_proto::prelude::{NetworkError, SecBuffer};
 use futures::stream::{select_all, SelectAll};
@@ -154,40 +155,16 @@ impl MediaReceiver {
             stats,
             ..
         } = self;
-        eos.resolve(
-            now,
-            force,
-            |track| jitter.next_expected(track),
-            ready,
-            stats,
-        )
+        eos.resolve(now, force, jitter, ready, stats)
     }
 
     fn pop_jitter(&mut self) -> Option<MediaEvent> {
         let now = self.now();
-        match self.jitter.pop_ready(now) {
-            PopResult::Frame(frame) => {
-                self.stats.frames_delivered += 1;
-                Some(MediaEvent::Frame(frame))
-            }
-            PopResult::Gap {
-                track,
-                missing_from,
-                missing_to,
-                next,
-            } => {
-                self.stats.gaps_skipped += 1;
-                self.stats.frames_missing +=
-                    u64::from(missing_to.wrapping_sub(missing_from).wrapping_add(1));
-                self.stats.frames_delivered += 1;
-                self.ready.push_back(MediaEvent::Frame(next));
-                Some(MediaEvent::Gap {
-                    track,
-                    missing_from,
-                    missing_to,
-                })
-            }
-            PopResult::NotReady => None,
+        let pop = self.jitter.pop_ready(now);
+        if queue_pop(pop, &mut self.ready, &mut self.stats) {
+            self.ready.pop_front()
+        } else {
+            None
         }
     }
 
@@ -218,6 +195,8 @@ impl MediaReceiver {
         match self.reassembler.push(datagram, now) {
             ReassembleOutcome::Complete(frame) => {
                 self.stats.frames_completed += 1;
+                // The peer's `MediaSender` numbers every track from a fresh packetizer.
+                self.jitter.expect_from(frame.header.track, FIRST_SEQUENCE);
                 match self.jitter.push(frame, now) {
                     PushResult::Buffered => {}
                     PushResult::Late => self.stats.frames_late += 1,
@@ -250,4 +229,38 @@ impl MediaReceiver {
         ControlMessage::decode(body)
             .map_err(|err| citadel_io::error!(ErrorCode::MediaControlDecode, err))
     }
+}
+
+/// Queues the events for one jitter pop, with its accounting. Returns whether
+/// anything was queued.
+pub(super) fn queue_pop(
+    pop: PopResult,
+    ready: &mut VecDeque<MediaEvent>,
+    stats: &mut MediaStats,
+) -> bool {
+    match pop {
+        PopResult::Frame(frame) => {
+            stats.frames_delivered += 1;
+            ready.push_back(MediaEvent::Frame(frame));
+        }
+        PopResult::Gap {
+            track,
+            missing_from,
+            missing_to,
+            next,
+        } => {
+            stats.gaps_skipped += 1;
+            stats.frames_missing +=
+                u64::from(missing_to.wrapping_sub(missing_from).wrapping_add(1));
+            stats.frames_delivered += 1;
+            ready.push_back(MediaEvent::Gap {
+                track,
+                missing_from,
+                missing_to,
+            });
+            ready.push_back(MediaEvent::Frame(next));
+        }
+        PopResult::NotReady => return false,
+    }
+    true
 }

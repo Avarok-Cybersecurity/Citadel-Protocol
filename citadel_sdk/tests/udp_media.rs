@@ -1,6 +1,7 @@
 //! End-to-end media streaming over the UDP subsystem: two peers connect through a test server,
 //! stream the real fixture files (WAV audio / IVF-VP8 video) via `citadel_sdk::media`, and assert
-//! byte-exact, in-order, loss-free delivery — plus the reliable fallback when UDP is disabled.
+//! byte-exact, in-order delivery with every loss reported as a `Gap` — plus loss-free delivery
+//! over the reliable fallback when UDP is disabled.
 #![cfg(not(target_family = "wasm"))]
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -77,21 +78,15 @@ mod tests {
                         tx.announce(std::slice::from_ref(&stream.descriptor))
                             .await
                             .unwrap();
-                        for (i, (ts, flags, payload)) in stream.frames.iter().enumerate() {
+                        for (ts, flags, payload) in &stream.frames {
                             let dropped = tx
                                 .send_frame(TRACK, stream.kind, *ts, *flags, payload.clone())
                                 .unwrap();
                             assert_eq!(dropped, 0, "loopback send must not evict");
-                            // Light pacing: real capture is paced (20 ms/frame);
-                            // an unpaced 160-datagram burst overflows the UDP
-                            // socket buffer on loopback and loses the tail.
-                            if i % 4 == 3 {
-                                tokio::time::sleep(Duration::from_millis(1)).await;
-                            }
                         }
                         tx.end_of_stream(TRACK).await.unwrap();
                     } else {
-                        let mut got: Vec<(u32, FrameFlags, Bytes)> = Vec::new();
+                        let mut ledger = DeliveryLedger::default();
                         let mut tracks: Vec<MediaTrackDescriptor> = Vec::new();
                         loop {
                             match rx.next_event().await {
@@ -99,19 +94,17 @@ mod tests {
                                 MediaEvent::Frame(frame) => {
                                     assert_eq!(frame.header.track, TRACK);
                                     assert_eq!(frame.header.kind, stream.kind);
-                                    got.push((
-                                        frame.header.timestamp,
-                                        frame.header.flags,
-                                        frame.payload,
-                                    ));
+                                    let (ts, flags, payload) =
+                                        &stream.frames[ledger.frame(frame.header.sequence)];
+                                    assert_eq!(frame.header.timestamp, *ts);
+                                    assert_eq!(frame.header.flags, *flags);
+                                    assert_eq!(&frame.payload, payload, "byte-exact reassembly");
                                 }
                                 MediaEvent::Gap {
                                     missing_from,
                                     missing_to,
                                     ..
-                                } => {
-                                    panic!("loss on loopback: frames {missing_from}..={missing_to}")
-                                }
+                                } => ledger.gap(missing_from, missing_to),
                                 MediaEvent::EndOfStream(track) => {
                                     assert_eq!(track, TRACK);
                                     break;
@@ -120,19 +113,16 @@ mod tests {
                             }
                         }
                         assert_eq!(tracks, vec![stream.descriptor.clone()]);
-                        assert_eq!(got.len(), stream.frames.len(), "frame count");
-                        for ((ts, flags, payload), (ets, eflags, epayload)) in
-                            got.iter().zip(stream.frames.iter())
-                        {
-                            assert_eq!(ts, ets);
-                            assert_eq!(flags, eflags);
-                            assert_eq!(payload, epayload);
+                        match expected_kind {
+                            // UDP promises neither delivery nor buffer space: a
+                            // stalled receiver loses datagrams and reports a Gap.
+                            MediaTransportKind::Unreliable => {
+                                ledger.finish_unreliable(stream.frames.len(), &rx.stats())
+                            }
+                            MediaTransportKind::Reliable => {
+                                ledger.finish_lossless(stream.frames.len(), &rx.stats())
+                            }
                         }
-                        let sent = sha_of_parts(stream.frames.iter().map(|(_, _, p)| p.as_ref()));
-                        let received = sha_of_parts(got.iter().map(|(_, _, p)| p.as_ref()));
-                        assert_eq!(sent, received, "byte-exact reassembly");
-                        assert_eq!(rx.stats().frames_missing, 0);
-                        assert_eq!(rx.stats().gaps_skipped, 0);
                     }
 
                     // Rendezvous before dropping the halves so DisconnectUDP only
@@ -234,7 +224,7 @@ mod tests {
         };
         run_stream_pair(UdpMode::Enabled, MediaTransportKind::Unreliable, stream).await;
 
-        // The received frames are asserted byte-equal above; prove the remux path reproduces a
+        // Delivered frames are asserted byte-equal above; prove the remux path reproduces a
         // parseable IVF byte-for-byte from those frames.
         let mut writer = IvfWriter::new(Vec::new(), &header).unwrap();
         for (pts, data) in &ivf {

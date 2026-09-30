@@ -4,6 +4,7 @@
 use bytes::{Bytes, BytesMut};
 use citadel_sdk::citadel_media::config::MediaConfig;
 use citadel_sdk::citadel_media::demux::{IvfHeader, IvfReader, WavReader};
+use citadel_sdk::citadel_media::MediaStats;
 use citadel_sdk::media::{
     MediaTransportConfig, RECOMMENDED_FRAGMENT_PAYLOAD, RECOMMENDED_UDP_PAYLOAD_BUDGET,
 };
@@ -66,4 +67,68 @@ pub fn sha_of_parts<'a>(parts: impl IntoIterator<Item = &'a [u8]>) -> String {
         all.extend_from_slice(part);
     }
     sha256::digest(all)
+}
+
+/// Tracks a receiver's `Frame`/`Gap` events against what the Unreliable transport
+/// actually promises: frames in sequence order, every sequence either delivered or
+/// inside exactly one reported `Gap`, and no completed frame silently discarded.
+/// Loss itself is legal — a stalled receiver overflows the UDP socket buffer — so
+/// only `finish_lossless` (for the Reliable transport) forbids gaps.
+#[derive(Debug, Default)]
+pub struct DeliveryLedger {
+    next: u32,
+    delivered: Vec<u32>,
+    missing: u64,
+}
+
+impl DeliveryLedger {
+    /// Records a delivered frame; returns its index in the sent stream.
+    pub fn frame(&mut self, sequence: u32) -> usize {
+        assert_eq!(
+            sequence, self.next,
+            "frames arrive in order, after any gap: {self:?}"
+        );
+        self.next += 1;
+        self.delivered.push(sequence);
+        sequence as usize
+    }
+
+    pub fn gap(&mut self, missing_from: u32, missing_to: u32) {
+        assert_eq!(
+            missing_from, self.next,
+            "a gap starts where delivery stopped"
+        );
+        assert!(
+            missing_to >= missing_from,
+            "gap {missing_from}..={missing_to}"
+        );
+        self.next = missing_to + 1;
+        self.missing += u64::from(missing_to - missing_from + 1);
+    }
+
+    pub fn delivered(&self) -> usize {
+        self.delivered.len()
+    }
+
+    /// At end-of-stream: the ledger covers all `sent` frames and agrees with `stats`.
+    pub fn finish_unreliable(&self, sent: usize, stats: &MediaStats) {
+        assert_eq!(
+            self.next as usize, sent,
+            "every sequence delivered or reported missing"
+        );
+        assert_eq!(stats.frames_delivered, self.delivered.len() as u64);
+        assert_eq!(stats.frames_missing, self.missing);
+        assert_eq!(
+            stats.frames_completed,
+            stats.frames_delivered + stats.frames_late + stats.frames_too_old,
+            "a frame the receiver completed was neither delivered nor counted late: {stats:?}"
+        );
+        assert!(!self.delivered.is_empty(), "the path carried no media");
+    }
+
+    pub fn finish_lossless(&self, sent: usize, stats: &MediaStats) {
+        self.finish_unreliable(sent, stats);
+        assert_eq!(self.missing, 0, "the reliable transport lost frames");
+        assert_eq!(stats.gaps_skipped, 0);
+    }
 }

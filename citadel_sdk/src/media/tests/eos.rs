@@ -166,3 +166,30 @@ fn eos_deadline_does_not_discard_frames_buffered_behind_a_hole() {
         assert_eq!(rx.next_event().await, MediaEvent::Closed);
     })
 }
+
+#[test]
+fn a_lost_head_is_reported_as_a_gap() {
+    run(async {
+        let (frames, eos) = captured_stream(3).await;
+        let (mut m_sink, mut ctl_sink, mut rx) = replay_endpoint();
+        // Frame 0 is genuinely lost (e.g. evicted from a full UDP send queue).
+        m_sink.send_datagram(frames[1].clone()).unwrap();
+        m_sink.send_datagram(frames[2].clone()).unwrap();
+        ctl_sink.send_datagram(eos).unwrap();
+        assert_eq!(
+            rx.next_event().await,
+            MediaEvent::Gap {
+                track: TrackId(0),
+                missing_from: 0,
+                missing_to: 0
+            },
+            "a frame lost before the first arrival is still a loss"
+        );
+        assert!(matches!(rx.next_event().await, MediaEvent::Frame(f) if f.header.sequence == 1));
+        assert!(matches!(rx.next_event().await, MediaEvent::Frame(f) if f.header.sequence == 2));
+        assert_eq!(rx.next_event().await, MediaEvent::EndOfStream(TrackId(0)));
+        assert_eq!(rx.stats().frames_missing, 1);
+        drop((m_sink, ctl_sink));
+        assert_eq!(rx.next_event().await, MediaEvent::Closed);
+    })
+}

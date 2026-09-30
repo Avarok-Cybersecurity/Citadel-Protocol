@@ -75,6 +75,9 @@ impl Iterator for Fragments {
 
 impl ExactSizeIterator for Fragments {}
 
+/// The sequence every track of a new [`Packetizer`] starts at.
+pub const FIRST_SEQUENCE: u32 = 0;
+
 /// Splits frames into wire fragments, assigning a wrapping per-track sequence number.
 #[derive(Debug)]
 pub struct Packetizer {
@@ -87,7 +90,7 @@ impl Packetizer {
         config.validate()?;
         Ok(Self {
             config,
-            next_sequence: [0; 256],
+            next_sequence: [FIRST_SEQUENCE; 256],
         })
     }
 

@@ -68,11 +68,20 @@ fn queue_drop_policy_reports_evictions() {
         assert_eq!(tx.stats().frames_dropped_on_send, 1);
         assert_eq!(tx.stats().frames_sent, 2);
         drop(tx);
+        // The two failed attempts burned sequences 0 and 1 (documented), which the
+        // receiver reports as a gap ahead of the first frame.
+        assert_eq!(
+            rx.next_event().await,
+            MediaEvent::Gap {
+                track: TrackId(0),
+                missing_from: 0,
+                missing_to: 1
+            }
+        );
         let mut timestamps = Vec::new();
         while let MediaEvent::Frame(f) = rx.next_event().await {
             timestamps.push(f.header.timestamp);
         }
-        // The two failed attempts burned sequences 0 and 1 (documented).
         assert_eq!(timestamps, vec![0, 2]);
     })
 }
