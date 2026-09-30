@@ -22,7 +22,9 @@
 //! longer than the whole login deadline, and longer than the stalled attempt's
 //! own 20 s bound, so the server's punch ends only when its retries run out.
 //! The session must survive it, and the server's receiver must resolve rather
-//! than wait forever. Each test asserts outcomes only.
+//! than wait forever. The same 25 s stall on the CLIENT's punch, which runs
+//! before the client can log in, must not end the session either. Each test
+//! asserts outcomes only.
 #![cfg(not(target_family = "wasm"))]
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -39,12 +41,14 @@ mod tests {
     use uuid::Uuid;
 
     const SERVER_THREAD: &str = "slow-punch-server";
+    const CLIENT_THREAD: &str = "slow-punch-client";
     const PUNCH_END_RECORD: &str = "*** ENDING DualStack ***";
 
     /// Guards against a hang only; nothing here is a latency assertion.
     const HANG_GUARD: Duration = Duration::from_secs(180);
 
     struct SlowPunchLogger {
+        stalled_side: OnceLock<&'static str>,
         stall_ms: AtomicU64,
         stalls: AtomicUsize,
     }
@@ -55,14 +59,15 @@ mod tests {
         }
 
         fn log(&self, record: &log::Record) {
-            let on_server = std::thread::current()
+            let stalled_side = self.stalled_side.get().copied().unwrap_or(SERVER_THREAD);
+            let on_stalled_side = std::thread::current()
                 .name()
-                .is_some_and(|name| name.starts_with(SERVER_THREAD));
+                .is_some_and(|name| name.starts_with(stalled_side));
             let message = record.args().to_string();
             if record.level() <= log::Level::Warn {
                 eprintln!("[{}] {}: {message}", record.level(), record.target());
             }
-            if on_server
+            if on_stalled_side
                 && message == PUNCH_END_RECORD
                 && self.stalls.fetch_add(1, Ordering::SeqCst) == 0
             {
@@ -81,6 +86,7 @@ mod tests {
     fn logger() -> &'static SlowPunchLogger {
         static LOGGER: OnceLock<SlowPunchLogger> = OnceLock::new();
         LOGGER.get_or_init(|| SlowPunchLogger {
+            stalled_side: OnceLock::new(),
             stall_ms: AtomicU64::new(0),
             stalls: AtomicUsize::new(0),
         })
@@ -113,6 +119,19 @@ mod tests {
     fn connect_with_server_punch_stalled_for(
         punch_stall: Duration,
     ) -> (Option<bool>, Option<bool>) {
+        connect_with_punch_stalled_for(SERVER_THREAD, punch_stall)
+    }
+
+    /// As above, stalling the punch of the side whose runtime threads are
+    /// named `stalled_side`.
+    fn connect_with_punch_stalled_for(
+        stalled_side: &'static str,
+        punch_stall: Duration,
+    ) -> (Option<bool>, Option<bool>) {
+        logger()
+            .stalled_side
+            .set(stalled_side)
+            .expect("one stalled side per test process");
         log::set_logger(logger()).expect("no other logger may be installed");
         log::set_max_level(log::LevelFilter::Trace);
         logger()
@@ -145,7 +164,7 @@ mod tests {
             });
 
             let server_addr = addr_rx.recv().expect("server address");
-            runtime("slow-punch-client").block_on(async move {
+            runtime(CLIENT_THREAD).block_on(async move {
                 let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
                     server_addr,
                     Uuid::new_v4(),
@@ -173,7 +192,7 @@ mod tests {
         assert_eq!(
             logger().stalls.load(Ordering::SeqCst),
             1,
-            "the server's hole punch never reached `{PUNCH_END_RECORD}`, so nothing was stalled \
+            "the stalled side's hole punch never reached `{PUNCH_END_RECORD}`, so nothing was stalled \
              and this run proves nothing",
         );
         let server = *server_udp
@@ -207,6 +226,24 @@ mod tests {
             server.is_some(),
             "the server connected before its punch resolved, so it must hold a receiver that \
              the punch's outcome resolves",
+        );
+    }
+
+    /// The client punches before it can log in, so a client punch that
+    /// outlasts the login deadline must not end the session either: login
+    /// proceeds over TCP and the client's receiver resolves once its punch does.
+    #[test]
+    fn a_client_punch_that_outlasts_the_login_deadline_does_not_end_the_session() {
+        let stall = LOGIN_EXPIRATION_TIME + Duration::from_secs(5);
+        let (client, server) = connect_with_punch_stalled_for(CLIENT_THREAD, stall);
+        assert!(
+            client.is_some(),
+            "the client connected before its punch resolved, so it must hold a receiver that \
+             the punch's outcome resolves",
+        );
+        assert!(
+            server.is_some(),
+            "the server must hold a receiver its own punch resolves"
         );
     }
 }
