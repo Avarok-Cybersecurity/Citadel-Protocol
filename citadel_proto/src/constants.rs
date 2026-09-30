@@ -36,11 +36,13 @@ pub const MAJOR_VERSION: u8 = 0;
 // Bumped 9 -> 10: the per-message nonce KDF changed from SHA3-256 to a BLAKE3 keyed-hash PRF
 // (citadel_crypt entropy_bank::get_nonce). This is wire-breaking — a peer on the old derivation
 // produces different nonces, so cross-version traffic must not interoperate.
-pub const MINOR_VERSION: u8 = 10;
-// Bumped 0 -> 1: key-exchange signals carry the sender's protocol version, and media endpoints
-// exchange transport offers (see `MEDIA_TRANSPORT_OFFER_SINCE`). Both are additive: an older
-// node ignores the appended version field and never needs the offers, so 0.10.x interoperate.
-pub const PATCH_VERSION: u8 = 1;
+// Bumped 10 -> 11: the hole-punch coordination stream now carries attempt-numbered frames
+// (citadel_wire udp_traversal::paired_attempts). A peer on 0.10 sends unframed attempts, so the
+// two cannot punch with each other. The same bump covers the additive changes that ship with it:
+// key-exchange signals carry the sender's protocol version, and media endpoints exchange
+// transport offers (see `MEDIA_TRANSPORT_OFFER_SINCE`).
+pub const MINOR_VERSION: u8 = 11;
+pub const PATCH_VERSION: u8 = 0;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.

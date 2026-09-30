@@ -68,5 +68,8 @@ citadel_logging = { workspace = true }
 rand = "0.8.5"
 rstest = { workspace = true }
 
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
+
 [lib]
 doctest = false

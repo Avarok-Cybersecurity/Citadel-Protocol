@@ -14,7 +14,7 @@
 //! reach a later one.
 
 use bytes::Bytes;
-use citadel_io::tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use citadel_io::tokio::sync::mpsc::{channel, Receiver, Sender};
 use citadel_io::tokio::sync::{watch, Mutex};
 use futures::Future;
 use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
@@ -24,8 +24,18 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
+/// Frames the router may hold for one attempt before it stops reading the
+/// control stream until that attempt reads them or ends.
+///
+/// A memory bound, not a correctness bound: any capacity of at least one is
+/// correct, because the router's wait for room is itself bounded by the lane's
+/// attempt (see [`AttemptCoordinator::route_inbound`]). The lane's reader is
+/// the attempt's own multiplexer, which forwards each frame without waiting on
+/// the application, so in the normal case the router never waits at all.
+pub(crate) const LANE_CAPACITY: usize = 16;
+
 #[derive(Serialize, Deserialize)]
-enum Frame {
+pub(crate) enum Frame {
     /// The sender is now on this attempt and has abandoned every earlier one.
     Attempt(usize),
     Data {
@@ -36,7 +46,8 @@ enum Frame {
 
 pub(crate) struct AttemptCoordinator<S> {
     control: Arc<S>,
-    lane: citadel_io::Mutex<Option<(usize, UnboundedSender<Vec<u8>>)>>,
+    lane: citadel_io::Mutex<Option<(usize, Sender<Vec<u8>>)>>,
+    local_attempt: watch::Sender<usize>,
     peer_attempt: watch::Sender<usize>,
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
@@ -47,6 +58,7 @@ impl<S: ReliableOrderedStreamToTarget + 'static> AttemptCoordinator<S> {
         Self {
             control: Arc::new(control),
             lane: citadel_io::Mutex::new(None),
+            local_attempt: watch::channel(0).0,
             peer_attempt: watch::channel(0).0,
             local_addr,
             peer_addr,
@@ -57,8 +69,9 @@ impl<S: ReliableOrderedStreamToTarget + 'static> AttemptCoordinator<S> {
     /// before the announcement, so the peer's first frame for it cannot arrive
     /// ahead of it; the previous lane closes, ending its attempt's reader.
     pub(crate) async fn enter(&self, attempt: usize) -> std::io::Result<AttemptLane<S>> {
-        let (tx, rx) = unbounded_channel();
+        let (tx, rx) = channel(LANE_CAPACITY);
         *self.lane.lock() = Some((attempt, tx));
+        self.local_attempt.send_replace(attempt);
         self.control
             .send_serialized(Frame::Attempt(attempt))
             .await?;
@@ -83,6 +96,12 @@ impl<S: ReliableOrderedStreamToTarget + 'static> AttemptCoordinator<S> {
     }
 
     /// Routes the control stream's frames; returns only when the stream fails.
+    ///
+    /// A full lane stops the routing, so the peer cannot grow this side's
+    /// memory. The wait ends when the lane's reader makes room, or when this
+    /// side leaves that attempt: the frame is then dropped, as its attempt has
+    /// ended locally. Both are bounded by the attempt's own timeout, so the wait
+    /// cannot outlive the attempt it serves.
     pub(crate) async fn route_inbound(&self) -> std::io::Error {
         loop {
             match self.control.recv_serialized::<Frame>().await {
@@ -96,10 +115,18 @@ impl<S: ReliableOrderedStreamToTarget + 'static> AttemptCoordinator<S> {
                     });
                 }
                 Ok(Frame::Data { attempt, payload }) => {
-                    if let Some((current, tx)) = self.lane.lock().as_ref() {
-                        if *current == attempt {
+                    let lane = self
+                        .lane
+                        .lock()
+                        .as_ref()
+                        .filter(|(current, _)| *current == attempt)
+                        .map(|(_, tx)| tx.clone());
+                    if let Some(tx) = lane {
+                        let mut local = self.local_attempt.subscribe();
+                        citadel_io::tokio::select! {
                             // A closed lane means its attempt already ended locally.
-                            let _ = tx.send(payload);
+                            _ = tx.send(payload) => {}
+                            _ = local.wait_for(|current| *current != attempt) => {}
                         }
                     }
                 }
@@ -113,7 +140,7 @@ impl<S: ReliableOrderedStreamToTarget + 'static> AttemptCoordinator<S> {
 pub(crate) struct AttemptLane<S> {
     control: Arc<S>,
     attempt: usize,
-    inbound: Mutex<UnboundedReceiver<Vec<u8>>>,
+    inbound: Mutex<Receiver<Vec<u8>>>,
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
 }
@@ -167,5 +194,123 @@ impl<S> ConnAddr for AttemptLane<S> {
 
     fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.peer_addr)
+    }
+}
+
+#[cfg(test)]
+mod lane_bound_tests {
+    use super::{AttemptCoordinator, Frame, IoFuture, LANE_CAPACITY};
+    use bytes::Bytes;
+    use citadel_io::tokio;
+    use citadel_io::tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+    use citadel_io::tokio::sync::Mutex;
+    use netbeam::reliable_conn::ReliableOrderedStreamToTarget;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// Elapses only once every task is blocked (the clock is paused), so it
+    /// proves quiescence. Not a latency bound.
+    const QUIESCENT: Duration = Duration::from_secs(3600);
+    /// Far more frames than one lane may hold.
+    const FLOOD: usize = LANE_CAPACITY * 8;
+
+    /// The control stream as this side sees it: counts what the peer sent that
+    /// this side has not read yet.
+    struct CountingPipe {
+        outbound: UnboundedSender<Vec<u8>>,
+        inbound: Mutex<UnboundedReceiver<Vec<u8>>>,
+        unread: Arc<AtomicUsize>,
+    }
+
+    impl ReliableOrderedStreamToTarget for CountingPipe {
+        fn send_to_peer<'a, 'b, 'r>(&'a self, input: &'b [u8]) -> IoFuture<'r, ()>
+        where
+            'a: 'r,
+            'b: 'r,
+            Self: 'r,
+        {
+            Box::pin(async move {
+                let _ = self.outbound.send(input.to_vec());
+                Ok(())
+            })
+        }
+
+        fn recv<'a, 'r>(&'a self) -> IoFuture<'r, Bytes>
+        where
+            'a: 'r,
+            Self: 'r,
+        {
+            Box::pin(async move {
+                let frame = self.inbound.lock().await.recv().await.ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::ConnectionReset, "closed")
+                })?;
+                self.unread.fetch_sub(1, Ordering::SeqCst);
+                Ok(Bytes::from(frame))
+            })
+        }
+    }
+
+    /// A peer that floods an attempt this side is not reading must not grow
+    /// this side's memory: the router stops reading the control stream once the
+    /// lane is full. And that wait must end with the attempt, so the router then
+    /// sees the peer's next announcement.
+    #[tokio::test(start_paused = true)]
+    async fn a_flooded_lane_holds_back_the_router_until_its_attempt_ends() {
+        let (peer_tx, inbound) = unbounded_channel();
+        let (outbound, _peer_rx) = unbounded_channel();
+        let unread = Arc::new(AtomicUsize::new(0));
+        let addr = "127.0.0.1:1".parse().unwrap();
+        let attempts = AttemptCoordinator::new(
+            CountingPipe {
+                outbound,
+                inbound: Mutex::new(inbound),
+                unread: unread.clone(),
+            },
+            addr,
+            addr,
+        );
+        let peer_send = |frame: Frame| {
+            unread.fetch_add(1, Ordering::SeqCst);
+            peer_tx.send(bincode::serialize(&frame).unwrap()).unwrap();
+        };
+
+        // Kept alive and never read: a reader that outlives its attempt, as the
+        // attempt's multiplexer task can.
+        let _stuck_reader = attempts.enter(1).await.unwrap();
+        peer_send(Frame::Attempt(1));
+        for _ in 0..FLOOD {
+            peer_send(Frame::Data {
+                attempt: 1,
+                payload: vec![0; 64],
+            });
+        }
+        peer_send(Frame::Attempt(2));
+
+        let router = attempts.route_inbound();
+        futures::pin_mut!(router);
+        tokio::select! {
+            err = &mut router => panic!("the control stream failed: {err}"),
+            _ = tokio::time::sleep(QUIESCENT) => {}
+        }
+        // Read: Attempt(1), LANE_CAPACITY frames into the lane, and the one the
+        // router is waiting to place.
+        assert_eq!(
+            unread.load(Ordering::SeqCst),
+            FLOOD + 2 - (LANE_CAPACITY + 2),
+            "the router kept reading the control stream into a lane nobody reads"
+        );
+
+        // This side leaves attempt 1: the held frame and the rest are dropped,
+        // and the router reaches the peer's announcement of attempt 2.
+        let _next = attempts.enter(2).await.unwrap();
+        tokio::select! {
+            err = &mut router => panic!("the control stream failed: {err}"),
+            reached = attempts.peer_reached(2) => assert_eq!(reached, 2),
+            _ = tokio::time::sleep(QUIESCENT) => {
+                panic!("the router stayed blocked on the lane of an attempt that had ended")
+            }
+        }
+        assert_eq!(unread.load(Ordering::SeqCst), 0);
     }
 }
