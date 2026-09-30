@@ -64,6 +64,11 @@ pub type NetworkApplication = MultiplexedConn<SymmetricConvID>;
 
 pub(crate) const INITIAL_CAPACITY: usize = 32;
 
+/// Carries `PreCreate` ids from the connection's single reader to the handshake.
+///
+/// Capacity 1 is enough, and the reader never waits on it: a cancelled handshake is resumed, not
+/// restarted (`in_flight`), so each side has at most one `PreCreate` outstanding and the other side
+/// at most one to read (`tests/prehandshake_cancel_safety.rs` pins this).
 pub struct PreActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
     tx: citadel_io::tokio::sync::mpsc::Sender<K>,
     rx: Mutex<citadel_io::tokio::sync::mpsc::Receiver<K>>,
@@ -101,14 +106,17 @@ impl<K: MultiplexedConnKey> PostActionChannel<K> {
             .map_err(|_| anyhow::Error::msg("Post-action channel for symmetric conv died"))
     }
 
+    /// Takes the signal out of the map before awaiting it. Awaiting it inside the lock (the guard
+    /// was a temporary of the whole expression) held the map for as long as the peer took to close
+    /// its end, and every `setup_channel`, so every later handshake on this side, waited with it.
     pub(crate) async fn recv(&self, id: K) -> Result<(), anyhow::Error> {
-        Ok(self
+        let rx = self
             .rx
             .lock()
             .await
             .remove(&id)
-            .ok_or_else(|| anyhow::Error::msg("RX Channel does not exist (x0)"))?
-            .await?)
+            .ok_or_else(|| anyhow::Error::msg("RX Channel does not exist (x0)"))?;
+        Ok(rx.await?)
     }
 
     pub(crate) async fn setup_channel(&self, id: K) {
