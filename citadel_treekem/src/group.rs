@@ -34,6 +34,11 @@ pub struct GroupState {
     transcript_hash: [u8; 32],
     /// This member's outgoing message counter within the current epoch (reset each epoch).
     send_generation: u32,
+    /// `(epoch, encryption_secret)` of the earlier epochs still readable: those left by Add-only
+    /// commits since the last commit that removed a member or re-keyed without a membership change.
+    /// A member cannot know a Commit is in flight to it, so it seals at the epoch it holds; every
+    /// sender of such an epoch is still a member, so reading it admits no one the group has not.
+    readable_past_epochs: Vec<(u64, Secret)>,
 }
 
 impl GroupState {
@@ -57,6 +62,7 @@ impl GroupState {
             secrets,
             transcript_hash,
             send_generation: 0,
+            readable_past_epochs: Vec::new(),
         }
     }
 
@@ -240,6 +246,7 @@ impl GroupState {
             secrets,
             transcript_hash: welcome.group_info.transcript_hash,
             send_generation: 0,
+            readable_past_epochs: Vec::new(),
         })
     }
 
@@ -256,20 +263,38 @@ impl GroupState {
         )
     }
 
-    /// Decrypt an application message from the current epoch. Returns an error if the message is from a
-    /// different epoch (the caller selects the right epoch's `GroupState`).
+    /// Decrypt an application message from the current epoch or a still-readable past one (see
+    /// `readable_past_epochs`). Any other epoch is an error.
     pub fn decrypt_message(&self, message: &AppCiphertext) -> Result<Vec<u8>, Error> {
-        if message.epoch != self.epoch {
-            return Err(Error::generic(format!(
-                "treekem: application message epoch {} != current epoch {}",
-                message.epoch, self.epoch
-            )));
+        if message.epoch == self.epoch {
+            return crate::application::open(&self.secrets.encryption_secret, message);
         }
-        crate::application::open(&self.secrets.encryption_secret, message)
+        let (_, secret) = self
+            .readable_past_epochs
+            .iter()
+            .find(|(epoch, _)| *epoch == message.epoch)
+            .ok_or_else(|| {
+                Error::generic(format!(
+                    "treekem: application message epoch {} is not readable at epoch {}",
+                    message.epoch, self.epoch
+                ))
+            })?;
+        crate::application::open(secret, message)
     }
 
     /// Roll the transcript + key schedule forward into the next epoch from a new root secret.
     fn advance_epoch(&mut self, root_secret: &Secret, commit: &Commit) {
+        let adds_only = !commit.proposals.is_empty()
+            && commit
+                .proposals
+                .iter()
+                .all(|proposal| matches!(proposal, Proposal::Add { .. }));
+        if adds_only {
+            self.readable_past_epochs
+                .push((self.epoch, self.secrets.encryption_secret));
+        } else {
+            self.readable_past_epochs.clear();
+        }
         self.transcript_hash = next_transcript(&self.transcript_hash, commit);
         let prev_init = self.secrets.init_secret;
         self.secrets = EpochSecrets::derive(root_secret, &prev_init, &self.transcript_hash);
@@ -476,6 +501,41 @@ mod tests {
         assert!(a
             .add_member(&KeyPackage::generate(1, &[55u8; 32]).unwrap(), [0xA4; 32])
             .is_err());
+    }
+
+    /// A message sealed at the epoch before an Add stays readable after it, until a Remove: the
+    /// removed member held that epoch's secret, so nothing sealed under it may be read afterwards.
+    #[test]
+    fn a_pre_add_epoch_stays_readable_until_a_removal() {
+        let a_secret = [11u8; 32];
+        let mut a = GroupState::create(member_leaf(1, &a_secret), a_secret);
+        let b_secret = [22u8; 32];
+        let (_, welcome_b) = a
+            .add_member(&KeyPackage::generate(2, &b_secret).unwrap(), [0xA1; 32])
+            .unwrap();
+        let mut b = GroupState::join_from_welcome(&welcome_b, b_secret).unwrap();
+
+        let before_add = b.encrypt_message(b"before C joined").unwrap();
+        let c_secret = [33u8; 32];
+        let (commit_c, welcome_c) = a
+            .add_member(&KeyPackage::generate(3, &c_secret).unwrap(), [0xA2; 32])
+            .unwrap();
+        let c = GroupState::join_from_welcome(&welcome_c, c_secret).unwrap();
+        assert_eq!(a.decrypt_message(&before_add).unwrap(), b"before C joined");
+        assert!(
+            c.decrypt_message(&before_add).is_err(),
+            "a joiner cannot read an epoch before its own"
+        );
+
+        b.process_commit(&commit_c).unwrap();
+        let before_removal = b.encrypt_message(b"before C was removed").unwrap();
+        let commit_r = a.remove_member(c.own_leaf, [0xA3; 32]).unwrap();
+        b.process_commit(&commit_r).unwrap();
+        assert!(a.decrypt_message(&before_add).is_err());
+        assert!(
+            a.decrypt_message(&before_removal).is_err(),
+            "an epoch the removed member held must not stay readable"
+        );
     }
 
     #[test]
