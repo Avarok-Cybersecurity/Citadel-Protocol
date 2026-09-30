@@ -24,6 +24,32 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
+/// The first message each side sends on the control stream, before any
+/// [`Frame`]. A peer on the unpaired protocol (before 0.11) sends its NAT type
+/// first on the same stream instead, so the two first messages differ exactly
+/// where the protocols diverge, and [`greet`] reports it at once.
+pub const PAIRED_ATTEMPTS_HELLO: &[u8] = b"citadel/hole-punch/paired-attempts/1";
+
+/// Exchanges [`PAIRED_ATTEMPTS_HELLO`] with the peer. Both sides send before
+/// they read, so neither waits on the other's read. Fails, without waiting on
+/// any timer, when the peer's first message is anything else: its punch speaks
+/// the unpaired protocol, and the caller falls back (TCP for C2S, the relay for
+/// P2P) rather than running attempts the peer cannot pair.
+pub(crate) async fn greet<S: ReliableOrderedStreamToTarget>(
+    control: &S,
+) -> Result<(), anyhow::Error> {
+    control.send_to_peer(PAIRED_ATTEMPTS_HELLO).await?;
+    let first = control.recv().await?;
+    if first.as_ref() == PAIRED_ATTEMPTS_HELLO {
+        Ok(())
+    } else {
+        Err(anyhow::Error::msg(
+            "the peer's hole puncher does not number its attempts (protocol before 0.11); \
+             not punching with it",
+        ))
+    }
+}
+
 /// Frames the router may hold for one attempt before it stops reading the
 /// control stream until that attempt reads them or ends.
 ///

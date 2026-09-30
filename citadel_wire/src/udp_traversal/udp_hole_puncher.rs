@@ -35,7 +35,8 @@ use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
-use crate::udp_traversal::paired_attempts::{AttemptCoordinator, AttemptLane};
+pub use crate::udp_traversal::paired_attempts::PAIRED_ATTEMPTS_HELLO;
+use crate::udp_traversal::paired_attempts::{self, AttemptCoordinator, AttemptLane};
 use citadel_io::tokio::net::UdpSocket;
 use futures::Future;
 use netbeam::reliable_conn::{
@@ -114,6 +115,7 @@ async fn driver(
     )
     .await
     .map_err(|_| anyhow::Error::msg("Peer never opened the hole-punch control stream"))??;
+    paired_attempts::greet(&control).await?;
     let attempts = AttemptCoordinator::new(control, conn.local_addr()?, conn.peer_addr()?);
 
     let run = async {

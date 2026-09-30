@@ -9,7 +9,7 @@
 
 use bytes::Bytes;
 use citadel_io::tokio;
-use citadel_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
+use citadel_wire::udp_traversal::udp_hole_puncher::{UdpHolePuncher, PAIRED_ATTEMPTS_HELLO};
 use futures::Future;
 use netbeam::reliable_conn::{
     ConnAddr, ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt,
@@ -135,6 +135,8 @@ async fn a_failed_punch_is_reported_without_a_backtrace() {
         let control = Arc::new(remote.initiate_subscription().await.unwrap());
         let addrs = (remote.local_addr().unwrap(), remote.peer_addr().unwrap());
         let next = Arc::new(tokio::sync::watch::channel(None).0);
+        control.send_to_peer(PAIRED_ATTEMPTS_HELLO).await.unwrap();
+        assert_eq!(&control.recv().await.unwrap()[..], PAIRED_ATTEMPTS_HELLO);
         let mut attempt = match control.recv_serialized::<Frame>().await.unwrap() {
             Frame::Attempt(attempt) => attempt,
             Frame::Data { .. } => unreachable!("data before the first announcement"),
