@@ -240,27 +240,41 @@ where
                     mgid: group_id.as_u128(),
                 };
 
-                // Exponential backoff, waiting for owner to create group
-                let mut retries = 0;
-                let group_owner_handle = connect_success
-                    .propose_target(local_user.clone(), owner.cid)
+                // The server answers once the owner's group exists: now, or when the owner
+                // creates it. No deadline is imposed here; the owner may create it at any time.
+                let mut watch = connect_success
+                    .send_callback_subscription(NodeRequest::GroupBroadcastCommand(
+                        GroupBroadcastCommand {
+                            session_cid,
+                            command: GroupBroadcast::AwaitGroup {
+                                key: expected_message_group_key,
+                            },
+                        },
+                    ))
                     .await?;
                 loop {
-                    let owned_groups = group_owner_handle.list_owned_groups().await?;
-                    if owned_groups.contains(&expected_message_group_key) {
-                        break;
-                    } else {
-                        citadel_io::time::sleep(std::time::Duration::from_secs(2u64.pow(retries)))
-                            .await;
-
-                        retries += 1;
-                        if retries > 4 {
+                    let event = watch
+                        .next()
+                        .await
+                        .map(|evt| evt.into_result())
+                        .transpose()?;
+                    match event {
+                        Some(NodeResult::GroupEvent(GroupEvent {
+                            event: GroupBroadcast::GroupAvailable { key },
+                            ..
+                        })) if key == expected_message_group_key => break,
+                        Some(NodeResult::GroupEvent(GroupEvent {
+                            event: GroupBroadcast::GroupNonExists { .. },
+                            ..
+                        }))
+                        | None => {
                             return Err(citadel_io::error!(
                                 citadel_io::ErrorCode::BroadcastOwnerGroupMissing,
                                 citadel_io::Dbg(owner),
                                 citadel_io::Dbg(group_id)
                             ));
                         }
+                        Some(_) => {}
                     }
                 }
 

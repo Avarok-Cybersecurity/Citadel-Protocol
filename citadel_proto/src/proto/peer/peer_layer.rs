@@ -75,6 +75,8 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     /// (see `group_retention`). Cleared when the owner reconnects.
     pub(crate) ownerless_groups: HashMap<u64, u64>,
     pub(crate) next_departure_token: u64,
+    /// Sessions waiting for a group that does not exist yet (see `group_watch`).
+    pub(crate) group_watches: HashMap<u64, HashMap<MessageGroupKey, Vec<Ticket>>>,
     pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
     waker: Arc<AtomicWaker>,
     inner: Arc<citadel_io::RwLock<SharedInner>>,
@@ -136,6 +138,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             message_groups: HashMap::new(),
             ownerless_groups: HashMap::new(),
             next_departure_token: 0,
+            group_watches: HashMap::new(),
         };
         let inner = Arc::new(citadel_io::tokio::sync::RwLock::new(inner));
 

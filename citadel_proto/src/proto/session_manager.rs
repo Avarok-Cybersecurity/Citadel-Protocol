@@ -757,6 +757,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let time_tracker = sess.time_tracker;
                 let task = async move {
                     peer_layer.on_session_shutdown(session_cid).await?;
+                    if !replaced {
+                        peer_layer.drop_group_watches(session_cid).await;
+                    }
                     let departure = peer_layer
                         .on_owner_departure(
                             session_cid,
@@ -1316,6 +1319,23 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 )
             }) {
                 log::warn!(target: "citadel", "Unable to send signal to peer {peer_cid}: {err}");
+            }
+        }
+
+        // answer every session that asked to be told when this group exists
+        for (watcher, watch_ticket) in peer_layer.take_group_watchers(key).await {
+            let this = inner!(self);
+            if let Err(err) = this.send_signal_to_peer_direct(watcher, |peer_ratchet| {
+                super::packet_crafter::peer_cmd::craft_group_message_packet(
+                    peer_ratchet,
+                    &GroupBroadcast::GroupAvailable { key },
+                    watch_ticket,
+                    C2S_IDENTITY_CID,
+                    timestamp,
+                    security_level,
+                )
+            }) {
+                log::warn!(target: "citadel", "Unable to tell watcher {watcher} that {key:?} exists: {err}");
             }
         }
 
