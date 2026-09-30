@@ -36,7 +36,7 @@ use citadel_io::tokio_stream::{Stream, StreamExt};
 use citadel_user::serialization::SyncIO;
 use citadel_wire::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
 use citadel_wire::exports::{Connection, Endpoint, RecvStream, SendStream};
-use citadel_wire::quic::{QuicEndpointListener, QuicNode};
+use citadel_wire::quic::{accept_biconn, QuicEndpointListener, QuicNode, QUIC_LISTENER_DIED};
 use citadel_wire::tls::TLSQUICInterop;
 use futures::{Future, TryStreamExt};
 use serde::{Deserialize, Serialize};
@@ -162,7 +162,7 @@ impl AsyncWrite for GenericNetworkStream {
 }
 
 pub struct GenericNetworkListener {
-    future: Pin<Box<dyn StreamOutputImpl>>,
+    future: Option<Pin<Box<dyn StreamOutputImpl>>>,
     recv: citadel_io::tokio::sync::mpsc::Receiver<
         std::io::Result<(GenericNetworkStream, SocketAddr)>,
     >,
@@ -201,7 +201,7 @@ impl GenericNetworkListener {
         };
 
         Ok(Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             recv,
             local_addr,
             quic_endpoint: Some(endpoint),
@@ -275,7 +275,7 @@ impl GenericNetworkListener {
         };
 
         Ok(Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             recv,
             local_addr,
             quic_endpoint: None,
@@ -319,7 +319,7 @@ impl GenericNetworkListener {
         };
 
         Ok(Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             recv,
             local_addr,
             quic_endpoint: None,
@@ -388,7 +388,7 @@ impl GenericNetworkListener {
         };
 
         Ok(Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             recv,
             local_addr,
             quic_endpoint: None,
@@ -404,22 +404,12 @@ impl Stream for GenericNetworkListener {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self { future, recv, .. } = &mut *self;
 
-        // if this future ends, it's over
-        match future.as_mut().poll(cx) {
-            Poll::Pending => {}
-            Poll::Ready(res) => {
-                // assert err
-                log::warn!(target: "citadel", "ERR: {res:?}");
-                return Poll::Ready(Some(Err(res.unwrap_err())));
-            }
-        }
-
-        Pin::new(recv).poll_recv(cx)
+        poll_listener(future, recv, cx)
     }
 }
 
 pub struct TlsListener {
-    future: Pin<Box<dyn StreamOutputImpl>>,
+    future: Option<Pin<Box<dyn StreamOutputImpl>>>,
     recv: citadel_io::tokio::sync::mpsc::Receiver<
         std::io::Result<(TlsStream<TcpStream>, SocketAddr)>,
     >,
@@ -469,7 +459,7 @@ impl TlsListener {
         };
 
         Ok(Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             recv,
             local_addr,
             tls_domain,
@@ -495,22 +485,12 @@ impl Stream for TlsListener {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self { future, recv, .. } = &mut *self;
 
-        // if this future ends, it's over
-        match future.as_mut().poll(cx) {
-            Poll::Pending => {}
-            Poll::Ready(res) => {
-                // assert err
-                log::warn!(target: "citadel", "ERR: {res:?}");
-                return Poll::Ready(Some(Err(res.unwrap_err())));
-            }
-        }
-
-        Pin::new(recv).poll_recv(cx)
+        poll_listener(future, recv, cx)
     }
 }
 
 pub struct QuicListener {
-    future: Pin<Box<dyn StreamOutputImpl>>,
+    future: Option<Pin<Box<dyn StreamOutputImpl>>>,
     recv: citadel_io::tokio::sync::mpsc::Receiver<std::io::Result<IncomingQuicConnection>>,
     #[allow(dead_code)]
     is_self_signed: bool,
@@ -519,37 +499,47 @@ pub struct QuicListener {
 type IncomingQuicConnection = (Connection, SendStream, RecvStream, SocketAddr, Endpoint);
 
 impl QuicListener {
-    pub fn new(mut server: QuicNode, is_self_signed: bool) -> Self {
+    pub fn new(server: QuicNode, is_self_signed: bool) -> Self {
         let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
         let endpoint = server.endpoint.clone();
 
         let future = async move {
-            loop {
-                let server = &mut server;
+            let endpoint = &endpoint;
+            let send = &send;
+            let server = &server;
 
-                let acceptor_stream = async_stream::stream! {
-                    loop {
-                        yield server.next_connection().await.map_err(|err| generic_error(err.to_string()));
+            let incoming_stream = async_stream::stream! {
+                while let Some(incoming) = server.listener().await {
+                    yield Ok::<_, std::io::Error>(incoming);
+                }
+            };
+
+            // Each connection completes (or fails) on its own: one a peer
+            // abandons mid-handshake is dropped, and neither ends the listener
+            // nor holds up the connections behind it.
+            incoming_stream
+                .try_for_each_concurrent(None, |incoming| async move {
+                    match accept_biconn(incoming).await {
+                        Ok((conn, tx, rx)) => {
+                            let addr = conn.remote_address();
+                            log::trace!(target: "citadel", "RECV {:?} from {:?}", conn, addr);
+                            send.send(Ok((conn, tx, rx, addr, endpoint.clone())))
+                                .await
+                                .map_err(generic_error)
+                        }
+                        Err(err) => {
+                            log::warn!(target: "citadel", "Dropping an incoming QUIC connection that failed to open: {err:#}");
+                            Ok(())
+                        }
                     }
-                };
+                })
+                .await?;
 
-                let endpoint = &endpoint;
-                let send = &send;
-
-                acceptor_stream
-                    .try_for_each_concurrent(None, |(conn, tx, rx)| async move {
-                        let addr = conn.remote_address();
-                        log::trace!(target: "citadel", "RECV {:?} from {:?}", conn, addr);
-                        send.send(Ok((conn, tx, rx, addr, endpoint.clone())))
-                            .await
-                            .map_err(generic_error)
-                    })
-                    .await?;
-            }
+            Err(generic_error(QUIC_LISTENER_DIED))
         };
 
         Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             recv,
             is_self_signed,
         }
@@ -562,17 +552,7 @@ impl Stream for QuicListener {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self { future, recv, .. } = &mut *self;
 
-        // if this future ends, it's over
-        match future.as_mut().poll(cx) {
-            Poll::Pending => {}
-            Poll::Ready(res) => {
-                // assert err
-                log::warn!(target: "citadel", "ERR: {res:?}");
-                return Poll::Ready(Some(Err(res.unwrap_err())));
-            }
-        }
-
-        Pin::new(recv).poll_recv(cx)
+        poll_listener(future, recv, cx)
     }
 }
 
@@ -594,7 +574,7 @@ pub enum FirstPacket {
 }
 
 pub struct DualListener {
-    future: Pin<Box<dyn StreamOutputImpl>>,
+    future: Option<Pin<Box<dyn StreamOutputImpl>>>,
     recv: citadel_io::tokio::sync::mpsc::Receiver<
         std::io::Result<(GenericNetworkStream, SocketAddr)>,
     >,
@@ -636,7 +616,7 @@ impl DualListener {
         };
 
         Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             recv,
         }
     }
@@ -688,7 +668,7 @@ impl DualListener {
         };
 
         Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             recv,
         }
     }
@@ -731,7 +711,7 @@ impl DualListener {
         };
 
         Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             recv,
         }
     }
@@ -743,21 +723,39 @@ impl Stream for DualListener {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Self { future, recv, .. } = &mut *self;
 
-        // If this future ends, it's over
-        match future.as_mut().poll(cx) {
-            Poll::Pending => {}
-            Poll::Ready(res) => {
-                // assert err
-                log::warn!(target: "citadel", "ERR: {res:?}");
-                return Poll::Ready(Some(Err(res.unwrap_err())));
+        poll_listener(future, recv, cx)
+    }
+}
+
+/// Polls a listener's driver, then its output channel.
+///
+/// The driver ends only on a terminal error (an `Ok` end is treated the same
+/// way). That error is yielded once and the driver is dropped, so it is never
+/// polled after completion; dropping it drops the channel's sender, so the
+/// stream drains what was already accepted and then ends.
+fn poll_listener<T>(
+    future: &mut Option<Pin<Box<dyn StreamOutputImpl>>>,
+    recv: &mut citadel_io::tokio::sync::mpsc::Receiver<std::io::Result<T>>,
+    cx: &mut Context<'_>,
+) -> Poll<Option<std::io::Result<T>>> {
+    if let Some(driver) = future {
+        if let Poll::Ready(res) = driver.as_mut().poll(cx) {
+            *future = None;
+            if let Err(err) = res {
+                log::warn!(target: "citadel", "Listener ended: {err}");
+                return Poll::Ready(Some(Err(err)));
             }
         }
-
-        Pin::new(recv).poll_recv(cx)
     }
+
+    Pin::new(recv).poll_recv(cx)
 }
 
 // Always require Send so that listener types satisfy ProtocolIO::Listener bounds.
 // All futures stored here capture only Send types (TcpListener, channels, etc.).
 trait StreamOutputImpl: Future<Output = std::io::Result<()>> + Send + 'static {}
 impl<T: Future<Output = std::io::Result<()>> + Send + 'static> StreamOutputImpl for T {}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "net_quic_listener_tests.rs"]
+mod quic_listener_tests;
