@@ -294,9 +294,7 @@ pub mod tests {
 
         let res = citadel_io::tokio::try_join!(server, client);
         log::trace!("RES: {res:?}");
-        if let Err(err) = res {
-            log::error!(target: "citadel", "Error: {err:?}");
-        }
+        res?;
         log::trace!(target: "citadel", "Ended");
         Ok(())
     }
