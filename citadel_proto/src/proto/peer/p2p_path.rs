@@ -62,23 +62,13 @@ impl P2pPathStatus {
 #[derive(Clone, Debug)]
 pub struct P2pPathCell(Arc<PathShared>);
 
+#[derive(Debug)]
 struct PathShared {
     status: watch::Sender<P2pPathStatus>,
     /// Whether a campaign task is alive for this connection. Read and written only inside the
     /// watch's modify closure, so a fall-back and a campaign exit cannot interleave into a stale
     /// `upgrading = true`.
     campaign_alive: AtomicBool,
-    /// Closes the current P2P route's transport, as a lost path would.
-    #[cfg(feature = "localhost-testing")]
-    severer: citadel_io::Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
-}
-
-impl std::fmt::Debug for PathShared {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PathShared")
-            .field("status", &*self.status.borrow())
-            .finish()
-    }
 }
 
 impl P2pPathCell {
@@ -94,8 +84,6 @@ impl P2pPathCell {
         Self(Arc::new(PathShared {
             status,
             campaign_alive: AtomicBool::new(false),
-            #[cfg(feature = "localhost-testing")]
-            severer: citadel_io::Mutex::new(None),
         }))
     }
 
@@ -201,31 +189,6 @@ impl P2pPathCell {
             status.relayed_both = false;
             status.upgrading = false;
         });
-    }
-
-    /// Test support (`localhost-testing` only): registers how to close the attached route's
-    /// transport.
-    #[cfg(feature = "localhost-testing")]
-    pub(crate) fn set_severer(&self, severer: Box<dyn Fn() + Send + Sync>) {
-        *self.0.severer.lock() = Some(severer);
-    }
-
-    /// Test support (`localhost-testing` only): closes the current P2P route's transport exactly
-    /// as a lost path would (the QUIC connection closes on both ends), so tests can exercise the
-    /// fall-back to the relay. `false` when no P2P route is attached.
-    #[cfg(feature = "localhost-testing")]
-    #[doc(hidden)]
-    pub fn sever_p2p_route_for_testing(&self) -> bool {
-        if !self.status().is_p2p() {
-            return false;
-        }
-        match self.0.severer.lock().as_ref() {
-            Some(sever) => {
-                sever();
-                true
-            }
-            None => false,
-        }
     }
 
     pub(crate) fn is_closed(&self) -> bool {

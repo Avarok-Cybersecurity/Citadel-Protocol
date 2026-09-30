@@ -238,8 +238,6 @@ pub(crate) mod native_p2p {
         let quic_conn = p2p_stream
             .take_p2p_connection()
             .ok_or_else(|| generic_error("P2P Stream did not have QUIC connection loaded"))?;
-        #[cfg(feature = "localhost-testing")]
-        let severable = quic_conn.clone();
         let udp_conn = QuicUdpSocketConnector::new(quic_conn, local_bind_addr);
 
         log::trace!(target: "citadel", "[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), remote_peer);
@@ -313,10 +311,6 @@ pub(crate) mod native_p2p {
                 .is_some_and(|remote| remote.route_id == route_id);
             if is_current {
                 endpoint.p2p_path.set(path);
-                #[cfg(feature = "localhost-testing")]
-                endpoint.p2p_path.set_severer(Box::new(move || {
-                    severable.close(0u32.into(), b"severed for testing")
-                }));
             }
         }
 

@@ -34,7 +34,7 @@ mod tests {
     >;
 
     /// Runs two peers behind a test server; `peer` gets each side's connection as it arrives.
-    async fn run_pair(turn: Option<TurnRelayConfig>, peer: Peer) {
+    async fn run_pair(turn: Option<TurnRelayConfig>, udp_mode: UdpMode, peer: Peer) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
         let finished = Arc::new(AtomicUsize::new(0));
@@ -45,7 +45,7 @@ mod tests {
             let mut setup = PeerConnectionSetupAggregator::default()
                 .with_peer_custom(uuids[1 - me])
                 .ensure_registered()
-                .with_udp_mode(UdpMode::Disabled);
+                .with_udp_mode(udp_mode);
             if let Some(turn) = turn.clone() {
                 setup = setup.with_turn_config(turn);
             }
@@ -135,6 +135,7 @@ mod tests {
     async fn the_channel_is_usable_over_the_relay_while_punching_runs_and_then_fails() {
         run_pair(
             Some(black_hole_relay()),
+            UdpMode::Disabled,
             Arc::new(|me, conn: PeerConnectSuccess<StackedRatchet>| {
                 Box::pin(async move {
                     let cell = conn.channel.p2p_path_cell();
@@ -179,6 +180,7 @@ mod tests {
     async fn messages_sent_across_the_upgrade_arrive_once_and_in_order() {
         run_pair(
             None,
+            UdpMode::Disabled,
             Arc::new(|me, conn: PeerConnectSuccess<StackedRatchet>| {
                 Box::pin(async move {
                     let cell = conn.channel.p2p_path_cell();
@@ -252,6 +254,7 @@ mod tests {
     async fn a_message_sent_the_instant_the_channel_arrives_is_delivered() {
         run_pair(
             None,
+            UdpMode::Disabled,
             Arc::new(|me, conn: PeerConnectSuccess<StackedRatchet>| {
                 Box::pin(async move {
                     let (mut tx, mut rx) = conn.channel.split();
@@ -266,14 +269,31 @@ mod tests {
         .await;
     }
 
+    /// The direct path dies the way a network path does: both peers' QUIC sockets stop carrying
+    /// anything, with no close or reset sent. QUIC notices by its idle timeout, the SDK falls back
+    /// to the relay, and nothing sent in the meantime may be lost.
+    ///
+    /// Unix only: the path is cut at the OS level (see [`kill_udp_socket`]).
+    #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     async fn losing_the_direct_path_falls_back_to_the_relay_without_loss() {
         run_pair(
             None,
-            Arc::new(|me, conn: PeerConnectSuccess<StackedRatchet>| {
+            // The UDP channel exposes the direct path's socket addresses, which is how the test
+            // finds the sockets to cut.
+            UdpMode::Enabled,
+            Arc::new(|me, mut conn: PeerConnectSuccess<StackedRatchet>| {
                 Box::pin(async move {
                     let cell = conn.channel.p2p_path_cell();
                     assert_eq!(cell.ensure_direct().await.unwrap(), P2pPath::Direct);
+                    let udp = conn
+                        .udp_channel_rx
+                        .take()
+                        .expect("UDP mode is enabled")
+                        .await
+                        .expect("the direct path carries a UDP channel");
+                    let (udp_tx, udp_rx) = udp.split();
+                    let direct_ends = (udp_tx.local_addr(), udp_tx.remote_addr());
                     wait_for_peers().await;
                     let mut changes = conn.channel.path_changes();
                     let (mut tx, mut rx) = conn.channel.split();
@@ -307,7 +327,10 @@ mod tests {
                                 next += 1;
                                 if next == SEVER_AFTER {
                                     // The peer is mid-stream: its later messages are in flight.
-                                    assert!(cell.sever_p2p_route_for_testing());
+                                    // Both ends of the direct path live in this process.
+                                    let (local, remote) = direct_ends;
+                                    assert!(kill_udp_socket(local) > 0, "no socket at {local}");
+                                    assert!(kill_udp_socket(remote) > 0, "no socket at {remote}");
                                 }
                             }
                             assert_eq!(next, TOTAL);
@@ -315,6 +338,7 @@ mod tests {
                     };
                     let (fell_back, ()) = tokio::join!(saw_fall_back, conversation);
                     fell_back.expect("path watch closed");
+                    drop((udp_tx, udp_rx));
                     // The channel stayed open: the receiver answers over it.
                     if me == 1 {
                         tx.send(end(0)).await.unwrap();
@@ -328,5 +352,74 @@ mod tests {
             }),
         )
         .await;
+    }
+
+    /// Cuts a UDP path at the OS level: every descriptor in this process bound to `addr`'s port
+    /// is atomically replaced (`dup2`) by a fresh, unregistered socket on another port. The owner
+    /// keeps its descriptor number but nothing arrives on it again, and what it sends leaves from
+    /// a port nobody knows, which is what a dead network path looks like from both ends. Returns
+    /// how many descriptors were replaced.
+    #[cfg(unix)]
+    fn kill_udp_socket(addr: std::net::SocketAddr) -> usize {
+        use std::mem::{size_of, zeroed};
+        let family = if addr.is_ipv4() {
+            libc::AF_INET
+        } else {
+            libc::AF_INET6
+        };
+        let max_fd = unsafe {
+            let mut limit: libc::rlimit = zeroed();
+            if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) == 0 {
+                (limit.rlim_cur as i64).min(65_536) as i32
+            } else {
+                4096
+            }
+        };
+        let mut replaced = 0;
+        for fd in 0..max_fd {
+            // SAFETY: getsockname/getsockopt only write into the buffers passed with their sizes;
+            // an fd that is not a socket (or not open) makes them fail, and it is skipped.
+            let bound_here = unsafe {
+                let mut storage: libc::sockaddr_storage = zeroed();
+                let mut len = size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+                if libc::getsockname(fd, &mut storage as *mut _ as *mut libc::sockaddr, &mut len)
+                    != 0
+                    || storage.ss_family as i32 != family
+                {
+                    continue;
+                }
+                let mut kind: libc::c_int = 0;
+                let mut kind_len = size_of::<libc::c_int>() as libc::socklen_t;
+                if libc::getsockopt(
+                    fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_TYPE,
+                    &mut kind as *mut _ as *mut libc::c_void,
+                    &mut kind_len,
+                ) != 0
+                    || kind != libc::SOCK_DGRAM
+                {
+                    continue;
+                }
+                let port = if family == libc::AF_INET {
+                    (*(&storage as *const _ as *const libc::sockaddr_in)).sin_port
+                } else {
+                    (*(&storage as *const _ as *const libc::sockaddr_in6)).sin6_port
+                };
+                u16::from_be(port) == addr.port()
+            };
+            if !bound_here {
+                continue;
+            }
+            let bind_to = std::net::SocketAddr::new(addr.ip(), 0);
+            let replacement = std::net::UdpSocket::bind(bind_to).expect("replacement socket");
+            replacement.set_nonblocking(true).unwrap();
+            use std::os::fd::AsRawFd;
+            // SAFETY: `fd` is an open socket in this process; dup2 atomically points it at the
+            // replacement, and `replacement` is closed on drop, leaving `fd` its only reference.
+            assert!(unsafe { libc::dup2(replacement.as_raw_fd(), fd) } == fd);
+            replaced += 1;
+        }
+        replaced
     }
 }
