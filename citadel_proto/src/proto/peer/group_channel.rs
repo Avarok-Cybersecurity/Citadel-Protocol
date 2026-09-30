@@ -48,7 +48,7 @@ let (send_half, recv_half) = group_channel.split();
 */
 
 use crate::error::NetworkError;
-use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
+use crate::proto::outbound_sender::{send_from_sync, Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::remote::Ticket;
 use crate::proto::session::{Group, SessionRequest};
@@ -284,7 +284,7 @@ impl Drop for GroupChannelRecvHalf {
         });
 
         // TODO: remove group channel locally on the inner process in state container
-        if let Err(err) = self.tx.try_send(request) {
+        if let Err(err) = send_from_sync(&self.tx, request) {
             log::warn!(target: "citadel", "Group channel drop warning: {err:?}")
         }
     }
