@@ -544,28 +544,32 @@ mod sender_reader_combo_tests {
     use citadel_io::tokio;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
-    use std::time::Duration;
 
     /// A late signal, of the kind `DualStackCandidateSignal::Winner` is: it
-    /// arrives after local resolution has already finished.
-    async fn late_signal(consumed: Arc<AtomicBool>) -> Result<(), anyhow::Error> {
-        tokio::time::sleep(Duration::from_millis(40)).await;
+    /// becomes available only once local resolution has already finished.
+    async fn late_signal(
+        available: tokio::sync::oneshot::Receiver<()>,
+        consumed: Arc<AtomicBool>,
+    ) -> Result<(), anyhow::Error> {
+        available.await?;
         consumed.store(true, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// Resolves at once, and only then makes the late signal available.
+    async fn resolver(signal: tokio::sync::oneshot::Sender<()>) -> Result<(), anyhow::Error> {
+        signal
+            .send(())
+            .map_err(|_| anyhow::Error::msg("the reader was already gone"))
     }
 
     /// The fix.
     #[tokio::test]
     async fn a_reader_still_runs_after_the_resolver_succeeds() {
         let consumed = Arc::new(AtomicBool::new(false));
-        let resolver = async { Ok::<_, anyhow::Error>(()) };
+        let (tx, rx) = tokio::sync::oneshot::channel();
 
-        let combo = async {
-            let _ = futures::future::join(resolver, late_signal(consumed.clone())).await;
-        };
-        tokio::time::timeout(Duration::from_millis(500), combo)
-            .await
-            .expect("the combination should finish once both halves do");
+        let _ = futures::future::join(resolver(tx), late_signal(rx, consumed.clone())).await;
 
         assert!(
             consumed.load(Ordering::SeqCst),
@@ -575,24 +579,22 @@ mod sender_reader_combo_tests {
 
     /// The control, kept as a test: `select_ok` really does drop the loser, so
     /// the test above is measuring the change and not something both
-    /// combinators would have done.
+    /// combinators would have done. The reader is dropped, not merely late, so
+    /// nothing it could do afterwards needs waiting for.
     #[tokio::test]
     async fn select_ok_would_have_dropped_the_reader() {
         let consumed = Arc::new(AtomicBool::new(false));
-        let resolver = async { Ok::<_, anyhow::Error>(()) };
-        let reader = late_signal(consumed.clone());
+        let (tx, rx) = tokio::sync::oneshot::channel();
 
         let _ = futures::future::select_ok([
-            Box::pin(resolver)
+            Box::pin(resolver(tx))
                 as std::pin::Pin<
                     Box<dyn futures::Future<Output = Result<(), anyhow::Error>> + Send>,
                 >,
-            Box::pin(reader),
+            Box::pin(late_signal(rx, consumed.clone())),
         ])
         .await;
 
-        // Give the dropped future every chance to have run anyway.
-        tokio::time::sleep(Duration::from_millis(120)).await;
         assert!(
             !consumed.load(Ordering::SeqCst),
             "select_ok kept the reader alive, so the join above proves nothing"
