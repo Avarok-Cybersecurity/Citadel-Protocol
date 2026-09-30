@@ -538,3 +538,7 @@ mod rtc_impl {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "channel_drop_signal_tests.rs"]
+mod drop_signal_tests;

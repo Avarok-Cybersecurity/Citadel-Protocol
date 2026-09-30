@@ -289,3 +289,7 @@ impl Drop for GroupChannelRecvHalf {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "group_channel_drop_signal_tests.rs"]
+mod drop_signal_tests;
