@@ -237,8 +237,16 @@ where
             ));
         }
 
+        // The id is only reserved here; `self.message_id` advances once the message
+        // has left or been queued. Advanced up front, a send that ends before that --
+        // an error, or its future dropped at one of the awaits below (a caller's
+        // timeout or select! firing during a stall) -- spent the id without the
+        // message. The peer's OrderedChannel then waited for that id forever and
+        // held back every later message. `&mut self` means no other send can take
+        // the id meanwhile, so the next send reuses it and the sequence stays dense.
+        let id = self.message_id;
         let message = MessengerLayerOrderedMessage {
-            id: self.get_and_increment_message_id(),
+            id,
             message: message.into(),
         };
 
@@ -258,11 +266,11 @@ where
                         .await
                         .map_err(|_| {
                             citadel_io::error!(citadel_io::ErrorCode::RatchetManagerStreamDied)
-                        })
-                } else {
-                    // Success; this message will trigger a simultaneous rekey
-                    Ok(())
+                        })?;
                 }
+                // Either sent alone, or it rode the rekey it triggered
+                self.message_id = id.wrapping_add(1);
+                Ok(())
             }
 
             SecrecyMode::Perfect => {
@@ -287,16 +295,11 @@ where
                 {
                     queue.push_back(message_not_sent);
                 }
-                // Success: either message was sent with rekey, or it's enqueued
+                // Either sent with the rekey it triggered, or queued behind a pending one
+                self.message_id = id.wrapping_add(1);
                 Ok(())
             }
         }
-    }
-
-    fn get_and_increment_message_id(&mut self) -> u64 {
-        let id = self.message_id;
-        self.message_id += 1;
-        id
     }
 }
 
@@ -618,6 +621,59 @@ mod tests {
             Some(Duration::from_millis(min_delay)),
         )
         .await;
+    }
+
+    /// A send that never commits must not consume an ordered id.
+    ///
+    /// `send` allocates the message's id before its first await. If the send
+    /// future is dropped at any await after that (a caller's `timeout` or
+    /// `select!` firing during a scheduler stall is enough), the message is gone
+    /// but its id is spent. The peer's OrderedChannel then waits for that id
+    /// forever and buffers every later message behind it: the session's
+    /// messaging stops without an error on either side.
+    ///
+    /// The queue lock is held here only to make the first await pend
+    /// deterministically; it is the lock the drainer takes in normal operation.
+    /// Paused clock: the timeout fires only once every task is idle, so it
+    /// asserts "never delivered", not a latency.
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_send_dropped_before_it_commits_does_not_stall_later_messages() {
+        citadel_logging::setup_log();
+        let (alice, bob) = create_messengers::<StackedRatchet, u64>(SecrecyMode::Perfect);
+        let (mut alice_tx, _alice_rx) = alice.split();
+        let (_bob_tx, mut bob_rx) = bob.split();
+
+        {
+            let queue = alice_tx.enqueued_messages.clone();
+            let held = queue.lock().await;
+            let send = alice_tx.send(0u64);
+            futures::pin_mut!(send);
+            assert!(
+                futures::poll!(send.as_mut()).is_pending(),
+                "the send must be parked at an await for this test to cancel it"
+            );
+            drop(held);
+        } // the send future is dropped here: message 0 is never sent
+
+        for x in 1..=3u64 {
+            alice_tx.send(x).await.unwrap();
+        }
+
+        let mut received = Vec::new();
+        while received.len() < 3 {
+            match citadel_io::time::timeout(Duration::from_secs(600), bob_rx.next()).await {
+                Ok(Some(message)) => received.push(message),
+                Ok(None) | Err(_) => break,
+            }
+        }
+
+        assert_eq!(
+            received,
+            vec![1, 2, 3],
+            "messages sent after a cancelled send were never delivered: the \
+             cancelled send consumed an ordered id the receiver waits on forever"
+        );
     }
 
     #[rstest]
