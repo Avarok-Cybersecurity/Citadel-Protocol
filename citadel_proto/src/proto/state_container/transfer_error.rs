@@ -32,6 +32,23 @@ impl<R: Ratchet> StateContainerInner<R> {
             .map_err(|err| NetworkError::generic(err.to_string()))
     }
 
+    /// Deliver `Fail(reason)` to the local ObjectTransferHandle for `file_key`
+    /// and drop it. Returns whether a handle was present.
+    ///
+    /// A transfer that ends without its last ack must end its handle too:
+    /// the handle only ever ends on `TransferComplete` or `Fail`, so a path
+    /// that tears the transfer down without either leaves the caller waiting
+    /// forever on a session that stays up.
+    pub(crate) fn fail_object_transfer_handle(&self, file_key: &FileKey, reason: String) -> bool {
+        match self.file_transfer_handles.remove(file_key) {
+            Some((_, tx)) => {
+                let _ = tx.unbounded_send(ObjectTransferStatus::Fail(reason));
+                true
+            }
+            None => false,
+        }
+    }
+
     /// End every object transfer riding the P2P link to `peer_cid`, both
     /// directions, with `reason` -- called when that link is torn down.
     ///
@@ -79,9 +96,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
         let ended: usize = inbound.len() + outbound.len();
         for key in inbound.iter().chain(outbound.iter()) {
-            if let Some((_, tx)) = self.file_transfer_handles.remove(key) {
-                let _ = tx.unbounded_send(ObjectTransferStatus::Fail(reason.to_string()));
-            }
+            self.fail_object_transfer_handle(key, reason.to_string());
         }
         if ended > 0 {
             log::warn!(target: "citadel", "Ended {ended} object transfer(s) with {peer_cid}: {reason}");

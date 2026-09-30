@@ -2042,6 +2042,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                 log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", file_key);
                             }
 
+                            let reason = format!("Timeout on ticket {ticket}: outbound group {group_id} expired");
+                            if !state_container.fail_object_transfer_handle(&file_key, reason) {
+                                log::warn!(target: "citadel", "No ObjectTransferHandle to fail for {file_key:?}");
+                            }
+
                             if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                 ticket_opt: Some(ticket),
                                 cid_opt: session_cid,
