@@ -17,6 +17,11 @@ use crate::welcome::{GroupInfo, Welcome};
 use citadel_types::errors::Error;
 use std::collections::{HashMap, HashSet};
 
+/// How many earlier epochs stay readable. A member only seals at an old epoch while Add commits
+/// are still in flight to it, so this bounds how many joins may be in flight at once; older epoch
+/// secrets are dropped, so a later compromise of this state exposes at most this many epochs.
+pub const MAX_READABLE_PAST_EPOCHS: usize = 8;
+
 /// One member's view of the group.
 #[derive(Clone)]
 pub struct GroupState {
@@ -290,6 +295,9 @@ impl GroupState {
                 .iter()
                 .all(|proposal| matches!(proposal, Proposal::Add { .. }));
         if adds_only {
+            if self.readable_past_epochs.len() == MAX_READABLE_PAST_EPOCHS {
+                self.readable_past_epochs.remove(0);
+            }
             self.readable_past_epochs
                 .push((self.epoch, self.secrets.encryption_secret));
         } else {
@@ -504,6 +512,45 @@ mod tests {
     }
 
     /// A message sealed at the epoch before an Add stays readable after it, until a Remove: the
+    /// Only the most recent `MAX_READABLE_PAST_EPOCHS` earlier epochs stay readable, however many
+    /// members join without a removal.
+    #[test]
+    fn only_the_most_recent_past_epochs_stay_readable() {
+        let a_secret = [11u8; 32];
+        let mut a = GroupState::create(member_leaf(1, &a_secret), a_secret);
+        let b_secret = [22u8; 32];
+        let (_, welcome_b) = a
+            .add_member(&KeyPackage::generate(2, &b_secret).unwrap(), [0xA1; 32])
+            .unwrap();
+        let mut b = GroupState::join_from_welcome(&welcome_b, b_secret).unwrap();
+
+        let mut sealed = Vec::new();
+        for n in 0..=MAX_READABLE_PAST_EPOCHS {
+            sealed.push(
+                b.encrypt_message(format!("at epoch {}", b.epoch).as_bytes())
+                    .unwrap(),
+            );
+            let joiner = [40 + n as u8; 32];
+            let (commit, _) = a
+                .add_member(
+                    &KeyPackage::generate(3 + n as u64, &joiner).unwrap(),
+                    [0xB0 + n as u8; 32],
+                )
+                .unwrap();
+            b.process_commit(&commit).unwrap();
+        }
+        assert!(
+            a.decrypt_message(&sealed[0]).is_err(),
+            "the oldest epoch fell out of the window"
+        );
+        for message in &sealed[1..] {
+            assert!(
+                a.decrypt_message(message).is_ok(),
+                "a recent epoch stays readable"
+            );
+        }
+    }
+
     /// removed member held that epoch's secret, so nothing sealed under it may be read afterwards.
     #[test]
     fn a_pre_add_epoch_stays_readable_until_a_removal() {
