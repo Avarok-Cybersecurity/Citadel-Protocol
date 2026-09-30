@@ -501,8 +501,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                         .take()
                         .ok_or(error!(ErrorCode::ConnectChannelSignalMissing))?;
                     session.send_to_kernel(signal)?;
-                    prompt_member_to_restore_groups(session, &ratchet, ticket, security_level)
-                        .await?;
+                    prompt_member_to_restore_groups(session, &ratchet, security_level).await?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
                     Err(error!(ErrorCode::ConnectSuccessAckAsClient))
@@ -527,10 +526,14 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
 /// ciphertext to it. Without this prompt every such message is undecryptable, and the owner is told
 /// the send succeeded. The member answers with a fresh KeyPackage and the owner re-adds it, so the
 /// relay sees nothing it does not see on an ordinary join.
+///
+/// Each prompt carries a ticket of its own, never the connect request's. The member opens the
+/// restored group channel on the prompt's ticket, and its kernel delivers a result to whichever
+/// listener holds that ticket: on the connect ticket, that is the connect request's listener,
+/// which has already read its result and discards the channel when it is dropped.
 async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
-    ticket: Ticket,
     security_level: SecurityLevel,
 ) -> Result<(), NetworkError> {
     let cid = session
@@ -546,6 +549,7 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
         .unwrap_or_default();
     for key in owned {
         log::info!(target: "citadel", "Asking {cid} to restore its ownership of {key:?} after (re)connecting");
+        let ticket = Ticket::default();
         let packet = packet_crafter::peer_cmd::craft_group_message_packet(
             ratchet,
             &GroupBroadcast::RestoreOwnership { key },
@@ -565,6 +569,7 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
     let groups = peer_layer.list_message_groups_with_member(cid).await;
     for key in groups {
         log::info!(target: "citadel", "Asking {cid} to restore its membership of {key:?} after (re)connecting");
+        let ticket = Ticket::default();
         let packet = packet_crafter::peer_cmd::craft_group_message_packet(
             ratchet,
             &GroupBroadcast::RestoreMembership { key },
