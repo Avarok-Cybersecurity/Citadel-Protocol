@@ -49,19 +49,6 @@ use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_r
 use crate::proto::session_manager::{CidAdmission, SESSION_ALREADY_CONNECTED};
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 
-/// How long the preconnect SUCCESS handler will wait for this side's own hole
-/// punch before answering anyway.
-///
-/// Bounded because the alternative to answering is a connection that never
-/// completes. The punch itself is already bounded by the hole puncher's own
-/// timeout, so reaching this means something has gone wrong that this handler
-/// cannot fix; today's behaviour — answer, and report no UDP — is the better
-/// failure.
-const PUNCH_RESOLVE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-/// How often to re-check. The wait is normally zero iterations; the observed
-/// losing margin is about a millisecond.
-const PUNCH_RESOLVE_POLL: std::time::Duration = std::time::Duration::from_millis(1);
-
 /// Handles preconnect packets. Handles the NAT traversal
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
     level = "trace",
@@ -446,6 +433,12 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                         state_container.udp_mode = UdpMode::Disabled;
                         state_container.pre_connect_state.last_stage =
                             packet_flags::cmd::aux::do_preconnect::SUCCESS;
+                        // The SUCCESS handler may already have installed the pair
+                        // and the connect handler handed its receiver out, if this
+                        // punch outlasted them. Dropping the sender resolves that
+                        // receiver instead of leaving its holder waiting forever.
+                        state_container.pre_connect_state.udp_channel_oneshot_tx =
+                            UdpChannelSender::empty();
                         Ok(PrimaryProcessorResult::Void)
                     }
                 }
@@ -460,59 +453,6 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     log::trace!(target: "citadel", "RECV STAGE SUCCESS PRE CONNECT PACKET");
                 } else {
                     log::trace!(target: "citadel", "RECV STAGE FAILURE PRE CONNECT PACKET");
-                }
-
-                // Do not answer BEGIN_CONNECT until THIS side's hole punch has
-                // resolved.
-                //
-                // `success = true` below is set from the PEER's packet, and the
-                // connect STAGE0 gate asks only for that
-                // (`connect_packet.rs:74`). Inbound packets are processed
-                // concurrently (`session.rs`, `try_for_each_concurrent(64)`), so
-                // the STAGE0 handler that installs the UDP one-shot is still
-                // pending while this replies. The initiator then sends connect
-                // STAGE0, this side takes a receiver that was never installed,
-                // and reports `udp_rx_opt: None` for a connection whose UDP is
-                // about to work — while the late install hands a fresh pair to
-                // nobody and the loader fills an unbounded channel no one reads.
-                //
-                // The window is roughly a millisecond on loopback, which is why
-                // it took three CI failures in thirty days to see. It is entirely
-                // the initiator's `WinnerCanEnd` arriving before this side's own
-                // punch future is polled: the hole-punch loser returns as soon as
-                // it sends that, the winner only after receiving it.
-                //
-                // `last_stage == SUCCESS` is the signal, and it already exists —
-                // both branches of the STAGE0 handler set it, the successful one
-                // through `handle_success_as_receiver` and the TCP fallback
-                // directly. Bounded, and only entered when UDP is still expected:
-                // a timeout leaves exactly today's behaviour rather than a
-                // connection that never completes.
-                {
-                    let waiting = {
-                        let state_container = inner_state!(session.state_container);
-                        state_container.udp_mode == UdpMode::Enabled
-                            && state_container.pre_connect_state.last_stage
-                                != packet_flags::cmd::aux::do_preconnect::SUCCESS
-                    };
-                    if waiting {
-                        let deadline = citadel_io::time::Instant::now() + PUNCH_RESOLVE_WAIT;
-                        loop {
-                            citadel_io::time::sleep(PUNCH_RESOLVE_POLL).await;
-                            let resolved = {
-                                let state_container = inner_state!(session.state_container);
-                                state_container.pre_connect_state.last_stage
-                                    == packet_flags::cmd::aux::do_preconnect::SUCCESS
-                            };
-                            if resolved {
-                                break;
-                            }
-                            if citadel_io::time::Instant::now() >= deadline {
-                                log::warn!(target: "citadel", "[udp-oneshot] hole punch had not resolved within {PUNCH_RESOLVE_WAIT:?} of the peer's preconnect SUCCESS; answering anyway");
-                                break;
-                            }
-                        }
-                    }
                 }
 
                 let timestamp = session.time_tracker.get_global_time_ns();
@@ -578,6 +518,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             "Failure packet received",
                         ))
                     } else {
+                        install_udp_channel_pair_if_punch_pending(&mut state_container);
                         let begin_connect = packet_crafter::pre_connect::craft_begin_connect(
                             &ratchet,
                             timestamp,
@@ -702,6 +643,38 @@ fn send_success_as_initiator<R: Ratchet, T: PlatformOps>(
     Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
 }
 
+/// Called by the preconnect SUCCESS handler just before it answers BEGIN_CONNECT.
+///
+/// The peer's SUCCESS says ITS punch has resolved; this side's own punch (the
+/// STAGE0 handler, running concurrently) may still be in flight. The connect
+/// handler hands the application whatever receiver is installed when connect
+/// STAGE0 arrives, so if none is installed yet the application is told "no UDP"
+/// for a connection whose UDP is about to work, while the peer is told the
+/// opposite.
+///
+/// Waiting for the punch before answering cannot be the fix: the punch may take
+/// up to `MAX_RETRIES` attempts of the puncher's per-attempt timeout, which is
+/// longer than `LOGIN_EXPIRATION_TIME`, and a session that is not connected by
+/// then is ended. So the answer does not wait. The pair is installed now, and the
+/// punch completes it after the connect reply: on success the UDP loader sends
+/// the channel on it (once TCP is loaded, see `setup_tcp_alert_if_udp_c2s`); on
+/// failure the STAGE0 handler drops the sender, which resolves the receiver.
+///
+/// Not installed when the punch has already resolved: then the STAGE0 handler
+/// has either installed the pair itself or reported the TCP fallback by leaving
+/// it empty, and either answer must stand.
+fn install_udp_channel_pair_if_punch_pending<R: Ratchet>(
+    state_container: &mut StateContainerInner<R>,
+) {
+    let punch_pending = state_container.udp_mode == UdpMode::Enabled
+        && state_container.pre_connect_state.last_stage
+            != packet_flags::cmd::aux::do_preconnect::SUCCESS;
+    let sender = &state_container.pre_connect_state.udp_channel_oneshot_tx;
+    if punch_pending && sender.tx.is_none() && sender.rx.is_none() {
+        state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
+    }
+}
+
 fn handle_success_as_receiver<R: Ratchet, T: PlatformOps>(
     udp_splittable: Option<UdpSplittableTypes>,
     session: &CitadelSession<R, T>,
@@ -719,11 +692,13 @@ fn handle_success_as_receiver<R: Ratchet, T: PlatformOps>(
     // fresh one nothing would ever send on — turning a working UDP channel into
     // a permanent await.
     //
-    // This IS the install; there is no earlier one. Installing the sender in the
+    // The only earlier install is `install_udp_channel_pair_if_punch_pending`,
+    // when this punch outlasts the peer's SUCCESS. Installing the sender in the
     // SYN handler was tried and reverted: it made the receiver present even when
-    // the hole punch had failed, so the assertion passed and then awaited a
-    // channel TCP-only mode never delivers — a 1.4s failure became a 90s hang.
-    // Its absence is how the fallback reports itself.
+    // the hole punch had failed, and nothing dropped the sender, so the holder
+    // awaited a channel TCP-only mode never delivers — a 1.4s failure became a
+    // 90s hang. An absent pair is how a fallback that resolved first reports
+    // itself; a fallback that resolves later drops the sender instead.
     let sender = &state_container.pre_connect_state.udp_channel_oneshot_tx;
     if sender.tx.is_none() && sender.rx.is_none() {
         state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
