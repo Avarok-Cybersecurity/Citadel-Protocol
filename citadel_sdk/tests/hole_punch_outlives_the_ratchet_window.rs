@@ -11,9 +11,12 @@
 //! The instrument: a `log::Log` stalls the first hole-punch driver to reach its candidate
 //! exchange until the application has rekeyed the connection to twice the window. No sleep sets
 //! the order, and the assertion is an outcome: the direct path attaches.
+//!
+//! Multi-threaded only: the stall parks one worker while the rekeys run on the others. Without
+//! `multi-threaded` the protocol runs on a single thread, which the stall would park with it.
 #![cfg(not(target_family = "wasm"))]
 
-#[cfg(all(test, feature = "localhost-testing"))]
+#[cfg(all(test, feature = "localhost-testing", feature = "multi-threaded"))]
 mod tests {
     use citadel_crypt::toolset::MAX_RATCHETS_IN_MEMORY;
     use citadel_io::tokio;
