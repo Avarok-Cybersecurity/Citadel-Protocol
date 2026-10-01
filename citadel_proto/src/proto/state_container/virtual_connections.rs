@@ -9,7 +9,7 @@ use bytes::BytesMut;
 use citadel_io::{error, ErrorCode};
 
 /// Seals journaled messages again, under the connection's current ratchet, for a re-send.
-fn resealer<R: Ratchet>(
+pub(crate) fn resealer<R: Ratchet>(
     ratchet: Option<R>,
     time_tracker: TimeTracker,
 ) -> impl Fn(&JournaledMessage) -> Option<BytesMut> {

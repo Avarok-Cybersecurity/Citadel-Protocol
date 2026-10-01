@@ -152,7 +152,7 @@ mod monitoring;
 mod outbound_transfer;
 mod rekey_and_groups;
 mod transfer_error;
-mod virtual_connections;
+pub(crate) mod virtual_connections;
 pub(crate) use virtual_connections::RouteEnd;
 
 /// For keeping track of the stages
