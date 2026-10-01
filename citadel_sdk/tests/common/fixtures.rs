@@ -6,12 +6,17 @@
 #![allow(dead_code)]
 
 use std::fmt;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const FIXTURE_DIR_ENV: &str = "CITADEL_MEDIA_FIXTURE_DIR";
 pub const OFFLINE_ENV: &str = "CITADEL_OFFLINE";
 const MAX_FIXTURE_BYTES: u64 = 16 * 1024 * 1024;
+/// Each fetcher stages into its own `.part` file (pid + per-process counter), so concurrent
+/// fetchers never truncate, verify or rename one another's download; `rename` then publishes
+/// verified bytes atomically, and whichever fetcher renames last replaces identical content.
+static NEXT_PART: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fixture {
@@ -117,8 +122,17 @@ pub fn ensure(fixture: Fixture) -> Result<Option<PathBuf>, FixtureError> {
     }
 
     let bytes = download(fixture.url())?;
-    let part = dir.join(format!("{}.part", fixture.file_name()));
-    std::fs::write(&part, &bytes)?;
+    let part = dir.join(format!(
+        "{}.{}.{}.part",
+        fixture.file_name(),
+        std::process::id(),
+        NEXT_PART.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&part)?
+        .write_all(&bytes)?;
     if let Err(err) = verify(fixture, &part) {
         let _ = std::fs::remove_file(&part);
         return Err(err);

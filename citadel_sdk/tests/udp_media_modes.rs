@@ -290,8 +290,7 @@ mod tests {
     #[test]
     fn concurrent_cold_cache_fetches_all_return_the_verified_fixture() {
         const FETCHERS: usize = 8;
-        let dir =
-            std::env::temp_dir().join(format!("citadel_fixture_race_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("citadel_fixture_race_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let _guard = EnvGuard(FIXTURE_DIR_ENV);
         std::env::set_var(FIXTURE_DIR_ENV, &dir);
@@ -314,7 +313,10 @@ mod tests {
             })
             .collect();
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(failures.is_empty(), "concurrent fetches failed: {failures:?}");
+        assert!(
+            failures.is_empty(),
+            "concurrent fetches failed: {failures:?}"
+        );
     }
 
     #[test]
