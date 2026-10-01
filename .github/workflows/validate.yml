@@ -238,6 +238,15 @@ jobs:
       - name: Run basic localhost NAT tests (windows only)
         if: startsWith(matrix.os, 'windows')
         run: cargo nextest run --release --package citadel_wire --features=localhost-testing,vendored
+      # localhost-testing short-circuits NatType::identify, so identification failing (or
+      # succeeding) inside a hole punch is only exercised without it, against local STUN
+      # responders or silent local sockets.
+      - name: Run NAT identification tests
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: cargo nextest run --release --package citadel_wire --test nat_identify_under_stall --test hole_punch_without_nat_identification
+      - name: Run NAT identification tests (windows only)
+        if: startsWith(matrix.os, 'windows')
+        run: cargo nextest run --release --package citadel_wire --features=vendored --test nat_identify_under_stall --test hole_punch_without_nat_identification
 
   citadel_sdk:
     strategy:

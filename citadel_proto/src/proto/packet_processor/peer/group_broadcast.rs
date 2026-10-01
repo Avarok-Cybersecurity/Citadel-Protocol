@@ -38,6 +38,7 @@ use crate::proto::node_result::{GroupChannelCreated, GroupEvent};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::group_cgka::GroupCgkaState;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
+use crate::proto::peer::group_watch::GroupWatch;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
@@ -301,6 +302,17 @@ pub enum GroupBroadcast {
         /// Why it could not be delivered
         reason: String,
     },
+    /// Member → server: answer with [`Self::GroupAvailable`] once `key` exists — at once if it
+    /// already does, otherwise when its owner creates it (see `group_watch`).
+    AwaitGroup {
+        /// Group key
+        key: MessageGroupKey,
+    },
+    /// Server → member, on the `AwaitGroup` ticket: `key` exists.
+    GroupAvailable {
+        /// Group key
+        key: MessageGroupKey,
+    },
 }
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -443,6 +455,41 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 )
             }
         }
+
+        GroupBroadcast::AwaitGroup { key } => {
+            if !session.is_server {
+                log::warn!(target: "citadel", "Client received a server-only AwaitGroup for {key:?}");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            let reply = match session
+                .hypernode_peer_layer
+                .watch_group(session_cid, ticket, key)
+                .await
+            {
+                GroupWatch::Available => GroupBroadcast::GroupAvailable { key },
+                GroupWatch::Pending => return Ok(PrimaryProcessorResult::Void),
+                GroupWatch::Refused => {
+                    log::warn!(target: "citadel", "Session {session_cid} holds too many group watches; refusing {key:?}");
+                    GroupBroadcast::GroupNonExists { key }
+                }
+            };
+            let return_packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                sess_ratchet,
+                &reply,
+                ticket,
+                C2S_IDENTITY_CID,
+                timestamp,
+                security_level,
+            )?;
+            Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
+        }
+
+        GroupBroadcast::GroupAvailable { key } => forward_signal(
+            session,
+            ticket,
+            None,
+            GroupBroadcast::GroupAvailable { key },
+        ),
 
         GroupBroadcast::ListGroupsFor { cid: owner } => {
             let message_groups = session

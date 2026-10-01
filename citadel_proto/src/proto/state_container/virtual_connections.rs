@@ -207,6 +207,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         sess: &CitadelSession<R, T>,
         file_transfer_compatible: bool,
         p2p_connection_id: Ticket,
+        peer_protocol_version: Option<u32>,
     ) -> Result<PeerChannel<R>, NetworkError> {
         let (tx_ratchet_manager_to_outbound, mut rx_from_ratchet_manager_to_outbound) = unbounded();
         let (tx_to_outbound, rx_for_outbound) =
@@ -332,6 +333,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             protocol_messenger,
             disconnect_token,
             p2p_path.clone(),
+            peer_protocol_version,
         );
 
         CitadelSession::spawn_message_sender_function(

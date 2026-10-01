@@ -1,7 +1,8 @@
 //! Track descriptors and control messages with a hand-rolled TLV encoding.
 //!
 //! Control body: `[msg_tag u8] [count u8] (descriptor)*` for track lists, or
-//! `[msg_tag u8] [track u8] [frames_sent u32]` for EndOfStream. Descriptor (big-endian):
+//! `[msg_tag u8] [track u8] [frames_sent u32]` for EndOfStream, or
+//! `[msg_tag u8] [udp u8]` for TransportOffer. Descriptor (big-endian):
 //! `track u8 | kind u8 | clock_rate u32 | codec [u8;4] | channels u8 | width u16 |
 //!  height u16 | name_len u8 | name[name_len]`.
 use crate::error::MediaError;
@@ -13,6 +14,7 @@ const DESCRIPTOR_FIXED_LEN: usize = 1 + 1 + 4 + 4 + 1 + 2 + 2 + 1;
 const TAG_ANNOUNCE: u8 = 1;
 const TAG_ACCEPT: u8 = 2;
 const TAG_END_OF_STREAM: u8 = 3;
+const TAG_TRANSPORT_OFFER: u8 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaTrackDescriptor {
@@ -94,6 +96,11 @@ pub enum ControlMessage {
         track: TrackId,
         frames_sent: u32,
     },
+    /// First message each side sends on the reliable lane: whether it holds
+    /// a usable UDP channel. Media uses UDP only if both offers say so.
+    TransportOffer {
+        udp: bool,
+    },
 }
 
 impl ControlMessage {
@@ -107,6 +114,10 @@ impl ControlMessage {
                 out.push(TAG_END_OF_STREAM);
                 out.push(track.0);
                 out.extend_from_slice(&frames_sent.to_be_bytes());
+            }
+            Self::TransportOffer { udp } => {
+                out.push(TAG_TRANSPORT_OFFER);
+                out.push(u8::from(*udp));
             }
         }
         Ok(out)
@@ -141,6 +152,13 @@ impl ControlMessage {
                 }),
                 _ => Err(MediaError::DescriptorMalformed(
                     "end-of-stream body must be exactly track byte + frames_sent u32",
+                )),
+            },
+            TAG_TRANSPORT_OFFER => match rest {
+                [0] => Ok(Self::TransportOffer { udp: false }),
+                [1] => Ok(Self::TransportOffer { udp: true }),
+                _ => Err(MediaError::DescriptorMalformed(
+                    "transport offer body must be exactly one 0/1 byte",
                 )),
             },
             _ => Err(MediaError::DescriptorMalformed("unknown control tag")),

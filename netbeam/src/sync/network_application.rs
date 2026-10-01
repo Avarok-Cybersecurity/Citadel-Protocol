@@ -64,6 +64,11 @@ pub type NetworkApplication = MultiplexedConn<SymmetricConvID>;
 
 pub(crate) const INITIAL_CAPACITY: usize = 32;
 
+/// Carries `PreCreate` ids from the connection's single reader to the handshake.
+///
+/// Capacity 1 is enough, and the reader never waits on it: a cancelled handshake is resumed, not
+/// restarted (`in_flight`), so each side has at most one `PreCreate` outstanding and the other side
+/// at most one to read (`tests/prehandshake_cancel_safety.rs` pins this).
 pub struct PreActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
     tx: citadel_io::tokio::sync::mpsc::Sender<K>,
     rx: Mutex<citadel_io::tokio::sync::mpsc::Receiver<K>>,
@@ -101,14 +106,22 @@ impl<K: MultiplexedConnKey> PostActionChannel<K> {
             .map_err(|_| anyhow::Error::msg("Post-action channel for symmetric conv died"))
     }
 
+    /// Takes the signal out of the map before awaiting it. Awaiting it inside the lock (the guard
+    /// was a temporary of the whole expression) held the map for as long as the peer took to close
+    /// its end, and every `setup_channel`, so every later handshake on this side, waited with it.
     pub(crate) async fn recv(&self, id: K) -> Result<(), anyhow::Error> {
-        Ok(self
+        let rx = self
             .rx
             .lock()
             .await
             .remove(&id)
-            .ok_or_else(|| anyhow::Error::msg("RX Channel does not exist (x0)"))?
-            .await?)
+            .ok_or_else(|| anyhow::Error::msg("RX Channel does not exist (x0)"))?;
+        Ok(rx.await?)
+    }
+
+    /// Fails every pending `recv`, for when the peer can no longer send.
+    pub(crate) async fn close_all(&self) {
+        self.tx.lock().await.clear();
     }
 
     pub(crate) async fn setup_channel(&self, id: K) {
@@ -163,6 +176,9 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
                     log::trace!(target: "citadel", "Unable to forward packet: {err:#}");
                 }
             }
+            // Nothing can arrive any more: fail the subscriptions still waiting on the peer.
+            conn_task.subscriptions().write().clear();
+            conn_task.post_close_container().close_all().await;
         });
 
         Ok(this)
@@ -431,5 +447,84 @@ async fn postaction_sync<'a, S: Subscribable<ID = K> + 'a, K: MultiplexedConnKey
             subscribable.send_post_close_signal(close_id).await?;
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod transport_end_tests {
+    use crate::reliable_conn::ReliableOrderedStreamToTarget;
+    use crate::sync::network_application::NetworkApplication;
+    use crate::sync::subscription::Subscribable;
+    use crate::sync::RelativeNodeType;
+    use async_trait::async_trait;
+    use bytes::Bytes;
+    use citadel_io::tokio;
+    use citadel_io::tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+    use citadel_io::tokio::sync::Mutex;
+    use std::time::Duration;
+
+    /// A transport whose inbound side the test ends by dropping its sender.
+    struct Pipe {
+        outbound: UnboundedSender<Vec<u8>>,
+        inbound: Mutex<UnboundedReceiver<Vec<u8>>>,
+    }
+
+    #[async_trait]
+    impl ReliableOrderedStreamToTarget for Pipe {
+        async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
+            let _ = self.outbound.send(input.to_vec());
+            Ok(())
+        }
+
+        async fn recv(&self) -> std::io::Result<Bytes> {
+            self.inbound
+                .lock()
+                .await
+                .recv()
+                .await
+                .map(Bytes::from)
+                .ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::ConnectionReset, "pipe closed")
+                })
+        }
+    }
+
+    /// Once nothing can arrive, a subscription waiting on the peer must fail
+    /// rather than wait forever, and one closing must stop waiting for the
+    /// peer's half of the close. Either one, left waiting, holds the
+    /// multiplexer and with it the transport for as long as the process lives.
+    #[tokio::test]
+    async fn an_ended_transport_releases_every_subscription() {
+        let (to_app, inbound) = unbounded_channel();
+        let (outbound, mut sent) = unbounded_channel();
+        let pipe = Pipe {
+            outbound,
+            inbound: Mutex::new(inbound),
+        };
+        let app = NetworkApplication::register(RelativeNodeType::Receiver, pipe)
+            .await
+            .unwrap();
+
+        let waiting = app.initiate_subscription().await.unwrap();
+        let closing = app.initiate_subscription().await.unwrap();
+        let pending_recv = tokio::spawn(async move { waiting.recv().await.map(|_| ()) });
+        // The Receiver sends its half of the close, then waits for the peer's.
+        drop(closing);
+        drop(app);
+        drop(to_app);
+
+        let hang_guard = Duration::from_secs(30);
+        let recv = tokio::time::timeout(hang_guard, pending_recv)
+            .await
+            .expect("a subscription kept waiting on a transport that had ended")
+            .unwrap();
+        assert_eq!(
+            recv.unwrap_err().kind(),
+            std::io::ErrorKind::ConnectionReset
+        );
+        // The pipe is dropped, closing `sent`, only once nothing holds the multiplexer.
+        tokio::time::timeout(hang_guard, async { while sent.recv().await.is_some() {} })
+            .await
+            .expect("a close waited forever for a peer that could no longer answer");
     }
 }

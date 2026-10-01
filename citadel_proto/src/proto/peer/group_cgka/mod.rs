@@ -355,6 +355,32 @@ mod tests {
         assert!(lost.decrypt_message(&wire).is_err());
     }
 
+    /// A member that seals a message before the owner's Commit for someone else's join reaches it
+    /// (the Commit is relayed after the Welcome, and a sending member cannot know one is in
+    /// flight) sends at the epoch it and the owner both held. The owner read that epoch; losing
+    /// the message because the owner has since advanced is a silent drop in the client handler.
+    #[test]
+    fn a_message_sealed_before_a_join_commit_is_read_by_the_owner() {
+        let mut owner = GroupCgkaState::new_owner(1, GroupHierarchyMode::Flat).unwrap();
+        let (mut a, kp_a) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();
+        let (welcome_a, _commit_a, _e, _x) = owner.add_member(&kp_a).unwrap();
+        a.join(&welcome_a).unwrap();
+
+        let (mut b, kp_b) = GroupCgkaState::new_joiner(3, GroupHierarchyMode::Flat).unwrap();
+        let (welcome_b, commit_b, epoch_b, _x) = owner.add_member(&kp_b).unwrap();
+        b.join(&welcome_b).unwrap();
+
+        // A has not received commit_b yet.
+        let in_flight = a.encrypt_message(b"sent while B was joining").unwrap();
+        a.process_commit(&commit_b, epoch_b).unwrap();
+
+        assert_eq!(
+            owner.decrypt_message(&in_flight).ok().as_deref(),
+            Some(&b"sent while B was joining"[..]),
+            "the owner cannot read a message a member sealed at an epoch they both held"
+        );
+    }
+
     #[test]
     fn non_owner_cannot_commit() {
         let (mut b, _kp) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();

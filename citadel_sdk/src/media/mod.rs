@@ -22,6 +22,7 @@ mod config;
 mod endpoint;
 mod eos;
 pub mod error;
+mod negotiation;
 mod receiver;
 mod sender;
 mod transport;

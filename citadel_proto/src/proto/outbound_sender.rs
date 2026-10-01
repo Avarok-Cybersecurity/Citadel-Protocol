@@ -37,7 +37,8 @@ use crate::error::NetworkError;
 pub use crate::proto::outbound_udp_sender::{OutboundUdpSender, UdpQueueItem};
 use bytes::{Bytes, BytesMut};
 pub use citadel_io::tokio::sync::mpsc::{
-    error::SendError, Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
+    error::{SendError, TrySendError},
+    Receiver, Sender, UnboundedReceiver, UnboundedSender as UnboundedSenderInner,
 };
 use futures::task::{Context, Poll};
 use futures::Sink;
@@ -65,6 +66,29 @@ impl<T> UnboundedSender<T> {
 
 pub fn channel<T>(len: usize) -> (Sender<T>, Receiver<T>) {
     citadel_io::tokio::sync::mpsc::channel(len)
+}
+
+/// Queues `item` from a synchronous context (such as `Drop`) without losing it to backpressure.
+///
+/// A full queue only means its consumer is behind, so the item is handed to a task that waits for
+/// capacity instead of being discarded. Fails only when the receiver is gone, or when the queue is
+/// full and there is no runtime to wait on.
+pub fn send_from_sync<T: Send + 'static>(tx: &Sender<T>, item: T) -> Result<(), TrySendError<T>> {
+    match tx.try_send(item) {
+        Err(TrySendError::Full(item)) => {
+            if citadel_io::try_current_runtime().is_err() {
+                return Err(TrySendError::Full(item));
+            }
+            let tx = tx.clone();
+            drop(citadel_io::spawn(async move {
+                if let Err(err) = tx.send(item).await {
+                    log::warn!(target: "citadel", "Deferred send was not delivered: {err}");
+                }
+            }));
+            Ok(())
+        }
+        result => result,
+    }
 }
 
 /// A unit of work queued for the primary outbound stream.
@@ -167,6 +191,14 @@ impl<T> BoundedSender<T> {
         t: T,
     ) -> Result<(), citadel_io::tokio::sync::mpsc::error::TrySendError<T>> {
         self.0.try_send(t)
+    }
+
+    /// See [`send_from_sync`]
+    pub fn send_from_sync(&self, t: T) -> Result<(), TrySendError<T>>
+    where
+        T: Send + 'static,
+    {
+        send_from_sync(&self.0, t)
     }
 
     /// Sends a value through the channel

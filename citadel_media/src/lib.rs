@@ -24,7 +24,7 @@ pub use descriptor::{ControlMessage, MediaTrackDescriptor};
 pub use error::{DemuxError, MediaError};
 pub use frame::{FrameFlags, FrameHeader, MediaFrame, TrackId, TrackKind};
 pub use jitter::{JitterBuffer, PopResult, PushResult};
-pub use packetizer::{FragmentOut, Fragments, Packetizer};
+pub use packetizer::{FragmentOut, Fragments, Packetizer, FIRST_SEQUENCE};
 pub use queue::SendQueue;
 pub use reassembly::{ReassembleOutcome, Reassembler};
 pub use stats::MediaStats;

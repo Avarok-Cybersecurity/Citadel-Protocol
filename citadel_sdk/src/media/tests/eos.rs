@@ -1,12 +1,13 @@
 //! End-of-stream ordering tests: EOS carries `frames_sent`, so it must not
 //! outrace in-flight media; a lost tail resolves via Gap after the deadline.
 use super::{payload, run, source, CFG};
+use crate::media::config::MediaTransportConfig;
 use crate::media::endpoint::MediaEndpoint;
 use crate::media::receiver::MediaEvent;
 use crate::media::sender::MediaSender;
 use crate::media::transport::{MediaDatagramSink, MediaTransportKind, ReliableSink};
 use bytes::BytesMut;
-use citadel_io::time::Instant;
+use citadel_io::time::{Duration, Instant};
 use citadel_media::{FrameFlags, TrackId, TrackKind};
 
 /// Captures the datagrams of `n` frames plus the end-of-stream control
@@ -43,6 +44,12 @@ async fn captured_stream(n: u32) -> (Vec<BytesMut>, BytesMut) {
 }
 
 fn replay_endpoint() -> (ReliableSink, ReliableSink, crate::media::MediaReceiver) {
+    replay_endpoint_with(CFG)
+}
+
+fn replay_endpoint_with(
+    cfg: MediaTransportConfig,
+) -> (ReliableSink, ReliableSink, crate::media::MediaReceiver) {
     let (ctl_sink, ctl_rx) = ReliableSink::pair();
     let (m_sink, m_rx) = ReliableSink::pair();
     let (_tx, rx) = MediaEndpoint::assemble(
@@ -51,7 +58,7 @@ fn replay_endpoint() -> (ReliableSink, ReliableSink, crate::media::MediaReceiver
         Box::new(ctl_sink.clone()),
         source(m_rx),
         Some(source(ctl_rx)),
-        CFG,
+        cfg,
         Instant::now(),
     )
     .unwrap()
@@ -101,6 +108,85 @@ fn eos_with_lost_tail_emits_gap_then_eos_after_deadline() {
                 missing_to: 2
             }
         );
+        assert_eq!(rx.next_event().await, MediaEvent::EndOfStream(TrackId(0)));
+        assert_eq!(rx.stats().frames_missing, 1);
+        drop((m_sink, ctl_sink));
+        assert_eq!(rx.next_event().await, MediaEvent::Closed);
+    })
+}
+
+/// A jitter depth far above `EOS_LEAD`, so only the ordering under test decides
+/// the outcome, never scheduling jitter.
+const DEEP: MediaTransportConfig = MediaTransportConfig {
+    media: citadel_media::MediaConfig {
+        jitter_depth_micros: 1_000_000,
+        ..CFG.media
+    },
+    ..CFG
+};
+/// How far the reliable EOS outraces the unreliable tail. Any value below the
+/// jitter depth is a legal reordering the receiver must absorb.
+const EOS_LEAD: Duration = Duration::from_millis(50);
+
+#[test]
+fn eos_deadline_does_not_discard_frames_buffered_behind_a_hole() {
+    run(async {
+        let (frames, eos) = captured_stream(5).await;
+        let (mut m_sink, mut ctl_sink, mut rx) = replay_endpoint_with(DEEP);
+        m_sink.send_datagram(frames[0].clone()).unwrap();
+        m_sink.send_datagram(frames[1].clone()).unwrap();
+        assert!(matches!(rx.next_event().await, MediaEvent::Frame(f) if f.header.sequence == 0));
+        assert!(matches!(rx.next_event().await, MediaEvent::Frame(f) if f.header.sequence == 1));
+        // The reliable EOS lands (and is ingested) before the UDP tail.
+        ctl_sink.send_datagram(eos).unwrap();
+        assert!(
+            citadel_io::tokio::time::timeout(EOS_LEAD, rx.next_event())
+                .await
+                .is_err(),
+            "nothing is deliverable yet"
+        );
+        // Frame 2 is genuinely lost; frames 3 and 4 arrive.
+        m_sink.send_datagram(frames[3].clone()).unwrap();
+        m_sink.send_datagram(frames[4].clone()).unwrap();
+        assert_eq!(
+            rx.next_event().await,
+            MediaEvent::Gap {
+                track: TrackId(0),
+                missing_from: 2,
+                missing_to: 2
+            },
+            "only the frame that never arrived may be reported missing"
+        );
+        assert!(matches!(rx.next_event().await, MediaEvent::Frame(f) if f.header.sequence == 3));
+        assert!(matches!(rx.next_event().await, MediaEvent::Frame(f) if f.header.sequence == 4));
+        assert_eq!(rx.next_event().await, MediaEvent::EndOfStream(TrackId(0)));
+        assert_eq!(rx.stats().frames_missing, 1);
+        assert_eq!(rx.stats().frames_delivered, 4);
+        drop((m_sink, ctl_sink));
+        assert_eq!(rx.next_event().await, MediaEvent::Closed);
+    })
+}
+
+#[test]
+fn a_lost_head_is_reported_as_a_gap() {
+    run(async {
+        let (frames, eos) = captured_stream(3).await;
+        let (mut m_sink, mut ctl_sink, mut rx) = replay_endpoint();
+        // Frame 0 is genuinely lost (e.g. evicted from a full UDP send queue).
+        m_sink.send_datagram(frames[1].clone()).unwrap();
+        m_sink.send_datagram(frames[2].clone()).unwrap();
+        ctl_sink.send_datagram(eos).unwrap();
+        assert_eq!(
+            rx.next_event().await,
+            MediaEvent::Gap {
+                track: TrackId(0),
+                missing_from: 0,
+                missing_to: 0
+            },
+            "a frame lost before the first arrival is still a loss"
+        );
+        assert!(matches!(rx.next_event().await, MediaEvent::Frame(f) if f.header.sequence == 1));
+        assert!(matches!(rx.next_event().await, MediaEvent::Frame(f) if f.header.sequence == 2));
         assert_eq!(rx.next_event().await, MediaEvent::EndOfStream(TrackId(0)));
         assert_eq!(rx.stats().frames_missing, 1);
         drop((m_sink, ctl_sink));

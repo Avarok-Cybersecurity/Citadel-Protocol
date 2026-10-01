@@ -35,11 +35,16 @@ use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
+pub use crate::udp_traversal::paired_attempts::PAIRED_ATTEMPTS_HELLO;
+use crate::udp_traversal::paired_attempts::{self, AttemptCoordinator, AttemptLane};
 use citadel_io::tokio::net::UdpSocket;
 use futures::Future;
-use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
+use netbeam::reliable_conn::{
+    ConnAddr, ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt,
+};
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::subscription::Subscribable;
+use netbeam::sync::RelativeNodeType;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
@@ -104,33 +109,91 @@ async fn driver(
     encrypted_config_container: HolePunchConfigContainer,
     timeout: Duration,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    let mut retries = 0;
-    loop {
-        log::trace!(target: "citadel", "[driver] Attempt {}/{} starting (timeout: {:?})", retries + 1, MAX_RETRIES, timeout);
-        let task = citadel_io::time::timeout(
-            timeout,
-            driver_inner(conn, encrypted_config_container.clone()),
-        );
-        match task.await {
-            Ok(Ok(res)) => {
-                log::trace!(target: "citadel", "[driver] Attempt {} succeeded!", retries + 1);
-                return Ok(res);
-            }
-            Ok(Err(err)) => {
-                log::warn!(target: "citadel", "[driver] Attempt {}/{} failed with error: {err:#}", retries + 1, MAX_RETRIES);
-            }
-            Err(_) => {
-                log::warn!(target: "citadel", "[driver] Attempt {}/{} timed-out after {:?}", retries + 1, MAX_RETRIES, timeout);
-            }
-        }
+    let control = citadel_io::time::timeout(
+        timeout.saturating_mul(MAX_RETRIES as u32),
+        conn.initiate_subscription(),
+    )
+    .await
+    .map_err(|_| anyhow::Error::msg("Peer never opened the hole-punch control stream"))??;
+    paired_attempts::greet(&control).await?;
+    let attempts = AttemptCoordinator::new(control, conn.local_addr()?, conn.peer_addr()?);
 
-        retries += 1;
+    let run = async {
+        let mut attempt = 1;
+        loop {
+            log::trace!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} starting (timeout: {timeout:?})");
+            let lane = attempts.enter(attempt).await?;
+            let task = run_attempt(
+                &attempts,
+                lane,
+                attempt,
+                conn.node_type(),
+                encrypted_config_container.clone(),
+            );
+            let next = match citadel_io::time::timeout(timeout, task).await {
+                Ok(AttemptOutcome::Punched(res)) => {
+                    log::trace!(target: "citadel", "[driver] Attempt {attempt} succeeded!");
+                    return Ok(res);
+                }
+                Ok(AttemptOutcome::Failed(err)) => {
+                    log::warn!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} failed with error: {err:#}");
+                    attempt + 1
+                }
+                Ok(AttemptOutcome::PeerMovedOn(peer)) => {
+                    log::warn!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} abandoned by the peer, which is on attempt {peer}");
+                    peer
+                }
+                Err(_) => {
+                    log::warn!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} timed-out after {timeout:?}");
+                    attempt + 1
+                }
+            };
 
-        if retries >= MAX_RETRIES {
-            log::error!(target: "citadel", "[driver] All {} attempts exhausted, giving up", MAX_RETRIES);
-            return Err(anyhow::Error::msg("Max retries reached for UDP Traversal"));
+            if next > MAX_RETRIES {
+                log::error!(target: "citadel", "[driver] All {MAX_RETRIES} attempts exhausted, giving up");
+                return Err(anyhow::Error::msg("Max retries reached for UDP Traversal"));
+            }
+            attempt = next;
         }
-        log::trace!(target: "citadel", "[driver] Retrying... ({} attempts remaining)", MAX_RETRIES - retries);
+    };
+
+    citadel_io::tokio::select! {
+        res = run => res,
+        err = attempts.route_inbound() => Err(anyhow::Error::msg(format!("Hole-punch control stream failed: {err}"))),
+    }
+}
+
+enum AttemptOutcome {
+    Punched(HolePunchedUdpSocket),
+    Failed(anyhow::Error),
+    PeerMovedOn(usize),
+}
+
+/// Runs `attempt` once the peer is on it too, and ends it as soon as the peer
+/// abandons it.
+async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
+    attempts: &AttemptCoordinator<S>,
+    lane: AttemptLane<S>,
+    attempt: usize,
+    node_type: RelativeNodeType,
+    encrypted_config_container: HolePunchConfigContainer,
+) -> AttemptOutcome {
+    let peer = attempts.peer_reached(attempt).await;
+    if peer > attempt {
+        return AttemptOutcome::PeerMovedOn(peer);
+    }
+
+    let punch = async {
+        let endpoint = NetworkEndpoint::register(node_type, lane).await?;
+        driver_inner(&endpoint, encrypted_config_container).await
+    };
+
+    citadel_io::tokio::select! {
+        res = punch => match res {
+            Ok(socket) => AttemptOutcome::Punched(socket),
+            Err(err) => AttemptOutcome::Failed(err),
+        },
+        peer = attempts.peer_reached(attempt + 1) => AttemptOutcome::PeerMovedOn(peer),
     }
 }
 
@@ -157,16 +220,12 @@ async fn driver_inner(
 
     // Step 2: NAT type identification
     log::trace!(target: "citadel", "[driver] Step 2: Identifying local NAT type...");
-    let local_nat_type = match NatType::identify(stun_servers.clone()).await {
-        Ok(nat) => {
-            log::trace!(target: "citadel", "[driver] Step 2: NAT identification successful: {nat:?}");
-            nat
-        }
-        Err(e) => {
-            log::error!(target: "citadel", "[driver] Step 2 FAILED: NAT identification error: {e:?}");
-            return Err(anyhow::Error::msg(e.to_string()));
-        }
-    };
+    // A failed identification is not fatal: the peers may still reach each other at their
+    // local addresses (same LAN or host, or no reachable STUN server), so the punch proceeds
+    // with an honest "unidentified" NAT carrying the real internal IP.
+    let local_nat_type =
+        NatType::identified_or_local(NatType::identify(stun_servers.clone()).await).await;
+    log::trace!(target: "citadel", "[driver] Step 2: local NAT type: {local_nat_type:?}");
     let local_nat_type = &local_nat_type;
 
     // Step 3: Exchange NAT types with peer
@@ -731,3 +790,7 @@ mod routable_candidate_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "attempt_pairing_tests.rs"]
+mod attempt_pairing_tests;

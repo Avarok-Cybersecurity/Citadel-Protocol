@@ -1,4 +1,5 @@
 use super::config::MediaTransportConfig;
+use super::negotiation::agree_on_udp;
 use super::receiver::MediaReceiver;
 use super::sender::MediaSender;
 use super::transport::{BoxedSink, BoxedSource, MediaTransportKind, ReliableSink};
@@ -39,7 +40,23 @@ impl MediaEndpoint {
     /// Consumes a P2P connection's channels and returns the endpoint together
     /// with the connection's [`PeerRemote`] (take any file-transfer handle
     /// receiver with `get_incoming_file_transfer_handle` beforehand).
-    /// Waits `cfg.udp_wait` for UDP; falls back to reliable mode.
+    /// Waits `cfg.udp_wait` for UDP, then exchanges transport offers with the
+    /// peer over the reliable channel: UDP is used only if both sides hold
+    /// it, otherwise both fall back to reliable mode.
+    ///
+    /// The peer must build its endpoint too. The wait for its offer has no
+    /// timer: it lasts until the offer arrives or the channel closes
+    /// (`MediaTransportClosed`), however long the peer takes to build. A
+    /// timer here could not be made safe, because this side's offer is
+    /// already sent: a late peer would act on it while this side had
+    /// already fallen back. Bound the call yourself if the peer may never
+    /// build; dropping the future drops the channel, which the peer then
+    /// sees as closed.
+    ///
+    /// A peer whose protocol version predates transport offers
+    /// ([`citadel_proto::constants::MEDIA_TRANSPORT_OFFER_SINCE`], or unknown because the peer or the
+    /// server relaying its key exchange predates carrying the version) is
+    /// sent none and never waited on: this side uses reliable mode.
     pub async fn from_peer_connection<R: Ratchet>(
         conn: PeerConnectSuccess<R>,
         cfg: MediaTransportConfig,
@@ -79,32 +96,42 @@ impl MediaEndpoint {
     ) -> Result<Self, NetworkError> {
         cfg.validate()?;
         let start = Instant::now();
+        let peer_protocol_version = channel.peer_protocol_version();
         let (reliable_tx, reliable_rx) = channel.split();
-        let control_sink = ReliableSink::spawn(reliable_tx);
-        let control_src: BoxedSource = Box::pin(reliable_rx);
+        let mut control_sink = ReliableSink::spawn(reliable_tx);
+        let mut control_src: BoxedSource = Box::pin(reliable_rx);
 
-        match await_udp(udp_rx, &cfg).await {
-            Some((udp_tx, udp_rx)) => {
-                if cfg.udp_payload_budget > udp_tx.max_payload_len() {
-                    return Err(citadel_io::error!(
-                        ErrorCode::MediaConfigInvalid,
-                        format!(
-                            "udp_payload_budget {} exceeds the UDP channel's max payload {}",
-                            cfg.udp_payload_budget,
-                            udp_tx.max_payload_len()
-                        )
-                    ));
-                }
-                Self::assemble(
-                    MediaTransportKind::Unreliable,
-                    Box::new(udp_tx),
-                    Box::new(control_sink),
-                    Box::pin(udp_rx),
-                    Some(control_src),
-                    cfg,
-                    start,
-                )
+        let local_udp = await_udp(udp_rx, &cfg).await;
+        if let Some((udp_tx, _)) = &local_udp {
+            if cfg.udp_payload_budget > udp_tx.max_payload_len() {
+                return Err(citadel_io::error!(
+                    ErrorCode::MediaConfigInvalid,
+                    format!(
+                        "udp_payload_budget {} exceeds the UDP channel's max payload {}",
+                        cfg.udp_payload_budget,
+                        udp_tx.max_payload_len()
+                    )
+                ));
             }
+        }
+        let peer_udp = agree_on_udp(
+            peer_protocol_version,
+            local_udp.is_some(),
+            &mut control_sink,
+            &mut control_src,
+        )
+        .await?;
+
+        match local_udp.filter(|_| peer_udp) {
+            Some((udp_tx, udp_rx)) => Self::assemble(
+                MediaTransportKind::Unreliable,
+                Box::new(udp_tx),
+                Box::new(control_sink),
+                Box::pin(udp_rx),
+                Some(control_src),
+                cfg,
+                start,
+            ),
             None => Self::assemble(
                 MediaTransportKind::Reliable,
                 Box::new(control_sink.clone()),

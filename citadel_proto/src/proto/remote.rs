@@ -231,6 +231,18 @@ impl<R: Ratchet> NodeRemote<R> {
         self.outbound_send_request_tx.try_send((request, ticket))
     }
 
+    /// Like [`Self::try_send`], but a full queue defers the request instead of rejecting it.
+    /// For signals raised where awaiting is impossible (e.g. `Drop`) that must not be lost.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn send_from_sync(
+        &self,
+        request: NodeRequest,
+    ) -> Result<(), TrySendError<(NodeRequest, Ticket)>> {
+        let ticket = self.get_next_ticket();
+        self.outbound_send_request_tx
+            .send_from_sync((request, ticket))
+    }
+
     #[allow(clippy::result_large_err)]
     pub fn try_send(
         &self,

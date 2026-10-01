@@ -125,6 +125,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         channel_ticket: Ticket,
         session_cid: u64,
         session: &CitadelSession<R, T>,
+        adjacent_protocol_version: u32,
     ) -> PeerChannel<R> {
         let security_settings = self
             .session_security_settings
@@ -142,6 +143,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 session,
                 true,
                 Ticket(0), // C2S connections don't need P2P connection IDs
+                Some(adjacent_protocol_version),
             )
             .expect("C2S connections never hit simultaneous connect guard");
 
@@ -166,9 +168,21 @@ impl<R: Ratchet> StateContainerInner<R> {
         channel
     }
 
+    /// Resolves once the C2S virtual connection exists, which the UDP loader needs
+    /// before it can attach a channel. A punch that finishes after connect (see
+    /// `install_udp_channel_pair_if_punch_pending`) finds it already there; parking
+    /// the sender for `init_new_c2s_virtual_connection`, which has already run,
+    /// would leave the loader waiting forever.
     pub fn setup_tcp_alert_if_udp_c2s(&mut self) -> citadel_io::tokio::sync::oneshot::Receiver<()> {
         let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
-        self.tcp_loaded_status = Some(tx);
+        if self
+            .active_virtual_connections
+            .contains_key(&C2S_IDENTITY_CID)
+        {
+            let _ = tx.send(());
+        } else {
+            self.tcp_loaded_status = Some(tx);
+        }
         rx
     }
 }

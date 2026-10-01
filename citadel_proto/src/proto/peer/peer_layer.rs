@@ -75,6 +75,8 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     /// (see `group_retention`). Cleared when the owner reconnects.
     pub(crate) ownerless_groups: HashMap<u64, u64>,
     pub(crate) next_departure_token: u64,
+    /// Sessions waiting for a group that does not exist yet (see `group_watch`).
+    pub(crate) group_watches: HashMap<u64, HashMap<MessageGroupKey, Vec<Ticket>>>,
     pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
     waker: Arc<AtomicWaker>,
     inner: Arc<citadel_io::RwLock<SharedInner>>,
@@ -136,6 +138,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             message_groups: HashMap::new(),
             ownerless_groups: HashMap::new(),
             next_departure_token: 0,
+            group_watches: HashMap::new(),
         };
         let inner = Arc::new(citadel_io::tokio::sync::RwLock::new(inner));
 
@@ -741,6 +744,17 @@ impl futures::Future for CitadelNodePeerLayerExecutor {
     }
 }
 
+/// Reads a field appended after a signal's original fields. A signal from a node that predates
+/// the field ends where it would begin, which bincode reports as an error; that means the field
+/// is absent, so it reads as `None`.
+fn appended_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer).ok().flatten())
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[allow(variant_size_differences)]
 pub enum PeerSignal {
@@ -813,6 +827,12 @@ pub enum PeerSignal {
     Kex {
         peer_conn_type: PeerConnectionType,
         kex_payload: KeyExchangeProcess,
+        /// `PROTOCOL_VERSION` of the peer that built this key-exchange stage. The server relays
+        /// it unchanged. Appended last so an older node ignores it (bincode allows trailing
+        /// bytes); a signal from an older node, or one re-serialized by an older server, ends
+        /// before it and reads as `None`.
+        #[serde(default, deserialize_with = "appended_field")]
+        sender_protocol_version: Option<u32>,
     },
     /// WebRTC signaling relay (SDP offer/answer + ICE candidates).
     /// Used by WASM peers to establish DataChannel P2P connections.
@@ -902,6 +922,62 @@ mod tests {
             udp_mode: Default::default(),
             session_password: None,
         }
+    }
+
+    fn kex_stage2(sender_protocol_version: Option<u32>) -> PeerSignal {
+        PeerSignal::Kex {
+            peer_conn_type: PeerConnectionType::LocalGroupPeer {
+                session_cid: 1,
+                peer_cid: 2,
+            },
+            kex_payload: KeyExchangeProcess::Stage2(7, None, true),
+            sender_protocol_version,
+        }
+    }
+
+    fn sender_version_and_sync_time(signal: PeerSignal) -> (Option<u32>, i64) {
+        match signal {
+            PeerSignal::Kex {
+                kex_payload: KeyExchangeProcess::Stage2(sync_time, _, _),
+                sender_protocol_version,
+                ..
+            } => (sender_protocol_version, sync_time),
+            other => panic!("not a Stage2 Kex: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_kex_carries_its_senders_protocol_version() {
+        let version = *crate::constants::PROTOCOL_VERSION;
+        let bytes = kex_stage2(Some(version)).serialize_to_vector().unwrap();
+        let signal = PeerSignal::deserialize_from_vector(&bytes).unwrap();
+        assert_eq!(sender_version_and_sync_time(signal), (Some(version), 7));
+    }
+
+    /// A node that predates the field sends the same signal without it (an `Option<u32>`
+    /// that is `Some` occupies the last five bytes). It must still parse, as "unknown".
+    #[test]
+    fn a_kex_from_an_older_node_reads_as_an_unknown_version() {
+        let bytes = kex_stage2(Some(*crate::constants::PROTOCOL_VERSION))
+            .serialize_to_vector()
+            .unwrap();
+        let legacy = &bytes[..bytes.len() - 5];
+        let signal = PeerSignal::deserialize_from_vector(legacy)
+            .expect("a Kex from an older node must still parse");
+        assert_eq!(sender_version_and_sync_time(signal), (None, 7));
+    }
+
+    /// An older node reads a signal as its own fields followed by bytes it ignores, so the
+    /// new encoding must be the old one with the field appended.
+    #[test]
+    fn a_new_kex_is_the_old_encoding_with_the_version_appended() {
+        let without = kex_stage2(None).serialize_to_vector().unwrap();
+        let legacy = &without[..without.len() - 1];
+        let with = kex_stage2(Some(*crate::constants::PROTOCOL_VERSION))
+            .serialize_to_vector()
+            .unwrap();
+        assert!(with.starts_with(legacy));
+        assert_eq!(with.len(), legacy.len() + 5);
     }
 
     /// Consuming a `PostConnect` response (the establishment commitment) must atomically purge

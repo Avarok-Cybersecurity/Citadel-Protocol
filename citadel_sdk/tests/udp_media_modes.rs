@@ -55,7 +55,8 @@ mod tests {
     const TRACK: TrackId = TrackId(0);
 
     /// Client streams the fixture WAV to the server over the C2S UDP channel; the server
-    /// reassembles and checks byte-exactness. C2S over a TCP primary stream exercises the raw
+    /// reassembles, checks byte-exactness of every delivered frame and that every lost one
+    /// is reported as a `Gap`. C2S over a TCP primary stream exercises the raw
     /// hole-punched UDP socket path (no QUIC datagrams).
     #[rstest]
     #[timeout(Duration::from_secs(150))]
@@ -67,16 +68,14 @@ mod tests {
         };
         TestBarrier::setup(2);
         let (sample_rate, chunks) = wav_chunks(&bytes);
-        let expected_hash = sha_of_parts(chunks.iter().map(|c| c.as_ref()));
-        let expected_count = chunks.len();
 
         let client_success = &AtomicBool::new(false);
         let server_success = &AtomicBool::new(false);
 
-        let server_hash = expected_hash.clone();
+        let sent = chunks.clone();
         let (server, server_addr) = server_info_reactive::<_, _, StackedRatchet>(
             move |mut connection| {
-                let server_hash = server_hash.clone();
+                let sent = sent.clone();
                 async move {
                     let endpoint = MediaEndpoint::from_c2s(&mut connection, test_media_config())
                         .await
@@ -84,18 +83,19 @@ mod tests {
                     assert_eq!(endpoint.kind(), MediaTransportKind::Unreliable);
                     let (_tx, mut rx) = endpoint.split();
                     wait_for_peers().await;
-                    let mut got = Vec::new();
+                    let mut ledger = DeliveryLedger::default();
                     loop {
                         match rx.next_event().await {
                             MediaEvent::Tracks(_) => {}
-                            MediaEvent::Frame(frame) => got.push(frame.payload),
+                            MediaEvent::Frame(frame) => {
+                                let expected = &sent[ledger.frame(frame.header.sequence)];
+                                assert_eq!(&frame.payload, expected, "byte-exact reassembly");
+                            }
                             MediaEvent::Gap {
                                 missing_from,
                                 missing_to,
                                 ..
-                            } => {
-                                panic!("loss on loopback: {missing_from}..={missing_to}")
-                            }
+                            } => ledger.gap(missing_from, missing_to),
                             MediaEvent::EndOfStream(track) => {
                                 assert_eq!(track, TRACK);
                                 break;
@@ -103,8 +103,7 @@ mod tests {
                             MediaEvent::Closed => panic!("closed early"),
                         }
                     }
-                    assert_eq!(got.len(), expected_count);
-                    assert_eq!(sha_of_parts(got.iter().map(|p| p.as_ref())), server_hash);
+                    ledger.finish_unreliable(sent.len(), &rx.stats());
                     server_success.store(true, Ordering::SeqCst);
                     wait_for_peers().await;
                     connection.shutdown_kernel().await
@@ -152,11 +151,6 @@ mod tests {
                             )
                             .unwrap();
                         assert_eq!(dropped, 0);
-                        // Light pacing: real capture is paced 20 ms/frame; an unpaced burst
-                        // overflows the loopback UDP socket buffer and loses the tail.
-                        if i % 4 == 3 {
-                            citadel_io::tokio::time::sleep(Duration::from_millis(1)).await;
-                        }
                     }
                     tx.end_of_stream(TRACK).await.unwrap();
                     client_success.store(true, Ordering::Relaxed);

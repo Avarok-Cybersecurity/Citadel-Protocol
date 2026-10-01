@@ -46,6 +46,9 @@ pub mod group_cgka;
 /// Server-side retention of a departed owner's message groups.
 pub mod group_retention;
 
+/// Server-side rendezvous for a member waiting on a group its owner has not created yet.
+pub mod group_watch;
+
 /// The server's group registry, persisted through the account backend
 pub mod group_persistence;
 

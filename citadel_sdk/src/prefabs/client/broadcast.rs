@@ -240,29 +240,14 @@ where
                     mgid: group_id.as_u128(),
                 };
 
-                // Exponential backoff, waiting for owner to create group
-                let mut retries = 0;
-                let group_owner_handle = connect_success
-                    .propose_target(local_user.clone(), owner.cid)
-                    .await?;
-                loop {
-                    let owned_groups = group_owner_handle.list_owned_groups().await?;
-                    if owned_groups.contains(&expected_message_group_key) {
-                        break;
-                    } else {
-                        citadel_io::time::sleep(std::time::Duration::from_secs(2u64.pow(retries)))
-                            .await;
-
-                        retries += 1;
-                        if retries > 4 {
-                            return Err(citadel_io::error!(
-                                citadel_io::ErrorCode::BroadcastOwnerGroupMissing,
-                                citadel_io::Dbg(owner),
-                                citadel_io::Dbg(group_id)
-                            ));
-                        }
-                    }
-                }
+                crate::prefabs::client::broadcast_join::wait_for_owner_group(
+                    &connect_success,
+                    &local_user,
+                    &owner,
+                    group_id,
+                    expected_message_group_key,
+                )
+                .await?;
 
                 GroupBroadcast::RequestJoin {
                     sender: local_user.get_cid(),

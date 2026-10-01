@@ -1,8 +1,8 @@
 //! Deferred end-of-stream resolution: an `EndOfStream { track, frames_sent }`
 //! control message may outrace in-flight media, so it is held until the
 //! track's delivery reaches `frames_sent` or a jitter-depth deadline passes.
-use super::receiver::MediaEvent;
-use citadel_media::{MediaInstant, MediaStats, TrackId};
+use super::receiver::{queue_pop, MediaEvent};
+use citadel_media::{JitterBuffer, MediaInstant, MediaStats, TrackId};
 use std::collections::VecDeque;
 
 /// A pending end-of-stream announcement: surfaced once the track's delivery
@@ -48,14 +48,16 @@ impl EosTracker {
     }
 
     /// Resolves pending records: a track whose delivery reached `final_seq`
-    /// emits `EndOfStream`; one whose deadline passed (or whose transport
-    /// closed, `force`) emits a `Gap` over the lost tail first. Returns
-    /// whether any event was queued.
+    /// emits `EndOfStream`. Once a record's deadline passes (or its transport
+    /// closed, `force`), the frames still buffered for its track are released
+    /// at once, skipping holes, and only the tail that never arrived is
+    /// reported as a `Gap` before `EndOfStream`. Returns whether any event was
+    /// queued.
     pub(super) fn resolve(
         &mut self,
         now: MediaInstant,
         force: bool,
-        next_expected: impl Fn(TrackId) -> Option<u32>,
+        jitter: &mut JitterBuffer,
         ready: &mut VecDeque<MediaEvent>,
         stats: &mut MediaStats,
     ) -> bool {
@@ -63,7 +65,7 @@ impl EosTracker {
         let mut i = 0;
         while i < self.records.len() {
             let rec = self.records[i];
-            let next = next_expected(rec.track);
+            let next = jitter.next_expected(rec.track);
             let complete = match next {
                 Some(n) => seq_diff(n, rec.final_seq) >= 0,
                 None => rec.final_seq == 0,
@@ -75,6 +77,13 @@ impl EosTracker {
                 continue;
             }
             if force || now >= rec.deadline {
+                // Every frame of the track was sent before the EOS, which has
+                // now waited the jitter depth: no hole ahead of a buffered
+                // frame can still fill, so the frame is delivered, not lost.
+                if queue_pop(jitter.pop_track_now(rec.track, now), ready, stats) {
+                    queued = true;
+                    continue;
+                }
                 let _ = self.records.swap_remove(i);
                 let missing_from = next.unwrap_or(0);
                 let missing = seq_diff(rec.final_seq, missing_from);

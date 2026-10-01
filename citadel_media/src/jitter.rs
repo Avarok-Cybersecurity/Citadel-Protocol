@@ -70,6 +70,17 @@ impl JitterBuffer {
         self.tracks.get(track.index()).and_then(|t| t.next_expected)
     }
 
+    /// Declares the sequence `track` starts at, for a receiver that knows the sender's
+    /// origin: playout starts there instead of locking onto the lowest arrival, so frames
+    /// lost ahead of the first arrival surface as a `Gap` rather than vanishing. No-op
+    /// once the track has a `next_expected`.
+    pub fn expect_from(&mut self, track: TrackId, sequence: u32) {
+        let state = self.track_mut(track);
+        if state.next_expected.is_none() {
+            state.next_expected = Some(sequence);
+        }
+    }
+
     fn track_mut(&mut self, track: TrackId) -> &mut TrackState {
         let idx = track.index();
         while self.tracks.len() <= idx {
@@ -112,71 +123,85 @@ impl JitterBuffer {
     /// track has waited at least `jitter_depth_micros`. Tracks are scanned in id order.
     pub fn pop_ready(&mut self, now: MediaInstant) -> PopResult {
         let depth = self.config.jitter_depth_micros;
-        for state in &mut self.tracks {
-            if state.entries.is_empty() {
-                continue;
-            }
-            let next = match state.next_expected {
-                Some(next) => next,
-                None => {
-                    // Lock-on: once the earliest-arrived frame has aged through the hold-back
-                    // window, playout starts at the lowest buffered sequence (anchored to the
-                    // earliest arrival so u32 wrap during pre-lock stays correct).
-                    let oldest = state
-                        .entries
-                        .iter()
-                        .min_by_key(|e| e.arrived)
-                        .expect("non-empty checked above");
-                    if now.micros_since(oldest.arrived) < depth {
-                        continue;
-                    }
-                    let anchor = oldest.frame.header.sequence;
-                    let lowest = state
-                        .entries
-                        .iter()
-                        .map(|e| e.frame.header.sequence)
-                        .min_by_key(|&s| seq_diff(s, anchor))
-                        .expect("non-empty checked above");
-                    state.next_expected = Some(lowest);
-                    lowest
-                }
-            };
-            if let Some(i) = state
-                .entries
-                .iter()
-                .position(|e| e.frame.header.sequence == next)
-            {
-                let entry = state.entries.swap_remove(i);
-                state.next_expected = Some(next.wrapping_add(1));
-                return PopResult::Frame(entry.frame);
-            }
-            let lowest_seq_idx = state
-                .entries
-                .iter()
-                .enumerate()
-                .min_by_key(|(_, e)| seq_diff(e.frame.header.sequence, next))
-                .map(|(i, _)| i)
-                .expect("non-empty checked above");
-            let waited = state
-                .entries
-                .iter()
-                .map(|e| now.micros_since(e.arrived))
-                .max()
-                .expect("non-empty checked above");
-            if waited < depth {
-                continue;
-            }
-            let entry = state.entries.swap_remove(lowest_seq_idx);
-            let seq = entry.frame.header.sequence;
-            state.next_expected = Some(seq.wrapping_add(1));
-            return PopResult::Gap {
-                track: entry.frame.header.track,
-                missing_from: next,
-                missing_to: seq.wrapping_sub(1),
-                next: entry.frame,
-            };
+        self.tracks
+            .iter_mut()
+            .find_map(|state| Self::pop_track(state, now, depth))
+            .unwrap_or(PopResult::NotReady)
+    }
+
+    /// Emits `track`'s next buffered frame now, skipping any hole before it without
+    /// waiting out `jitter_depth_micros`. For when the sender has declared the track
+    /// finished and the wait already elapsed: nothing further can fill the hole.
+    pub fn pop_track_now(&mut self, track: TrackId, now: MediaInstant) -> PopResult {
+        self.tracks
+            .get_mut(track.index())
+            .and_then(|state| Self::pop_track(state, now, 0))
+            .unwrap_or(PopResult::NotReady)
+    }
+
+    fn pop_track(state: &mut TrackState, now: MediaInstant, depth: u64) -> Option<PopResult> {
+        if state.entries.is_empty() {
+            return None;
         }
-        PopResult::NotReady
+        let next = match state.next_expected {
+            Some(next) => next,
+            None => {
+                // Lock-on: once the earliest-arrived frame has aged through the hold-back
+                // window, playout starts at the lowest buffered sequence (anchored to the
+                // earliest arrival so u32 wrap during pre-lock stays correct).
+                let oldest = state
+                    .entries
+                    .iter()
+                    .min_by_key(|e| e.arrived)
+                    .expect("non-empty checked above");
+                if now.micros_since(oldest.arrived) < depth {
+                    return None;
+                }
+                let anchor = oldest.frame.header.sequence;
+                let lowest = state
+                    .entries
+                    .iter()
+                    .map(|e| e.frame.header.sequence)
+                    .min_by_key(|&s| seq_diff(s, anchor))
+                    .expect("non-empty checked above");
+                state.next_expected = Some(lowest);
+                lowest
+            }
+        };
+        if let Some(i) = state
+            .entries
+            .iter()
+            .position(|e| e.frame.header.sequence == next)
+        {
+            let entry = state.entries.swap_remove(i);
+            state.next_expected = Some(next.wrapping_add(1));
+            return Some(PopResult::Frame(entry.frame));
+        }
+        let lowest_seq_idx = state
+            .entries
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, e)| seq_diff(e.frame.header.sequence, next))
+            .map(|(i, _)| i)
+            .expect("non-empty checked above");
+        let waited = state
+            .entries
+            .iter()
+            .map(|e| now.micros_since(e.arrived))
+            .max()
+            .expect("non-empty checked above");
+        if waited < depth {
+            return None;
+        }
+        let entry = state.entries.swap_remove(lowest_seq_idx);
+        let seq = entry.frame.header.sequence;
+        state.next_expected = Some(seq.wrapping_add(1));
+        Some(PopResult::Gap {
+            track: entry.frame.header.track,
+            missing_from: next,
+            missing_to: seq.wrapping_sub(1),
+            next: entry.frame,
+        })
     }
 
     /// Earliest instant at which [`pop_ready`](Self::pop_ready) may return something new.
