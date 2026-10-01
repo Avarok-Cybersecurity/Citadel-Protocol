@@ -38,7 +38,9 @@ use crate::error::NetworkError;
 use crate::proto::misc::udp_internal_interface::UdpSplittableTypes;
 use crate::proto::packet::packet_flags::payload_identifiers;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
-use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
+use crate::proto::peer::hole_punch_compat_sink_stream::{
+    CompatStreamKey, ReliableOrderedCompatStream,
+};
 use crate::proto::state_container::StateContainerInner;
 use citadel_types::proto::{UdpMode, VirtualTargetType};
 
@@ -325,7 +327,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                 to_primary_stream,
                                 &mut state_container,
                                 C2S_IDENTITY_CID,
-                                new_ratchet.clone(),
+                                CompatStreamKey::Fixed(new_ratchet.clone()),
                                 security_level,
                             );
                             (stream, new_ratchet)
@@ -410,7 +412,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                 to_primary_stream,
                                 &mut state_container,
                                 C2S_IDENTITY_CID,
-                                ratchet.clone(),
+                                CompatStreamKey::Fixed(ratchet.clone()),
                                 security_level,
                             );
                             (ratchet, stream)

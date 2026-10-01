@@ -55,7 +55,9 @@ use crate::proto::packet_processor::preconnect_packet::calculate_sync_time;
 use crate::proto::packet_processor::primary_group_packet::{
     get_orientation_safe_ratchet, get_resp_target_cid,
 };
-use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
+use crate::proto::peer::hole_punch_compat_sink_stream::{
+    CompatStreamKey, ReliableOrderedCompatStream,
+};
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
     CitadelNodePeerLayerInner, ClientConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
@@ -618,6 +620,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
                                         let peer_crypto =
                                             PeerSessionCrypto::new(toolset, local_is_initiator);
+                                        let hole_punch_key =
+                                            CompatStreamKey::Live(peer_crypto.clone());
                                         let vconn_type = VirtualConnectionType::LocalGroupPeer {
                                             session_cid: this_cid,
                                             peer_cid,
@@ -690,7 +694,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 return_if_none!(session.to_primary_stream.clone()),
                                                 &mut state_container,
                                                 peer_cid,
-                                                endpoint_ratchet.clone(),
+                                                hole_punch_key,
                                                 endpoint_security_level,
                                             );
                                         let local_outgoing_attempt_metadata = state_container
@@ -836,6 +840,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
                                         let peer_crypto =
                                             PeerSessionCrypto::new(toolset, local_is_initiator);
+                                        let hole_punch_key =
+                                            CompatStreamKey::Live(peer_crypto.clone());
 
                                         // create an endpoint vconn
                                         let vconn_type = VirtualConnectionType::LocalGroupPeer {
@@ -885,7 +891,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 return_if_none!(session.to_primary_stream.clone()),
                                                 &mut state_container,
                                                 peer_cid,
-                                                endpoint_ratchet.clone(),
+                                                hole_punch_key,
                                                 endpoint_security_level,
                                             );
                                         (
