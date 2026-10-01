@@ -91,8 +91,7 @@ mod native {
             let ws_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
                 .expect("Failed to create WebSocket TCP listener");
             let ws_addr = ws_listener.local_addr().unwrap();
-            drop(ws_listener); // Release the port so the server can rebind it
-            let _ = builder.with_websocket_listener(ws_addr);
+            let _ = builder.with_bound_websocket_listener(ws_listener.into_std().unwrap());
             ws_addr
         } else {
             SocketAddr::from(([0, 0, 0, 0], 0))

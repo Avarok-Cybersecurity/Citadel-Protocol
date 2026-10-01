@@ -150,14 +150,24 @@ pub trait ProtocolIO: Clone + Send + Sync + 'static {
     ///
     /// Native servers use this to accept browser clients via WebSocket
     /// alongside their primary TCP/TLS/QUIC transport. Returns the
-    /// primary listener unchanged if `ws_bind_addr` is `None` or the
+    /// primary listener unchanged if `websocket` is `None` or the
     /// transport doesn't support WebSocket.
     fn bind_with_websocket(
         primary: Self::Listener,
-        _ws_bind_addr: Option<std::net::SocketAddr>,
+        _websocket: Option<WebSocketListen>,
     ) -> impl Future<Output = io::Result<Self::Listener>> + Send {
         async { Ok(primary) }
     }
+}
+
+/// Where a server's additional WebSocket listener comes from.
+#[derive(Debug)]
+pub enum WebSocketListen {
+    /// Bind this address when the node starts.
+    Addr(std::net::SocketAddr),
+    /// Accept on this already-bound socket. Nothing is rebound, so no other socket can take the
+    /// port between the caller learning it and the node starting.
+    Bound(std::net::TcpListener),
 }
 
 /// Capability-based server configuration.

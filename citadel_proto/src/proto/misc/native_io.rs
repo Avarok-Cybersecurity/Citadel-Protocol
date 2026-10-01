@@ -151,10 +151,19 @@ impl ProtocolIO for NativeIO {
 
     async fn bind_with_websocket(
         primary: Self::Listener,
-        ws_bind_addr: Option<std::net::SocketAddr>,
+        websocket: Option<citadel_io::WebSocketListen>,
     ) -> io::Result<Self::Listener> {
-        if let Some(addr) = ws_bind_addr {
-            let tcp = citadel_io::tokio::net::TcpListener::bind(addr).await?;
+        if let Some(websocket) = websocket {
+            let tcp = match websocket {
+                citadel_io::WebSocketListen::Addr(addr) => {
+                    citadel_io::tokio::net::TcpListener::bind(addr).await?
+                }
+                citadel_io::WebSocketListen::Bound(listener) => {
+                    listener.set_nonblocking(true)?;
+                    citadel_io::tokio::net::TcpListener::from_std(listener)?
+                }
+            };
+            let addr = tcp.local_addr()?;
             let ws_listener = super::net::GenericNetworkListener::new_websocket(tcp)?;
             log::info!(target: "citadel", "WebSocket listener bound on {addr}");
             Ok(primary.merge_with(ws_listener))

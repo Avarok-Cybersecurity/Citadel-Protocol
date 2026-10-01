@@ -62,6 +62,7 @@ pub use endpoint::WebSocketEndpoint;
 pub mod proto_io;
 pub use proto_io::{
     ProtocolIO, ProtocolUpgrade, ServerMode, UnreliableDatagram, UpgradeListenerPair,
+    WebSocketListen,
 };
 
 #[cfg(target_family = "wasm")]
