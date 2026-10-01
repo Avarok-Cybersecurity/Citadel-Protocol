@@ -82,7 +82,7 @@ pub struct KernelExecutorArguments<K, R: Ratchet, T: PlatformOps> {
     pub stun_servers: Option<Vec<String>>,
     pub turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
-    pub websocket_listen_addr: Option<std::net::SocketAddr>,
+    pub websocket_listener: Option<citadel_io::WebSocketListen>,
     /// Pre-built listener for serverless server-role mode.
     /// When `Some`, `CitadelNode::init()` skips `T::bind()` and uses this listener.
     pub pre_built_listener: Option<T::Listener>,

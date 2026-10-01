@@ -256,7 +256,11 @@ jobs:
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 65
+    # CI capacity budget, not a test timeout (the tests' own bounds are unchanged). On Windows
+    # each nextest pass compiles for ~25 min (00:38 -> 01:04 in run 36785646666's rerun) and the
+    # job runs two passes, single- then multi-threaded: the single-threaded pass went 156/156 green
+    # in 12 min, and the 65-min limit cut the multi-threaded pass off at 145/156 with 0 failures.
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 110 || 65 }}
     steps:
       - name: Setup dependencies
         id: deps

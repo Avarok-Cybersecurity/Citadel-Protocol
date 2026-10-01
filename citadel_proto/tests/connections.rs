@@ -163,35 +163,7 @@ pub mod tests {
         }
 
         for proto in protocols {
-            log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", proto, addr);
-
-            let res = bind_retrying_reserved_ports(proto.clone(), addr).await;
-
-            if let Err(err) = res.as_ref() {
-                log::error!(target: "citadel", "Error creating primary socket: {err:?}");
-            }
-
-            let (mut listener, addr) = res.unwrap();
-            log::trace!(target: "citadel", "Bind/connect addr: {addr:?}");
-
-            let server = async move {
-                let next = listener.next().await;
-                log::trace!(target: "citadel", "[Server] Next conn: {next:?}");
-                let (stream, peer_addr) = next.unwrap().unwrap();
-                on_server_received_connection(stream, peer_addr).await
-            };
-
-            let client = async move {
-                let stream = NativeIO::connect(client_config, addr).await.unwrap();
-                on_client_received_stream(stream).await
-            };
-
-            let res = citadel_io::tokio::try_join!(server, client);
-            log::trace!("RES: {res:?}");
-            if let Err(err) = res {
-                log::error!(target: "citadel", "Error: {err:?}");
-            }
-            log::trace!(target: "citadel", "Ended");
+            round_trip(proto, addr, client_config, on_server_received_connection).await?;
         }
 
         Ok(())
@@ -281,6 +253,77 @@ pub mod tests {
         }
 
         Ok(())
+    }
+
+    /// One round trip over `proto`: `server_handler` answers the first
+    /// inbound connection while a client sends one frame and awaits the echo.
+    /// Its result is the test's verdict, so a failed round trip must come back
+    /// as `Err`.
+    async fn round_trip<H, F>(
+        proto: &ServerMode<NativeIO>,
+        addr: SocketAddr,
+        client_config: &NativeClientConfig,
+        server_handler: H,
+    ) -> std::io::Result<()>
+    where
+        H: FnOnce(GenericNetworkStream, SocketAddr) -> F,
+        F: std::future::Future<Output = std::io::Result<()>>,
+    {
+        log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", proto, addr);
+
+        let res = bind_retrying_reserved_ports(proto.clone(), addr).await;
+
+        if let Err(err) = res.as_ref() {
+            log::error!(target: "citadel", "Error creating primary socket: {err:?}");
+        }
+
+        let (mut listener, addr) = res.unwrap();
+        log::trace!(target: "citadel", "Bind/connect addr: {addr:?}");
+
+        let server = async move {
+            let next = listener.next().await;
+            log::trace!(target: "citadel", "[Server] Next conn: {next:?}");
+            let (stream, peer_addr) = next.unwrap().unwrap();
+            server_handler(stream, peer_addr).await
+        };
+
+        let client = async move {
+            let stream = NativeIO::connect(client_config, addr).await.unwrap();
+            on_client_received_stream(stream).await
+        };
+
+        let res = citadel_io::tokio::try_join!(server, client);
+        log::trace!("RES: {res:?}");
+        res?;
+        log::trace!(target: "citadel", "Ended");
+        Ok(())
+    }
+
+    /// The server half of the round trip fails with an I/O error after the
+    /// exchange. That failure must reach the caller: `test_tcp_or_tls` returns
+    /// whatever `round_trip` returns, and a swallowed `Err` lets it pass while
+    /// a round trip is failing.
+    #[rstest]
+    #[case("127.0.0.1:0")]
+    #[timeout(Duration::from_secs(60))]
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    async fn round_trip_reports_a_failed_server_half(
+        #[case] addr: SocketAddr,
+        protocols: &Vec<ServerMode<NativeIO>>,
+        client_config: &NativeClientConfig,
+    ) {
+        citadel_logging::setup_log();
+        for proto in protocols {
+            let res = round_trip(proto, addr, client_config, |stream, peer_addr| async move {
+                on_server_received_connection(stream, peer_addr).await?;
+                Err(std::io::Error::other("injected server-half failure"))
+            })
+            .await;
+            let err = res.expect_err(&format!(
+                "a failed round trip over {proto:?} was reported as success"
+            ));
+            assert_eq!(err.to_string(), "injected server-half failure");
+        }
     }
 
     async fn on_server_received_connection(

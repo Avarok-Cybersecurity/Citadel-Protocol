@@ -61,7 +61,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     stun_servers: Option<Vec<String>>,
     turn_servers: Option<Vec<TurnServerConfig>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
-    websocket_listen_addr: Option<std::net::SocketAddr>,
+    websocket_listener: Option<citadel_io::WebSocketListen>,
     injected_listener: Option<T::Listener>,
     #[cfg(target_family = "wasm")]
     serverless_config: Option<ServerlessConfig>,
@@ -89,7 +89,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             stun_servers: None,
             turn_servers: None,
             local_only_server_settings: None,
-            websocket_listen_addr: None,
+            websocket_listener: None,
             injected_listener: None,
             #[cfg(target_family = "wasm")]
             serverless_config: None,
@@ -162,7 +162,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         let turn_servers = self.turn_servers.take();
         let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = self.local_only_server_settings.take();
-        let websocket_listen_addr = self.websocket_listen_addr.take();
+        let websocket_listener = self.websocket_listener.take();
         let injected_listener = self.injected_listener.take();
         #[cfg(target_family = "wasm")]
         let serverless_config = self.serverless_config.take();
@@ -228,7 +228,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                     stun_servers,
                     turn_servers,
                     server_only_session_init_settings,
-                    websocket_listen_addr,
+                    websocket_listener,
                     pre_built_listener,
                 };
 
@@ -356,7 +356,15 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
     ///
     /// Has no effect on client/peer nodes.
     pub fn with_websocket_listener(&mut self, addr: std::net::SocketAddr) -> &mut Self {
-        self.websocket_listen_addr = Some(addr);
+        self.websocket_listener = Some(citadel_io::WebSocketListen::Addr(addr));
+        self
+    }
+
+    /// Like [`Self::with_websocket_listener`], but accepts on a socket the caller already bound.
+    /// The port is held from the caller's bind onward, so nothing else can take it before the
+    /// node starts.
+    pub fn with_bound_websocket_listener(&mut self, listener: std::net::TcpListener) -> &mut Self {
+        self.websocket_listener = Some(citadel_io::WebSocketListen::Bound(listener));
         self
     }
 

@@ -102,7 +102,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         stun_servers: Option<Vec<String>>,
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
-        websocket_listen_addr: Option<std::net::SocketAddr>,
+        websocket_listener: Option<citadel_io::WebSocketListen>,
         pre_built_listener: Option<T::Listener>,
     ) -> io::Result<(
         NodeRemote<R>,
@@ -120,7 +120,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     // Normal mode: bind to address.
                     let (listener, addr) =
                         T::bind(underlying_proto.clone(), T::from_socket_addr(bind_addr)).await?;
-                    let listener = T::bind_with_websocket(listener, websocket_listen_addr).await?;
+                    let listener = T::bind_with_websocket(listener, websocket_listener).await?;
                     (Some(citadel_io::Mutex::new(listener)), Some(addr))
                 }
             }

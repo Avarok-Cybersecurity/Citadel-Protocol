@@ -9,11 +9,9 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::test_utils::create_streams_with_addrs;
 use std::time::Duration;
 
-/// Generous for a loopback round trip; only ever reached by a failing run.
+/// A hang guard only: every test below waits for an OUTCOME (a signal consumed,
+/// a stream ended), so a passing run never gets near it however slow it is.
 const DEADLINE: Duration = Duration::from_secs(5);
-/// How long a winner is given to (wrongly) finish on a signal that is not
-/// `WinnerCanEnd`. A loopback message arrives in well under this.
-const WRONG_EXIT_WINDOW: Duration = Duration::from_millis(300);
 
 struct Pair {
     winner: Coordination,
@@ -79,26 +77,29 @@ async fn a_commanded_loser_does_not_report_all_failed() {
 /// Race 2, winner side: `AllFailed` can still cross a `Winner` in flight. The
 /// winner has committed its socket, and the loser may yet rebuild the commanded
 /// one, so only `WinnerCanEnd` (or the loser hanging up) may end the wait.
+///
+/// Ordering, not a timer: a winner that ended on `AllFailed` would leave the
+/// `WinnerCanEnd` behind it unread, and the next read would return it rather
+/// than the hang-up.
 #[tokio::test]
 async fn a_winner_waits_past_a_crossing_all_failed() {
     let Pair { winner, loser, .. } = pair().await;
 
     loser.on_local_all_failed().await.unwrap();
-
-    let wait = winner.await_winner_can_end();
-    tokio::pin!(wait);
-    assert!(
-        tokio::time::timeout(WRONG_EXIT_WINDOW, &mut wait)
-            .await
-            .is_err(),
-        "the winner finished on AllFailed, before the loser released it"
-    );
-
     loser.release_winner().await;
-    tokio::time::timeout(DEADLINE, wait)
+    tokio::time::timeout(DEADLINE, winner.await_winner_can_end())
         .await
         .expect("the winner hung after being released")
         .unwrap();
+
+    drop(loser);
+    let next = tokio::time::timeout(DEADLINE, receive(&mut *winner.conn_rx.lock().await))
+        .await
+        .expect("the loser's hang-up never reached the winner");
+    assert!(
+        next.is_err(),
+        "the winner finished on AllFailed, leaving {next:?} unread"
+    );
 }
 
 /// Race 2, loser side: the loser already holds the commanded socket, so a
@@ -141,6 +142,10 @@ async fn a_winner_fails_when_the_loser_hangs_up_unreleased() {
 /// back from a side that had not failed. The failed side read the echo as
 /// "both failed" and ended its reader, so the `Winner` the other side sent once
 /// one of its punchers succeeded was never taken, and both sat until timeout.
+///
+/// Each read is driven to a `WinnerCanEnd` sent after the signals under test.
+/// The channel is ordered, so a reader that returns `Ok` on it has consumed
+/// everything before it without stopping; one that stopped early returns `Err`.
 #[tokio::test]
 async fn a_remote_failure_is_not_echoed_so_the_failed_side_can_still_be_commanded() {
     let Pair {
@@ -150,23 +155,60 @@ async fn a_remote_failure_is_not_echoed_so_the_failed_side_can_still_be_commande
     } = pair().await;
 
     failed_side.on_local_all_failed().await.unwrap();
-    assert!(
-        tokio::time::timeout(WRONG_EXIT_WINDOW, eventual_winner.read_signals())
-            .await
-            .is_err(),
-        "a side that has not failed stopped reading on the remote's AllFailed"
-    );
+    failed_side.release_winner().await;
+    tokio::time::timeout(DEADLINE, eventual_winner.read_signals())
+        .await
+        .expect("the side that has not failed never reached the later signal")
+        .expect("a side that has not failed stopped reading on the remote's AllFailed");
 
     let command = (HolePunchID::new(), HolePunchID::new());
     eventual_winner
         .announce_winner(command.0, command.1)
         .await
         .unwrap();
-    let read = tokio::time::timeout(WRONG_EXIT_WINDOW, failed_side.read_signals()).await;
-    assert!(
-        read.is_err(),
-        "the failed side stopped reading before the Winner: {read:?}"
+    eventual_winner.release_winner().await;
+    tokio::time::timeout(DEADLINE, failed_side.read_signals())
+        .await
+        .expect("the failed side never reached the signal after the Winner")
+        .expect("the failed side stopped reading before the Winner");
+    assert_eq!(
+        *failed_side.commanded_winner.lock().await,
+        Some(command),
+        "the failed side never took the Winner"
     );
+}
+
+/// The same ordering with the current_thread runtime frozen just after the
+/// failed side starts reading and before the announcer's writer has run, as a
+/// symbolizing backtrace or a laptop pause does. The Winner is on the wire and
+/// is taken as soon as the reader runs again. The earlier form of the test
+/// above bounded that read by a 300 ms wall-clock window, whose timer then woke
+/// on the same tick as the reader and won, failing a run that lost nothing.
+#[tokio::test]
+async fn a_winner_announced_before_a_runtime_stall_is_still_taken() {
+    let Pair {
+        winner: eventual_winner,
+        loser: failed_side,
+        ..
+    } = pair().await;
+
+    failed_side.on_local_all_failed().await.unwrap();
+    let command = (HolePunchID::new(), HolePunchID::new());
+    eventual_winner
+        .announce_winner(command.0, command.1)
+        .await
+        .unwrap();
+    eventual_winner.release_winner().await;
+
+    let stall = async {
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    let (read, ()) = tokio::join!(
+        tokio::time::timeout(DEADLINE, failed_side.read_signals()),
+        stall
+    );
+    read.expect("the failed side never reached the signal after the Winner")
+        .expect("the failed side stopped reading before the Winner");
     assert_eq!(
         *failed_side.commanded_winner.lock().await,
         Some(command),

@@ -211,6 +211,62 @@ mod tests {
         assert!(result.is_ok(), "failed: {result:?}");
     }
 
+    /// The helper hands back a WebSocket address for the server to serve, but that server binds it
+    /// only when its future is first polled. Anything that lands on the port in between — another
+    /// test process, or an ephemeral bind or connect in this one — makes the server fail with
+    /// `AddrInUse`. The squatter here takes the port in exactly that window: the port must already
+    /// be held, so the squat is refused and the server still serves registrations on it.
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    async fn the_websocket_port_is_held_before_the_server_first_runs() {
+        citadel_logging::setup_log();
+
+        let server_kernel = ClientConnectListenerKernel::<_, _, StackedRatchet>::new(
+            |_connection: CitadelClientServerConnection<StackedRatchet>| async move { Ok(()) },
+        );
+        let ((server, _tcp_addr), ws_addr) =
+            server_test_node_with_websocket(server_kernel, |builder| {
+                let _ = builder.with_backend(BackendType::InMemory);
+            });
+
+        let _squatter = std::net::TcpListener::bind(ws_addr);
+
+        let endpoint =
+            WebSocketEndpoint::parse(&format!("ws://127.0.0.1:{}/", ws_addr.port())).unwrap();
+        let username = format!("ws_{}", &Uuid::new_v4().to_string()[..8]);
+        let client_kernel = ReconnectionTestKernel::new(
+            Arc::new(NodeState::default()),
+            move |remote: NodeRemote<StackedRatchet>, _state: Arc<NodeState>| async move {
+                remote
+                    .register_to_endpoint(
+                        endpoint,
+                        username.as_str(),
+                        username.as_str(),
+                        "password123",
+                        Default::default(),
+                        None,
+                    )
+                    .await?;
+                remote.shutdown().await
+            },
+        );
+        let client = DefaultNodeBuilder::default()
+            .with_backend(BackendType::InMemory)
+            .build(client_kernel)
+            .unwrap();
+
+        let task = async move {
+            citadel_io::tokio::select! {
+                server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
+                client_res = client => client_res
+            }
+        };
+
+        let result = citadel_io::tokio::time::timeout(Duration::from_secs(60), task)
+            .await
+            .expect("timed out");
+        assert!(result.is_ok(), "failed: {result:?}");
+    }
+
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_url_nothing_listens_on_is_refused_not_hung() {
         citadel_logging::setup_log();
