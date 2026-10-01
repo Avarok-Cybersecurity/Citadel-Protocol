@@ -34,6 +34,7 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::state_container::StateContainerInner;
 use async_trait::async_trait;
 use bytes::Bytes;
+use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::Mutex;
 use citadel_types::crypto::SecurityLevel;
@@ -41,12 +42,35 @@ use netbeam::reliable_conn::{ConnAddr, ReliableOrderedStreamToTarget};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
+/// The ratchet a [`ReliableOrderedCompatStream`] seals its packets with. The receiver opens each
+/// packet with the version named in its header, looked up in its own toolset.
+pub(crate) enum CompatStreamKey<R: Ratchet> {
+    /// C2S, during pre-connect: the session's only ratchet.
+    Fixed(R),
+    /// P2P: the connection's live crypto state, sealing with its latest usable version. The
+    /// coordination stream lives as long as the connection while the application's traffic
+    /// rekeys it; a version pinned at creation leaves the receiver's window after
+    /// `MAX_RATCHETS_IN_MEMORY` rekeys, and from then on the receiver drops every packet.
+    Live(PeerSessionCrypto<R>),
+}
+
+impl<R: Ratchet> CompatStreamKey<R> {
+    fn current(&self) -> std::io::Result<R> {
+        match self {
+            Self::Fixed(ratchet) => Ok(ratchet.clone()),
+            Self::Live(crypto) => crypto
+                .get_ratchet(None)
+                .ok_or_else(|| generic_error("no usable ratchet for the hole-punch stream")),
+        }
+    }
+}
+
 pub(crate) struct ReliableOrderedCompatStream<R: Ratchet> {
     to_primary_stream: OutboundPrimaryStreamSender,
     from_stream: Mutex<UnboundedReceiver<Bytes>>,
     peer_external_addr: SocketAddr,
     local_bind_addr: SocketAddr,
-    hr: R,
+    key: CompatStreamKey<R>,
     security_level: SecurityLevel,
     target_cid: u64,
 }
@@ -59,7 +83,7 @@ impl<R: Ratchet> ReliableOrderedCompatStream<R> {
         to_primary_stream: OutboundPrimaryStreamSender,
         state_container: &mut StateContainerInner<R>,
         target_cid: u64,
-        hr: R,
+        key: CompatStreamKey<R>,
         security_level: SecurityLevel,
     ) -> Self {
         let (from_stream_tx, from_stream_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
@@ -88,7 +112,7 @@ impl<R: Ratchet> ReliableOrderedCompatStream<R> {
             from_stream: Mutex::new(from_stream_rx),
             peer_external_addr,
             local_bind_addr,
-            hr,
+            key,
             security_level,
             target_cid,
         }
@@ -99,7 +123,7 @@ impl<R: Ratchet> ReliableOrderedCompatStream<R> {
 impl<R: Ratchet> ReliableOrderedStreamToTarget for ReliableOrderedCompatStream<R> {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         let packet = crate::proto::packet_crafter::hole_punch::generate_packet(
-            &self.hr,
+            &self.key.current()?,
             input,
             self.security_level,
             self.target_cid,

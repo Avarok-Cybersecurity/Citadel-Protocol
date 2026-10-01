@@ -99,6 +99,8 @@ sha256 = { workspace = true }
 # citadel_user's backend suite uses. 0.32 shares libsqlite3-sys with sqlx, as it does there.
 rusqlite = { version = "0.32", features = ["bundled"] }
 async-trait = { workspace = true }
+# hole_punch_outlives_the_ratchet_window rekeys past the toolset's window (MAX_RATCHETS_IN_MEMORY).
+citadel_crypt = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
