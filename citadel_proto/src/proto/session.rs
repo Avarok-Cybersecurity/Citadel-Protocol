@@ -60,6 +60,7 @@ use crate::proto::misc;
 use crate::proto::misc::dual_cell::DualCell;
 use crate::proto::misc::dual_late_init::DualLateInit;
 use crate::proto::misc::dual_rwlock::DualRwLock;
+use crate::proto::session_resume::HeldSessionResume;
 //use futures_codec::Framed;
 use crate::proto::disconnect_tracker::{DisconnectSignalTracker, DisconnectToken};
 use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
@@ -279,6 +280,8 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     /// account-level teardown: it would reset the session crypto and peer-layer state of the
     /// account's admitted session, which it shares.
     pub(super) admitted: DualCell<bool>,
+    /// Server side: the resume tokens that show a later login to be this session's own client.
+    pub(super) resume: DualRwLock<HeldSessionResume>,
     pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<NodeResult<R>>>>,
     pub(super) is_server: bool,
     pub(super) stopper_tx: DualRwLock<citadel_io::tokio::sync::broadcast::Sender<()>>,
@@ -508,6 +511,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             adjacent_nat_type: DualLateInit::default(),
             do_static_hr_refresh_atexit: true.into(),
             admitted: false.into(),
+            resume: DualRwLock::from(HeldSessionResume::default()),
             dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
             peer_only_connect_protocol,
             on_drop,

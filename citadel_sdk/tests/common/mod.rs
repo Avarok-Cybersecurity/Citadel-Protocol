@@ -12,6 +12,10 @@ pub mod fixtures;
 pub mod group;
 #[cfg(not(target_family = "wasm"))]
 pub mod group_epoch;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod half_open;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod half_open_scenario;
 #[cfg(not(target_family = "wasm"))]
 pub mod media;
 

@@ -76,6 +76,7 @@ use crate::proto::session::{
     CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode,
     ServerOnlySessionInitSettings, SessionInitParams, SessionState,
 };
+use crate::proto::session_resume::{self, ResumeToken, ResumeTokens};
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio::sync::broadcast::Sender;
@@ -136,6 +137,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
+    /// Client side: each account's latest resume token, kept after its session ends.
+    resume_tokens: ResumeTokens,
 }
 
 /// The reason given to a login refused because the server already holds a session for the account.
@@ -196,6 +199,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             stun_servers,
             turn_servers,
             disconnect_tracker: DisconnectSignalTracker::new(),
+            resume_tokens: ResumeTokens::default(),
         };
 
         Self::from(inner)
@@ -346,23 +350,27 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// the keep-alive expires — that session is stopped and its teardown awaited, so its peers
     /// receive the ordinary disconnect signal before the new session registers.
     ///
-    /// `force_login` is the client's own, authenticated request (carried in its SYN). Without it,
-    /// an existing session is left untouched and the login is refused.
+    /// `force_login` is the client's own, authenticated request (carried in its SYN), and
+    /// `presented` the resume token it sent at STAGE0. Unless it forces, or the token shows the
+    /// existing session to be this same client's (see `session_resume`), that session is left
+    /// untouched and the login is refused.
     ///
     /// Returns `Err(reason)` when the login must be refused.
-    pub async fn displace_session_for_authenticated_login(
+    pub(crate) async fn displace_session_for_authenticated_login(
         &self,
         cid: u64,
         force_login: bool,
+        presented: Option<&ResumeToken>,
     ) -> Result<(), &'static str> {
-        let (displaced, stopped) = {
+        let (displaced, stopped, why) = {
             let this = inner!(self);
             let Some((_, existing)) = this.sessions.get(&cid) else {
                 return Ok(());
             };
-            if !force_login {
+            let held = existing.resume.get();
+            let Some(why) = session_resume::displacement(force_login, &held, presented) else {
                 return Err(SESSION_ALREADY_CONNECTED);
-            }
+            };
             let (stopped_tx, stopped_rx) = citadel_io::tokio::sync::oneshot::channel();
             if existing
                 .drop_listener
@@ -374,10 +382,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             }
             // Its teardown must not reset the account's session crypto under the new session.
             existing.do_static_hr_refresh_atexit.set(false);
-            (existing.clone(), stopped_rx)
+            (existing.clone(), stopped_rx, why)
         };
 
-        citadel_logging::warn!(target: "citadel", "Session {cid} is displaced by a newer, authenticated login that requested force_login");
+        citadel_logging::warn!(target: "citadel", "Session {cid} is displaced by a newer, authenticated login ({why:?})");
         displaced.shutdown();
 
         if citadel_io::time::timeout(DISPLACED_SESSION_STOP_TIMEOUT, stopped)
@@ -389,6 +397,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         }
 
         Ok(())
+    }
+
+    /// Client side: the resume token `cid`'s latest session was issued, if any.
+    pub(crate) fn resume_token(&self, cid: u64) -> Option<ResumeToken> {
+        inner!(self).resume_tokens.for_cid(cid)
+    }
+
+    /// Client side: records what `cid`'s connect SUCCESS issued (see `session_resume`).
+    pub(crate) fn on_connect_success_resume_token(&self, cid: u64, issued: Option<ResumeToken>) {
+        inner_mut!(self)
+            .resume_tokens
+            .on_connect_success(cid, issued);
     }
 
     /// Releases the provisional CID reservation taken by

@@ -46,7 +46,10 @@ pub const MINOR_VERSION: u8 = 11;
 // Bumped 0 -> 1: group members acknowledge each CGKA Commit to the server, which tells the owner
 // once every member it reached has applied it, and the owner holds a joiner's Welcome until then
 // (see `GROUP_COMMIT_ACK_SINCE`). Additive: each side uses it only with a peer at or above it.
-pub const PATCH_VERSION: u8 = 1;
+// Bumped 1 -> 2: the server issues a resume token at connect SUCCESS, and a client's next login
+// presents it, so a reconnect replaces the session the server still holds for that same client
+// (see `SESSION_RESUME_SINCE`). Additive, like 0 -> 1.
+pub const PATCH_VERSION: u8 = 2;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -62,6 +65,12 @@ pub const AWAIT_GROUP_SINCE: (u8, u8, u8) = (0, 11, 0);
 /// the owner releases a joiner's Welcome only then. A node below it, or of unknown version, keeps
 /// the earlier behaviour: an owner sends the Welcome at once, and a server waits on no member.
 pub const GROUP_COMMIT_ACK_SINCE: (u8, u8, u8) = (0, 11, 1);
+
+/// The first protocol version whose nodes exchange session resume tokens: a server issues one in
+/// connect SUCCESS and accepts it back at STAGE0 as proof that a login is the held session's own
+/// client (see `proto::session_resume`). A node below it, or of unknown version, sends and reads
+/// none, and a login from it is refused while the server holds a session for the account.
+pub const SESSION_RESUME_SINCE: (u8, u8, u8) = (0, 11, 2);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.
