@@ -665,6 +665,10 @@ mod proto;
 #[cfg(feature = "fuzzing")]
 pub mod fuzz_targets;
 
+/// Test-only hooks that hold a node at a protocol race (opt-in `localhost-testing` feature).
+#[cfg(feature = "localhost-testing")]
+pub mod test_hooks;
+
 /// StateContainer lock-contention counters (opt-in `lock-profiling` feature). Re-exported at the
 /// crate root so benches/diagnostics can read them; `proto` itself is private.
 #[cfg(feature = "lock-profiling")]

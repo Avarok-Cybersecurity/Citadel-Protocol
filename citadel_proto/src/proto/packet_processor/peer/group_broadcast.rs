@@ -1136,11 +1136,15 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 }
                 Ok(PrimaryProcessorResult::Void)
             } else {
+                #[cfg(feature = "localhost-testing")]
+                crate::test_hooks::inbound_commit(session_cid).await;
                 // Member: apply the commit (epoch-gated) to advance the ratchet tree.
                 let mut state = inner_mut_state!(session.state_container);
                 if let Some(cgka) = state.group_cgka.get_mut(&key) {
                     cgka.process_commit(&payload, epoch)?;
                 }
+                #[cfg(feature = "localhost-testing")]
+                crate::test_hooks::commit_applied(session_cid);
                 Ok(PrimaryProcessorResult::Void)
             }
         }
