@@ -15,6 +15,22 @@ env:
   IN_CI: "true"
 
 jobs:
+  # Jobs whose runs-on is the `vars.CITADEL_MAC_RUNNER` expression may run on the
+  # self-hosted Apple Silicon runners (`apple-48gb-metal`, two slots shared org-wide).
+  # Unset, the org variable sends each back to its hosted label. The same-repo clause
+  # is mandatory: this repository is public, and a fork's pull request must never run
+  # on that machine. .github/scripts/check-mac-runner-is-fork-safe.mjs refuses any
+  # other spelling.
+  mac-runner-fork-guard:
+    name: No fork can reach the self-hosted Mac
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: The fork guard's negative controls turn it red
+        run: node .github/scripts/check-mac-runner-is-fork-safe.mjs --self-test
+      - name: Every job routed to the Mac carries the guard
+        run: node .github/scripts/check-mac-runner-is-fork-safe.mjs
   stability-test:
     name: Ratchet Stability Test
     runs-on: macos-latest
@@ -72,9 +88,19 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
-    runs-on: ${{ matrix.os }}
+    runs-on: >-
+      ${{ matrix.os == 'macos-latest' && vars.CITADEL_MAC_RUNNER == '1'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+          && fromJSON('["self-hosted","macOS","ARM64","apple-48gb-metal"]')
+          || matrix.os }}
     timeout-minutes: 80
     steps:
+      # On the self-hosted Mac, std::env::temp_dir() is $TMPDIR (/var/folders/...), which
+      # outlives the job: every test node's filesystem backend and media fixture dir would
+      # pile up there across runs. The runner wipes runner.temp before each job.
+      - name: Keep test temp files inside the job
+        if: runner.environment == 'self-hosted'
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Setup MySQL
         id: mysql
         if: startsWith(matrix.os, 'ubuntu')
@@ -188,9 +214,19 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
-    runs-on: ${{ matrix.os }}
+    runs-on: >-
+      ${{ matrix.os == 'macos-latest' && vars.CITADEL_MAC_RUNNER == '1'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+          && fromJSON('["self-hosted","macOS","ARM64","apple-48gb-metal"]')
+          || matrix.os }}
     timeout-minutes: 30
     steps:
+      # On the self-hosted Mac, std::env::temp_dir() is $TMPDIR (/var/folders/...), which
+      # outlives the job: every test node's filesystem backend and media fixture dir would
+      # pile up there across runs. The runner wipes runner.temp before each job.
+      - name: Keep test temp files inside the job
+        if: runner.environment == 'self-hosted'
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Setup dependencies
         id: deps
         uses: Avarok-Cybersecurity/gh-actions-deps@master
@@ -255,13 +291,23 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
-    runs-on: ${{ matrix.os }}
+    runs-on: >-
+      ${{ matrix.os == 'macos-latest' && vars.CITADEL_MAC_RUNNER == '1'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+          && fromJSON('["self-hosted","macOS","ARM64","apple-48gb-metal"]')
+          || matrix.os }}
     # CI capacity budget, not a test timeout (the tests' own bounds are unchanged). On Windows
     # each nextest pass compiles for ~25 min (00:38 -> 01:04 in run 36785646666's rerun) and the
     # job runs two passes, single- then multi-threaded: the single-threaded pass went 156/156 green
     # in 12 min, and the 65-min limit cut the multi-threaded pass off at 145/156 with 0 failures.
     timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 110 || 65 }}
     steps:
+      # On the self-hosted Mac, std::env::temp_dir() is $TMPDIR (/var/folders/...), which
+      # outlives the job: every test node's filesystem backend and media fixture dir would
+      # pile up there across runs. The runner wipes runner.temp before each job.
+      - name: Keep test temp files inside the job
+        if: runner.environment == 'self-hosted'
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Setup dependencies
         id: deps
         uses: Avarok-Cybersecurity/gh-actions-deps@master
@@ -369,7 +415,11 @@ jobs:
         run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,io-uring -E 'test(stress_test_c2s_messaging) | test(stress_test_p2p_messaging)'
 
   citadel_sdk_release:
-    runs-on: macos-latest
+    runs-on: >-
+      ${{ vars.CITADEL_MAC_RUNNER == '1'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+          && fromJSON('["self-hosted","macOS","ARM64","apple-48gb-metal"]')
+          || 'macos-latest' }}
     timeout-minutes: 80
     # What this job exists to test is release SEMANTICS: debug_assertions off and
     # opt-level 3 (protocol constants once differed by build type; see
@@ -382,6 +432,12 @@ jobs:
       CARGO_PROFILE_RELEASE_LTO: "off"
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
+      # On the self-hosted Mac, std::env::temp_dir() is $TMPDIR (/var/folders/...), which
+      # outlives the job: every test node's filesystem backend and media fixture dir would
+      # pile up there across runs. The runner wipes runner.temp before each job.
+      - name: Keep test temp files inside the job
+        if: runner.environment == 'self-hosted'
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Setup dependencies
         id: deps
         uses: Avarok-Cybersecurity/gh-actions-deps@master
@@ -425,8 +481,21 @@ jobs:
 
   misc_checks:
     name: miscellaneous
-    runs-on: macos-latest
+    runs-on: >-
+      ${{ vars.CITADEL_MAC_RUNNER == '1'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+          && fromJSON('["self-hosted","macOS","ARM64","apple-48gb-metal"]')
+          || 'macos-latest' }}
+    # Observed 7-14 min on hosted macOS. Without a bound a hang holds a Mac slot for
+    # GitHub's 360-minute default.
+    timeout-minutes: 40
     steps:
+      # On the self-hosted Mac, std::env::temp_dir() is $TMPDIR (/var/folders/...), which
+      # outlives the job: every test node's filesystem backend and media fixture dir would
+      # pile up there across runs. The runner wipes runner.temp before each job.
+      - name: Keep test temp files inside the job
+        if: runner.environment == 'self-hosted'
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Setup dependencies
         id: deps
         uses: Avarok-Cybersecurity/gh-actions-deps@master
