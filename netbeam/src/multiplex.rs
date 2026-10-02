@@ -470,6 +470,9 @@ mod tests {
         nested(0, 50, outer_stream_server, outer_stream_client).await;
     }
 
+    // Clippy 1.99's double_must_use fires on async_recursion's generated #[must_use] (1.1.1 is
+    // the newest release); the attribute is the macro's, not ours.
+    #[allow(clippy::double_must_use)]
     #[async_recursion]
     async fn nested(
         idx: usize,

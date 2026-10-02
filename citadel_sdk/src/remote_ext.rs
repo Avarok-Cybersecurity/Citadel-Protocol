@@ -253,7 +253,7 @@ async fn await_registration<R: Ratchet, Rem: Remote<R>>(
 }
 
 #[async_trait]
-/// Endows the [NodeRemote](NodeRemote) with additional functions
+/// Endows the [NodeRemote] with additional functions
 pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     /// Registers with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
