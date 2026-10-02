@@ -30,9 +30,10 @@ describe('Citadel Protocol Types', () => {
     assert.ok(pv.split('.').length === 3, 'protocol version should have 3 parts');
     assert.ok(sv.split('.').length === 3, 'SDK version should have 3 parts');
 
-    // Protocol version should be 0.11.0 based on constants.rs (bumped 10 -> 11 for the
-    // attempt-numbered hole-punch coordination frames).
-    assert.strictEqual(pv, '0.11.0', 'protocol version should match expected');
+    // Protocol version should be 0.11.1 based on constants.rs (minor bumped 10 -> 11 for the
+    // attempt-numbered hole-punch coordination frames, patch 0 -> 1 for the group Commit
+    // acknowledgement).
+    assert.strictEqual(pv, '0.11.1', 'protocol version should match expected');
   });
 });
 

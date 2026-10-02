@@ -11,6 +11,8 @@ pub mod fixtures;
 #[cfg(not(target_family = "wasm"))]
 pub mod group;
 #[cfg(not(target_family = "wasm"))]
+pub mod group_epoch;
+#[cfg(not(target_family = "wasm"))]
 pub mod media;
 
 use citadel_io::tokio::sync::{Mutex, Semaphore};

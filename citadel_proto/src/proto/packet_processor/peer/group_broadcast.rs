@@ -31,6 +31,7 @@
 //! - `MemberState`: Member status tracking
 
 use super::super::includes::*;
+use super::{group_commit_ack, group_commit_relay};
 use crate::error::NetworkError;
 use crate::functional::*;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -292,7 +293,8 @@ pub enum GroupBroadcast {
         key: MessageGroupKey,
     },
     /// Local notice (never sent on the wire) that a group message addressed to this session was
-    /// dropped because it could not be decrypted here, e.g. it arrived before this session's Welcome.
+    /// dropped because it could not be decrypted here: it arrived before this session's Welcome,
+    /// or, in a flat group, it was sealed at an epoch this session does not hold.
     /// Delivered to the group channel if one is open, otherwise to the kernel as a [`GroupEvent`].
     MessageDropped {
         /// Group key
@@ -313,7 +315,29 @@ pub enum GroupBroadcast {
         /// Group key
         key: MessageGroupKey,
     },
+    /// Member → server: this member has processed the owner's Commit for `epoch`, so it seals
+    /// nothing more at the epoch before it (see `group_commit_gate`). Sent only to a server at
+    /// `GROUP_COMMIT_ACK_SINCE` or later.
+    CommitApplied {
+        /// Group key
+        key: MessageGroupKey,
+        /// The epoch of the Commit processed
+        epoch: u64,
+    },
+    /// Server → owner: every member the server waited on has processed the Commit for `epoch`,
+    /// so the owner may release the Welcome it held for that join. Sent only to an owner at
+    /// `GROUP_COMMIT_ACK_SINCE` or later.
+    CommitSettled {
+        /// Group key
+        key: MessageGroupKey,
+        /// The epoch of the settled Commit
+        epoch: u64,
+    },
 }
+
+/// Why a session that has not received its Welcome drops a group message.
+const NO_GROUP_KEY_YET: &str =
+    "this session holds no key for the group yet (it has not received its Welcome)";
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
     level = "trace",
@@ -341,6 +365,11 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
     let security_level = header.security_level.into();
     // since group broadcast packets never get proxied, the implicated cid is the local session cid
     let session_cid = header.session_cid.get();
+    let crafter = group_commit_ack::Crafter {
+        ratchet: sess_ratchet,
+        timestamp,
+        security_level,
+    };
     log::trace!(target: "citadel", "[GROUP:{}] message: {:?}", session.is_server.if_true("server").if_false("client"), signal);
     match signal {
         GroupBroadcast::Create {
@@ -613,31 +642,39 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 let plaintext = {
                     let state = inner_state!(session.state_container);
                     match state.group_cgka.get(&key) {
-                        Some(cgka) if cgka.is_pending_join() => None,
+                        Some(cgka) if cgka.is_pending_join() => Err(NO_GROUP_KEY_YET.to_string()),
                         Some(cgka) => match cgka.decrypt_message(message.as_ref()) {
-                            Ok(plaintext) => Some(plaintext),
+                            Ok(plaintext) => Ok(plaintext),
+                            // A flat group withholds nothing from a member: a message it cannot
+                            // open (sealed at an epoch it does not hold) is lost to it.
+                            Err(err) if cgka.is_flat() => {
+                                Err(format!("this session cannot decrypt it: {err}"))
+                            }
                             Err(err) => {
                                 log::trace!(target: "citadel", "Dropping group message for {key:?}: not a permitted reader ({err})");
                                 return Ok(PrimaryProcessorResult::Void);
                             }
                         },
-                        None => None,
+                        None => Err(NO_GROUP_KEY_YET.to_string()),
                     }
                 };
-                // No state, or a join still waiting for its Welcome: this session cannot read the
-                // message, and a silent drop here is invisible at both ends. Tell the application.
-                let Some(plaintext) = plaintext else {
-                    log::warn!(target: "citadel", "Dropping group message for {key:?} from {username}: this session holds no group key yet");
-                    return forward_signal(
-                        session,
-                        ticket,
-                        Some(key),
-                        GroupBroadcast::MessageDropped {
-                            key,
-                            sender: username,
-                            reason: "this session holds no key for the group yet (it has not received its Welcome)".to_string(),
-                        },
-                    );
+                // This session cannot read the message, and a silent drop here is invisible at both
+                // ends. Tell the application.
+                let plaintext = match plaintext {
+                    Ok(plaintext) => plaintext,
+                    Err(reason) => {
+                        log::warn!(target: "citadel", "Dropping group message for {key:?} from {username}: {reason}");
+                        return forward_signal(
+                            session,
+                            ticket,
+                            Some(key),
+                            GroupBroadcast::MessageDropped {
+                                key,
+                                sender: username,
+                                reason,
+                            },
+                        );
+                    }
                 };
                 forward_signal(
                     session,
@@ -1022,16 +1059,9 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 }
                 Ok(PrimaryProcessorResult::Void)
             } else {
-                // Owner: add the joiner to the ratchet tree and emit its Welcome + the members' Commit.
-                cgka_owner_add_member(
-                    session,
-                    sess_ratchet,
-                    key,
-                    joiner_cid,
-                    &payload,
-                    ticket,
-                    timestamp,
-                    security_level,
+                // Owner: add the joiner to the ratchet tree and emit the members' Commit and its Welcome.
+                group_commit_ack::owner_add_member(
+                    session, &crafter, key, joiner_cid, &payload, ticket,
                 )
             }
         }
@@ -1104,43 +1134,32 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
         } => {
             if session.is_server {
                 // Relay verbatim to the existing members (the fanout excludes the owner/sender). The
-                // brand-new joiner may also receive it; its Welcome already covers this epoch, so its
-                // coordinator gates the commit out.
-                // Neither the Err nor the `false` was looked at. A Commit that
-                // does not reach the existing members leaves them an epoch
-                // behind, unable to decrypt anything sent afterwards -- and the
-                // owner has no idea.
-                match session
-                    .session_manager
-                    .broadcast_signal_to_group(
-                        session_cid,
-                        timestamp,
-                        ticket,
-                        key,
-                        GroupBroadcast::Commit {
-                            key,
-                            epoch,
-                            payload,
-                        },
-                        security_level,
-                    )
-                    .await
-                {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        log::error!(target: "citadel", "Commit for {key:?} epoch {epoch} was not broadcast to the group; members will fall behind an epoch and cannot decrypt subsequent messages");
-                    }
-                    Err(err) => {
-                        log::error!(target: "citadel", "Failed to broadcast Commit for {key:?} epoch {epoch}: {err:?}");
-                    }
-                }
-                Ok(PrimaryProcessorResult::Void)
+                // joiner receives it too and, still awaiting its Welcome, ignores it.
+                group_commit_relay::relay_commit(
+                    session,
+                    session_cid,
+                    key,
+                    epoch,
+                    payload,
+                    ticket,
+                    timestamp,
+                    security_level,
+                )
+                .await
             } else {
-                // Member: apply the commit (epoch-gated) to advance the ratchet tree.
+                #[cfg(feature = "localhost-testing")]
+                crate::test_hooks::inbound_commit(session_cid).await;
+                // Member: apply the commit (epoch-gated) to advance the ratchet tree, then
+                // acknowledge it under the same lock.
                 let mut state = inner_mut_state!(session.state_container);
                 if let Some(cgka) = state.group_cgka.get_mut(&key) {
                     cgka.process_commit(&payload, epoch)?;
                 }
+                group_commit_ack::acknowledge_commit(
+                    &state, session, &crafter, key, epoch, ticket,
+                )?;
+                #[cfg(feature = "localhost-testing")]
+                crate::test_hooks::commit_applied(session_cid);
                 Ok(PrimaryProcessorResult::Void)
             }
         }
@@ -1225,6 +1244,31 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                     security_level,
                 )
             }
+        }
+
+        GroupBroadcast::CommitApplied { key, epoch } => {
+            if !session.is_server {
+                log::warn!(target: "citadel", "Ignoring a CommitApplied for {key:?}: only a server acts on it");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            group_commit_relay::member_applied_commit(
+                session,
+                session_cid,
+                key,
+                epoch,
+                ticket,
+                timestamp,
+                security_level,
+            )
+            .await
+        }
+
+        GroupBroadcast::CommitSettled { key, epoch } => {
+            if session.is_server || key.cid != session_cid {
+                log::warn!(target: "citadel", "Ignoring a CommitSettled for {key:?}: only its owner acts on it");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            group_commit_ack::owner_commit_settled(session, &crafter, key, epoch, ticket)
         }
 
         GroupBroadcast::MessageDropped { key, .. } => {
@@ -1400,113 +1444,6 @@ async fn prompt_members_to_rejoin<R: Ratchet, T: PlatformOps>(
     {
         log::error!(target: "citadel", "Unable to prompt the members of {key:?} to rejoin: {err}");
     }
-}
-
-/// The owner incorporates a joiner's published `KeyPackage` into the ratchet tree, then sends the
-/// resulting `Welcome` to the joiner and the `Commit` to the existing members (both via the relay).
-#[allow(clippy::too_many_arguments)]
-fn cgka_owner_add_member<R: Ratchet, T: PlatformOps>(
-    session: &CitadelSession<R, T>,
-    sess_ratchet: &R,
-    key: MessageGroupKey,
-    joiner_cid: u64,
-    key_package_bytes: &[u8],
-    ticket: Ticket,
-    timestamp: i64,
-    security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
-    let (welcome_bytes, commit_bytes, epoch, assignment) = {
-        let mut state = inner_mut_state!(session.state_container);
-        // No state: this owner session has not re-founded the group yet. A member restoring
-        // after the same outage can publish before this session's `RestoreOwnership` lands;
-        // once it does, the server prompts the member again, and that KeyPackage is added.
-        // Failing the session here cut the owner's link, and its reconnect raced the same way.
-        let Some(cgka) = state.group_cgka.get_mut(&key) else {
-            log::warn!(target: "citadel", "Ignoring a KeyPackage for {key:?} from {joiner_cid}: this session holds no tree for the group yet");
-            return Ok(PrimaryProcessorResult::Void);
-        };
-        cgka.add_member(key_package_bytes)?
-    };
-
-    // HierarchyAssign -> the joiner FIRST (before the Welcome), if this is a CommandHierarchy group and
-    // the joiner has a rank. Both travel the same ordered C2S→joiner stream, so applying the assignment
-    // (which switches the joiner into hierarchy mode) before the Welcome opens its channel removes the
-    // window where the joiner would otherwise send/receive in the wrong (flat) mode.
-    if let Some(sealed) = assignment {
-        send_hierarchy_assign(
-            session,
-            sess_ratchet,
-            key,
-            joiner_cid,
-            sealed,
-            ticket,
-            timestamp,
-            security_level,
-        )?;
-    }
-
-    // Welcome -> the joiner (the relay routes to `joiner_cid`).
-    let welcome = GroupBroadcast::Welcome {
-        key,
-        joiner_cid,
-        payload: welcome_bytes,
-    };
-    let welcome_packet = packet_crafter::peer_cmd::craft_group_message_packet(
-        sess_ratchet,
-        &welcome,
-        ticket,
-        C2S_IDENTITY_CID,
-        timestamp,
-        security_level,
-    )?;
-    session.send_to_primary_stream(Some(ticket), welcome_packet)?;
-
-    // Commit -> the existing members (the relay fans out, excluding the owner).
-    let commit = GroupBroadcast::Commit {
-        key,
-        epoch,
-        payload: commit_bytes,
-    };
-    let commit_packet = packet_crafter::peer_cmd::craft_group_message_packet(
-        sess_ratchet,
-        &commit,
-        ticket,
-        C2S_IDENTITY_CID,
-        timestamp,
-        security_level,
-    )?;
-    session.send_to_primary_stream(Some(ticket), commit_packet)?;
-
-    Ok(PrimaryProcessorResult::Void)
-}
-
-/// Send a sealed Decentralized-Hierarchy-Encryption assignment to a single member (relay routes it).
-#[allow(clippy::too_many_arguments)]
-fn send_hierarchy_assign<R: Ratchet, T: PlatformOps>(
-    session: &CitadelSession<R, T>,
-    sess_ratchet: &R,
-    key: MessageGroupKey,
-    target_cid: u64,
-    sealed: Vec<u8>,
-    ticket: Ticket,
-    timestamp: i64,
-    security_level: SecurityLevel,
-) -> Result<(), NetworkError> {
-    let signal = GroupBroadcast::HierarchyAssign {
-        key,
-        target_cid,
-        payload: sealed,
-    };
-    let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-        sess_ratchet,
-        &signal,
-        ticket,
-        C2S_IDENTITY_CID,
-        timestamp,
-        security_level,
-    )?;
-    session.send_to_primary_stream(Some(ticket), packet)?;
-    Ok(())
 }
 
 impl From<GroupBroadcast> for GroupBroadcastPayload {

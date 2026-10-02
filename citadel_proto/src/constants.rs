@@ -43,7 +43,10 @@ pub const MAJOR_VERSION: u8 = 0;
 // transport offers (see `MEDIA_TRANSPORT_OFFER_SINCE`), and servers answer
 // `GroupBroadcast::AwaitGroup` (see `AWAIT_GROUP_SINCE`).
 pub const MINOR_VERSION: u8 = 11;
-pub const PATCH_VERSION: u8 = 0;
+// Bumped 0 -> 1: group members acknowledge each CGKA Commit to the server, which tells the owner
+// once every member it reached has applied it, and the owner holds a joiner's Welcome until then
+// (see `GROUP_COMMIT_ACK_SINCE`). Additive: each side uses it only with a peer at or above it.
+pub const PATCH_VERSION: u8 = 1;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -52,6 +55,13 @@ pub const MEDIA_TRANSPORT_OFFER_SINCE: (u8, u8, u8) = (0, 10, 1);
 /// The first protocol version whose server answers `GroupBroadcast::AwaitGroup`. A joiner
 /// talking to a server below it, or of unknown version, polls for the owner's group instead.
 pub const AWAIT_GROUP_SINCE: (u8, u8, u8) = (0, 11, 0);
+
+/// The first protocol version whose nodes take part in the group Commit acknowledgement: a member
+/// sends `GroupBroadcast::CommitApplied` after processing a Commit, the server answers the owner
+/// with `GroupBroadcast::CommitSettled` once every such member it delivered the Commit to has, and
+/// the owner releases a joiner's Welcome only then. A node below it, or of unknown version, keeps
+/// the earlier behaviour: an owner sends the Welcome at once, and a server waits on no member.
+pub const GROUP_COMMIT_ACK_SINCE: (u8, u8, u8) = (0, 11, 1);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

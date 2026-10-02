@@ -1,6 +1,7 @@
 //! Rekey initiation and group-broadcast handling for [`StateContainerInner`].
 
 use super::includes::*;
+use crate::proto::packet_processor::peer::group_commit_ack;
 use citadel_io::{error, ErrorCode};
 use citadel_types::proto::GroupHierarchyMode;
 
@@ -248,10 +249,23 @@ impl<R: Ratchet> StateContainerInner<R> {
         // after the Kick itself so the relay drops them from the roster before fanning the Commit out.
         if let GroupBroadcast::Kick { key, kick_list } = command {
             for &cid in kick_list {
-                let removed = match self.group_cgka.get_mut(key) {
-                    Some(cgka) => cgka.remove_member_by_cid(cid)?,
-                    None => None,
+                let (removed, held) = match self.group_cgka.get_mut(key) {
+                    Some(cgka) => {
+                        let removed = cgka.remove_member_by_cid(cid)?;
+                        // A held Welcome must reach its joiner before this Commit does.
+                        let held = removed.as_ref().and_then(|_| cgka.joins.flush());
+                        (removed, held)
+                    }
+                    None => (None, None),
                 };
+                if let Some(held) = held {
+                    let crafter = group_commit_ack::Crafter {
+                        ratchet: &ratchet,
+                        timestamp,
+                        security_level,
+                    };
+                    crafter.release_welcome(*key, held, &to_primary_stream)?;
+                }
                 if let Some((commit_bytes, epoch)) = removed {
                     let signal = GroupBroadcast::Commit {
                         key: *key,

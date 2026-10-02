@@ -229,6 +229,9 @@ pub struct StateContainerInner<R: Ratchet> {
     /// unique per request, so `insert` never returned `Some`.
     triggered_rekeys: Arc<Mutex<HashMap<u64, Ticket>>>,
     session_passwords: HashMap<u64, PreSharedKey>,
+    /// The protocol version of the node at the other end of the C2S link (the server, on a
+    /// client; the client, on a server), from its connect packet. `None` until connected.
+    pub(crate) adjacent_protocol_version: Option<u32>,
     is_server: bool,
 }
 
@@ -581,6 +584,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             inbound_files: DashMap::new(),
             outbound_files: HashMap::new(),
             session_passwords: HashMap::new(),
+            adjacent_protocol_version: None,
             triggered_rekeys: Arc::new(Mutex::new(HashMap::new())),
         };
         inner.into()
