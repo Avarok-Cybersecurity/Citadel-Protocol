@@ -79,6 +79,9 @@ pub struct QuicNode {
     pub tls_domain_opt: Option<String>,
 }
 
+// Clippy 1.99's double_must_use fires on the #[must_use] async-trait 0.1.92 still puts on a
+// provided (default-bodied) method's boxed future; the attribute is the macro's, not ours.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait QuicEndpointConnector {
     fn endpoint(&self) -> &Endpoint;
