@@ -34,7 +34,7 @@
 //! * `AccountManager`: Manages user authentication and credentials
 //!
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -66,6 +66,7 @@ use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::includes::{Duration, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
+use crate::proto::peer::group_commit_gate::Settled;
 use crate::proto::peer::peer_layer::{
     CitadelNodePeerLayer, CitadelNodePeerLayerInner, MailboxTransfer, PeerConnectionType,
     PeerResponse, PeerSignal,
@@ -760,6 +761,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     if !replaced {
                         peer_layer.drop_group_watches(session_cid).await;
                     }
+                    for settled in peer_layer.commit_gate_session_ended(session_cid).await {
+                        group_notifier.notify_commit_settled(
+                            settled,
+                            Ticket(0),
+                            time_tracker.get_global_time_ns(),
+                            security_level,
+                        );
+                    }
                     let departure = peer_layer
                         .on_owner_departure(
                             session_cid,
@@ -1401,6 +1410,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let left_signal = match peer_layer.remove_peers_from_message_group(key, peers).await {
             Ok((peers_removed, peers_remaining)) => {
                 log::trace!(target: "citadel", "Peers removed: {:?}", peers_removed);
+                if let Some(settled) = peer_layer
+                    .commit_gate_members_removed(key, &peers_removed)
+                    .await
+                {
+                    self.notify_commit_settled(settled, ticket, timestamp, security_level);
+                }
                 // We only notify the members when kicking, not leaving
                 if mode == GroupMemberAlterMode::Kick {
                     // notify all the peers removed
@@ -1802,6 +1817,32 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         signal: GroupBroadcast,
         security_level: SecurityLevel,
     ) -> Result<(Vec<u64>, Vec<u64>), String> {
+        let delivery = self
+            .deliver_group_broadcast_signal_to(
+                timestamp,
+                ticket,
+                peers_and_statuses,
+                mail_if_offline,
+                signal,
+                security_level,
+            )
+            .await?;
+        let mut peers_okay = delivery.direct;
+        peers_okay.extend(delivery.mailed);
+        Ok((peers_okay, delivery.failed))
+    }
+
+    /// As [`Self::send_group_broadcast_signal_to`], telling apart the peers the signal reached
+    /// directly from those it was mailed to.
+    pub async fn deliver_group_broadcast_signal_to(
+        &self,
+        timestamp: i64,
+        ticket: Ticket,
+        peers_and_statuses: impl Iterator<Item = (u64, bool)>,
+        mail_if_offline: bool,
+        signal: GroupBroadcast,
+        security_level: SecurityLevel,
+    ) -> Result<GroupDelivery, String> {
         let mut peers_failed = Vec::new();
         let mut peers_okay = Vec::new();
         let mut to_mail = Vec::new();
@@ -1840,21 +1881,64 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         };
 
         // TODO: optimize this into a single operation
-        for peer in to_mail {
+        for peer in &to_mail {
             CitadelNodePeerLayer::try_add_mailbox(
                 &pers,
-                peer,
+                *peer,
                 PeerSignal::BroadcastConnected {
-                    session_cid: peer,
+                    session_cid: *peer,
                     group_broadcast: signal.clone(),
                 },
             )
             .await
             .map_err(|err| err.into_string())?;
-            peers_okay.push(peer);
         }
 
-        Ok((peers_okay, peers_failed))
+        Ok(GroupDelivery {
+            direct: peers_okay,
+            mailed: to_mail,
+            failed: peers_failed,
+        })
+    }
+
+    /// The cids among `cids` with a session here whose protocol version is at least `since`.
+    pub fn connected_at_least(&self, cids: &[u64], since: (u8, u8, u8)) -> HashSet<u64> {
+        let this = inner!(self);
+        cids.iter()
+            .copied()
+            .filter(|cid| {
+                this.sessions.get(cid).is_some_and(|(_, sess)| {
+                    crate::constants::protocol_version_at_least(
+                        inner_state!(sess.state_container).adjacent_protocol_version,
+                        since,
+                    )
+                })
+            })
+            .collect()
+    }
+
+    /// Tells the owner of `settled.key` that its Commit for `settled.epoch` has settled.
+    pub fn notify_commit_settled(
+        &self,
+        settled: Settled,
+        ticket: Ticket,
+        timestamp: i64,
+        security_level: SecurityLevel,
+    ) {
+        let Settled { key, epoch } = settled;
+        let signal = GroupBroadcast::CommitSettled { key, epoch };
+        if let Err(err) = self.route_packet_to(key.cid, |ratchet| {
+            super::packet_crafter::peer_cmd::craft_group_message_packet(
+                ratchet,
+                &signal,
+                ticket,
+                C2S_IDENTITY_CID,
+                timestamp,
+                security_level,
+            )
+        }) {
+            log::warn!(target: "citadel", "Commit for {key:?} epoch {epoch} settled, but its owner could not be told: {err}");
+        }
     }
 
     /// NOTE: The order flips in the response.
@@ -1917,6 +2001,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             ))
         }
     }
+}
+
+/// Where a group signal went: to a connected session, to the mailbox of a registered peer that
+/// had none, or nowhere (not registered with the sender).
+pub struct GroupDelivery {
+    pub direct: Vec<u64>,
+    pub mailed: Vec<u64>,
+    pub failed: Vec<u64>,
 }
 
 impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {

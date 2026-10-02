@@ -127,6 +127,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         session: &CitadelSession<R, T>,
         adjacent_protocol_version: u32,
     ) -> PeerChannel<R> {
+        self.adjacent_protocol_version = Some(adjacent_protocol_version);
         let security_settings = self
             .session_security_settings
             .expect("Should be set at beginning of session or on first SYN packet");

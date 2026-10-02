@@ -4,6 +4,7 @@
 //! sealed `HierarchyAssign` (and, for demote, a re-key `Commit`) — command paths never reach the relay.
 
 use super::includes::*;
+use crate::proto::packet_processor::peer::group_commit_ack;
 use crate::proto::peer::group_cgka::GroupCgkaState;
 use citadel_io::{error, ErrorCode};
 use citadel_types::proto::{CommandPath, MessageGroupOptions};
@@ -75,11 +76,21 @@ impl<R: Ratchet> StateContainerInner<R> {
         security_level: SecurityLevel,
         to_primary_stream: &OutboundPrimaryStreamSender,
     ) -> Result<(), NetworkError> {
-        let (assignments, commit_bytes, epoch) = self
+        let cgka = self
             .group_cgka
             .get_mut(&key)
-            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?
-            .demote(target_cid)?;
+            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+        // A held Welcome must reach its joiner before the re-key Commit, and before the
+        // assignments re-sealed with it.
+        if let Some(held) = cgka.joins.flush() {
+            let crafter = group_commit_ack::Crafter {
+                ratchet,
+                timestamp,
+                security_level,
+            };
+            crafter.release_welcome(key, held, to_primary_stream)?;
+        }
+        let (assignments, commit_bytes, epoch) = cgka.demote(target_cid)?;
 
         for (member_cid, payload) in assignments {
             self.send_hierarchy_assign(
