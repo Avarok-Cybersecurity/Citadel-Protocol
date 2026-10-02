@@ -77,6 +77,8 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     pub(crate) next_departure_token: u64,
     /// Sessions waiting for a group that does not exist yet (see `group_watch`).
     pub(crate) group_watches: HashMap<u64, HashMap<MessageGroupKey, Vec<Ticket>>>,
+    /// Waits for members to apply each group's latest Commit (see `group_commit_gate`).
+    pub(crate) commit_gates: crate::proto::peer::group_commit_gate::CommitGates,
     pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
     waker: Arc<AtomicWaker>,
     inner: Arc<citadel_io::RwLock<SharedInner>>,
@@ -139,6 +141,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             ownerless_groups: HashMap::new(),
             next_departure_token: 0,
             group_watches: HashMap::new(),
+            commit_gates: Default::default(),
         };
         let inner = Arc::new(citadel_io::tokio::sync::RwLock::new(inner));
 
@@ -272,6 +275,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         let map = this.message_groups.get_mut(&key.cid)?;
         let removed = map.remove(&key.mgid);
         if removed.is_some() {
+            this.commit_gates.close(key);
             this.persist_group_or_log(key).await;
         }
         removed

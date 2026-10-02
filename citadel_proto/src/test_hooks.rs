@@ -117,7 +117,6 @@ pub fn observe_commit_gates() -> mpsc::UnboundedReceiver<CommitGateOpened> {
 }
 
 /// Called by the server when it opens a gate.
-#[allow(dead_code)]
 pub(crate) fn commit_gate_opened(key: MessageGroupKey, epoch: u64, awaiting: &HashSet<u64>) {
     let opened = CommitGateOpened {
         key,

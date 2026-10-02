@@ -1,12 +1,10 @@
 #![cfg(not(target_family = "wasm"))]
 //! A member's group messages are not lost when another member joins while it is sending.
 //!
-//! Every join is a CGKA epoch change. The owner advances to the new epoch the moment it
-//! incorporates the joiner's KeyPackage, sends the Welcome to the joiner, and only then the
-//! Commit to the existing members. A member that is sending in that window seals at the old
-//! epoch; on arrival the owner (already on the new epoch) and the joiner cannot open it, and
-//! the client handler drops it at TRACE as "not a permitted reader" — no `MessageDropped`, no
-//! resend. `stress_test_group_broadcast` loses exactly one sender's message this way (#321).
+//! Every join is a CGKA epoch change. A member sending while a join is in flight seals at the
+//! old epoch until it applies the owner's Commit. The owner keeps the old epoch readable, and
+//! holds the joiner's Welcome until every member has applied the Commit, so that nothing sealed
+//! at the old epoch reaches the joiner after its channel opens (#321, #327).
 //!
 //! ```text
 //! O, A, B: register → connect; O ↔ A and O ↔ B peer register
@@ -22,15 +20,14 @@ mod common;
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::common::group::*;
+    use crate::common::group_epoch::*;
     use citadel_io::tokio;
     use citadel_io::tokio::sync::Barrier;
     use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::server_info;
     use futures::StreamExt;
-    use std::collections::BTreeSet;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
-    use std::sync::Mutex;
     use std::time::Duration;
     use uuid::Uuid;
 
@@ -41,86 +38,12 @@ mod tests {
     const SENT_AFTER_JOIN: u64 = 200;
     /// Safety bound so a bug cannot make A send for ever.
     const SEND_CAP: u64 = 20_000;
-    /// Safety bound for a reader waiting on the next message; exceeding it ends the read and the
-    /// outcome assertion below reports what was missing. Not a latency assertion.
-    const IDLE_BOUND: Duration = Duration::from_secs(30);
-    const UNSET: u64 = u64::MAX;
 
     #[derive(Default)]
     struct Shared {
         b_cid: AtomicU64,
         b_joined: AtomicBool,
-        first_after_join: AtomicU64,
-        final_idx: AtomicU64,
-        owner_seen: Mutex<BTreeSet<u64>>,
-        owner_dropped: AtomicU64,
-        b_seen: Mutex<BTreeSet<u64>>,
-        b_dropped: AtomicU64,
-    }
-
-    fn parse_idx(payload: &[u8]) -> Option<u64> {
-        std::str::from_utf8(payload)
-            .ok()?
-            .strip_prefix("a-")?
-            .parse()
-            .ok()
-    }
-
-    async fn befriend(
-        conn: &CitadelClientServerConnection<StackedRatchet>,
-        cid: u64,
-        me: &str,
-        peer: &str,
-    ) -> Result<(), NetworkError> {
-        let status = conn
-            .propose_target(cid, peer.to_string())
-            .await?
-            .register_to_peer()
-            .await?;
-        assert!(
-            status.is_accepted(),
-            "{me} → {peer}: peer registration refused"
-        );
-        Ok(())
-    }
-
-    /// Read A's messages until A's final one arrives (or the idle bound passes), recording
-    /// each index and every `MessageDropped`.
-    async fn read_until_final(
-        channel: &mut GroupChannel,
-        a_cid: u64,
-        shared: &Shared,
-        seen: &Mutex<BTreeSet<u64>>,
-        dropped: &AtomicU64,
-        who: &str,
-    ) {
-        loop {
-            let final_idx = shared.final_idx.load(Ordering::SeqCst);
-            if final_idx != UNSET && seen.lock().unwrap().contains(&final_idx) {
-                return;
-            }
-            match tokio::time::timeout(IDLE_BOUND, channel.recv()).await {
-                Ok(Some(GroupBroadcastPayload::Message { payload, sender })) if sender == a_cid => {
-                    if let Some(idx) = parse_idx(payload.as_ref()) {
-                        let _ = seen.lock().unwrap().insert(idx);
-                    }
-                }
-                Ok(Some(GroupBroadcastPayload::Event {
-                    payload: GroupBroadcast::MessageDropped { .. },
-                })) => {
-                    let _ = dropped.fetch_add(1, Ordering::SeqCst);
-                }
-                Ok(Some(_)) => {}
-                Ok(None) => {
-                    log::warn!(target: "citadel", "[{who}] group channel closed");
-                    return;
-                }
-                Err(_) => {
-                    log::warn!(target: "citadel", "[{who}] no message for {IDLE_BOUND:?}; ending the read");
-                    return;
-                }
-            }
-        }
+        reads: Reads,
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]
@@ -133,8 +56,6 @@ mod tests {
         let b_name = format!("geb_{tag}");
         let sync = Arc::new(Barrier::new(3));
         let shared = Arc::new(Shared::default());
-        shared.first_after_join.store(UNSET, Ordering::SeqCst);
-        shared.final_idx.store(UNSET, Ordering::SeqCst);
         let a_cid_cell = Arc::new(AtomicU64::new(UNSET));
 
         let owner = {
@@ -170,7 +91,7 @@ mod tests {
                         {
                             if sender == a_cid {
                                 if let Some(idx) = parse_idx(payload.as_ref()) {
-                                    let _ = shared.owner_seen.lock().unwrap().insert(idx);
+                                    let _ = shared.reads.owner.seen.lock().unwrap().insert(idx);
                                     read += 1;
                                 }
                             }
@@ -181,9 +102,8 @@ mod tests {
                     read_until_final(
                         &mut channel,
                         a_cid,
-                        &shared,
-                        &shared.owner_seen,
-                        &shared.owner_dropped,
+                        &shared.reads.final_idx,
+                        &shared.reads.owner,
                         "owner",
                     )
                     .await;
@@ -227,11 +147,14 @@ mod tests {
                             .await?;
                         if join_seen_at.is_none() && shared.b_joined.load(Ordering::SeqCst) {
                             join_seen_at = Some(idx + 1);
-                            shared.first_after_join.store(idx + 1, Ordering::SeqCst);
+                            shared
+                                .reads
+                                .first_after_join
+                                .store(idx + 1, Ordering::SeqCst);
                         }
                         let done = matches!(join_seen_at, Some(first) if idx + 1 >= first + SENT_AFTER_JOIN);
                         if done || idx + 1 == SEND_CAP {
-                            shared.final_idx.store(idx, Ordering::SeqCst);
+                            shared.reads.final_idx.store(idx, Ordering::SeqCst);
                             break;
                         }
                         // Pacing so the stream is continuous but bounded; not part of any assertion.
@@ -274,9 +197,8 @@ mod tests {
                     read_until_final(
                         &mut channel,
                         a_cid,
-                        &shared,
-                        &shared.b_seen,
-                        &shared.b_dropped,
+                        &shared.reads.final_idx,
+                        &shared.reads.b,
                         "B",
                     )
                     .await;
@@ -287,54 +209,17 @@ mod tests {
             )
         };
 
-        let owner = DefaultNodeBuilder::default().build(owner).unwrap();
-        let member_a = DefaultNodeBuilder::default().build(member_a).unwrap();
-        let member_b = DefaultNodeBuilder::default().build(member_b).unwrap();
-        let clients = async move { futures::future::try_join3(owner, member_a, member_b).await };
-        let task = async move {
-            tokio::select! {
-                res = server => Err(NetworkError::msg(format!("server ended: {:?}", res.map(|_| ())))),
-                res = clients => res.map(|_| ()),
-            }
-        };
-        let result = tokio::time::timeout(Duration::from_secs(240), task)
-            .await
-            .expect("test timed out");
-        assert!(result.is_ok(), "test failed: {result:?}");
+        run_trio(
+            server,
+            DefaultNodeBuilder::default().build(owner).unwrap(),
+            DefaultNodeBuilder::default().build(member_a).unwrap(),
+            DefaultNodeBuilder::default().build(member_b).unwrap(),
+        )
+        .await;
 
-        let final_idx = shared.final_idx.load(Ordering::SeqCst);
-        let first_after_join = shared.first_after_join.load(Ordering::SeqCst);
-        assert_ne!(final_idx, UNSET, "A never finished sending");
-        assert_ne!(
-            first_after_join, UNSET,
-            "B's channel never opened while A was sending"
-        );
-
-        let owner_missing: Vec<u64> = {
-            let seen = shared.owner_seen.lock().unwrap();
-            (0..=final_idx).filter(|i| !seen.contains(i)).collect()
-        };
-        let b_missing: Vec<u64> = {
-            let seen = shared.b_seen.lock().unwrap();
-            (first_after_join..=final_idx)
-                .filter(|i| !seen.contains(i))
-                .collect()
-        };
-        let report = format!(
-            "A sent a-0..=a-{final_idx}; B's channel opened before a-{first_after_join}. \
-             Owner missing {} {:?} (MessageDropped seen: {}); \
-             B missing {} of those sent after its join {:?} (MessageDropped seen: {})",
-            owner_missing.len(),
-            owner_missing,
-            shared.owner_dropped.load(Ordering::SeqCst),
-            b_missing.len(),
-            b_missing,
-            shared.b_dropped.load(Ordering::SeqCst),
-        );
-        log::warn!(target: "citadel", "{report}");
-        assert!(
-            owner_missing.is_empty() && b_missing.is_empty(),
-            "messages from a member of the group were lost across B's join: {report}"
+        shared.reads.assert_nothing_lost(
+            "",
+            "messages from a member of the group were lost across B's join",
         );
     }
 }

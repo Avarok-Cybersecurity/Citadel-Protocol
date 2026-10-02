@@ -19,6 +19,7 @@ mod common;
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::common::group::*;
+    use crate::common::group_epoch::*;
     use citadel_io::tokio;
     use citadel_io::tokio::sync::Barrier;
     use citadel_proto::test_hooks::hold_inbound_commits;
@@ -26,10 +27,7 @@ mod tests {
     use citadel_sdk::test_common::server_info;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
-    use std::time::Duration;
     use uuid::Uuid;
-
-    const UNSET: u64 = u64::MAX;
 
     #[derive(Default)]
     struct Shared {
@@ -37,24 +35,6 @@ mod tests {
         c_cid: AtomicU64,
         /// What the owner saw from A, in order, up to and including "a-new".
         owner_saw: Mutex<Vec<String>>,
-    }
-
-    async fn befriend(
-        conn: &CitadelClientServerConnection<StackedRatchet>,
-        cid: u64,
-        me: &str,
-        peer: &str,
-    ) -> Result<(), NetworkError> {
-        let status = conn
-            .propose_target(cid, peer.to_string())
-            .await?
-            .register_to_peer()
-            .await?;
-        assert!(
-            status.is_accepted(),
-            "{me} → {peer}: peer registration refused"
-        );
-        Ok(())
     }
 
     /// Register, connect, befriend the owner in this member's turn, and join the group.
@@ -186,18 +166,7 @@ mod tests {
                     channel
                         .send_message(SecBuffer::from(b"a-old".to_vec()))
                         .await?;
-                    loop {
-                        match channel.recv().await {
-                            Some(GroupBroadcastPayload::Event {
-                                payload: GroupBroadcast::MessageResponse { success, .. },
-                            }) => {
-                                assert!(success, "the server could not relay a-old");
-                                break;
-                            }
-                            Some(_) => {}
-                            None => panic!("A's group channel closed"),
-                        }
-                    }
+                    relayed(&mut channel, 1).await;
                     hold.release().await;
                     channel
                         .send_message(SecBuffer::from(b"a-new".to_vec()))
@@ -233,20 +202,13 @@ mod tests {
             )
         };
 
-        let owner = DefaultNodeBuilder::default().build(owner).unwrap();
-        let member_a = DefaultNodeBuilder::default().build(member_a).unwrap();
-        let member_c = DefaultNodeBuilder::default().build(member_c).unwrap();
-        let clients = async move { futures::future::try_join3(owner, member_a, member_c).await };
-        let task = async move {
-            tokio::select! {
-                res = server => Err(NetworkError::msg(format!("server ended: {:?}", res.map(|_| ())))),
-                res = clients => res.map(|_| ()),
-            }
-        };
-        let result = tokio::time::timeout(Duration::from_secs(240), task)
-            .await
-            .expect("test timed out");
-        assert!(result.is_ok(), "test failed: {result:?}");
+        run_trio(
+            server,
+            DefaultNodeBuilder::default().build(owner).unwrap(),
+            DefaultNodeBuilder::default().build(member_a).unwrap(),
+            DefaultNodeBuilder::default().build(member_c).unwrap(),
+        )
+        .await;
 
         let saw = shared.owner_saw.lock().unwrap().clone();
         log::warn!(target: "citadel", "the owner saw from A: {saw:?}");

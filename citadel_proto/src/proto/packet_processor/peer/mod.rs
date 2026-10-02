@@ -33,6 +33,8 @@ use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
 
 pub mod group_broadcast;
+pub(crate) mod group_commit_ack;
+mod group_commit_relay;
 pub mod peer_cmd_packet;
 pub mod server;
 pub mod signal_handler_interface;

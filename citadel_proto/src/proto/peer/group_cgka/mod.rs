@@ -12,6 +12,7 @@
 //! machine unit-testable and avoids holding the `state_container` lock across an await.
 
 mod hierarchy;
+pub mod join_queue;
 
 use crate::error::NetworkError;
 use citadel_io::{error, ErrorCode};
@@ -43,6 +44,8 @@ pub struct GroupCgkaState {
     /// Owner-only (`CommandHierarchy`): cid → assigned command path. Seeded at create and updated by
     /// `promote`/`demote`; a member's sealed assignment is produced when they join (see `add_member`).
     pending_ranks: HashMap<u64, CommandPath>,
+    /// Owner-only: the join in flight and the KeyPackages behind it (see [`join_queue`]).
+    pub joins: join_queue::JoinQueue,
 }
 
 /// A fresh, cryptographically-random 32-byte secret (for leaf re-keys giving post-compromise security).
@@ -83,6 +86,7 @@ impl GroupCgkaState {
             hierarchy,
             hierarchy_self,
             pending_ranks,
+            joins: Default::default(),
         })
     }
 
@@ -105,6 +109,7 @@ impl GroupCgkaState {
                 hierarchy,
                 hierarchy_self: None,
                 pending_ranks: HashMap::new(),
+                joins: Default::default(),
             },
             payload,
         ))
@@ -241,6 +246,12 @@ impl GroupCgkaState {
         }
     }
 
+    /// Whether this is a `Flat` group, where every member can read every message: one it cannot
+    /// decrypt is lost to it, not withheld from it.
+    pub fn is_flat(&self) -> bool {
+        matches!(self.hierarchy, GroupHierarchyMode::Flat)
+    }
+
     /// Decrypt an inbound application message (the counterpart of [`Self::encrypt_message`]).
     pub fn decrypt_message(&self, ciphertext: &[u8]) -> Result<Vec<u8>, NetworkError> {
         if matches!(self.hierarchy, GroupHierarchyMode::Flat) {
@@ -356,8 +367,8 @@ mod tests {
     }
 
     /// A member that seals a message before the owner's Commit for someone else's join reaches it
-    /// (the Commit is relayed after the Welcome, and a sending member cannot know one is in
-    /// flight) sends at the epoch it and the owner both held. The owner read that epoch; losing
+    /// (a sending member cannot know one is in flight) sends at the epoch it and the owner both
+    /// held. The owner read that epoch; losing
     /// the message because the owner has since advanced is a silent drop in the client handler.
     #[test]
     fn a_message_sealed_before_a_join_commit_is_read_by_the_owner() {
