@@ -78,7 +78,8 @@ impl Default for Reads {
 
 impl Reads {
     /// The owner must have read every message A sent, and B every one A sent after B's channel
-    /// opened; otherwise panic with `lost`, then `context`, then what each one missed.
+    /// opened, and neither may have been handed a message it could not read (`MessageDropped` on
+    /// its channel); otherwise panic with `lost`, then `context`, then what each one missed.
     pub fn assert_nothing_lost(&self, context: &str, lost: &str) {
         let final_idx = self.final_idx.load(Ordering::SeqCst);
         let first_after_join = self.first_after_join.load(Ordering::SeqCst);
@@ -89,18 +90,20 @@ impl Reads {
         );
         let owner_missing = self.owner.missing(0..=final_idx);
         let b_missing = self.b.missing(first_after_join..=final_idx);
+        let owner_dropped = self.owner.dropped.load(Ordering::SeqCst);
+        let b_dropped = self.b.dropped.load(Ordering::SeqCst);
         let report = format!(
             "{context}A sent a-0..=a-{final_idx}; B's channel opened before a-{first_after_join}. \
              Owner missing {} {owner_missing:?} (MessageDropped seen: {}); \
              B missing {} of those sent after its join {b_missing:?} (MessageDropped seen: {})",
             owner_missing.len(),
-            self.owner.dropped.load(Ordering::SeqCst),
+            owner_dropped,
             b_missing.len(),
-            self.b.dropped.load(Ordering::SeqCst),
+            b_dropped,
         );
         log::warn!(target: "citadel", "{report}");
         assert!(
-            owner_missing.is_empty() && b_missing.is_empty(),
+            owner_missing.is_empty() && b_missing.is_empty() && owner_dropped + b_dropped == 0,
             "{lost}: {report}"
         );
     }
