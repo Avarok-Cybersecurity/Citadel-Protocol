@@ -40,6 +40,7 @@ use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
+use crate::proto::session_resume::{self, HeldSessionResume, ResumeToken};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
 use citadel_io::{error, ErrorCode};
@@ -96,6 +97,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
     let header = header.clone();
     let security_level = header.security_level.into();
     let ticket = Ticket::from(header.context_info.get());
+    let adjacent_protocol_version = header.protocol_version.get();
     let time_tracker = session.time_tracker;
 
     let task = async move {
@@ -128,15 +130,24 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                     const REASON: &str = "Ticket mismatch";
                                     return Ok(PrimaryProcessorResult::EndSession(REASON));
                                 }
+                                let presented = session_resume::exchanged_with(
+                                    adjacent_protocol_version,
+                                    stage0_packet.resume_token,
+                                );
                                 // Fully authenticated from here on, and only from here on.
-                                admit_authenticated_login(session, &cnac, ratchet.get_cid())
-                                    .await
-                                    .map(|()| stage0_packet)
+                                admit_authenticated_login(
+                                    session,
+                                    &cnac,
+                                    ratchet.get_cid(),
+                                    presented,
+                                )
+                                .await
+                                .map(|issued| (stage0_packet, issued))
                             }
                             Err(err) => Err(err),
                         };
                     match validated {
-                        Ok(stage0_packet) => {
+                        Ok((stage0_packet, issued_resume_token)) => {
                             // Compute inexpensive values and perform checks before taking the lock
                             let local_uses_file_system = session
                                 .account_manager
@@ -250,6 +261,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                         security_level,
                                         session.account_manager.get_backend_type(),
                                         kernel_ticket,
+                                        session_resume::exchanged_with(
+                                            adjacent_protocol_version,
+                                            Some(issued_resume_token),
+                                        ),
                                     );
 
                                 session.session_cid.set(Some(cid));
@@ -292,6 +307,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 security_level,
                                 session.account_manager.get_backend_type(),
                                 ticket,
+                                None,
                             );
                             return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                         }
@@ -386,7 +402,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 kernel_ticket,
                                 header.session_cid.get(),
                                 session,
-                                header.protocol_version.get(),
+                                adjacent_protocol_version,
                             );
                             let session_security_settings = state_container
                                 .session_security_settings
@@ -407,6 +423,13 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                             }
 
                             log::trace!(target: "citadel", "The login to the server was a success. Welcome Message: {}", message);
+                            session.session_manager.on_connect_success_resume_token(
+                                cid,
+                                session_resume::exchanged_with(
+                                    adjacent_protocol_version,
+                                    payload.resume_token,
+                                ),
+                            );
 
                             let post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;
@@ -595,8 +618,10 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
 /// session key exchange, and the account credentials — into the account's session crypto.
 ///
 /// First, a session the server still holds for the account is displaced if, and only if, the
-/// client asked for it with `force_login` (see
+/// client asked for it with `force_login`, or `presented` shows that session to be this same
+/// client's (see
 /// [`CitadelSessionManager::displace_session_for_authenticated_login`](crate::proto::session_manager::CitadelSessionManager::displace_session_for_authenticated_login)).
+/// Returns the resume token issued to the admitted session.
 /// Then the toolset negotiated at SYN is installed. That install is deferred to here, rather than
 /// done at SYN, because the session crypto is shared with any session of the account the server
 /// already holds, and a SYN on its own proves only possession of a replayable device key.
@@ -604,7 +629,8 @@ async fn admit_authenticated_login<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cnac: &ClientNetworkAccount<R, R>,
     cid: u64,
-) -> Result<(), NetworkError> {
+    presented: Option<ResumeToken>,
+) -> Result<ResumeToken, NetworkError> {
     let (force_login, generated_ratchet) = {
         let state_container = inner_state!(session.state_container);
         let connect_mode = state_container
@@ -621,7 +647,7 @@ async fn admit_authenticated_login<R: Ratchet, T: PlatformOps>(
 
     session
         .session_manager
-        .displace_session_for_authenticated_login(cid, force_login)
+        .displace_session_for_authenticated_login(cid, force_login, presented.as_ref())
         .await
         .map_err(NetworkError::msg)?;
 
@@ -629,5 +655,9 @@ async fn admit_authenticated_login<R: Ratchet, T: PlatformOps>(
         cnac.get_static_auxiliary_ratchet(),
         generated_ratchet,
     )));
-    Ok(())
+    let issued = ResumeToken::generate();
+    session
+        .resume
+        .set(HeldSessionResume::admitted(issued, presented));
+    Ok(issued)
 }

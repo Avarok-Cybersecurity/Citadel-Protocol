@@ -49,6 +49,7 @@ use crate::prelude::Ticket;
 use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use crate::proto::session_manager::{CidAdmission, SESSION_ALREADY_CONNECTED};
+use crate::proto::session_resume;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 
 /// Handles preconnect packets. Handles the NAT traversal
@@ -132,10 +133,14 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             connect_mode,
                         )) => {
                             // A connected session holds this account. Going on requires the
-                            // client's own, authenticated request to displace it; even then it is
+                            // client's own, authenticated request to displace it, or a client that
+                            // may prove the session its own (session_resume); either way it is
                             // displaced only at connect STAGE0, once the credentials check out.
                             if admission == CidAdmission::HeldByConnectedSession
-                                && !connect_mode.force_login()
+                                && session_resume::refused_at_syn(
+                                    adjacent_proto_version,
+                                    connect_mode.force_login(),
+                                )
                             {
                                 session
                                     .session_manager
@@ -566,13 +571,20 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                 if state_container.pre_connect_state.last_stage
                     == packet_flags::cmd::aux::do_preconnect::SUCCESS
                 {
+                    let server_protocol_version = header.protocol_version.get();
                     let (header, payload, _, _) = packet.decompose();
                     if let Some((_, _, ratchet)) = validation::aead::validate(hr, &header, payload)
                     {
                         state_container.pre_connect_state.success = true;
                         std::mem::drop(state_container);
                         // now, begin stage 0 connect
-                        begin_connect_process(session, &ratchet, security_level, ticket)
+                        begin_connect_process(
+                            session,
+                            &ratchet,
+                            security_level,
+                            ticket,
+                            server_protocol_version,
+                        )
                     } else {
                         log::error!(target: "citadel", "Unable to validate success_ack packet. Dropping");
                         Ok(PrimaryProcessorResult::Void)
@@ -612,8 +624,13 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
     ratchet: &R,
     security_level: SecurityLevel,
     ticket: Ticket,
+    server_protocol_version: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     // At this point, the session keys have already been re-established. We just need to begin the login stage
+    let resume_token = session_resume::exchanged_with(
+        server_protocol_version,
+        session.session_manager.resume_token(ratchet.get_cid()),
+    );
     let mut state_container = inner_mut_state!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
     let proposed_credentials = return_if_none!(
@@ -628,6 +645,7 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
         security_level,
         session.account_manager.get_backend_type(),
         ticket,
+        resume_token,
     )?;
     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::STAGE1;
     // we now store the pqc temporarily in the state container

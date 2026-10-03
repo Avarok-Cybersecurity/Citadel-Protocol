@@ -457,6 +457,7 @@ pub(crate) mod do_connect {
     use crate::prelude::Ticket;
     use crate::proto::packet::{packet_flags, HdpHeader};
     use crate::proto::peer::peer_layer::MailboxTransfer;
+    use crate::proto::session_resume::ResumeToken;
     use citadel_crypt::ratchets::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::user::MutualPeer;
@@ -470,6 +471,11 @@ pub(crate) mod do_connect {
     pub struct DoConnectStage0Packet {
         pub proposed_credentials: ProposedCredentials,
         pub uses_filesystem: bool,
+        /// The token of the client's previous session (see `proto::session_resume`). Absent
+        /// from an older client's packet, so it defaults; an older server ignores it.
+        #[serde(deserialize_with = "ok_or_default")]
+        #[serde(default)]
+        pub resume_token: Option<ResumeToken>,
     }
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
@@ -481,6 +487,7 @@ pub(crate) mod do_connect {
         security_level: SecurityLevel,
         backend_type: &BackendType,
         ticket: Ticket,
+        resume_token: Option<ResumeToken>,
     ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -503,6 +510,7 @@ pub(crate) mod do_connect {
         let payload = DoConnectStage0Packet {
             proposed_credentials,
             uses_filesystem,
+            resume_token,
         };
 
         let mut packet =
@@ -526,6 +534,11 @@ pub(crate) mod do_connect {
         pub post_login_object: citadel_user::external_services::ServicesObject,
         #[serde(borrow)]
         pub message: &'a [u8],
+        /// The token this session was issued (see `proto::session_resume`). Absent from an
+        /// older server's packet, so it defaults; an older client ignores it.
+        #[serde(deserialize_with = "ok_or_default")]
+        #[serde(default)]
+        pub resume_token: Option<ResumeToken>,
     }
 
     fn ok_or_default<'a, T, D>(deserializer: D) -> Result<T, <D as serde::Deserializer<'a>>::Error>
@@ -548,12 +561,14 @@ pub(crate) mod do_connect {
         security_level: SecurityLevel,
         backend_type: &BackendType,
         ticket: Ticket,
+        resume_token: Option<ResumeToken>,
     ) -> BytesMut {
         let payload = DoConnectFinalStatusPacket {
             mailbox,
             peers,
             message: message.as_ref(),
             post_login_object,
+            resume_token,
         };
 
         let cmd_aux = if success {
