@@ -46,11 +46,11 @@ pub(super) fn fail_login<R: Ratchet, T: PlatformOps>(
     session.session_cid.set(None);
     session.state.set(SessionState::NeedsConnect);
     session.disable_dc_signal();
-    session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
+    session.fail_connect(ConnectFail {
         ticket: session.kernel_ticket.get(),
         cid_opt: Some(cid),
         error_message,
-    }))?;
+    })?;
     Ok(PrimaryProcessorResult::EndSession(
         "Post-quantum sign-in could not complete",
     ))

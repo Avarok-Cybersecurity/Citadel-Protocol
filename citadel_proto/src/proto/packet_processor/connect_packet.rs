@@ -321,7 +321,11 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 ticket,
                                 None,
                             );
-                            return Ok(PrimaryProcessorResult::ReplyToSender(packet));
+                            session.release_provisional_slot();
+                            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+                                packet,
+                                "Login refused",
+                            ));
                         }
                     }
                 };
@@ -371,11 +375,11 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     session.state.set(SessionState::NeedsConnect);
                     session.disable_dc_signal();
 
-                    session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
+                    session.fail_connect(ConnectFail {
                         ticket: kernel_ticket,
                         cid_opt: Some(cid),
                         error_message: message,
-                    }))?;
+                    })?;
                     Ok(PrimaryProcessorResult::EndSession(
                         "Failed connecting. Try again",
                     ))

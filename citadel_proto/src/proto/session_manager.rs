@@ -95,15 +95,39 @@ define_outer_struct_wrapper!(CitadelSessionManager, HdpSessionManagerInner, <R: 
 /// for a server reached by WebSocket URL: every server behind an HTTP edge shares the edge's
 /// address, and one client may be connecting to several of them at once (one agent, two hosted
 /// workspaces). Such a connection is keyed by its URL as well; every other one by address alone.
+///
+/// A client's attempt also names its account. One node may sign two accounts in to one server
+/// at once (two windows, two accounts, one agent), and keyed by the server alone the second was
+/// refused while the first was in flight. Two attempts for the same account still collide. A
+/// server's entry names no account: its key's address is the client's, unique per connection.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ProvisionalKey {
     pub addr: SocketAddr,
     pub endpoint: Option<WebSocketEndpoint>,
+    pub account: Option<String>,
 }
 
 impl ProvisionalKey {
+    /// A server's key for an incoming connection.
     pub fn new(addr: SocketAddr, endpoint: Option<WebSocketEndpoint>) -> Self {
-        Self { addr, endpoint }
+        Self {
+            addr,
+            endpoint,
+            account: None,
+        }
+    }
+
+    /// A client's key for `account`'s registration or sign-in.
+    pub fn for_account(
+        addr: SocketAddr,
+        endpoint: Option<WebSocketEndpoint>,
+        account: String,
+    ) -> Self {
+        Self {
+            addr,
+            endpoint,
+            account: Some(account),
+        }
     }
 }
 
@@ -570,7 +594,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     let stun_servers = this.stun_servers.clone();
                     let turn_servers = this.turn_servers.clone();
 
-                    let provisional_key = ProvisionalKey::new(peer_addr, endpoint);
+                    let provisional_key = ProvisionalKey::for_account(
+                        peer_addr,
+                        endpoint,
+                        proposed_credentials.username().to_string(),
+                    );
                     if let Some((init_time, ..)) =
                         this.provisional_connections.get(&provisional_key)
                     {

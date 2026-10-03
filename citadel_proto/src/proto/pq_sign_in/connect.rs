@@ -94,7 +94,11 @@ pub(crate) fn on_auth_start<R: Ratchet, T: PlatformOps>(
         Err(err) => {
             log::warn!(target: "citadel", "Refusing AUTH_START: {err}");
             let packet = failure(session, ratchet, err, now, security_level, ticket);
-            return Ok(PrimaryProcessorResult::ReplyToSender(packet));
+            session.release_provisional_slot();
+            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+                packet,
+                "Login refused",
+            ));
         }
     };
     let aux = packet_flags::cmd::aux::do_connect::AUTH_CHALLENGE;
