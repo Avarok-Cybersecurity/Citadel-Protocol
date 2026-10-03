@@ -481,6 +481,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                 peer_addr,
                                 proposed_credentials,
                                 endpoint,
+                                _,
                             ) => (
                                 *peer_addr,
                                 None,

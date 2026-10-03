@@ -40,6 +40,7 @@ use crate::proto::node_result::{ConnectFail, ConnectSuccess, MailboxDelivery};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
+use crate::proto::pq_sign_in;
 use crate::proto::session_resume::{self, HeldSessionResume, ResumeToken};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
@@ -123,9 +124,8 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                 }
                 let task = {
                     let validated =
-                        match validation::do_connect::validate_stage0_packet(&cnac, &payload).await
-                        {
-                            Ok(stage0_packet) => {
+                        match pq_sign_in::admit::validate_stage0(session, &cnac, &payload).await {
+                            Ok((stage0_packet, admission)) => {
                                 if session.kernel_ticket.get() != ticket {
                                     const REASON: &str = "Ticket mismatch";
                                     return Ok(PrimaryProcessorResult::EndSession(REASON));
@@ -142,12 +142,12 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                     presented,
                                 )
                                 .await
-                                .map(|issued| (stage0_packet, issued))
+                                .map(|issued| (stage0_packet, issued, admission))
                             }
                             Err(err) => Err(err),
                         };
                     match validated {
-                        Ok((stage0_packet, issued_resume_token)) => {
+                        Ok((stage0_packet, issued_resume_token, admission)) => {
                             // Compute inexpensive values and perform checks before taking the lock
                             let local_uses_file_system = session
                                 .account_manager
@@ -208,6 +208,9 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                         state_container.pre_connect_state.last_stage,
                                         packet_flags::cmd::aux::do_preconnect::SUCCESS,
                                     );
+                                }
+                                if let Some(key) = &admission.session_key {
+                                    pq_sign_in::mix_session_key(&mut state_container, key)?;
                                 }
                                 let channel = state_container.init_new_c2s_virtual_connection(
                                     &cnac,
@@ -317,6 +320,29 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                 task.await
             }
 
+            packet_flags::cmd::aux::do_connect::AUTH_START if session.is_server => {
+                pq_sign_in::connect::on_auth_start(
+                    session,
+                    &cnac,
+                    &ratchet,
+                    &payload,
+                    security_level,
+                    ticket,
+                )
+            }
+
+            packet_flags::cmd::aux::do_connect::AUTH_CHALLENGE if !session.is_server => {
+                pq_sign_in::connect::on_auth_challenge(
+                    session,
+                    &ratchet,
+                    &payload,
+                    adjacent_protocol_version,
+                    security_level,
+                    ticket,
+                )
+                .await
+            }
+
             packet_flags::cmd::aux::do_connect::FAILURE => {
                 log::trace!(target: "citadel", "STAGE FAILURE CONNECT PACKET");
                 let kernel_ticket = session.kernel_ticket.get();
@@ -397,6 +423,9 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 log::warn!(target: "citadel", "[udp-oneshot] initiator: udp_mode=Enabled but no channel receiver at connect SUCCESS");
                             }
 
+                            if let Some(key) = state_container.connect_state.pq.session_key.take() {
+                                pq_sign_in::mix_session_key(&mut state_container, &key)?;
+                            }
                             let channel = state_container.init_new_c2s_virtual_connection(
                                 &cnac,
                                 kernel_ticket,

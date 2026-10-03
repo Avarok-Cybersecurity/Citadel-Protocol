@@ -42,6 +42,7 @@ pub struct RegisterState<R: Ratchet> {
     pub(crate) created_ratchet: Option<R>,
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) transient_mode: Option<bool>,
+    pub(crate) pq: crate::proto::pq_sign_in::state::PqRegisterState,
 }
 
 impl<R: Ratchet> Default for RegisterState<R> {
@@ -52,6 +53,7 @@ impl<R: Ratchet> Default for RegisterState<R> {
             created_ratchet: None,
             last_packet_time: None,
             transient_mode: None,
+            pq: Default::default(),
         }
     }
 }

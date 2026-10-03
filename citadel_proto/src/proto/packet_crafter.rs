@@ -476,10 +476,15 @@ pub(crate) mod do_connect {
         #[serde(deserialize_with = "ok_or_default")]
         #[serde(default)]
         pub resume_token: Option<ResumeToken>,
+        /// The answer to a post-quantum `AUTH_CHALLENGE` (see `proto::pq_sign_in`). Sent only to a
+        /// server at `PQ_SIGN_IN_SINCE` or later; absent from an older client's packet.
+        #[serde(deserialize_with = "ok_or_default")]
+        #[serde(default)]
+        pub pq_proof: Option<citadel_user::auth::pq::messages::LoginProof>,
     }
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
-    #[allow(unused_results)]
+    #[allow(unused_results, clippy::too_many_arguments)]
     pub(crate) fn craft_stage0_packet<R: Ratchet>(
         ratchet: &R,
         proposed_credentials: ProposedCredentials,
@@ -488,6 +493,7 @@ pub(crate) mod do_connect {
         backend_type: &BackendType,
         ticket: Ticket,
         resume_token: Option<ResumeToken>,
+        pq_proof: Option<citadel_user::auth::pq::messages::LoginProof>,
     ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -511,6 +517,7 @@ pub(crate) mod do_connect {
             proposed_credentials,
             uses_filesystem,
             resume_token,
+            pq_proof,
         };
 
         let mut packet =
@@ -541,7 +548,9 @@ pub(crate) mod do_connect {
         pub resume_token: Option<ResumeToken>,
     }
 
-    fn ok_or_default<'a, T, D>(deserializer: D) -> Result<T, <D as serde::Deserializer<'a>>::Error>
+    pub(crate) fn ok_or_default<'a, T, D>(
+        deserializer: D,
+    ) -> Result<T, <D as serde::Deserializer<'a>>::Error>
     where
         T: Deserialize<'a> + Default,
         D: serde::Deserializer<'a>,
@@ -682,6 +691,7 @@ pub(crate) mod do_register {
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U128, U32, U64};
 
+    use super::do_connect::ok_or_default;
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::prelude::Ticket;
     use crate::proto::packet::{packet_flags, HdpHeader};
@@ -775,6 +785,11 @@ pub(crate) mod do_register {
     #[derive(Serialize, Deserialize)]
     pub struct DoRegisterStage2Packet {
         pub credentials: ProposedCredentials,
+        /// The factors of a post-quantum registration (see `proto::pq_sign_in`). Sent only to a
+        /// server at `PQ_SIGN_IN_SINCE` or later; absent from an older client's packet.
+        #[serde(deserialize_with = "ok_or_default")]
+        #[serde(default)]
+        pub pq: Option<citadel_user::auth::pq::messages::RegFinish>,
     }
 
     /// Alice sends this. The stage 3 packet contains the encrypted username, password, and full name of the registering client
@@ -784,6 +799,7 @@ pub(crate) mod do_register {
         algorithm: u8,
         timestamp: i64,
         credentials: &ProposedCredentials,
+        pq: Option<citadel_user::auth::pq::messages::RegFinish>,
         security_level: SecurityLevel,
         ticket: Ticket,
     ) -> Result<BytesMut, NetworkError> {
@@ -806,6 +822,7 @@ pub(crate) mod do_register {
         let mut packet = BytesMut::with_capacity(total_len);
         let payload = DoRegisterStage2Packet {
             credentials: credentials.clone(),
+            pq,
         };
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();

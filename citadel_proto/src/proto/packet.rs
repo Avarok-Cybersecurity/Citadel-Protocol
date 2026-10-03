@@ -85,12 +85,20 @@ pub(crate) mod packet_flags {
                 pub(crate) const SUCCESS: u8 = 3;
                 pub(crate) const FAILURE: u8 = 4;
                 pub(crate) const SUCCESS_ACK: u8 = 5;
+                /// Client → server, before STAGE0: a post-quantum `LoginStart`.
+                pub(crate) const AUTH_START: u8 = 6;
+                /// Server → client: the `LoginChallenge` STAGE0 then answers.
+                pub(crate) const AUTH_CHALLENGE: u8 = 7;
             }
 
             pub(crate) mod do_register {
                 pub(crate) const STAGE0: u8 = 0;
                 pub(crate) const STAGE1: u8 = 1;
                 pub(crate) const STAGE2: u8 = 2;
+                /// Client → server, before STAGE2: a post-quantum `RegStart`.
+                pub(crate) const PQ_START: u8 = 3;
+                /// Server → client: the `RegStartReply` STAGE2 then answers.
+                pub(crate) const PQ_REPLY: u8 = 4;
                 pub(crate) const SUCCESS: u8 = 5;
                 pub(crate) const FAILURE: u8 = 6;
             }

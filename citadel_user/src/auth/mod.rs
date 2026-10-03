@@ -33,10 +33,14 @@
 
 #![allow(missing_docs, dead_code)]
 use citadel_crypt::argon::argon_container::ArgonContainerType;
+use pq::record::PqAuthRecord;
 use serde::{Deserialize, Serialize};
 
 /// For handling misc requirements
 pub mod proposed_credentials;
+
+/// Post-quantum sign-in: ML-KEM factors, the OPRF-hardened password, and their management.
+pub mod pq;
 
 #[derive(Serialize, Deserialize)]
 /// For storing data inside the CNACs. Both need unique usernames b/c of the unique username requirement on the SQL backend
@@ -50,6 +54,21 @@ pub enum DeclaredAuthenticationMode {
         username: String,
         full_name: String,
     },
+    /// Signs in with post-quantum factors (see [`pq`]). Appended last, so a record written before
+    /// it existed still deserializes.
+    PostQuantum {
+        username: String,
+        full_name: String,
+        side: PqAuthSide,
+    },
+}
+
+/// What each side of a post-quantum account keeps. The client keeps nothing secret: every factor
+/// is rederived at sign-in.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum PqAuthSide {
+    Client,
+    Server(Box<PqAuthRecord>),
 }
 
 impl DeclaredAuthenticationMode {
@@ -57,6 +76,7 @@ impl DeclaredAuthenticationMode {
         match self {
             Self::Argon { username, .. } => username.as_str(),
             Self::Transient { username, .. } => username.as_str(),
+            Self::PostQuantum { username, .. } => username.as_str(),
         }
     }
 
@@ -64,20 +84,32 @@ impl DeclaredAuthenticationMode {
         match self {
             Self::Argon { full_name, .. } => full_name.as_str(),
             Self::Transient { full_name, .. } => full_name.as_str(),
+            Self::PostQuantum { full_name, .. } => full_name.as_str(),
         }
     }
 
     pub fn argon_container(&self) -> Option<&ArgonContainerType> {
         match self {
             Self::Argon { argon, .. } => Some(argon),
-            Self::Transient { .. } => None,
+            Self::Transient { .. } | Self::PostQuantum { .. } => None,
         }
     }
 
     pub fn is_transient(&self) -> bool {
         match self {
-            Self::Argon { .. } => false,
+            Self::Argon { .. } | Self::PostQuantum { .. } => false,
             Self::Transient { .. } => true,
+        }
+    }
+
+    /// The server's post-quantum record, if this is one.
+    pub fn pq_record(&self) -> Option<&PqAuthRecord> {
+        match self {
+            Self::PostQuantum {
+                side: PqAuthSide::Server(record),
+                ..
+            } => Some(record),
+            _ => None,
         }
     }
 }

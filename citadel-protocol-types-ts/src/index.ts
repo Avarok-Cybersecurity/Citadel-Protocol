@@ -43,3 +43,9 @@ export * from './Error';
 
 // Runtime helpers (allValues, defaults)
 export * from './helpers';
+export * from './FactorKind';
+export * from './SessionScope';
+export * from './SignInCredential';
+export * from './SignInManagementOp';
+export * from './SignInManagementOutcome';
+export * from './SignInPolicy';

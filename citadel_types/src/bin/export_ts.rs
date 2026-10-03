@@ -1,4 +1,6 @@
 #[cfg(feature = "typescript")]
+use citadel_types::auth::*;
+#[cfg(feature = "typescript")]
 use citadel_types::errors::*;
 #[cfg(feature = "typescript")]
 use citadel_types::prelude::*;
@@ -55,6 +57,14 @@ fn export_types() -> Result<(), Box<dyn std::error::Error>> {
     SecurityLevel::export()?;
     HeaderObfuscatorSettings::export()?;
     PreSharedKey::export()?;
+
+    // Export sign-in types
+    SignInPolicy::export()?;
+    FactorKind::export()?;
+    SignInCredential::export()?;
+    SessionScope::export()?;
+    SignInManagementOp::export()?;
+    SignInManagementOutcome::export()?;
 
     // Export error types
     Error::export()?;

@@ -19,6 +19,7 @@
 //! let settings = ServerMiscSettings {
 //!     allow_transient_connections: false,
 //!     credential_requirements: CredentialRequirements::default(),
+//!     pq_sign_in: None,
 //! };
 //!
 //! // Or use default settings
@@ -39,6 +40,7 @@
 //! * `AccountManager` - Uses these settings for account creation and authentication
 //! * `HyperNodeAccount` - Server-side account management
 
+use crate::auth::pq::server::PqAuthServerSettings;
 use crate::credentials::CredentialRequirements;
 
 /// Miscellaneous settings for a node serving connections
@@ -48,6 +50,10 @@ pub struct ServerMiscSettings {
     pub allow_transient_connections: bool,
     /// Enforces specific requirements on credentials
     pub credential_requirements: CredentialRequirements,
+    /// Post-quantum sign-in: the tenant's OPRF seed and the Argon2id parameters for new password
+    /// factors. `None` keeps this server on the legacy Argon2 path only: it refuses post-quantum
+    /// registrations (clients fall back) and upgrades no legacy account.
+    pub pq_sign_in: Option<PqAuthServerSettings>,
 }
 
 impl Default for ServerMiscSettings {
@@ -55,6 +61,7 @@ impl Default for ServerMiscSettings {
         Self {
             allow_transient_connections: true,
             credential_requirements: Default::default(),
+            pq_sign_in: None,
         }
     }
 }
