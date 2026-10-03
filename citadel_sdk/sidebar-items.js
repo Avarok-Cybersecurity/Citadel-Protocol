@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["async_trait"],"macro":[["impl_remote",1]],"mod":["backend_kv_store","fs","media","prefabs","prelude","remote_ext","responses"]};
