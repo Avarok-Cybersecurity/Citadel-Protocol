@@ -130,6 +130,7 @@ fn stage0_interoperates_with_an_older_node_both_ways() {
         proposed_credentials: ProposedCredentials::transient("alice"),
         uses_filesystem: true,
         resume_token: Some(ResumeToken::generate()),
+        pq_proof: None,
     };
     let to_old = current.serialize_to_vector().unwrap();
     assert!(

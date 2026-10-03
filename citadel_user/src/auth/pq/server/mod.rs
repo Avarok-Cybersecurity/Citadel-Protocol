@@ -1,0 +1,11 @@
+//! The server's side of post-quantum sign-in. Nothing here stretches a password: the server
+//! evaluates the OPRF, encapsulates, and compares tags.
+
+mod decoy;
+mod login;
+mod register;
+mod settings;
+
+pub use login::{build_login_challenge, AccountAuth, Expectation, PendingLogin, VerifiedLogin};
+pub use register::{registration_reply, PendingRegistration};
+pub use settings::PqAuthServerSettings;

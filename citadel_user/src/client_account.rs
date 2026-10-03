@@ -110,6 +110,10 @@ use citadel_types::user::MutualPeer;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
+#[path = "client_account_auth.rs"]
+mod auth;
+pub use auth::PqAccountState;
+
 /// The default index for denoting a HyperLAN connection (relative to THIS cnac)
 pub const HYPERLAN_IDX: u64 = 0;
 
@@ -158,8 +162,9 @@ struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = Mon
     pub adjacent_nac: ConnectionInfo,
     #[serde(bound = "")]
     pub crypto_session_state: Option<PeerSessionCrypto<R>>,
-    /// For storing critical ID information for this CNAC
-    pub auth_store: DeclaredAuthenticationMode,
+    /// For storing critical ID information for this CNAC. Behind a lock because a post-quantum
+    /// record changes after creation (a legacy upgrade, a used recovery code, a managed factor).
+    pub auth_store: RwLock<DeclaredAuthenticationMode>,
     peer_state: RwLock<AccountState>,
     // For future use cases
     _phantom: PhantomData<Fcm>,
@@ -194,7 +199,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             inner: Arc::new(ClientNetworkAccountInner {
                 creation_date,
                 cid: valid_cid,
-                auth_store,
+                auth_store: RwLock::new(auth_store),
                 adjacent_nac,
                 is_personal,
                 is_transient,
@@ -226,8 +231,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         self.write().client_rtdb_config = Some(cfg);
     }
 
-    pub fn auth_store(&self) -> &DeclaredAuthenticationMode {
-        &self.inner.auth_store
+    pub fn auth_store(&self) -> RwLockReadGuard<'_, DeclaredAuthenticationMode> {
+        self.inner.auth_store.read()
     }
 
     /// Returns true if the NAC is a personal type
@@ -256,7 +261,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
     /// Returns the username of this client
     pub fn get_username(&self) -> String {
-        self.inner.auth_store.username().to_string()
+        self.inner.auth_store.read().username().to_string()
     }
 
     /// Checks the credentials for validity. Used for the login process.
@@ -265,15 +270,22 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         creds: ProposedCredentials,
     ) -> Result<(), AccountError> {
         let argon_container = {
-            let username = self.inner.auth_store.username();
+            let auth_store = self.inner.auth_store.read();
+            let username = auth_store.username();
 
             if !creds.compare_username(username.as_bytes()) {
                 return Err(AccountError::account_invalid_username());
             }
 
-            match &self.inner.auth_store {
+            match &*auth_store {
                 DeclaredAuthenticationMode::Argon { argon, .. } => argon.clone(),
                 DeclaredAuthenticationMode::Transient { .. } => return Ok(()),
+                // Its factors are proven by the post-quantum exchange, never by a password hash.
+                DeclaredAuthenticationMode::PostQuantum { .. } => {
+                    return Err(citadel_io::error!(
+                        citadel_io::ErrorCode::PqSignInLegacyRefused
+                    ))
+                }
             }
         };
 
@@ -286,7 +298,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         password_raw: SecBuffer,
     ) -> Result<ProposedCredentials, AccountError> {
         let (settings, full_name, username) = {
-            match &self.inner.auth_store {
+            match &*self.inner.auth_store.read() {
                 DeclaredAuthenticationMode::Argon {
                     argon,
                     full_name,
@@ -298,6 +310,18 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                 ),
                 DeclaredAuthenticationMode::Transient { username, .. } => {
                     return Ok(ProposedCredentials::transient(username.clone()))
+                }
+                // Nothing to hash: the password reaches the server only as a factor proof. The
+                // name is still sent, as the account's identifier.
+                DeclaredAuthenticationMode::PostQuantum {
+                    username,
+                    full_name,
+                    ..
+                } => {
+                    return Ok(ProposedCredentials::post_quantum(
+                        username.clone(),
+                        full_name.clone(),
+                    ))
                 }
             }
         };
@@ -401,8 +425,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let this_cid = self.inner.cid;
         let other_cid = other_orig.inner.cid;
 
-        let this_username = self.inner.auth_store.username().to_string();
-        let other_username = other_orig.inner.auth_store.username().to_string();
+        let this_username = self.inner.auth_store.read().username().to_string();
+        let other_username = other_orig.inner.auth_store.read().username().to_string();
 
         let mut this = self.write();
         let mut other = other_orig.write();
@@ -516,8 +540,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub(crate) fn get_metadata(&self) -> CNACMetadata {
         let read = &self.inner;
         let cid = read.cid;
-        let username = read.auth_store.username().to_string();
-        let full_name = read.auth_store.full_name().to_string();
+        let auth_store = read.auth_store.read();
+        let username = auth_store.username().to_string();
+        let full_name = auth_store.full_name().to_string();
         let is_personal = read.is_personal;
         let creation_date = read.creation_date.clone();
         CNACMetadata {
@@ -553,12 +578,13 @@ impl<R: Ratchet, Fcm: Ratchet> std::fmt::Debug for ClientNetworkAccount<R, Fcm> 
 
 impl<R: Ratchet, Fcm: Ratchet> std::fmt::Display for ClientNetworkAccount<R, Fcm> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let auth_store = self.inner.auth_store.read();
         writeln!(
             f,
             "{}\t\t{}\t\t{}\t\t{}",
             self.inner.cid,
-            self.inner.auth_store.username(),
-            self.inner.auth_store.full_name(),
+            auth_store.username(),
+            auth_store.full_name(),
             self.inner.is_personal
         )
     }

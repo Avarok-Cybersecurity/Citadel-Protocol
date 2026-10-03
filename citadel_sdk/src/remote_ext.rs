@@ -252,6 +252,23 @@ async fn await_registration<R: Ratchet, Rem: Remote<R>>(
     ))
 }
 
+/// The legacy credentials (for a server below 0.12) and the password a post-quantum registration
+/// uses, trimmed the same way the legacy credentials trim it.
+async fn registration_credentials<
+    P: Into<String> + Send,
+    V: Into<String> + Send,
+    K: Into<SecBuffer>,
+>(
+    full_name: P,
+    username: V,
+    proposed_password: K,
+) -> Result<(ProposedCredentials, SecBuffer), NetworkError> {
+    let password: SecBuffer = proposed_password.into();
+    let trimmed = ProposedCredentials::registration_password(&password);
+    let creds = ProposedCredentials::new_register(full_name, username, password).await?;
+    Ok((creds, trimmed))
+}
+
 #[async_trait]
 /// Endows the [NodeRemote] with additional functions
 pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
@@ -271,9 +288,8 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
     ) -> Result<RegisterSuccess, NetworkError> {
-        let creds =
-            ProposedCredentials::new_register(full_name, username, proposed_password.into())
-                .await?;
+        let (creds, password) =
+            registration_credentials(full_name, username, proposed_password).await?;
         let register_request = NodeRequest::RegisterToHypernode(RegisterToHypernode {
             remote_addr: addr.to_socket_addrs()?.next().ok_or(citadel_io::error!(
                 citadel_io::ErrorCode::RemoteInvalidSocketAddr
@@ -282,6 +298,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             static_security_settings: default_security_settings,
             session_password: server_password.unwrap_or_default(),
             endpoint: None,
+            password: Some(password),
         });
 
         await_registration(self, register_request).await
@@ -306,15 +323,15 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         server_password: Option<PreSharedKey>,
     ) -> Result<RegisterSuccess, NetworkError> {
         let remote_addr = endpoint.resolve().await?;
-        let creds =
-            ProposedCredentials::new_register(full_name, username, proposed_password.into())
-                .await?;
+        let (creds, password) =
+            registration_credentials(full_name, username, proposed_password).await?;
         let register_request = NodeRequest::RegisterToHypernode(RegisterToHypernode {
             remote_addr,
             proposed_credentials: creds,
             static_security_settings: default_security_settings,
             session_password: server_password.unwrap_or_default(),
             endpoint: Some(endpoint),
+            password: Some(password),
         });
 
         await_registration(self, register_request).await

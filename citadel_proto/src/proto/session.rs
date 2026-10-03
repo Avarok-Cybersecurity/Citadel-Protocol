@@ -334,11 +334,14 @@ pub enum SessionState {
 #[allow(variant_size_differences)]
 pub enum HdpSessionInitMode {
     Connect(AuthenticationRequest),
-    /// The optional endpoint is the server's WebSocket URL (see `RegisterToHypernode::endpoint`).
+    /// The optional endpoint is the server's WebSocket URL (see `RegisterToHypernode::endpoint`),
+    /// and the optional password is for a post-quantum registration (see
+    /// `RegisterToHypernode::password`).
     Register(
         SocketAddr,
         ProposedCredentials,
         Option<citadel_io::WebSocketEndpoint>,
+        Option<SecBuffer>,
     ),
 }
 
@@ -421,7 +424,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .as_ref()
             .map(|r| &r.init_mode)
         {
-            Some(HdpSessionInitMode::Register(_, _, endpoint)) => endpoint.clone(),
+            Some(HdpSessionInitMode::Register(_, _, endpoint, _)) => endpoint.clone(),
             _ => None,
         };
 
@@ -555,11 +558,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             disconnect_tracker,
         };
 
-        if let Some(proposed_credentials) = session_init_params
-            .client_only_settings
-            .map(|r| r.proposed_credentials)
-        {
-            inner.store_proposed_credentials(proposed_credentials);
+        if let Some(client_only_settings) = session_init_params.client_only_settings {
+            crate::proto::pq_sign_in::store_offered(
+                &mut inner_mut_state!(inner.state_container),
+                &client_only_settings.init_mode,
+            );
+            inner.store_proposed_credentials(client_only_settings.proposed_credentials);
         }
 
         Ok((stopper_tx, Self::from(inner)))

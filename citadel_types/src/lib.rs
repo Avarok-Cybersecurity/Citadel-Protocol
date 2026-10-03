@@ -64,6 +64,9 @@ pub mod prelude {
     pub use crate::user::*;
 }
 
+/// Post-quantum sign-in types: policies, factors and their management.
+pub mod auth;
+
 /// Cryptographic types and utilities.
 pub mod crypto;
 

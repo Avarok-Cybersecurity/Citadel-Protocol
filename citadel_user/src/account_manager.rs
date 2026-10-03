@@ -99,6 +99,9 @@ use crate::external_services::{ServicesConfig, ServicesHandler};
 use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
+
+#[path = "account_manager_pq.rs"]
+mod pq;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
 use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use citadel_crypt::ratchets::mono::MonoRatchet;
@@ -126,6 +129,9 @@ pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatche
     /// concurrent registrations of the same username cannot both pass the existence check and race
     /// to save (last-writer-wins / duplicate account). Shared across clones via `Arc`.
     registration_lock: std::sync::Arc<citadel_io::tokio::sync::Mutex<()>>,
+    /// Serializes every read-modify-write of a post-quantum record, so a recovery code cannot be
+    /// spent twice by two logins that both verified it.
+    pq_record_lock: std::sync::Arc<citadel_io::tokio::sync::Mutex<()>>,
 }
 
 impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
@@ -209,6 +215,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             node_argon_settings: server_argon_settings.unwrap_or_default().into(),
             server_misc_settings: server_misc_settings.unwrap_or_default(),
             registration_lock: std::sync::Arc::new(citadel_io::tokio::sync::Mutex::new(())),
+            pq_record_lock: std::sync::Arc::new(citadel_io::tokio::sync::Mutex::new(())),
         };
 
         // Allow the local node to use the backend to store arbitrary data
@@ -243,7 +250,19 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let auth_store = creds
             .derive_server_container(&self.node_argon_settings, self.get_misc_settings())
             .await?;
+        self.create_impersonal_account(reserved_cid, conn_info, auth_store, session_crypto_state)
+            .await
+    }
 
+    /// Checks the names, then saves a new impersonal account, unless the username is taken. Shared
+    /// by the legacy and the post-quantum registration paths.
+    pub(crate) async fn create_impersonal_account(
+        &self,
+        reserved_cid: u64,
+        conn_info: ConnectionInfo,
+        auth_store: DeclaredAuthenticationMode,
+        session_crypto_state: PeerSessionCrypto<R>,
+    ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         self.server_misc_settings
             .credential_requirements
             .check::<_, &str, _>(auth_store.username(), None, auth_store.full_name())?;

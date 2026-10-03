@@ -487,12 +487,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     static_security_settings: security_settings,
                     session_password,
                     endpoint,
+                    password,
                 }) => {
                     match session_manager
                         .initiate_connection(
                             local_node_type,
                             local_nat_type.clone(),
-                            HdpSessionInitMode::Register(peer_addr, credentials, endpoint),
+                            HdpSessionInitMode::Register(
+                                peer_addr,
+                                credentials,
+                                endpoint,
+                                password,
+                            ),
                             ticket_id,
                             None,
                             listener_underlying_proto.clone(),

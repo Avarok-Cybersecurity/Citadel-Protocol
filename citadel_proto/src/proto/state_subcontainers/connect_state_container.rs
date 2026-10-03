@@ -36,6 +36,7 @@ pub struct ConnectState {
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) fail_time: Option<i64>,
     pub(crate) connect_mode: Option<ConnectMode>,
+    pub(crate) pq: crate::proto::pq_sign_in::state::PqConnectState,
 }
 
 impl ConnectState {

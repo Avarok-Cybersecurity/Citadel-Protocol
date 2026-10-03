@@ -633,6 +633,19 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
     );
     let mut state_container = inner_mut_state!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
+    // A server that runs post-quantum sign-in is asked for a challenge first; STAGE0 answers it.
+    if let Some(auth_start) = crate::proto::pq_sign_in::connect::begin(
+        &mut state_container,
+        ratchet,
+        server_protocol_version,
+        timestamp,
+        security_level,
+        ticket,
+    )? {
+        std::mem::drop(state_container);
+        session.state.set(SessionState::ConnectionProcess);
+        return Ok(PrimaryProcessorResult::ReplyToSender(auth_start));
+    }
     let proposed_credentials = return_if_none!(
         state_container.connect_state.proposed_credentials.take(),
         "Proposed creds not loaded"
@@ -646,6 +659,7 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
         session.account_manager.get_backend_type(),
         ticket,
         resume_token,
+        None,
     )?;
     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::STAGE1;
     // we now store the pqc temporarily in the state container

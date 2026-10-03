@@ -92,6 +92,17 @@ impl ProposedCredentials {
         })
     }
 
+    /// The credentials a post-quantum login carries in connect STAGE0: the account's names and no
+    /// password hash. The factors are proven by the exchange that precedes STAGE0.
+    pub fn post_quantum(username: String, full_name: String) -> Self {
+        Self::Enabled {
+            username,
+            password_hashed: SecBuffer::empty(),
+            full_name,
+            clientside_only_registration_settings: None,
+        }
+    }
+
     /// Generates an empty skeleton for authless mode
     pub fn transient<T: Into<String>>(username: T) -> Self {
         Self::Disabled {
@@ -128,6 +139,12 @@ impl ProposedCredentials {
             full_name,
             clientside_only_registration_settings: Some(settings),
         })
+    }
+
+    /// The password exactly as [`Self::new_register`] takes it (trimmed), for a post-quantum
+    /// registration, which turns it into a key rather than hashing it.
+    pub fn registration_password(password_unhashed: &SecBuffer) -> SecBuffer {
+        password_unhashed.as_ref().trim().into()
     }
 
     async fn argon_hash(
@@ -281,13 +298,14 @@ impl ProposedCredentials {
         }
     }
 
-    /// Validates the credentials
+    /// Validates the credentials against a password-protected account's container. Passwordless
+    /// credentials never satisfy one: they are for transient accounts, which are not checked here.
     pub async fn validate_credentials(
         self,
         argon_container: ArgonContainerType,
     ) -> Result<(), AccountError> {
         if self.is_passwordless() {
-            return Ok(());
+            return Err(AccountError::account_invalid_password());
         }
 
         let password_hashed = self.decompose().1;

@@ -60,6 +60,11 @@ serde_millis = { workspace = true, optional = true }
 bincode = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 citadel_types = { workspace = true }
+citadel_pqcrypto = { workspace = true }
+voprf = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+zeroize = { workspace = true, features = ["zeroize_derive", "alloc"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 chrono = { workspace = true, features = ["clock", "wasmbind"] }
@@ -70,10 +75,14 @@ citadel_io = { workspace = true }
 dirs2 = { workspace = true }
 rstest = { workspace = true }
 lazy_static = { workspace = true }
-citadel_pqcrypto = { workspace = true }
 # The host_sql backend's native test host. 0.32 shares libsqlite3-sys 0.30 with sqlx 0.8,
 # which a build with the `sql` feature also links; two versions of it cannot coexist.
 rusqlite = { version = "0.32", features = ["bundled"] }
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "pq_sign_in_server"
+harness = false
 
 [lib]
 doctest = false
