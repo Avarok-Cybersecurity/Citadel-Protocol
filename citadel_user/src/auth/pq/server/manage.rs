@@ -212,7 +212,10 @@ impl Change {
         now_ms: u64,
     ) -> Result<ServerOutcome, AccountError> {
         match self {
-            Self::List => Ok(ServerOutcome::Credentials(record.credentials())),
+            Self::List => Ok(ServerOutcome::Credentials {
+                policy: record.policy,
+                credentials: record.credentials(),
+            }),
             Self::AddKey(key) => {
                 if key.credential_id.is_empty() || key.credential_id.len() > MAX_CREDENTIAL_ID_BYTES
                 {

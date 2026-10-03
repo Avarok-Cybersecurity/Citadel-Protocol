@@ -7,7 +7,7 @@ use super::management_transcript;
 use super::messages::{ManagementBegin, ServerOutcome};
 use super::record::PqAuthRecord;
 use super::seed::PrfOutput;
-use super::server::{begin_management, CommitStep};
+use super::server::{begin_management, Change, CommitStep};
 use super::tests::{password, register, settings, CID};
 use citadel_io::{tokio, ErrorCode};
 use citadel_types::auth::{FactorKind, SessionScope, SignInManagementOp, SignInPolicy};
@@ -57,7 +57,11 @@ async fn a_step_up_with_the_password_lists_and_a_wrong_one_is_refused() {
         Some("pw"),
         None,
     );
-    assert!(matches!(listed.await.unwrap(), ServerOutcome::Credentials(c) if c.len() == 11));
+    assert!(matches!(
+        listed.await.unwrap(),
+        ServerOutcome::Credentials { credentials, policy: SignInPolicy::Password }
+            if credentials.len() == 11
+    ));
     let wrong = change(
         &mut record,
         SessionScope::Full,
@@ -66,6 +70,21 @@ async fn a_step_up_with_the_password_lists_and_a_wrong_one_is_refused() {
         None,
     );
     assert_eq!(code(&wrong.await), Some(ErrorCode::PqSignInFailed));
+}
+
+/// The policy is the account's, not something a client should infer from its factors: an
+/// account with a key may still be `Password`, or `PasswordAndKey`, or `KeyOnly`.
+#[citadel_io::tokio::test]
+async fn a_list_reports_the_policy_the_account_is_judged_by() {
+    let (mut record, _) = register("pw").await;
+    for policy in [SignInPolicy::PasswordAndKey, SignInPolicy::KeyOnly] {
+        record.policy = policy;
+        let listed = Change::List.apply(&mut record, 3).unwrap();
+        assert!(
+            matches!(listed, ServerOutcome::Credentials { policy: p, .. } if p == policy),
+            "{listed:?}"
+        );
+    }
 }
 
 #[citadel_io::tokio::test]

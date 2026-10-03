@@ -80,7 +80,13 @@ impl<R: Ratchet> SignInManagementExt for CitadelClientServerConnection<R> {
             other => return Err(unexpected(other)),
         };
         Ok(match outcome {
-            ServerOutcome::Credentials(list) => SignInManagementOutcome::Credentials(list),
+            ServerOutcome::Credentials {
+                policy,
+                credentials,
+            } => SignInManagementOutcome::Credentials {
+                policy,
+                credentials,
+            },
             ServerOutcome::Added { id } => SignInManagementOutcome::Added { id },
             ServerOutcome::Renamed => SignInManagementOutcome::Renamed,
             ServerOutcome::Removed => SignInManagementOutcome::Removed,

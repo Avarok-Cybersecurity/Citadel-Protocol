@@ -81,6 +81,17 @@ mod tests {
             assert!(wrong.is_err(), "another key's PRF signed in");
             let both = sign_in(&remote, &user, password().with_security_key(key(7))).await?;
             assert!(both.rekey().await?.is_some());
+            let listed = both.manage_sign_in(
+                SignInManagementOp::ListCredentials,
+                password().with_security_key(key(7)),
+            );
+            assert!(matches!(
+                listed.await?,
+                SignInManagementOutcome::Credentials {
+                    policy: SignInPolicy::PasswordAndKey,
+                    ..
+                }
+            ));
 
             // Key-only, then: no password at all.
             let set = both.manage_sign_in(
@@ -149,13 +160,17 @@ mod tests {
                 .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
                 .await?;
             let conn = login(&remote, &user, PASSWORD).await?;
-            let SignInManagementOutcome::Credentials(list) = conn
+            let SignInManagementOutcome::Credentials {
+                policy,
+                credentials: list,
+            } = conn
                 .manage_sign_in(SignInManagementOp::ListCredentials, password())
                 .await?
             else {
                 panic!("not a list")
             };
             assert_eq!(list.len(), 11);
+            assert_eq!(policy, SignInPolicy::Password);
             let pw = list
                 .iter()
                 .find(|c| c.kind == FactorKind::Password)
