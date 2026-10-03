@@ -433,7 +433,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 match &client_init_settings.init_mode {
                     HdpSessionInitMode::Connect(auth) => {
                         match auth {
-                            AuthenticationRequest::Credentialed { .. } => {
+                            AuthenticationRequest::Credentialed { .. }
+                            | AuthenticationRequest::SignIn { .. } => {
                                 let cnac = client_init_settings
                                     .cnac
                                     .clone()
@@ -1373,13 +1374,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     RESERVED_CID_IDX,
                 )),
                 LOGIN_EXPIRATION_TIME,
+                // Ends a session still unconnected now, unless it is waiting on a security-key
+                // touch (see `pq_sign_in::presence`).
                 |state_container| {
-                    if !state_container.state.is_connected() {
-                        QueueWorkerResult::EndSession
-                    } else {
-                        // remove it from being called again
-                        QueueWorkerResult::Complete
-                    }
+                    crate::proto::pq_sign_in::presence::provisional_check(&mut **state_container)
                 },
             );
 
@@ -2323,6 +2321,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let timestamp = this.time_tracker.get_global_time_ns();
 
         let mut state_container = inner_mut_state!(this.state_container);
+
+        // An older server cannot decode the signal; it would be dropped and the caller would wait.
+        if matches!(peer_command, PeerSignal::SignInManagement { .. })
+            && !crate::proto::pq_sign_in::runs_with_known(state_container.adjacent_protocol_version)
+        {
+            return Err(error!(
+                ErrorCode::PqSignInUnavailable,
+                "the server predates post-quantum sign-in"
+            ));
+        }
 
         // TODO: send errors if any commands have Some() responses
         if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {

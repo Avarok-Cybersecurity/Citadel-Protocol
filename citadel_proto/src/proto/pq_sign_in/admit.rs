@@ -17,13 +17,17 @@ use zeroize::Zeroizing;
 
 /// What a STAGE0 that passed admits.
 pub(crate) struct Admission {
+    pub scope: SessionScope,
     /// From a post-quantum login: joins the session's pre-shared keys on both sides.
     pub session_key: Option<Zeroizing<[u8; 32]>>,
 }
 
 impl Admission {
     fn legacy() -> Self {
-        Self { session_key: None }
+        Self {
+            scope: SessionScope::Full,
+            session_key: None,
+        }
     }
 }
 
@@ -60,10 +64,6 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
                 return Err(failed());
             }
             let verified = pending.verify(&finish)?;
-            // Recovery sessions are restricted, and until they are, none is admitted.
-            if verified.scope != SessionScope::Full {
-                return Err(failed());
-            }
             // Spends a recovery code under the record lock: of two logins that both verified the
             // same code, only the first gets here without an error.
             account_manager
@@ -71,6 +71,7 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
                 .await
                 .map_err(|_| failed())?;
             Admission {
+                scope: verified.scope,
                 session_key: Some(verified.session_key),
             }
         }

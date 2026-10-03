@@ -131,11 +131,13 @@ pub(crate) async fn on_pq_reply<R: Ratchet, T: PlatformOps>(
         .ok_or_else(|| NetworkError::msg("PQ_REPLY without a registration in flight"))?;
     match reply {
         RegStartReply::Accepted(reply) => {
-            let (finish, _no_codes) = client.finish(&reply, false).await?;
-            inner_mut_state!(session.state_container)
-                .register_state
-                .pq
-                .registered = true;
+            let (finish, codes) = client.finish(&reply, true).await?;
+            let mut state = inner_mut_state!(session.state_container);
+            state.register_state.pq.registered = true;
+            state.register_state.pq.recovery_codes = codes
+                .iter()
+                .map(|code| code.display().to_string())
+                .collect();
             Ok(Some(finish))
         }
         RegStartReply::Unsupported => Ok(None),

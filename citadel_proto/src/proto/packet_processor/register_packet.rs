@@ -504,10 +504,11 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             let session_crypto_state =
                                 initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
 
-                            let registered_pq = inner_state!(session.state_container)
-                                .register_state
-                                .pq
-                                .registered;
+                            let (registered_pq, recovery_codes) = {
+                                let mut state_container = inner_mut_state!(session.state_container);
+                                let pq = &mut state_container.register_state.pq;
+                                (pq.registered, std::mem::take(&mut pq.recovery_codes))
+                            };
                             async move {
                                 let registered = if registered_pq {
                                     account_manager
@@ -560,6 +561,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                                     ticket: reg_ticket.get(),
                                                     cid: new_cnac.get_cid(),
                                                     welcome_message: success_message,
+                                                    recovery_codes,
                                                 },
                                             ))?;
                                             session.shutdown();

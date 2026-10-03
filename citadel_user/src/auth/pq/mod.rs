@@ -35,9 +35,14 @@ mod tests_decoy;
 #[cfg(test)]
 mod tests_factors;
 #[cfg(test)]
+mod tests_manage;
+#[cfg(test)]
 mod tests_record;
 
-use messages::{transcript_bytes, LoginChallenge, LoginStart};
+use kem::EncapsulationKey;
+use messages::{
+    transcript_bytes, LoginChallenge, LoginStart, ManagementBegin, ManagementChallenge,
+};
 use proof::{TranscriptHash, TranscriptPurpose};
 
 /// The transcript a login's tags are bound to: the account, the client's start and the server's
@@ -51,6 +56,25 @@ pub fn login_transcript(
         TranscriptPurpose::Login,
         cid,
         &[&transcript_bytes(start), &transcript_bytes(challenge)],
+    )
+}
+
+/// The transcript a management step-up is bound to: the change asked for, the server's challenge,
+/// and the key being added (if any), so a proof made for one change cannot authorize another.
+pub fn management_transcript(
+    cid: u64,
+    begin: &ManagementBegin,
+    challenge: &ManagementChallenge,
+    new_key_ek: Option<&EncapsulationKey>,
+) -> TranscriptHash {
+    TranscriptHash::new(
+        TranscriptPurpose::StepUp,
+        cid,
+        &[
+            &transcript_bytes(begin),
+            &transcript_bytes(challenge),
+            &transcript_bytes(&new_key_ek),
+        ],
     )
 }
 

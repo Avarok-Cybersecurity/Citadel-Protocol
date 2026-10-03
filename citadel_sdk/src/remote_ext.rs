@@ -215,6 +215,9 @@ impl<R: Ratchet> DerefMut for CitadelClientServerConnection<R> {
 /// Contains the elements entailed by a successful registration
 pub struct RegisterSuccess {
     pub cid: u64,
+    /// The recovery codes of a post-quantum registration, to show the user once (see
+    /// `RegisterOkay::recovery_codes`). Empty for a legacy registration.
+    pub recovery_codes: Vec<String>,
 }
 
 /// Waits for the outcome of a registration request.
@@ -225,8 +228,15 @@ async fn await_registration<R: Ratchet, Rem: Remote<R>>(
     let mut subscription = remote.send_callback_subscription(register_request).await?;
     while let Some(status) = subscription.next().await {
         match status.into_result()? {
-            NodeResult::RegisterOkay(RegisterOkay { cid, .. }) => {
-                return Ok(RegisterSuccess { cid });
+            NodeResult::RegisterOkay(RegisterOkay {
+                cid,
+                recovery_codes,
+                ..
+            }) => {
+                return Ok(RegisterSuccess {
+                    cid,
+                    recovery_codes,
+                });
             }
             NodeResult::RegisterFailure(err) => {
                 return Err(citadel_io::error!(

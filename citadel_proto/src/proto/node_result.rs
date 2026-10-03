@@ -47,6 +47,10 @@ pub struct RegisterOkay {
     pub ticket: Ticket,
     pub cid: u64,
     pub welcome_message: Vec<u8>,
+    /// A post-quantum registration's recovery codes, formatted for display. Show them to the user
+    /// now: the client generated them, the server holds only their keys, and nothing keeps them.
+    /// Empty for a legacy registration.
+    pub recovery_codes: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -287,11 +291,9 @@ impl<R: Ratchet> NodeResult<R> {
 
     pub fn callback_key(&self) -> Option<CallbackKey> {
         match self {
-            NodeResult::RegisterOkay(RegisterOkay {
-                ticket: t,
-                cid,
-                welcome_message: _,
-            }) => Some(CallbackKey::new(*t, *cid)),
+            NodeResult::RegisterOkay(RegisterOkay { ticket: t, cid, .. }) => {
+                Some(CallbackKey::new(*t, *cid))
+            }
             NodeResult::RegisterFailure(RegisterFailure {
                 ticket: t,
                 error_message: _,

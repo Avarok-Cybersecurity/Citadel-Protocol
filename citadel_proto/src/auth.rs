@@ -44,8 +44,15 @@
 //! - `proto::validation`: Authentication validation
 //!
 
+pub use crate::proto::pq_sign_in::security_key::{
+    security_key_channel, SecurityKeyChallenge, SecurityKeyPrf, SecurityKeyPurpose,
+    KEY_PRESENCE_WINDOW,
+};
 use citadel_types::crypto::SecBuffer;
 use citadel_types::user::UserIdentifier;
+pub use citadel_user::auth::pq::client::SecurityKeyRequest;
+use citadel_user::auth::pq::recovery::RecoveryCode;
+use citadel_user::misc::AccountError;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
@@ -57,6 +64,14 @@ pub enum AuthenticationRequest {
     Credentialed {
         id: UserIdentifier,
         password: SecBuffer,
+    },
+    /// Post-quantum sign-in with any combination of factors: a password, a security key (through
+    /// the application's [`SecurityKeyPrf`] channel), or a single-use recovery code. Which ones the
+    /// account needs is its policy. Never serialized: the key channel cannot cross a wire.
+    SignIn {
+        id: UserIdentifier,
+        #[serde(skip)]
+        factors: SignInFactors,
     },
     /// No credentials/one-time connection
     Passwordless {
@@ -82,9 +97,18 @@ impl AuthenticationRequest {
         }
     }
 
+    /// Post-quantum sign-in with `factors` (see [`SignInFactors`]).
+    pub fn sign_in<T: Into<UserIdentifier>>(id: T, factors: SignInFactors) -> Self {
+        Self::SignIn {
+            id: id.into(),
+            factors,
+        }
+    }
+
     pub fn session_cid(&self) -> Option<u64> {
         match self {
-            AuthenticationRequest::Credentialed { id, .. } => {
+            AuthenticationRequest::Credentialed { id, .. }
+            | AuthenticationRequest::SignIn { id, .. } => {
                 if let UserIdentifier::ID(cid) = id {
                     Some(*cid)
                 } else {
@@ -93,5 +117,49 @@ impl AuthenticationRequest {
             }
             _ => None,
         }
+    }
+}
+
+/// The factors a post-quantum sign-in (or a management step-up) offers. Offer what the user gave;
+/// the account's policy decides what suffices, and the server never says which was wrong.
+#[derive(Clone, Default)]
+pub struct SignInFactors {
+    pub password: Option<SecBuffer>,
+    /// Where to ask for a security-key touch, if the challenge names keys.
+    pub security_key: Option<SecurityKeyPrf>,
+    /// A recovery code. A sign-in with one is a recovery sign-in: it spends the code, and the
+    /// session may only enrol a security key and set the policy.
+    pub recovery_code: Option<RecoveryCode>,
+}
+
+impl SignInFactors {
+    pub fn password<T: Into<SecBuffer>>(password: T) -> Self {
+        Self {
+            password: Some(password.into()),
+            ..Default::default()
+        }
+    }
+
+    pub fn with_security_key(mut self, security_key: SecurityKeyPrf) -> Self {
+        self.security_key = Some(security_key);
+        self
+    }
+
+    /// Reads a typed recovery code (see `RecoveryCode::parse`).
+    pub fn recovery_code(typed: &str) -> Result<Self, AccountError> {
+        Ok(Self {
+            recovery_code: Some(RecoveryCode::parse(typed)?),
+            ..Default::default()
+        })
+    }
+}
+
+impl std::fmt::Debug for SignInFactors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignInFactors")
+            .field("password", &self.password.as_ref().map(|_| "***"))
+            .field("security_key", &self.security_key.is_some())
+            .field("recovery_code", &self.recovery_code.as_ref().map(|_| "***"))
+            .finish()
     }
 }

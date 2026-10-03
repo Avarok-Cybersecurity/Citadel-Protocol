@@ -257,7 +257,16 @@ pub mod prelude {
     pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
     pub use crate::responses;
+    pub use crate::sign_in::SignInManagementExt;
+    pub use citadel_proto::auth::{
+        security_key_channel, SecurityKeyChallenge, SecurityKeyPrf, SecurityKeyPurpose,
+        SecurityKeyRequest, SignInFactors,
+    };
     pub use citadel_proto::prelude::*;
+    pub use citadel_types::auth::{
+        FactorId, FactorKind, SessionScope, SignInCredential, SignInManagementOp,
+        SignInManagementOutcome, SignInPolicy,
+    };
     pub use citadel_types::prelude::*;
 }
 
@@ -276,6 +285,8 @@ pub mod prefabs;
 pub mod remote_ext;
 /// For easy construction of replies to common message types
 pub mod responses;
+/// Managing a post-quantum account's sign-in factors
+pub mod sign_in;
 #[doc(hidden)]
 pub mod test_common;
 
