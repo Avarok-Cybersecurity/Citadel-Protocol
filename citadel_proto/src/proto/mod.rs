@@ -61,9 +61,11 @@ pub(crate) mod pq_sign_in;
 pub mod remote;
 mod reseal_tests;
 /// Each CID gets a session
+pub mod server_probe;
 pub(crate) mod session;
 /// Manages multiple sessions
 pub(crate) mod session_manager;
+mod session_probe;
 pub(crate) mod session_queue_handler;
 pub(crate) mod session_resume;
 /// For keeping track of the stages of different processes

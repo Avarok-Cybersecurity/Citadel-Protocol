@@ -285,6 +285,8 @@ pub mod prefabs;
 pub mod remote_ext;
 /// For easy construction of replies to common message types
 pub mod responses;
+
+mod server_probe;
 /// Managing a post-quantum account's sign-in factors
 pub mod sign_in;
 #[doc(hidden)]

@@ -307,6 +307,10 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     /// Disconnect signal tracker - cloned from session_manager at construction time
     /// to avoid needing to lock session_manager during Drop (which would cause deadlock)
     pub(super) disconnect_tracker: DisconnectSignalTracker,
+    /// Client side: liveness probes awaiting the server's reply (see `proto::server_probe`).
+    pub(super) server_probes: crate::proto::server_probe::ServerProbes,
+    /// Client side, over a WebSocket: asks the transport for a ping alongside each probe.
+    pub(super) ws_pinger: DualRwLock<Option<crate::proto::misc::ws_ping::WsPinger>>,
 }
 
 /// allows each session worker to check the state of the session
@@ -558,6 +562,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             file_transfer_compatible: DualLateInit::default(),
             drop_listener: DualRwLock::from(None),
             session_password,
+            server_probes: Default::default(),
+            ws_pinger: DualRwLock::from(None),
             disconnect_tracker,
         };
 
@@ -596,6 +602,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             let quic_conn_opt = T::take_p2p_connection(&mut primary_stream)
                 .and_then(|c| c.downcast::<citadel_wire::exports::Connection>().ok())
                 .map(|c| *c);
+            *inner_mut!(this.ws_pinger) = T::ws_pinger(&primary_stream);
             let (writer, reader) = misc::safe_split_stream(primary_stream);
 
             let (primary_outbound_tx, primary_outbound_rx) = unbounded();

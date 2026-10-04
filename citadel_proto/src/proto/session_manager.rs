@@ -1203,6 +1203,31 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         Ok(())
     }
 
+    /// Probes the server of `session_cid` now; the outcome reaches the kernel under `ticket` as
+    /// [`NodeResult::ServerProbe`], an `Error` one when there is no such session.
+    pub fn probe_server(&self, session_cid: u64, ticket: Ticket, timeout: std::time::Duration) {
+        let session = inner!(self)
+            .sessions
+            .get(&session_cid)
+            .map(|(_, sess)| sess.clone());
+        match session {
+            Some(session) => session.probe_server(ticket, timeout),
+            None => {
+                let result = crate::proto::server_probe::ServerProbeResult {
+                    ticket,
+                    session_cid,
+                    outcome: crate::proto::server_probe::ServerProbeOutcome::Error(error!(
+                        ErrorCode::ServerProbeNotConnected,
+                        session_cid
+                    )),
+                };
+                let _ = inner!(self)
+                    .kernel_tx
+                    .unbounded_send(NodeResult::ServerProbe(result));
+            }
+        }
+    }
+
     /// Returns true if the process initiated successfully
     pub fn initiate_deregistration_subroutine(
         &self,

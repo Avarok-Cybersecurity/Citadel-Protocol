@@ -723,6 +723,15 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         ))
     }
 
+    /// Round-trips an authenticated probe to the server of session `cid` now, rather than on the
+    /// keep-alive schedule (15 minutes, 45 to time out): `Ok(rtt)`, `Timeout` when no answer came
+    /// within `timeout`, or `Error` when it could not be sent (no such connected session, or a
+    /// server below protocol 0.12.1, which cannot answer one). Over a WebSocket the probe also
+    /// sends a WebSocket ping.
+    async fn probe_server(&self, cid: u64, timeout: Duration) -> ServerProbeOutcome {
+        crate::server_probe::probe_server(self, cid, timeout).await
+    }
+
     /// Returns all the active sessions in the protocol, including all P2P connections hierarchically placed as children to C2S
     /// connections
     async fn sessions(&self) -> Result<ActiveSessions, NetworkError> {

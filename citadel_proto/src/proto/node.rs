@@ -683,6 +683,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     }
                 }
 
+                NodeRequest::ProbeServer(crate::proto::node_request::ProbeServer {
+                    session_cid,
+                    timeout,
+                }) => {
+                    session_manager.probe_server(session_cid, ticket_id, timeout);
+                }
+
                 NodeRequest::GetActiveSessions => {
                     if let Err(err) =
                         to_kernel_tx.unbounded_send(NodeResult::SessionList(SessionList {

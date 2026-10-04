@@ -26,6 +26,8 @@ use super::udp_internal_interface::{
 };
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
+use crate::proto::misc::net::GenericNetworkStream;
+use crate::proto::misc::ws_ping::WsPinger;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::p2p_conn_handler;
 use crate::proto::peer::p2p_path::P2pPlan;
@@ -49,6 +51,13 @@ impl PlatformOps for NativeIO {
                 log::warn!(target: "citadel", "Unable to identify NAT type; attempting direct paths as if offline: {err}");
                 NatType::offline()
             }))
+        }
+    }
+
+    fn ws_pinger(stream: &GenericNetworkStream) -> Option<WsPinger> {
+        match stream {
+            GenericNetworkStream::WebSocket(ws) => Some(ws.pinger().clone()),
+            _ => None,
         }
     }
 

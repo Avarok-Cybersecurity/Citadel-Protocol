@@ -146,6 +146,15 @@ pub trait PlatformOps: ProtocolIO {
         Err(error!(ErrorCode::FileTransferPlatformUnsupported))
     }
 
+    // ── C2S transport liveness ──
+
+    /// The WebSocket pinger of a C2S stream carried by a WebSocket (see `misc::ws_ping`), taken
+    /// before the stream is split. Default: `None`, a transport with no ping of its own.
+    fn ws_pinger(stream: &Self::Stream) -> Option<super::ws_ping::WsPinger> {
+        let _ = stream;
+        None
+    }
+
     // ── UDP session ──
 
     /// Spawn the UDP socket loader for a session.

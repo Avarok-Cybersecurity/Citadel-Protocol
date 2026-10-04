@@ -245,6 +245,8 @@ pub enum NodeResult<R: Ratchet> {
     PeerChannelCreated(PeerChannelCreated<R>),
     /// A list of running sessions
     SessionList(SessionList),
+    /// How a server liveness probe ended
+    ServerProbe(crate::proto::server_probe::ServerProbeResult),
     /// For shutdowns
     Shutdown,
 }
@@ -366,6 +368,11 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: t,
                 sessions: _,
             }) => Some(CallbackKey::ticket_only(*t)),
+            NodeResult::ServerProbe(crate::proto::server_probe::ServerProbeResult {
+                ticket,
+                session_cid,
+                ..
+            }) => Some(CallbackKey::new(*ticket, *session_cid)),
             NodeResult::Shutdown => None,
             NodeResult::ReKeyResult(ReKeyResult {
                 ticket,
