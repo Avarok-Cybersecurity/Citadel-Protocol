@@ -20,7 +20,10 @@ default = ["filesystem", "std"]
 filesystem = []
 std = ["citadel_pqcrypto/std", "byteorder/std", "rand/std", "citadel_io/std", "rayon", "blake3/std"]
 wasm-threads = ["rayon", "wasm-bindgen-rayon"]
-skip-argon-tests = []
+# Argon2id for a wasm32 CLIENT's password factor. A native build always has it; a wasm32 build is
+# the tenant server's unless this is set, and a server never stretches a password, so it links no
+# Argon2 at all (ci/no-classical-signatures.sh fails the build graph that does).
+wasm-password-ksf = ["dep:rust-argon2"]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -37,7 +40,6 @@ arrayvec = { workspace = true, features = ["serde"] }
 citadel_pqcrypto = { workspace = true }
 citadel_io = { workspace = true }
 bitvec = { workspace = true, features = ["alloc"] }
-rust-argon2 = { workspace = true, features = ["serde", "crossbeam-utils"] }
 sha3 = { workspace = true }
 blake3 = { workspace = true }
 auto_impl = { workspace = true }
@@ -50,10 +52,14 @@ rayon = { workspace = true, optional = true }
 wasm-bindgen-rayon = { version = "1.2", optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+rust-argon2 = { workspace = true, features = ["crossbeam-utils"] }
 sysinfo = { workspace = true }
 num_cpus = { workspace = true }
 
 # SRTP comparison arm of the `udp_media_vs_srtp` bench only (native; the bench is criterion/native).
+[target.'cfg(target_family = "wasm")'.dependencies]
+rust-argon2 = { workspace = true, features = ["crossbeam-utils"], optional = true }
+
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 # Paused clock for ratchet-manager deadline tests (60s+ deadlines, run in milliseconds).
 tokio = { workspace = true, features = ["test-util"] }

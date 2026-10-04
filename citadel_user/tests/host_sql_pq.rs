@@ -1,11 +1,10 @@
 //! A post-quantum account record through the host_sql backend (the Durable Object's SQLite): it
-//! survives the round trip byte for byte, and the account manager's changes to it (a sign-in, a
-//! legacy upgrade) reach the stored row, not only the copy in memory.
+//! survives the round trip byte for byte, and the account manager's changes to it (a sign-in, and
+//! the migration hook it runs) reach the stored row, not only the copy in memory.
 
 #[path = "common/sqlite_host.rs"]
 mod sqlite_host;
 
-use citadel_crypt::argon::argon_container::ArgonSettings;
 use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_io::tokio;
 use citadel_types::crypto::SecBuffer;
@@ -14,7 +13,6 @@ use citadel_user::auth::pq::client::ClientRegistration;
 use citadel_user::auth::pq::oprf::OprfSeed;
 use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
 use citadel_user::auth::pq::server::{registration_reply, PqAuthServerSettings};
-use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::auth::{DeclaredAuthenticationMode, PqAuthSide};
 use citadel_user::backend::host_sql::{HostSqlBackend, HostSqlHandle};
 use citadel_user::backend::{BackendConnection, BackendType};
@@ -50,7 +48,7 @@ async fn manager(host: &HostSqlHandle) -> Manager {
         pq_sign_in: Some(settings()),
         ..Default::default()
     };
-    Manager::new(BackendType::HostSql(host.clone()), None, None, Some(misc))
+    Manager::new(BackendType::HostSql(host.clone()), None, Some(misc))
         .await
         .unwrap()
 }
@@ -100,38 +98,5 @@ async fn a_post_quantum_record_round_trips_through_host_sql() {
     assert!(
         manager.record_pq_sign_in(4242, &[2]).await.is_err(),
         "a spent code was spent again"
-    );
-}
-
-#[tokio::test]
-async fn a_legacy_upgrade_replaces_the_stored_row() {
-    let host = SqliteHost::handle();
-    let manager = manager(&host).await;
-    let legacy = ProposedCredentials::new_register("Bob", "bob", "pw-123".into())
-        .await
-        .unwrap()
-        .derive_server_container(&ArgonSettings::default(), &ServerMiscSettings::default())
-        .await
-        .unwrap();
-    let account = cnac(4343, legacy).await;
-    manager
-        .get_persistence_handler()
-        .save_cnac(&account)
-        .await
-        .unwrap();
-    assert!(reload(&host, 4343)
-        .await
-        .auth_store()
-        .argon_container()
-        .is_some());
-
-    let record = record("bob").await;
-    manager.upgrade_to_pq(4343, record.clone()).await.unwrap();
-    let after = reload(&host, 4343).await;
-    assert_eq!(after.auth_store().pq_record(), Some(&record));
-    assert!(after.auth_store().argon_container().is_none());
-    assert!(
-        manager.upgrade_to_pq(4343, record).await.is_err(),
-        "an account upgraded twice"
     );
 }

@@ -81,7 +81,18 @@ mod native {
         let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
             .expect("Failed to create TCP listener");
         let bind_addr = tcp_listener.local_addr().unwrap();
+        // Since the Argon2 sunset a password account exists only through post-quantum sign-in,
+        // so a test server offers it; `opts` may replace these settings.
+        let pq_sign_in = citadel_user::auth::pq::server::PqAuthServerSettings::new(
+            citadel_user::auth::pq::oprf::OprfSeed::generate(),
+            citadel_user::auth::pq::record::KsfParams::FLOOR,
+        )
+        .expect("the KSF floor is valid");
         let builder = builder
+            .with_server_misc_settings(ServerMiscSettings {
+                pq_sign_in: Some(pq_sign_in),
+                ..Default::default()
+            })
             .with_node_type(NodeType::Server(bind_addr))
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),

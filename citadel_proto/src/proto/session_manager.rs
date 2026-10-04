@@ -536,15 +536,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
                                 AuthenticationRequest::Credentialed { id, .. }
                                 | AuthenticationRequest::SignIn { id, .. } => {
-                                    let password = match auth_request {
-                                        AuthenticationRequest::Credentialed {
-                                            password, ..
-                                        } => Some(password.clone()),
-                                        AuthenticationRequest::SignIn { factors, .. } => {
-                                            factors.password.clone()
-                                        }
-                                        AuthenticationRequest::Passwordless { .. } => None,
-                                    };
                                     let acc_mgr = {
                                         let inner = inner!(self);
                                         inner.account_manager.clone()
@@ -562,20 +553,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                     )
                                     .await?;
 
-                                    // Without a password (a key-only or recovery sign-in) there is
-                                    // nothing to hash: the factors are proven before STAGE0.
-                                    let proposed_credentials = match password {
-                                        Some(password) => cnac
-                                            .generate_connect_credentials(password)
-                                            .await
-                                            .map_err(|err| {
-                                                NetworkError::generic(err.into_string())
-                                            })?,
-                                        None => ProposedCredentials::post_quantum(
-                                            cnac.get_username(),
-                                            cnac.auth_store().full_name().to_string(),
-                                        ),
-                                    };
+                                    // STAGE0 names the account; the factors are proven before it.
+                                    let proposed_credentials = cnac.connect_credentials();
 
                                     (peer_addr, Some(cnac), proposed_credentials, endpoint)
                                 }

@@ -1,38 +1,23 @@
 //! Authentication Mode Management
 //!
-//! This module provides authentication mode handling for Citadel Network Accounts (CNACs),
-//! supporting both password-based and passwordless authentication methods.
+//! What a Citadel Network Account (CNAC) keeps about how it signs in: a transient (passwordless)
+//! identity, or post-quantum factors (see [`pq`]).
 //!
-//! # Features
+//! # Records are versioned, and migrate forward
 //!
-//! * **Authentication Modes**
-//!   - Argon2id password-based authentication
-//!   - Passwordless authentication
-//!   - Username management
-//!   - Full name handling
-//!
-//! * **Security Features**
-//!   - Secure password hashing
-//!   - Mode-specific data storage
-//!   - Authentication state management
-//!
-//! # Important Notes
-//!
-//! * All authentication modes require unique usernames
-//! * Argon2id is used for secure password hashing
-//! * Passwordless mode still maintains user identity
-//! * Authentication data is serializable for storage
-//! * Mode can be determined at runtime
+//! The stored form is [`stored::StoredAuthMode`], an append-only enum whose variant index is the
+//! record's version. [`migration`] is the one way a record changes version: one-way, one record
+//! at a time, at the moment the account proves itself. Version 0, the Argon2 record, is retired:
+//! its verifier is gone, and it is read only to be refused or, on a client, mapped (see
+//! [`stored`]).
 //!
 //! # Related Components
 //!
-//! * `proposed_credentials` - Credential validation
-//! * `ArgonContainerType` - Password hashing
-//! * `ClientNetworkAccount` - Uses authentication modes
-//! * `AccountManager` - Manages authentication
+//! * `proposed_credentials` - The names a login or registration carries
+//! * `ClientNetworkAccount` - Holds the authentication mode
+//! * `AccountManager` - Creates and changes accounts
 
 #![allow(missing_docs, dead_code)]
-use citadel_crypt::argon::argon_container::ArgonContainerType;
 use pq::record::PqAuthRecord;
 use serde::{Deserialize, Serialize};
 
@@ -42,20 +27,23 @@ pub mod proposed_credentials;
 /// Post-quantum sign-in: ML-KEM factors, the OPRF-hardened password, and their management.
 pub mod pq;
 
-#[derive(Serialize, Deserialize)]
-/// For storing data inside the CNACs. Both need unique usernames b/c of the unique username requirement on the SQL backend
+/// The auth-migration pattern: how a stored record moves from one version to the next.
+pub mod migration;
+
+/// The versioned form an authentication mode is stored in.
+pub mod stored;
+
+/// For storing data inside the CNACs. Both need unique usernames b/c of the unique username
+/// requirement on the SQL backend. Stored as [`stored::StoredAuthMode`], whose variant order is
+/// the on-disk version order: never reorder or remove one.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(into = "stored::StoredAuthMode", try_from = "stored::StoredAuthMode")]
 pub enum DeclaredAuthenticationMode {
-    Argon {
-        username: String,
-        full_name: String,
-        argon: ArgonContainerType,
-    },
     Transient {
         username: String,
         full_name: String,
     },
-    /// Signs in with post-quantum factors (see [`pq`]). Appended last, so a record written before
-    /// it existed still deserializes.
+    /// Signs in with post-quantum factors (see [`pq`]).
     PostQuantum {
         username: String,
         full_name: String,
@@ -74,7 +62,6 @@ pub enum PqAuthSide {
 impl DeclaredAuthenticationMode {
     pub fn username(&self) -> &str {
         match self {
-            Self::Argon { username, .. } => username.as_str(),
             Self::Transient { username, .. } => username.as_str(),
             Self::PostQuantum { username, .. } => username.as_str(),
         }
@@ -82,24 +69,13 @@ impl DeclaredAuthenticationMode {
 
     pub fn full_name(&self) -> &str {
         match self {
-            Self::Argon { full_name, .. } => full_name.as_str(),
             Self::Transient { full_name, .. } => full_name.as_str(),
             Self::PostQuantum { full_name, .. } => full_name.as_str(),
         }
     }
 
-    pub fn argon_container(&self) -> Option<&ArgonContainerType> {
-        match self {
-            Self::Argon { argon, .. } => Some(argon),
-            Self::Transient { .. } | Self::PostQuantum { .. } => None,
-        }
-    }
-
     pub fn is_transient(&self) -> bool {
-        match self {
-            Self::Argon { .. } | Self::PostQuantum { .. } => false,
-            Self::Transient { .. } => true,
-        }
+        matches!(self, Self::Transient { .. })
     }
 
     /// The server's post-quantum record, if this is one.

@@ -914,7 +914,6 @@ mod tests {
             BackendType::InMemory,
             None,
             None,
-            None,
         )
         .await
         .unwrap();

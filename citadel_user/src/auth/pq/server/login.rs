@@ -1,9 +1,7 @@
-use super::register::{registration_reply, PendingRegistration};
 use super::{decoy, PqAuthServerSettings};
 use crate::auth::pq::kem::{encapsulate, EncapsulationKey, SharedSecret};
 use crate::auth::pq::messages::{
     ChallengeBody, FactorChallenge, FactorChallenges, LoginChallenge, LoginFinish, LoginStart,
-    RegStart,
 };
 use crate::auth::pq::proof::{self, TranscriptHash, AUTH_LABEL};
 use crate::auth::pq::random_32;
@@ -17,20 +15,11 @@ use zeroize::Zeroizing;
 /// What the server knows about the account a login names.
 pub enum AccountAuth<'a> {
     PostQuantum(&'a PqAuthRecord),
-    /// A legacy Argon2 record: the login is checked the legacy way, and may upgrade.
-    Legacy,
     /// No such account. The login gets decoys and cannot succeed.
     Unknown,
 }
 
 /// What the server expects back for a challenge it issued, before the transcript is fixed.
-pub enum Expectation {
-    Factors(Expected),
-    Legacy {
-        upgrade: Option<PendingRegistration>,
-    },
-}
-
 pub struct Expected {
     secrets: Vec<(FactorId, FactorKind, SharedSecret)>,
     rule: Rule,
@@ -80,29 +69,9 @@ pub fn build_login_challenge(
     settings: &PqAuthServerSettings,
     account: AccountAuth<'_>,
     start: &LoginStart,
-) -> Result<(LoginChallenge, Expectation), AccountError> {
+) -> Result<(LoginChallenge, Expected), AccountError> {
     let server_nonce = random_32();
     let record = match account {
-        AccountAuth::Legacy => {
-            let upgrade = match (&start.oprf_blinded, &start.recovery) {
-                (Some(blinded), None) => Some(registration_reply(
-                    settings,
-                    &RegStart {
-                        username: start.username.clone(),
-                        oprf_blinded: blinded.clone(),
-                        // Admission is the login's, already checked; an upgrade is not asked.
-                        admission: None,
-                    },
-                )?),
-                _ => None,
-            };
-            let (reply, pending) = upgrade.map_or((None, None), |(r, p)| (Some(r), Some(p)));
-            let challenge = LoginChallenge {
-                server_nonce,
-                body: ChallengeBody::Legacy { upgrade: reply },
-            };
-            return Ok((challenge, Expectation::Legacy { upgrade: pending }));
-        }
         AccountAuth::PostQuantum(record) => Some(record),
         AccountAuth::Unknown => None,
     };
@@ -180,7 +149,7 @@ pub fn build_login_challenge(
             challenges,
         }),
     };
-    Ok((challenge, Expectation::Factors(Expected { secrets, rule })))
+    Ok((challenge, Expected { secrets, rule }))
 }
 
 fn target(

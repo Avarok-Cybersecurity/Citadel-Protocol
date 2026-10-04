@@ -3,8 +3,8 @@ use crate::auth::pq::record::KsfParams;
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
 
-/// What a server needs to offer post-quantum sign-in. A server without it keeps the legacy path
-/// only: it answers a post-quantum registration with `Unsupported` and offers no upgrades.
+/// What a server needs to offer post-quantum sign-in, the only password sign-in there is. A
+/// server without it answers a registration's `PQ_START` with `Unsupported`.
 #[derive(Clone, Debug)]
 pub struct PqAuthServerSettings {
     oprf_seed: OprfSeed,

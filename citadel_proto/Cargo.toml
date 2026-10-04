@@ -52,6 +52,8 @@ std = [
 ]
 
 wasm-threads = ["citadel_crypt/wasm-threads"]
+# Argon2id for a wasm32 client's password factor; a wasm32 server never links it.
+wasm-password-ksf = ["citadel_user/wasm-password-ksf"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

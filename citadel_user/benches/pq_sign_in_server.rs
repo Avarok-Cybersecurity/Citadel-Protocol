@@ -12,7 +12,7 @@ use citadel_user::auth::pq::messages::LoginProof;
 use citadel_user::auth::pq::oprf::{client_blind, server_evaluate, OprfSeed};
 use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
 use citadel_user::auth::pq::server::{
-    build_login_challenge, registration_reply, AccountAuth, Expectation, PqAuthServerSettings,
+    build_login_challenge, registration_reply, AccountAuth, PqAuthServerSettings,
 };
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
@@ -58,20 +58,16 @@ fn server_cost(c: &mut Criterion) {
             || {
                 let (start, client) = ClientLogin::start("bench", Some(&password), None).unwrap();
                 let account = AccountAuth::PostQuantum(&record);
-                let (challenge, expectation) =
+                let (challenge, expected) =
                     build_login_challenge(&settings, account, &start).unwrap();
                 let transcript = login_transcript(1, &start, &challenge);
                 let proof = runtime
                     .block_on(client.respond(&challenge, &transcript, None))
                     .unwrap();
-                let (Expectation::Factors(expected), ClientProof::Factors { proof, .. }) =
-                    (expectation, proof)
-                else {
-                    unreachable!()
-                };
-                let LoginProof::Factors(finish) = proof else {
-                    unreachable!()
-                };
+                let ClientProof {
+                    proof: LoginProof::Factors(finish),
+                    ..
+                } = proof;
                 (expected.bind(transcript), finish)
             },
             |(pending, finish)| pending.verify(&finish).unwrap(),

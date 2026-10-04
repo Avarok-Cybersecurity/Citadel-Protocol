@@ -49,7 +49,7 @@ pub struct RegisterOkay {
     pub welcome_message: Vec<u8>,
     /// A post-quantum registration's recovery codes, formatted for display. Show them to the user
     /// now: the client generated them, the server holds only their keys, and nothing keeps them.
-    /// Empty for a legacy registration.
+    /// Empty for a passwordless registration.
     pub recovery_codes: Vec<String>,
 }
 

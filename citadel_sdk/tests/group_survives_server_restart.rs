@@ -21,11 +21,14 @@ mod common;
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::common::group::*;
+    use crate::common::restart::{listener_at, rebind};
     use citadel_io::tokio;
     use citadel_io::tokio::sync::{Barrier, Mutex};
     use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::wait_for_peers;
-    use std::net::SocketAddr;
+    use citadel_user::auth::pq::oprf::OprfSeed;
+    use citadel_user::auth::pq::record::KsfParams;
+    use citadel_user::auth::pq::server::PqAuthServerSettings;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
@@ -60,7 +63,11 @@ mod tests {
         listener: tokio::net::TcpListener,
         backend_dir: &std::path::Path,
         slot: RemoteSlot,
+        oprf_seed: OprfSeed,
     ) -> NodeFuture<'static, RemoteSlotKernel> {
+        // The tenant's OPRF seed outlives a restart, as its stored accounts do: password factors
+        // are bound to it.
+        let pq_sign_in = PqAuthServerSettings::new(oprf_seed, KsfParams::FLOOR).unwrap();
         let bind_addr = listener.local_addr().unwrap();
         let mut builder = DefaultNodeBuilder::default();
         let _ = builder
@@ -70,39 +77,12 @@ mod tests {
             ))
             .with_backend(BackendType::Filesystem(
                 backend_dir.to_string_lossy().to_string(),
-            ));
+            ))
+            .with_server_misc_settings(ServerMiscSettings {
+                pq_sign_in: Some(pq_sign_in),
+                ..Default::default()
+            });
         builder.build(RemoteSlotKernel(slot)).unwrap()
-    }
-
-    /// A listener with SO_REUSEADDR, for BOTH servers. On Linux a socket may bind a port others
-    /// hold only if every socket there set SO_REUSEADDR -- and the old server's accepted client
-    /// sockets inherit its listener's options. v1 was made with `get_tcp_listener` (no reuse), so
-    /// its live and TIME_WAIT connections kept v2 out ("Address already in use (os error 98)",
-    /// CI on PR #318) however long v2 waited. A server that restarts in place must reuse from its
-    /// first bind, as any real one does.
-    fn listener_at(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
-        let socket = tokio::net::TcpSocket::new_v4()?;
-        socket.set_reuseaddr(true)?;
-        socket.bind(addr)?;
-        socket.listen(1024)
-    }
-
-    /// v2 on v1's address. Retried, bounded, only on AddrInUse: v1's listening socket goes away
-    /// with its task, asynchronously.
-    fn rebind(addr: SocketAddr) -> tokio::net::TcpListener {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        loop {
-            match listener_at(addr) {
-                Ok(listener) => return listener,
-                Err(err)
-                    if err.kind() == std::io::ErrorKind::AddrInUse
-                        && std::time::Instant::now() < deadline =>
-                {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-                Err(err) => panic!("could not rebind {addr} for server v2: {err}"),
-            }
-        }
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]
@@ -128,8 +108,9 @@ mod tests {
             let (ready_for_restart, server_back) = (ready_for_restart.clone(), server_back.clone());
             let backend_dir = backend_dir.clone();
             async move {
+                let oprf_seed = OprfSeed::generate();
                 let slot: RemoteSlot = Arc::new(Mutex::new(None));
-                let v1 = server_node(listener, &backend_dir, slot.clone());
+                let v1 = server_node(listener, &backend_dir, slot.clone(), oprf_seed.clone());
                 tokio::pin!(v1);
                 tokio::select! {
                     res = &mut v1 => return res.map(|_| ()),
@@ -151,6 +132,7 @@ mod tests {
                     rebind(server_addr),
                     &backend_dir,
                     Arc::new(Mutex::new(None)),
+                    oprf_seed,
                 );
                 tokio::pin!(v2);
                 tokio::select! {

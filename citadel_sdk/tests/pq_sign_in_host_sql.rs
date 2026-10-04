@@ -19,14 +19,14 @@ mod tests {
     async fn a_host_sql_server_registers_and_signs_in_a_post_quantum_account() {
         citadel_logging::setup_log();
         let backend = BackendType::HostSql(SqliteHost::handle());
-        let (server, addr, slot) = server(pq_settings(), Some(poisoned_argon()), Some(backend));
+        let (server, addr, slot) = server(pq_settings(), Some(backend));
         let user = username("pqsql");
         run(server, move |remote, _| async move {
             let _ = remote
                 .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
                 .await?;
             let mode = server_mode(&slot, &user).await;
-            assert!(mode.post_quantum && !mode.argon, "registered as {mode:?}");
+            assert!(mode.post_quantum, "registered as {mode:?}");
 
             let conn = login(&remote, &user, PASSWORD).await?;
             assert!(conn.rekey().await?.is_some());

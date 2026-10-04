@@ -6,7 +6,7 @@
 //!
 //! All peer-discovery and NAT traversal are built-in to the protocol, with the central server acting as a broker and authenticator. The central server is used for TURN-like routing when direct p2p NAT traversal fails between two nodes.
 //!
-//! Authentication to a central node is required before making peer-to-peer connections. There is both device-dependent auth as well as credentialed authentication backed by the argon2id hashing algorithm.
+//! Authentication to a central node is required before making peer-to-peer connections. There is both device-dependent auth as well as credentialed authentication: post-quantum sign-in, where every factor is an ML-KEM key the client derives (the password through an OPRF and Argon2id on the client) and the server only verifies.
 //!
 //! Client/Peer information is by default synchronized to the local filesystem. If the *redis* and/or *sql* feature is enabled, a redis or SQL (MySQL, PostgreSQL, SQLite) server or cluster can be used instead.
 //!

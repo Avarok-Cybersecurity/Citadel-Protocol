@@ -6,6 +6,7 @@ use super::runs_with;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
+use crate::proto::node_result::RegisterFailure;
 use crate::proto::packet::packet_flags;
 use crate::proto::packet_processor::includes::*;
 use bytes::BytesMut;
@@ -31,24 +32,37 @@ fn kind(aux: u8, algorithm: u8) -> Kind {
 }
 
 /// Client, once STAGE1 has given it the session ratchet: the `PQ_START` to send in place of
-/// STAGE2, when the server runs post-quantum sign-in and the caller gave a password.
+/// STAGE2, or `None` for a passwordless registration, which sends STAGE2 directly. A password
+/// account can only be registered with post-quantum factors, so without the password, or with a
+/// server below [`super::PQ_SIGN_IN_SINCE`], the registration is refused here.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
     server_version: u32,
-    username: &str,
+    credentials: &ProposedCredentials,
     algorithm: u8,
     timestamp: i64,
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<Option<BytesMut>, NetworkError> {
-    let mut state = inner_mut_state!(session.state_container);
-    let password = state.register_state.pq.password.take();
-    let Some(password) = password.filter(|_| runs_with(server_version)) else {
+    if credentials.is_passwordless() {
         return Ok(None);
-    };
-    let (mut start, client) = ClientRegistration::start(username, &password)?;
+    }
+    let mut state = inner_mut_state!(session.state_container);
+    let password = state.register_state.pq.password.take().ok_or_else(|| {
+        citadel_io::error!(
+            citadel_io::ErrorCode::PqSignInFactorMissing,
+            "the password of a password registration"
+        )
+    })?;
+    if !runs_with(server_version) {
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::PqSignInUnavailable,
+            "the server is older than post-quantum sign-in"
+        ));
+    }
+    let (mut start, client) = ClientRegistration::start(credentials.username(), &password)?;
     start.admission = state.register_state.pq.admission.take();
     let aux = packet_flags::cmd::aux::do_register::PQ_START;
     let packet = packets::craft(
@@ -127,12 +141,12 @@ async fn reply_to<R: Ratchet, T: PlatformOps>(
     }
 }
 
-/// Client: what STAGE2 carries after the server's reply. `None` registers the legacy way, for a
-/// server that has no post-quantum settings.
+/// Client: the keys STAGE2 carries after the server's reply. A server without post-quantum
+/// settings offers no password accounts, so its `Unsupported` ends the registration.
 pub(crate) async fn on_pq_reply<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     payload: &[u8],
-) -> Result<Option<citadel_user::auth::pq::messages::RegFinish>, NetworkError> {
+) -> Result<RegFinish, NetworkError> {
     let reply: RegStartReply = packets::read(payload)?;
     let client = inner_mut_state!(session.state_container)
         .register_state
@@ -149,9 +163,12 @@ pub(crate) async fn on_pq_reply<R: Ratchet, T: PlatformOps>(
                 .iter()
                 .map(|code| code.display().to_string())
                 .collect();
-            Ok(Some(finish))
+            Ok(finish)
         }
-        RegStartReply::Unsupported => Ok(None),
+        RegStartReply::Unsupported => Err(citadel_io::error!(
+            citadel_io::ErrorCode::PqSignInUnavailable,
+            "this server offers no password accounts"
+        )),
     }
 }
 
@@ -177,7 +194,7 @@ pub(crate) async fn create_account<R: Ratchet>(
             "a STAGE2 for another username"
         ));
     }
-    let (username, _, full_name, _) = credentials.decompose();
+    let (username, full_name) = credentials.decompose();
     let record = pending.finish(finish, now_ms())?;
     account_manager
         .register_pq_client_network_account(
@@ -188,4 +205,19 @@ pub(crate) async fn create_account<R: Ratchet>(
             session_crypto_state,
         )
         .await
+}
+
+/// Client: a registration this side cannot continue ends, telling the kernel why.
+pub(crate) fn fail_registration<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    err: NetworkError,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
+        ticket: session.kernel_ticket.get(),
+        error_message: err.into_string(),
+    }))?;
+    session.shutdown();
+    Ok(PrimaryProcessorResult::EndSession(
+        "Post-quantum registration could not complete",
+    ))
 }

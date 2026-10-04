@@ -10,7 +10,6 @@ use citadel_crypt::ratchets::Ratchet;
 /// the account's lock.
 pub enum PqAccountState {
     PostQuantum(Box<PqAuthRecord>),
-    Legacy,
     /// Not this account, or one that has no sign-in record to prove: the login gets decoys.
     Unknown,
 }
@@ -19,7 +18,6 @@ impl PqAccountState {
     pub fn as_account_auth(&self) -> AccountAuth<'_> {
         match self {
             Self::PostQuantum(record) => AccountAuth::PostQuantum(record),
-            Self::Legacy => AccountAuth::Legacy,
             Self::Unknown => AccountAuth::Unknown,
         }
     }
@@ -34,7 +32,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             return PqAccountState::Unknown;
         }
         match &*store {
-            DeclaredAuthenticationMode::Argon { .. } => PqAccountState::Legacy,
             DeclaredAuthenticationMode::PostQuantum {
                 side: PqAuthSide::Server(record),
                 ..

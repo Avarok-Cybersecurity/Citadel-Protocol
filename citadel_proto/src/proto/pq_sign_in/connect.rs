@@ -5,7 +5,6 @@ use super::packets::{self, Kind};
 use super::refusal::{fail_login, failure};
 use super::runs_with;
 use super::security_key::SecurityKeyPurpose;
-use super::state::ServerPending;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -19,10 +18,9 @@ use citadel_types::auth::SessionScope;
 use citadel_user::auth::pq::admission;
 use citadel_user::auth::pq::client::{ClientLogin, ClientProof};
 use citadel_user::auth::pq::login_transcript;
-use citadel_user::auth::pq::messages::{ChallengeBody, LoginChallenge, LoginProof, LoginStart};
-use citadel_user::auth::pq::server::build_login_challenge;
-use citadel_user::auth::pq::server::Expectation;
-use citadel_user::client_account::{ClientNetworkAccount, PqAccountState};
+use citadel_user::auth::pq::messages::{LoginChallenge, LoginStart};
+use citadel_user::auth::pq::server::{build_login_challenge, PendingLogin};
+use citadel_user::client_account::ClientNetworkAccount;
 
 fn kind(aux: u8) -> Kind {
     Kind {
@@ -32,8 +30,10 @@ fn kind(aux: u8) -> Kind {
     }
 }
 
-/// Client, once pre-connect has finished: the `AUTH_START` to send in place of STAGE0, when the
-/// server runs post-quantum sign-in and the caller offered factors. `None` keeps the legacy login.
+/// Client, once pre-connect has finished: the `AUTH_START` to send in place of STAGE0 when the
+/// caller offered factors. `None` for a passwordless login, which sends STAGE0 directly. A server
+/// below [`super::PQ_SIGN_IN_SINCE`] cannot prove factors, so a login that offers them is refused
+/// here rather than sent without them.
 pub(crate) fn begin<R: Ratchet>(
     state: &mut StateContainerInner<R>,
     ratchet: &R,
@@ -43,10 +43,15 @@ pub(crate) fn begin<R: Ratchet>(
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<Option<BytesMut>, NetworkError> {
-    let offered = state.connect_state.pq.offered.take();
-    let Some(offered) = offered.filter(|_| runs_with(server_version)) else {
+    let Some(offered) = state.connect_state.pq.offered.take() else {
         return Ok(None);
     };
+    if !runs_with(server_version) {
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::PqSignInUnavailable,
+            "the server is older than post-quantum sign-in"
+        ));
+    }
     let username = state
         .connect_state
         .proposed_credentials
@@ -132,35 +137,20 @@ fn issue_challenge<R: Ratchet, T: PlatformOps>(
     cnac: &ClientNetworkAccount<R, R>,
     cid: u64,
     start: &LoginStart,
-) -> Result<(LoginChallenge, ServerPending), NetworkError> {
-    let account = cnac.pq_account_state(&start.username);
-    match session.account_manager.pq_settings() {
-        Some(settings) => {
-            let (challenge, expectation) =
-                build_login_challenge(settings, account.as_account_auth(), start)?;
-            if ClientLogin::security_key_request(&challenge).is_some() {
-                super::presence::open(session);
-            }
-            let pending = match expectation {
-                Expectation::Factors(expected) => {
-                    ServerPending::Factors(expected.bind(login_transcript(cid, start, &challenge)))
-                }
-                Expectation::Legacy { upgrade } => ServerPending::Legacy(upgrade),
-            };
-            Ok((challenge, pending))
-        }
-        None if matches!(account, PqAccountState::PostQuantum(_)) => Err(citadel_io::error!(
+) -> Result<(LoginChallenge, PendingLogin), NetworkError> {
+    let settings = session.account_manager.pq_settings().ok_or_else(|| {
+        citadel_io::error!(
             citadel_io::ErrorCode::PqSignInUnavailable,
             "this server has no post-quantum sign-in settings"
-        )),
-        None => {
-            let legacy = LoginChallenge {
-                server_nonce: [0u8; 32],
-                body: ChallengeBody::Legacy { upgrade: None },
-            };
-            Ok((legacy, ServerPending::Legacy(None)))
-        }
+        )
+    })?;
+    let account = cnac.pq_account_state(&start.username);
+    let (challenge, expected) = build_login_challenge(settings, account.as_account_auth(), start)?;
+    if ClientLogin::security_key_request(&challenge).is_some() {
+        super::presence::open(session);
     }
+    let pending = expected.bind(login_transcript(cid, start, &challenge));
+    Ok((challenge, pending))
 }
 
 /// Client: answers the challenge in connect STAGE0.
@@ -206,11 +196,11 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
         },
         None => None,
     };
-    let (proof, session_key) = match client.respond(&challenge, &transcript, key).await {
-        Ok(ClientProof::Factors { proof, session_key }) => (Some(proof), Some(session_key)),
-        Ok(ClientProof::Legacy { upgrade }) => (upgrade.map(LoginProof::Upgrade), None),
-        Err(err) => return fail_login(session, cid, err.into_string()),
-    };
+    let ClientProof { proof, session_key } =
+        match client.respond(&challenge, &transcript, key).await {
+            Ok(answer) => answer,
+            Err(err) => return fail_login(session, cid, err.into_string()),
+        };
     let resume_token =
         session_resume::exchanged_with(server_version, session.session_manager.resume_token(cid));
     let stage0 = packet_crafter::do_connect::craft_stage0_packet(
@@ -221,10 +211,10 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
         session.account_manager.get_backend_type(),
         ticket,
         resume_token,
-        proof,
+        Some(proof),
     )?;
     let mut state = inner_mut_state!(session.state_container);
-    state.connect_state.pq.session_key = session_key;
+    state.connect_state.pq.session_key = Some(session_key);
     state.connect_state.last_stage = packet_flags::cmd::aux::do_connect::STAGE1;
     Ok(PrimaryProcessorResult::ReplyToSender(stage0))
 }

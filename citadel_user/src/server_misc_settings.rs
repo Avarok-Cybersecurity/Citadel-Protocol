@@ -54,8 +54,8 @@ pub struct ServerMiscSettings {
     /// Enforces specific requirements on credentials
     pub credential_requirements: CredentialRequirements,
     /// Post-quantum sign-in: the tenant's OPRF seed and the Argon2id parameters for new password
-    /// factors. `None` keeps this server on the legacy Argon2 path only: it refuses post-quantum
-    /// registrations (clients fall back) and upgrades no legacy account.
+    /// factors (the client stretches with them; the server never does). `None`: this server offers
+    /// passwordless (transient) accounts only, and refuses every password registration and login.
     pub pq_sign_in: Option<PqAuthServerSettings>,
     /// An optional check a FRESH sign-in or registration must pass before the server does any
     /// work on it, such as a Turnstile token (see [`crate::auth::pq::admission`]). `None`

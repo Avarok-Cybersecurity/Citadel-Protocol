@@ -34,7 +34,7 @@ pub(super) fn failure<R: Ratchet, T: PlatformOps>(
 }
 
 /// Client: a sign-in this side cannot complete ends the session, as a refused login does.
-pub(super) fn fail_login<R: Ratchet, T: PlatformOps>(
+pub(crate) fn fail_login<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cid: u64,
     error_message: String,

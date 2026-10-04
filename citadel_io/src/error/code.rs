@@ -1148,7 +1148,8 @@ pub enum ErrorCode {
     /// Post-quantum sign-in cannot run here (reason).
     #[form = "Post-quantum sign-in is unavailable: {}"]
     PqSignInUnavailable = 344,
-    /// A legacy password login for an account that has moved to post-quantum sign-in.
+    /// A password login that skipped post-quantum sign-in, from a client at protocol 0.12 or
+    /// later (an older one gets [`ErrorCode::PqSignInAdmissionNeedsUpdate`]).
     #[form = "This account uses post-quantum sign-in; update your app"]
     PqSignInLegacyRefused = 345,
     /// A change to an account's factors would leave its sign-in policy unsatisfiable (reason).
@@ -1171,9 +1172,15 @@ pub enum ErrorCode {
     /// The server's admission check refused the token that was sent (reason).
     #[form = "The verification check failed: {}"]
     PqSignInAdmissionFailed = 351,
-    /// The server requires an admission check, and the client is too old to send one.
+    /// A client below protocol 0.12 signed in or registered: it can neither send an admission
+    /// token nor run post-quantum sign-in, the only sign-in a server accepts since the Argon2
+    /// sunset.
     #[form = "This workspace needs a newer app to sign in; update your app"]
     PqSignInAdmissionNeedsUpdate = 352,
+    /// A stored account record from before post-quantum sign-in (an Argon2 server record), which
+    /// nothing can sign in since the Argon2 sunset (username).
+    #[form = "This account's sign-in record predates post-quantum sign-in and must be reset: {}"]
+    AuthRecordRetired = 353,
 
     // --- citadel_proto: connection supervision (liveness probe, path re-arm) ---
     /// A server probe's session ended before the probe was answered or timed out.

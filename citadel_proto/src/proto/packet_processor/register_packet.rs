@@ -222,18 +222,23 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         "Unable to load proposed credentials"
                     );
 
-                    // A server that runs post-quantum sign-in evaluates the OPRF first; STAGE2
-                    // then carries the keys instead of a password hash.
-                    if let Some(pq_start) = pq_sign_in::register::begin(
+                    // A password registration has the server evaluate the OPRF first; STAGE2 then
+                    // carries the keys. A passwordless one sends STAGE2 directly.
+                    let pq_start = pq_sign_in::register::begin(
                         &session,
                         &new_ratchet,
                         header.protocol_version.get(),
-                        proposed_credentials.username(),
+                        proposed_credentials,
                         algorithm,
                         timestamp,
                         security_level,
                         ticket,
-                    )? {
+                    );
+                    let pq_start = match pq_start {
+                        Ok(pq_start) => pq_start,
+                        Err(err) => return pq_sign_in::register::fail_registration(&session, err),
+                    };
+                    if let Some(pq_start) = pq_start {
                         let mut state_container = inner_mut_state!(session.state_container);
                         state_container.register_state.created_ratchet = Some(new_ratchet);
                         state_container.register_state.last_stage =
@@ -321,23 +326,14 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                 );
                 let pq = match pq_sign_in::register::on_pq_reply(&session, &plaintext).await {
                     Ok(pq) => pq,
-                    Err(err) => {
-                        session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
-                            ticket: session.kernel_ticket.get(),
-                            error_message: err.into_string(),
-                        }))?;
-                        session.shutdown();
-                        return Ok(PrimaryProcessorResult::EndSession(
-                            "Post-quantum registration could not complete",
-                        ));
-                    }
+                    Err(err) => return pq_sign_in::register::fail_registration(&session, err),
                 };
                 let stage2_packet = packet_crafter::do_register::craft_stage2(
                     &ratchet,
                     header.algorithm,
                     session.time_tracker.get_global_time_ns(),
                     &credentials,
-                    pq,
+                    Some(pq),
                     security_level,
                     ticket,
                 )?;
@@ -388,27 +384,20 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             );
                             // we must now create the CNAC
                             async move {
-                                // A legacy STAGE2 that no `PQ_START` admitted is asked now,
-                                // before the account is created.
-                                let gate = match (&pq, admitted) {
-                                    (None, false) => {
-                                        let ctx = pq_sign_in::admission::register(
+                                // A STAGE2 without keys is a passwordless registration or is
+                                // refused; one that no `PQ_START` admitted is asked now, before
+                                // the account is created.
+                                let gate = match &pq {
+                                    None => {
+                                        pq_sign_in::without_factors::admit_stage2(
                                             &session,
-                                            creds.username(),
-                                            None,
-                                        );
-                                        let policy = pq_sign_in::admission::policy(&session);
-                                        let legacy = pq_sign_in::admission::is_legacy_client(
                                             adjacent_version,
-                                        );
-                                        citadel_user::auth::pq::admission::check(
-                                            policy.as_ref(),
-                                            ctx,
-                                            legacy,
+                                            &creds,
+                                            admitted,
                                         )
                                         .await
                                     }
-                                    _ => Ok(()),
+                                    Some(_) => Ok(()),
                                 };
                                 let registered = match gate {
                                     Err(refused) => Err(refused),

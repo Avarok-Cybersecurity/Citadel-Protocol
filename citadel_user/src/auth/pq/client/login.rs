@@ -1,9 +1,7 @@
 use super::ksf::{password_input, password_keypair};
-use super::register::ClientRegistration;
 use crate::auth::pq::kem::{FactorKeypair, SharedSecret};
 use crate::auth::pq::messages::{
-    ChallengeBody, FactorChallenges, FactorTag, LoginChallenge, LoginFinish, LoginProof,
-    LoginStart, RegFinish,
+    ChallengeBody, FactorChallenges, FactorTag, LoginChallenge, LoginFinish, LoginProof, LoginStart,
 };
 use crate::auth::pq::oprf::{self, OprfClientState};
 use crate::auth::pq::proof::{factor_tag, session_key, TranscriptHash, AUTH_LABEL};
@@ -32,14 +30,10 @@ pub struct SecurityKeyAnswer {
 }
 
 /// The client's answer to a [`LoginChallenge`].
-pub enum ClientProof {
-    Factors {
-        proof: LoginProof,
-        /// The same key the server derives; both add it to the session's pre-shared keys.
-        session_key: Zeroizing<[u8; 32]>,
-    },
-    /// A legacy account: log in with the legacy credentials, and send `upgrade` alongside.
-    Legacy { upgrade: Option<RegFinish> },
+pub struct ClientProof {
+    pub proof: LoginProof,
+    /// The same key the server derives; both add it to the session's pre-shared keys.
+    pub session_key: Zeroizing<[u8; 32]>,
 }
 
 /// A login between [`LoginStart`] and the proof.
@@ -81,9 +75,7 @@ impl ClientLogin {
 
     /// Whether answering `challenge` needs a security key, and what to ask it for.
     pub fn security_key_request(challenge: &LoginChallenge) -> Option<SecurityKeyRequest> {
-        let ChallengeBody::Factors(factors) = &challenge.body else {
-            return None;
-        };
+        let ChallengeBody::Factors(factors) = &challenge.body;
         let credential_ids: Vec<Vec<u8>> = factors
             .challenges
             .iter()
@@ -104,19 +96,7 @@ impl ClientLogin {
         transcript: &TranscriptHash,
         key: Option<SecurityKeyAnswer>,
     ) -> Result<ClientProof, AccountError> {
-        let factors = match &challenge.body {
-            ChallengeBody::Factors(factors) => factors,
-            ChallengeBody::Legacy { upgrade } => {
-                let upgrade = match (upgrade, self.password) {
-                    (Some(reply), Some((input, oprf))) => {
-                        let registration = ClientRegistration::resume(input, oprf);
-                        Some(registration.finish(reply, false).await?.0)
-                    }
-                    _ => None,
-                };
-                return Ok(ClientProof::Legacy { upgrade });
-            }
-        };
+        let ChallengeBody::Factors(factors) = &challenge.body;
         let password = self.password_keypair(factors).await?;
         let key = key
             .map(|answer| {
@@ -152,7 +132,7 @@ impl ClientLogin {
             ));
         }
         let session_key = session_key(&secrets.iter().collect::<Vec<_>>(), transcript);
-        Ok(ClientProof::Factors {
+        Ok(ClientProof {
             proof: LoginProof::Factors(LoginFinish { tags }),
             session_key,
         })

@@ -9,6 +9,8 @@ mod tests {
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_types::crypto::KemAlgorithm;
     use citadel_user::account_manager::AccountManager;
+    use citadel_user::auth::pq::kem::{FactorKeypair, FactorSeed, SEED_LEN};
+    use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
     use citadel_user::backend::{BackendType, PersistenceHandler};
     use citadel_user::client_account::ClientNetworkAccount;
@@ -17,12 +19,25 @@ mod tests {
     use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
     use citadel_io::tokio;
     use citadel_types::crypto::EncryptionAlgorithm;
-    use citadel_types::crypto::SecBuffer;
     use citadel_types::user::MutualPeer;
     use citadel_user::credentials::CredentialRequirements;
     use citadel_user::misc::{AccountError, CNACMetadata};
     use citadel_user::prelude::ConnectionInfo;
     use std::collections::HashMap;
+
+    /// A post-quantum server record whose password factor is keyed by `password`. Only its
+    /// presence matters to these backend tests; no sign-in runs against it.
+    fn record(password: &str) -> PqAuthRecord {
+        let mut seed = [0u8; SEED_LEN];
+        for (byte, src) in seed.iter_mut().zip(password.bytes().cycle()) {
+            *byte = src;
+        }
+        let ek = FactorKeypair::derive(&FactorSeed::new(seed))
+            .unwrap()
+            .encapsulation_key()
+            .clone();
+        PqAuthRecord::new([1; 32], [2; 32], KsfParams::FLOOR, ek, Vec::new(), 0)
+    }
 
     #[derive(Clone)]
     struct TestContainer {
@@ -60,30 +75,20 @@ mod tests {
 
             let server_vers = self
                 .server_acc_mgr
-                .register_impersonal_hyperlan_client_network_account(
+                .register_pq_client_network_account(
                     conn_info.clone(),
-                    ProposedCredentials::new_register(
-                        full_name,
-                        username,
-                        SecBuffer::from(password),
-                    )
-                    .await
-                    .unwrap(),
+                    username.to_string(),
+                    full_name.to_string(),
+                    record(password),
                     server_session_crypto_state,
                 )
                 .await
                 .unwrap();
             let client_vers = self
                 .client_acc_mgr
-                .register_personal_hyperlan_server(
+                .register_personal_pq_server(
                     client_session_crypto_state,
-                    ProposedCredentials::new_register(
-                        full_name,
-                        username,
-                        SecBuffer::from(password),
-                    )
-                    .await
-                    .unwrap(),
+                    ProposedCredentials::new_register(full_name, username),
                     conn_info,
                 )
                 .await
@@ -116,29 +121,19 @@ mod tests {
 
             let _server_vers = self
                 .server_acc_mgr
-                .register_impersonal_hyperlan_client_network_account(
+                .register_pq_client_network_account(
                     conn_info.clone(),
-                    ProposedCredentials::new_register(
-                        full_name,
-                        username,
-                        SecBuffer::from(password),
-                    )
-                    .await
-                    .unwrap(),
+                    username.to_string(),
+                    full_name.to_string(),
+                    record(password),
                     server_session_crypto_state,
                 )
                 .await
                 .unwrap();
             let client_vers = client_acc_mgr
-                .register_personal_hyperlan_server(
+                .register_personal_pq_server(
                     client_session_crypto_state,
-                    ProposedCredentials::new_register(
-                        full_name,
-                        username,
-                        SecBuffer::from(password),
-                    )
-                    .await
-                    .unwrap(),
+                    ProposedCredentials::new_register(full_name, username),
                     conn_info,
                 )
                 .await
@@ -1960,9 +1955,7 @@ mod tests {
     }
 
     async fn acc_mgr(backend: BackendType) -> AccountManager {
-        AccountManager::new(backend, None, None, None)
-            .await
-            .unwrap()
+        AccountManager::new(backend, None, None).await.unwrap()
     }
 
     #[test]

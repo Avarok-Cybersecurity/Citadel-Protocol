@@ -1,5 +1,5 @@
 //! Shared harness for the post-quantum sign-in suites: a server whose account manager the test
-//! can read, with chosen sign-in settings, Argon2 parameters and backend.
+//! can read, with chosen sign-in settings and backend.
 
 use crate::common::group::{Events, GroupTestKernel};
 use citadel_io::tokio;
@@ -28,17 +28,8 @@ pub fn pq_settings() -> ServerMiscSettings {
     }
 }
 
-/// Parameters every Argon2 call refuses.
-pub fn poisoned_argon() -> ArgonDefaultServerSettings {
-    ArgonDefaultServerSettings {
-        lanes: 0,
-        ..Default::default()
-    }
-}
-
 pub fn server(
     misc: ServerMiscSettings,
-    argon: Option<ArgonDefaultServerSettings>,
     backend: Option<BackendType>,
 ) -> (impl std::future::Future<Output = ()>, SocketAddr, Slot) {
     let slot: Slot = Arc::new(Mutex::new(None));
@@ -53,9 +44,6 @@ pub fn server(
     };
     let (node, addr) = server_test_node(kernel, |builder| {
         let _ = builder.with_server_misc_settings(misc);
-        if let Some(argon) = argon {
-            let _ = builder.with_server_argon_settings(argon);
-        }
         if let Some(backend) = backend {
             let _ = builder.with_backend(backend);
         }
@@ -80,8 +68,8 @@ pub async fn login(
         .await
 }
 
-/// Registers the legacy way (no password handed over for post-quantum sign-in), as a client
-/// below 0.12 would.
+/// Registers with password credentials but without the post-quantum exchange (no password handed
+/// over for it), the way only a client from before the Argon2 sunset did.
 pub async fn register_legacy(
     remote: &NodeRemote<StackedRatchet>,
     server_addr: SocketAddr,
@@ -89,8 +77,7 @@ pub async fn register_legacy(
 ) -> Result<(), NetworkError> {
     let request = NodeRequest::RegisterToHypernode(RegisterToHypernode {
         remote_addr: server_addr,
-        proposed_credentials: ProposedCredentials::new_register(user, user, PASSWORD.into())
-            .await?,
+        proposed_credentials: ProposedCredentials::new_register(user, user),
         static_security_settings: Default::default(),
         session_password: Default::default(),
         endpoint: None,
@@ -114,7 +101,6 @@ pub async fn register_legacy(
 #[derive(Debug)]
 pub struct ServerRecord {
     pub post_quantum: bool,
-    pub argon: bool,
 }
 
 pub async fn server_mode(slot: &Slot, user: &str) -> ServerRecord {
@@ -128,7 +114,6 @@ pub async fn server_mode(slot: &Slot, user: &str) -> ServerRecord {
     let mode = cnac.auth_store();
     ServerRecord {
         post_quantum: mode.pq_record().is_some(),
-        argon: mode.argon_container().is_some(),
     }
 }
 

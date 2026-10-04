@@ -25,7 +25,7 @@
 //!   - User information lookup
 //!
 //! * **Security**
-//!   - Argon2id password hashing
+//!   - Post-quantum sign-in records (no password hash is stored)
 //!   - Secure credential management
 //!   - Ratchet-based cryptography
 //!
@@ -44,7 +44,6 @@
 //!     // Initialize account manager with in-memory backend
 //!     let manager = AccountManager::<StackedRatchet>::new(
 //!         BackendType::InMemory,
-//!         None,
 //!         None,
 //!         None
 //!     ).await?;
@@ -102,7 +101,6 @@ use crate::server_misc_settings::ServerMiscSettings;
 
 #[path = "account_manager_pq.rs"]
 mod pq;
-use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
 use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use citadel_crypt::ratchets::mono::MonoRatchet;
 use citadel_crypt::ratchets::stacked::StackedRatchet;
@@ -122,7 +120,6 @@ use std::pin::Pin;
 pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatchet> {
     services_handler: ServicesHandler,
     persistence_handler: PersistenceHandler<R, Fcm>,
-    node_argon_settings: ArgonSettings,
     server_misc_settings: ServerMiscSettings,
     backend_ty: BackendType,
     /// Serializes the username-exists check and the subsequent CNAC save during registration so two
@@ -137,11 +134,9 @@ pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatche
 impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// `bind_addr`: Required for determining the local save directories for this instance
     /// `home_dir`: Optional. Overrides the default storage location for files
-    /// `server_argon_settings`: Security settings used for saving the password to the backend. The AD will be replaced each time a new user is created, so it can be empty
     #[allow(unused_results)]
     pub async fn new(
         backend_type: BackendType,
-        server_argon_settings: Option<ArgonDefaultServerSettings>,
         _services_cfg: Option<ServicesConfig>,
         server_misc_settings: Option<ServerMiscSettings>,
     ) -> Result<Self, AccountError> {
@@ -212,7 +207,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             backend_ty: backend_type,
             persistence_handler,
             services_handler,
-            node_argon_settings: server_argon_settings.unwrap_or_default().into(),
             server_misc_settings: server_misc_settings.unwrap_or_default(),
             registration_lock: std::sync::Arc::new(citadel_io::tokio::sync::Mutex::new(())),
             pq_record_lock: std::sync::Arc::new(citadel_io::tokio::sync::Mutex::new(())),
@@ -229,10 +223,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         &self.services_handler
     }
 
-    /// Once a valid and decrypted stage 4 packet gets received by the server (Bob), this function should be called
-    /// to create the new CNAC. The generated CNAC will be assumed to be an impersonal hyperlan client
-    ///
-    /// This also generates the argon-2id password hash
+    /// Server side: the account a passwordless registration creates, if this server allows
+    /// transient connections. A password account is created only by a post-quantum registration
+    /// (`register_pq_client_network_account`).
     pub async fn register_impersonal_hyperlan_client_network_account(
         &self,
         conn_info: ConnectionInfo,
@@ -247,15 +240,18 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             return Err(citadel_io::error!(citadel_io::ErrorCode::RegisterCidZero));
         }
 
-        let auth_store = creds
-            .derive_server_container(&self.node_argon_settings, self.get_misc_settings())
-            .await?;
+        let auth_store = creds.into_transient_auth_store()?;
+        if !self.server_misc_settings.allow_transient_connections {
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::PasswordlessUnsupported
+            ));
+        }
         self.create_impersonal_account(reserved_cid, conn_info, auth_store, session_crypto_state)
             .await
     }
 
     /// Checks the names, then saves a new impersonal account, unless the username is taken. Shared
-    /// by the legacy and the post-quantum registration paths.
+    /// by the passwordless and the post-quantum registration paths.
     pub(crate) async fn create_impersonal_account(
         &self,
         reserved_cid: u64,
@@ -299,8 +295,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         Ok(new_cnac)
     }
 
-    /// whereas the HyperLAN server (Bob) runs `register_impersonal_hyperlan_client_network_account`, the registering
-    /// HyperLAN Client (Alice) runs this function below
+    /// Client side, after a passwordless registration (the server ran
+    /// `register_impersonal_hyperlan_client_network_account`). A password registration keeps its
+    /// account with `register_personal_pq_server`.
     pub async fn register_personal_hyperlan_server(
         &self,
         session_crypto_state: PeerSessionCrypto<R>,
@@ -315,7 +312,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             return Err(citadel_io::error!(citadel_io::ErrorCode::RegisterCidZero));
         }
 
-        let client_auth_store = creds.into_auth_store();
+        let client_auth_store = creds.into_transient_auth_store()?;
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(
             valid_cid,
             Some(session_crypto_state),

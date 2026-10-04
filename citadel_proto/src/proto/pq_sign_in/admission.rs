@@ -1,5 +1,5 @@
 //! Server: the admission check (`ServerMiscSettings::admission`) at the start of each FRESH
-//! sign-in or registration, before the OPRF, any encapsulation or any Argon2 work.
+//! sign-in or registration, before the OPRF, any encapsulation or any other work.
 //!
 //! Not asked: a recovery-code sign-in (the user's way back in) and a login whose resume token
 //! the session the server still holds recognises (its own client reconnecting, admitted once
@@ -50,9 +50,9 @@ pub(crate) fn sign_in<R: Ratchet, T: PlatformOps>(
     ))
 }
 
-/// A login that sent no `AUTH_START`: a client below 0.12, which cannot carry a token, or a
-/// transient one. `presented` is the resume token its STAGE0 carried.
-pub(crate) async fn legacy_sign_in<R: Ratchet, T: PlatformOps>(
+/// A passwordless login, which sends no `AUTH_START` (from a client below 0.12 too, which cannot
+/// carry a token). `presented` is the resume token its STAGE0 carried.
+pub(crate) async fn sign_in_without_factors<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cid: u64,
     username: &str,
@@ -67,7 +67,7 @@ pub(crate) async fn legacy_sign_in<R: Ratchet, T: PlatformOps>(
     admission::check(policy.as_ref(), ctx, is_legacy_client(adjacent_version)).await
 }
 
-/// What a registration is asked: `PQ_START`'s token, or none for a legacy STAGE2.
+/// What a registration is asked: `PQ_START`'s token, or none for a passwordless STAGE2.
 pub(crate) fn register<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     username: &str,
