@@ -41,6 +41,7 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
+use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ServerMode;
@@ -163,6 +164,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     disconnect_tracker: DisconnectSignalTracker,
     /// Client side: each account's latest resume token, kept after its session ends.
     resume_tokens: ResumeTokens,
+    /// The node's client-role QUIC endpoints, shared with its remote's `rebind_local`.
+    local_rebinder: LocalRebinder,
 }
 
 /// The reason given to a login refused because the server already holds a session for the account.
@@ -224,6 +227,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             turn_servers,
             disconnect_tracker: DisconnectSignalTracker::new(),
             resume_tokens: ResumeTokens::default(),
+            local_rebinder: LocalRebinder::new(),
         };
 
         Self::from(inner)
@@ -421,6 +425,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         }
 
         Ok(())
+    }
+
+    /// The node's tracker of transports that can move to a new local address.
+    pub(crate) fn local_rebinder(&self) -> LocalRebinder {
+        inner!(self).local_rebinder.clone()
     }
 
     /// Server side: whether the session held for `cid` was issued `presented` (or resumed from
@@ -658,6 +667,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     None => T::connect(default_client_config, T::from_socket_addr(peer_addr)).await,
                 }
                 .map_err(|err| NetworkError::socket(err.to_string()))?;
+                T::track_client_transport(&primary_stream, &self.local_rebinder());
                 let local_bind_addr: SocketAddr = T::to_socket_addr(
                     &T::local_addr(&primary_stream)
                         .map_err(|err| NetworkError::generic(err.to_string()))?,

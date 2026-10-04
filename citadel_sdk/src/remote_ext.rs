@@ -765,6 +765,14 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         ))
     }
 
+    /// Moves this node's live client-role QUIC endpoints to fresh sockets on the current local
+    /// address, so Direct and TURN QUIC paths (and a C2S QUIC connection) migrate without a new
+    /// handshake. Call it on a local network change. Local only, so not version-gated; see
+    /// [`NodeRemote::rebind_local`].
+    fn rebind_local(&self) -> Result<RebindReport, NetworkError> {
+        self.remote_ref().rebind_local()
+    }
+
     #[doc(hidden)]
     fn remote_ref(&self) -> &NodeRemote<R>;
 

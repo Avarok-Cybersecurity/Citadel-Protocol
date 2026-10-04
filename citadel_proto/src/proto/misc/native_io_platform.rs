@@ -61,6 +61,15 @@ impl PlatformOps for NativeIO {
         }
     }
 
+    fn track_client_transport(
+        stream: &Self::Stream,
+        rebinder: &crate::proto::misc::local_rebind::LocalRebinder,
+    ) {
+        if let Some(endpoint) = stream.p2p_endpoint() {
+            rebinder.track_quic_client(endpoint);
+        }
+    }
+
     fn quic_udp_channel(conn: Connection, local_addr: SocketAddr) -> Option<UdpSplittableTypes> {
         log::trace!(target: "citadel", "Will use QUIC UDP for UDP transmission");
         Some(UdpSplittableTypes::Quic(QuicUdpSocketConnector::new(

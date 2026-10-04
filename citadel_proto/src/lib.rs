@@ -562,6 +562,7 @@ pub mod prelude {
     pub use async_trait::async_trait;
     pub use citadel_io::WebSocketEndpoint;
     pub use citadel_wire::hypernode_type::NodeType;
+    pub use citadel_wire::quic_rebind::{RebindFailure, RebindReport, Rebound};
 
     // Native-only prelude exports
     #[cfg(not(target_family = "wasm"))]

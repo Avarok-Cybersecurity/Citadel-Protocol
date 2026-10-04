@@ -8,6 +8,7 @@ pub mod misc;
 pub mod nat_identification;
 #[cfg(not(target_family = "wasm"))]
 pub mod quic;
+pub mod quic_rebind;
 #[cfg(not(target_family = "wasm"))]
 pub mod socket_helpers;
 #[cfg(not(target_family = "wasm"))]

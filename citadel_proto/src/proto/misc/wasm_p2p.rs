@@ -14,6 +14,14 @@ use crate::proto::peer::peer_crypt::WebRtcSignalingPayload;
 // ── PlatformOps impl ────────────────────────────────────────────────
 
 impl super::platform_ops::PlatformOps for WasmIO {
+    /// A browser's transports belong to the browser, which follows address changes itself.
+    fn track_client_transport(
+        stream: &Self::Stream,
+        rebinder: &crate::proto::misc::local_rebind::LocalRebinder,
+    ) {
+        let _ = (stream, rebinder);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn p2p_hole_punch<R: citadel_crypt::ratchets::Ratchet>(
         session: crate::proto::session::CitadelSession<R, Self>,

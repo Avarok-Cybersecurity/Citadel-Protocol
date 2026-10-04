@@ -63,6 +63,7 @@ pub(crate) fn io_error_from_anyhow(
     }
 }
 
+pub mod local_rebind;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_bind;
 #[cfg(not(target_family = "wasm"))]

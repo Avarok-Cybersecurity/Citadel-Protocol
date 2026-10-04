@@ -33,6 +33,7 @@ use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::Mutex;
@@ -206,6 +207,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             kernel_async_callback_handler.clone(),
             account_manager,
             node_type,
+            read.session_manager.local_rebinder(),
         );
         let tt = read
             .session_manager
@@ -723,4 +725,5 @@ pub(crate) struct CitadelNodeRemoteInner<R: Ratchet> {
     pub callback_handler: KernelAsyncCallbackHandler<R>,
     pub node_type: NodeType,
     pub account_manager: AccountManager<R, R>,
+    pub local_rebinder: LocalRebinder,
 }

@@ -1191,4 +1191,8 @@ pub enum ErrorCode {
     /// A P2P path upgrade was asked of a connection with no campaign left to re-arm (reason).
     #[form = "No P2P path campaign to re-arm: {}"]
     P2pUpgradeUnavailable = 374,
+    /// `rebind_local` was asked of a node with no transport that can move to a new local address
+    /// (a browser node, whose transports the browser owns).
+    #[form = "This node cannot rebind its transports to a new local address"]
+    RebindLocalUnsupported = 380,
 }
