@@ -58,6 +58,7 @@ use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, UnboundedReceiver};
 use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
+use crate::proto::peer::p2p_rearm::PathControl;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::UserMessage;
@@ -82,7 +83,11 @@ pub struct PeerChannel<R: Ratchet> {
     recv_half: PeerChannelRecvHalf<R>,
     path: P2pPathCell,
     peer_protocol_version: Option<u32>,
+    restored_udp: Option<RestoredUdpChannels<R>>,
 }
+
+/// Every UDP channel a P2P path recovery restores, in order (see `PeerChannel::upgrade`).
+pub type RestoredUdpChannels<R> = citadel_io::tokio::sync::mpsc::UnboundedReceiver<UdpChannel<R>>;
 
 impl<R: Ratchet> PeerChannel<R> {
     #[allow(clippy::too_many_arguments)]
@@ -97,6 +102,7 @@ impl<R: Ratchet> PeerChannel<R> {
         disconnect_token: Option<DisconnectToken>,
         path: P2pPathCell,
         peer_protocol_version: Option<u32>,
+        restored_udp: Option<RestoredUdpChannels<R>>,
     ) -> Self {
         let session_cid = vconn_type.get_session_cid();
 
@@ -128,7 +134,24 @@ impl<R: Ratchet> PeerChannel<R> {
             recv_half,
             path,
             peer_protocol_version,
+            restored_udp,
         }
+    }
+
+    /// Re-arms this connection's P2P path campaign; see [`PathControl::upgrade`].
+    pub fn upgrade(&self, restore_udp: bool) -> Result<(), NetworkError> {
+        self.path_control().upgrade(restore_udp)
+    }
+
+    /// A handle that can [`upgrade`](PathControl::upgrade) after [`Self::split`].
+    pub fn path_control(&self) -> PathControl {
+        PathControl::new(self.path.clone(), self.peer_protocol_version)
+    }
+
+    /// The UDP channels later recoveries restore (see [`PathControl::upgrade`]), each replacing
+    /// the one before, which ended with the route it rode. `Some` once, on a P2P channel.
+    pub fn take_restored_udp(&mut self) -> Option<RestoredUdpChannels<R>> {
+        self.restored_udp.take()
     }
 
     /// The other end's `PROTOCOL_VERSION`: from the connect packet on a client-server channel,
@@ -155,6 +178,7 @@ impl<R: Ratchet> PeerChannel<R> {
     /// failed, the NATs are incompatible and no TURN config was supplied, or the connection
     /// closed. It has no timeout of its own. If a P2P route is later lost the connection falls
     /// back to the relay and retries a bounded number of times; a new call waits for that retry.
+    /// After the campaign gave up, [`Self::upgrade`] re-arms it.
     pub fn ensure_direct(
         &self,
     ) -> impl std::future::Future<Output = Result<P2pPath, NetworkError>> + Send + 'static {

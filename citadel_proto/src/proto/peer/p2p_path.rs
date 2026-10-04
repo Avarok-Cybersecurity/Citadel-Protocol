@@ -69,6 +69,8 @@ struct PathShared {
     /// watch's modify closure, so a fall-back and a campaign exit cannot interleave into a stale
     /// `upgrading = true`.
     campaign_alive: AtomicBool,
+    /// An upgrade the application asked for (`PeerChannel::upgrade`), for the campaign.
+    rearm: super::p2p_rearm::RearmSlot,
 }
 
 impl P2pPathCell {
@@ -84,6 +86,7 @@ impl P2pPathCell {
         Self(Arc::new(PathShared {
             status,
             campaign_alive: AtomicBool::new(false),
+            rearm: Default::default(),
         }))
     }
 
@@ -193,6 +196,14 @@ impl P2pPathCell {
 
     pub(crate) fn is_closed(&self) -> bool {
         self.0.status.borrow().closed
+    }
+
+    pub(crate) fn campaign_alive(&self) -> bool {
+        self.0.campaign_alive.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn rearm(&self) -> &super::p2p_rearm::RearmSlot {
+        &self.0.rearm
     }
 
     fn publish(&self, change: impl FnOnce(&PathShared, &mut P2pPathStatus)) {

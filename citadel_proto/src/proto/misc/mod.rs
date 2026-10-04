@@ -87,6 +87,7 @@ pub(crate) mod platform_ops;
 pub(crate) mod server_endpoint_store;
 pub(crate) mod threading;
 pub mod udp_internal_interface;
+pub(crate) mod udp_restored;
 pub(crate) mod udp_session_loader;
 pub(crate) mod udp_session_tasks;
 pub mod ws_ping;

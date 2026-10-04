@@ -388,6 +388,8 @@ pub struct EndpointChannelContainer<R: Ratchet> {
     /// Sends P2PDisconnectSignal which includes the ticket for disconnect initiator.
     pub(crate) p2p_disconnect_notifier:
         Option<citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>>,
+    /// P2P: where UDP channels after the first go, to the application's `PeerChannel`.
+    pub(crate) udp_restored: Option<citadel_io::tokio::sync::mpsc::UnboundedSender<UdpChannel<R>>>,
 }
 
 pub(crate) struct UnorderedChannelContainer {

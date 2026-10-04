@@ -21,6 +21,11 @@
 //! fresh budget. Both peers run the same schedule and meet on the coordination endpoint before
 //! each retry; a peer that does not arrive within [`RENDEZVOUS_TIMEOUT`] ends the campaign.
 //!
+//! **Giving up is not for life** with a peer at `PATH_REARM_SINCE`: out of retries (or after a
+//! first attempt that failed), the campaign parks on the coordination endpoint until either
+//! application calls `PeerChannel::upgrade`, then retries with a fresh budget. The two peers agree
+//! on every retry at its rendezvous (see `p2p_rearm`), so they give up, park and re-arm together.
+//!
 //! The campaign's state is published on the connection's [`P2pPathCell`], which is what
 //! `PeerChannel::ensure_direct` follows.
 
@@ -36,7 +41,9 @@ use netbeam::sync::RelativeNodeType;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::NodeResult;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
-use crate::proto::peer::p2p_path::{CampaignEndGuard, P2pPath, P2pPathCell, P2pPlan};
+use crate::proto::peer::p2p_path::{CampaignEndGuard, P2pPlan};
+use crate::proto::peer::p2p_rearm;
+use crate::proto::peer::p2p_retry::{wait_for_fall_back, Retry, RetryEnd, Schedule};
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
@@ -101,6 +108,12 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         guard,
     } = campaign;
     let cell = guard.cell().clone();
+    let rearmable = match &channel_signal {
+        NodeResult::PeerChannelCreated(created) => {
+            p2p_rearm::peer_parks(created.channel.peer_protocol_version())
+        }
+        _ => false,
+    };
     let weak_session = session.as_weak();
     let kernel_tx = session.kernel_tx.clone();
     drop(session);
@@ -170,44 +183,40 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
             }
         };
 
+        let slot = cell.rearm();
+        let retry = Retry {
+            cell: &cell,
+            app: &app,
+            slot,
+            rearmable,
+            udp_mode,
+            peer_cid,
+        };
         let mut attached = attempt(sync_instant, udp_mode).await;
-        let mut budget = RECOVERY_ATTEMPTS;
-        let mut backoff = RECOVERY_BACKOFF;
-        while attached {
-            let attached_at = Instant::now();
-            if !wait_for_fall_back(&cell).await {
-                return;
-            }
-            if attached_at.elapsed() >= STABLE_ROUTE {
-                budget = RECOVERY_ATTEMPTS;
-                backoff = RECOVERY_BACKOFF;
-            }
-            loop {
-                if budget == 0 {
-                    log::info!(target: "citadel", "P2P route to peer {peer_cid} lost with no retries left; staying on the server relay");
-                    cell.stop_upgrading();
+        let mut schedule = Schedule::fresh(true);
+        loop {
+            if attached {
+                let attached_at = Instant::now();
+                if !wait_for_fall_back(&cell).await {
                     return;
                 }
-                budget -= 1;
-                cell.resume_upgrading();
-                citadel_io::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(RECOVERY_BACKOFF_MAX);
-                if cell.is_closed() {
+                if attached_at.elapsed() >= STABLE_ROUTE {
+                    schedule = Schedule::fresh(true);
+                }
+                schedule.wait_first = true;
+            } else {
+                // Out of attempts: stay on the relay. A peer that parks waits to be re-armed.
+                cell.stop_upgrading();
+                if !rearmable || !p2p_rearm::park(&app, slot).await {
                     return;
                 }
-                match citadel_io::time::timeout(RENDEZVOUS_TIMEOUT, app.sync()).await {
-                    Ok(Ok(())) => {}
-                    _ => {
-                        log::info!(target: "citadel", "Peer {peer_cid} did not meet the P2P retry; staying on the server relay");
-                        return;
-                    }
-                }
-                // The UDP channel belonged to the lost route; a retry restores the reliable path.
-                attached = attempt(Instant::now(), UdpMode::Disabled).await;
-                if attached {
-                    log::info!(target: "citadel", "P2P route to peer {peer_cid} restored");
-                    break;
-                }
+                log::info!(target: "citadel", "P2P campaign for peer {peer_cid} re-armed");
+                schedule = Schedule::fresh(false);
+            }
+            match retry.run(&mut schedule, &attempt).await {
+                RetryEnd::Attached => attached = true,
+                RetryEnd::Exhausted => attached = false,
+                RetryEnd::Ended => return,
             }
         }
     };
@@ -219,19 +228,4 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         }
     }
     drop(guard);
-}
-
-/// Waits until the connection's P2P route is lost. `false` when the connection closed instead,
-/// or when no campaign can retry.
-async fn wait_for_fall_back(cell: &P2pPathCell) -> bool {
-    let mut rx = cell.subscribe();
-    loop {
-        let status = *rx.borrow_and_update();
-        if status.path == P2pPath::ServerRelay {
-            return status.upgrading && !cell.is_closed();
-        }
-        if rx.changed().await.is_err() {
-            return false;
-        }
-    }
 }
