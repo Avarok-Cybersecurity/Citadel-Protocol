@@ -95,15 +95,39 @@ define_outer_struct_wrapper!(CitadelSessionManager, HdpSessionManagerInner, <R: 
 /// for a server reached by WebSocket URL: every server behind an HTTP edge shares the edge's
 /// address, and one client may be connecting to several of them at once (one agent, two hosted
 /// workspaces). Such a connection is keyed by its URL as well; every other one by address alone.
+///
+/// A client's attempt also names its account. One node may sign two accounts in to one server
+/// at once (two windows, two accounts, one agent), and keyed by the server alone the second was
+/// refused while the first was in flight. Two attempts for the same account still collide. A
+/// server's entry names no account: its key's address is the client's, unique per connection.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ProvisionalKey {
     pub addr: SocketAddr,
     pub endpoint: Option<WebSocketEndpoint>,
+    pub account: Option<String>,
 }
 
 impl ProvisionalKey {
+    /// A server's key for an incoming connection.
     pub fn new(addr: SocketAddr, endpoint: Option<WebSocketEndpoint>) -> Self {
-        Self { addr, endpoint }
+        Self {
+            addr,
+            endpoint,
+            account: None,
+        }
+    }
+
+    /// A client's key for `account`'s registration or sign-in.
+    pub fn for_account(
+        addr: SocketAddr,
+        endpoint: Option<WebSocketEndpoint>,
+        account: String,
+    ) -> Self {
+        Self {
+            addr,
+            endpoint,
+            account: Some(account),
+        }
     }
 }
 
@@ -399,6 +423,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         Ok(())
     }
 
+    /// Server side: whether the session held for `cid` was issued `presented` (or resumed from
+    /// it), i.e. this login is that session's own client reconnecting. Consulted only to skip
+    /// the admission check; it admits nothing by itself.
+    pub(crate) fn held_session_recognises(&self, cid: u64, presented: &ResumeToken) -> bool {
+        inner!(self)
+            .sessions
+            .get(&cid)
+            .is_some_and(|(_, held)| held.resume.get().is_own_client(Some(presented)))
+    }
+
     /// Client side: the resume token `cid`'s latest session was issued, if any.
     pub(crate) fn resume_token(&self, cid: u64) -> Option<ResumeToken> {
         inner!(self).resume_tokens.for_cid(cid)
@@ -482,6 +516,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                 proposed_credentials,
                                 endpoint,
                                 _,
+                                _,
                             ) => (
                                 *peer_addr,
                                 None,
@@ -500,7 +535,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                     None,
                                 ),
 
-                                AuthenticationRequest::Credentialed { id, password } => {
+                                AuthenticationRequest::Credentialed { id, .. }
+                                | AuthenticationRequest::SignIn { id, .. } => {
+                                    let password = match auth_request {
+                                        AuthenticationRequest::Credentialed {
+                                            password, ..
+                                        } => Some(password.clone()),
+                                        AuthenticationRequest::SignIn { factors, .. } => {
+                                            factors.password.clone()
+                                        }
+                                        AuthenticationRequest::Passwordless { .. } => None,
+                                    };
                                     let acc_mgr = {
                                         let inner = inner!(self);
                                         inner.account_manager.clone()
@@ -518,10 +563,20 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                     )
                                     .await?;
 
-                                    let proposed_credentials = cnac
-                                        .generate_connect_credentials(password.clone())
-                                        .await
-                                        .map_err(|err| NetworkError::generic(err.into_string()))?;
+                                    // Without a password (a key-only or recovery sign-in) there is
+                                    // nothing to hash: the factors are proven before STAGE0.
+                                    let proposed_credentials = match password {
+                                        Some(password) => cnac
+                                            .generate_connect_credentials(password)
+                                            .await
+                                            .map_err(|err| {
+                                                NetworkError::generic(err.into_string())
+                                            })?,
+                                        None => ProposedCredentials::post_quantum(
+                                            cnac.get_username(),
+                                            cnac.auth_store().full_name().to_string(),
+                                        ),
+                                    };
 
                                     (peer_addr, Some(cnac), proposed_credentials, endpoint)
                                 }
@@ -550,7 +605,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     let stun_servers = this.stun_servers.clone();
                     let turn_servers = this.turn_servers.clone();
 
-                    let provisional_key = ProvisionalKey::new(peer_addr, endpoint);
+                    let provisional_key = ProvisionalKey::for_account(
+                        peer_addr,
+                        endpoint,
+                        proposed_credentials.username().to_string(),
+                    );
                     if let Some((init_time, ..)) =
                         this.provisional_connections.get(&provisional_key)
                     {

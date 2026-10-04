@@ -1164,4 +1164,14 @@ pub enum ErrorCode {
     /// setting the policy.
     #[form = "A recovery session may only enrol a security key or set the sign-in policy"]
     PqSignInRestricted = 349,
+    /// The server requires an admission check (a Turnstile token) for a fresh sign-in or
+    /// registration, and none was sent.
+    #[form = "This workspace needs a verification check before you sign in"]
+    PqSignInAdmissionRequired = 350,
+    /// The server's admission check refused the token that was sent (reason).
+    #[form = "The verification check failed: {}"]
+    PqSignInAdmissionFailed = 351,
+    /// The server requires an admission check, and the client is too old to send one.
+    #[form = "This workspace needs a newer app to sign in; update your app"]
+    PqSignInAdmissionNeedsUpdate = 352,
 }

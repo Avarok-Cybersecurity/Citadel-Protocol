@@ -17,6 +17,7 @@ const CODE_SYMBOLS: usize = 26;
 const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /// One recovery code.
+#[derive(Clone)]
 pub struct RecoveryCode(Zeroizing<[u8; CODE_BYTES]>);
 
 impl RecoveryCode {

@@ -47,6 +47,10 @@ pub struct RegisterOkay {
     pub ticket: Ticket,
     pub cid: u64,
     pub welcome_message: Vec<u8>,
+    /// A post-quantum registration's recovery codes, formatted for display. Show them to the user
+    /// now: the client generated them, the server holds only their keys, and nothing keeps them.
+    /// Empty for a legacy registration.
+    pub recovery_codes: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -253,11 +257,11 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: _,
                 cid_opt: _,
                 error_message: err,
-            }) => Err(NetworkError::generic(err)),
+            }) => Err(refused(err)),
             NodeResult::RegisterFailure(RegisterFailure {
                 ticket: _,
                 error_message: err,
-            }) => Err(NetworkError::generic(err)),
+            }) => Err(refused(err)),
             NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::generic(format!(
                 "Outbound request rejected: {:?}",
                 String::from_utf8(reason.message_opt.unwrap_or_default())
@@ -287,11 +291,9 @@ impl<R: Ratchet> NodeResult<R> {
 
     pub fn callback_key(&self) -> Option<CallbackKey> {
         match self {
-            NodeResult::RegisterOkay(RegisterOkay {
-                ticket: t,
-                cid,
-                welcome_message: _,
-            }) => Some(CallbackKey::new(*t, *cid)),
+            NodeResult::RegisterOkay(RegisterOkay { ticket: t, cid, .. }) => {
+                Some(CallbackKey::new(*t, *cid))
+            }
             NodeResult::RegisterFailure(RegisterFailure {
                 ticket: t,
                 error_message: _,
@@ -377,4 +379,11 @@ impl<R: Ratchet> NodeResult<R> {
             }) => Some(CallbackKey::new(*ticket, *session_cid)),
         }
     }
+}
+
+/// A connect or register FAILURE as an error: with its admission code when the server's
+/// admission check refused it (`citadel_user::auth::pq::admission`), generic otherwise.
+fn refused(message: String) -> NetworkError {
+    citadel_user::auth::pq::admission::refusal_from_message(&message)
+        .unwrap_or_else(|| NetworkError::generic(message))
 }

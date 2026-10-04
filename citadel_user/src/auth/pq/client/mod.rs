@@ -3,7 +3,9 @@
 
 pub mod ksf;
 mod login;
+mod manage;
 mod register;
 
 pub use login::{ClientLogin, ClientProof, SecurityKeyAnswer, SecurityKeyRequest};
+pub use manage::{ClientCommitted, ClientManagement};
 pub use register::ClientRegistration;

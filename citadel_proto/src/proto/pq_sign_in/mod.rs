@@ -10,10 +10,16 @@
 //! keep the legacy exchange, so 0.11 and 0.12 nodes interoperate. Every message travels inside
 //! the session's post-quantum channel.
 
+pub(crate) mod admission;
 pub(crate) mod admit;
 pub(crate) mod connect;
+pub(crate) mod manage;
 mod packets;
+pub(crate) mod presence;
+pub(crate) mod refusal;
 pub(crate) mod register;
+pub(crate) mod restrict;
+pub mod security_key;
 pub(crate) mod state;
 
 #[cfg(test)]
@@ -26,11 +32,17 @@ use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::session::HdpSessionInitMode;
 use crate::proto::state_container::StateContainerInner;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_user::auth::pq::admission::AdmissionToken;
 use state::OfferedFactors;
 
 /// Whether the adjacent node runs post-quantum sign-in.
 pub(crate) fn runs_with(adjacent_version: u32) -> bool {
     protocol_version_at_least(Some(adjacent_version), PQ_SIGN_IN_SINCE)
+}
+
+/// [`runs_with`] for a version that may not be known yet; an unknown one does not.
+pub(crate) fn runs_with_known(adjacent_version: Option<u32>) -> bool {
+    adjacent_version.is_some_and(runs_with)
 }
 
 /// Client, at session start: the factors this session's login or registration offers.
@@ -42,10 +54,22 @@ pub(crate) fn store_offered<R: Ratchet>(
         HdpSessionInitMode::Connect(AuthenticationRequest::Credentialed { password, .. }) => {
             state.connect_state.pq.offered = Some(OfferedFactors {
                 password: Some(password.clone()),
+                security_key: None,
+                recovery_code: None,
+                admission: None,
             });
         }
-        HdpSessionInitMode::Register(_, _, _, password) => {
+        HdpSessionInitMode::Connect(AuthenticationRequest::SignIn { factors, .. }) => {
+            state.connect_state.pq.offered = Some(OfferedFactors {
+                password: factors.password.clone(),
+                security_key: factors.security_key.clone(),
+                recovery_code: factors.recovery_code.clone(),
+                admission: factors.admission.clone().map(AdmissionToken::new),
+            });
+        }
+        HdpSessionInitMode::Register(_, _, _, password, admission) => {
             state.register_state.pq.password = password.clone();
+            state.register_state.pq.admission = admission.clone();
         }
         HdpSessionInitMode::Connect(AuthenticationRequest::Passwordless { .. }) => {}
     }

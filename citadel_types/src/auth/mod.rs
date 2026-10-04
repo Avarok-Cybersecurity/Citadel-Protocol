@@ -112,7 +112,11 @@ impl SignInManagementOp {
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
 pub enum SignInManagementOutcome {
-    Credentials(Vec<SignInCredential>),
+    /// The account's factors, and the policy that decides which of them a sign-in must prove.
+    Credentials {
+        policy: SignInPolicy,
+        credentials: Vec<SignInCredential>,
+    },
     Added {
         id: FactorId,
     },
