@@ -44,6 +44,15 @@ impl ResumeToken {
         Self(bytes)
     }
 
+    /// As carried inside a post-quantum `LoginStart`, which `citadel_user` defines.
+    pub(crate) fn from_bytes(bytes: [u8; RESUME_TOKEN_LEN]) -> Self {
+        Self(bytes)
+    }
+
+    pub(crate) fn to_bytes(self) -> [u8; RESUME_TOKEN_LEN] {
+        self.0
+    }
+
     /// Constant-time equality.
     fn same_as(&self, other: &Self) -> bool {
         self.0
@@ -76,7 +85,7 @@ impl HeldSessionResume {
         }
     }
 
-    fn is_own_client(&self, presented: Option<&ResumeToken>) -> bool {
+    pub(crate) fn is_own_client(&self, presented: Option<&ResumeToken>) -> bool {
         let Some(presented) = presented else {
             return false;
         };

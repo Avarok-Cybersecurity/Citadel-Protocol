@@ -45,6 +45,7 @@ use crate::proto::session_resume::{self, HeldSessionResume, ResumeToken};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
 use citadel_io::{error, ErrorCode};
+use citadel_types::auth::SessionScope;
 use citadel_types::proto::ConnectMode;
 use citadel_user::client_account::ClientNetworkAccount;
 use citadel_user::external_services::ServicesObject;
@@ -123,29 +124,30 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     }
                 }
                 let task = {
-                    let validated =
-                        match pq_sign_in::admit::validate_stage0(session, &cnac, &payload).await {
-                            Ok((stage0_packet, admission)) => {
-                                if session.kernel_ticket.get() != ticket {
-                                    const REASON: &str = "Ticket mismatch";
-                                    return Ok(PrimaryProcessorResult::EndSession(REASON));
-                                }
-                                let presented = session_resume::exchanged_with(
-                                    adjacent_protocol_version,
-                                    stage0_packet.resume_token,
-                                );
-                                // Fully authenticated from here on, and only from here on.
-                                admit_authenticated_login(
-                                    session,
-                                    &cnac,
-                                    ratchet.get_cid(),
-                                    presented,
-                                )
+                    let validated = match pq_sign_in::admit::validate_stage0(
+                        session,
+                        &cnac,
+                        &payload,
+                        adjacent_protocol_version,
+                    )
+                    .await
+                    {
+                        Ok((stage0_packet, admission)) => {
+                            if session.kernel_ticket.get() != ticket {
+                                const REASON: &str = "Ticket mismatch";
+                                return Ok(PrimaryProcessorResult::EndSession(REASON));
+                            }
+                            let presented = session_resume::exchanged_with(
+                                adjacent_protocol_version,
+                                stage0_packet.resume_token,
+                            );
+                            // Fully authenticated from here on, and only from here on.
+                            admit_authenticated_login(session, &cnac, ratchet.get_cid(), presented)
                                 .await
                                 .map(|issued| (stage0_packet, issued, admission))
-                            }
-                            Err(err) => Err(err),
-                        };
+                        }
+                        Err(err) => Err(err),
+                    };
                     match validated {
                         Ok((stage0_packet, issued_resume_token, admission)) => {
                             // Compute inexpensive values and perform checks before taking the lock
@@ -212,6 +214,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 if let Some(key) = &admission.session_key {
                                     pq_sign_in::mix_session_key(&mut state_container, key)?;
                                 }
+                                state_container.connect_state.pq.scope = admission.scope;
                                 let channel = state_container.init_new_c2s_virtual_connection(
                                     &cnac,
                                     kernel_ticket,
@@ -235,22 +238,29 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
 
                             // register w/ peer layer, get mail in the process
                             let account_manager = session.account_manager.clone();
+                            // A recovery session is given no mail, no peers and no services, and
+                            // its peers are not told it is online (see `pq_sign_in::restrict`).
+                            let full = admission.scope == SessionScope::Full;
 
                             async move {
-                                let mailbox_items = session
-                                    .session_manager
-                                    .register_session_with_peer_layer(cid)
-                                    .await?;
-                                let peers = account_manager
-                                    .get_persistence_handler()
-                                    .get_hyperlan_peer_list_as_server(cid)
-                                    .await?
-                                    .unwrap_or_default();
-
-                                let post_login_object = account_manager
-                                    .services_handler()
-                                    .on_post_login_serverside(cid)
-                                    .await?;
+                                let (mailbox_items, peers, post_login_object) = if full {
+                                    let mailbox_items = session
+                                        .session_manager
+                                        .register_session_with_peer_layer(cid)
+                                        .await?;
+                                    let peers = account_manager
+                                        .get_persistence_handler()
+                                        .get_hyperlan_peer_list_as_server(cid)
+                                        .await?
+                                        .unwrap_or_default();
+                                    let post_login_object = account_manager
+                                        .services_handler()
+                                        .on_post_login_serverside(cid)
+                                        .await?;
+                                    (mailbox_items, peers, post_login_object)
+                                } else {
+                                    (None, Vec::new(), ServicesObject::default())
+                                };
 
                                 let success_packet =
                                     packet_crafter::do_connect::craft_final_status_packet(
@@ -312,7 +322,11 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 ticket,
                                 None,
                             );
-                            return Ok(PrimaryProcessorResult::ReplyToSender(packet));
+                            session.release_provisional_slot();
+                            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+                                packet,
+                                "Login refused",
+                            ));
                         }
                     }
                 };
@@ -329,6 +343,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     security_level,
                     ticket,
                 )
+                .await
             }
 
             packet_flags::cmd::aux::do_connect::AUTH_CHALLENGE if !session.is_server => {
@@ -362,11 +377,11 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     session.state.set(SessionState::NeedsConnect);
                     session.disable_dc_signal();
 
-                    session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
+                    session.fail_connect(ConnectFail {
                         ticket: kernel_ticket,
                         cid_opt: Some(cid),
                         error_message: message,
-                    }))?;
+                    })?;
                     Ok(PrimaryProcessorResult::EndSession(
                         "Failed connecting. Try again",
                     ))
@@ -493,6 +508,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 udp_rx_opt: udp_channel_rx,
                                 session_security_settings,
                             }))?;
+                            // A recovery session leaves the account's local peer list alone: the
+                            // server sends it none.
+                            let full = inner_state!(session.state_container).connect_state.pq.scope
+                                == SessionScope::Full;
                             //finally, if there are any mailbox items, send them to the kernel for processing
                             if let Some(mailbox_delivery) = payload.mailbox {
                                 session.send_to_kernel(NodeResult::MailboxDelivery(
@@ -505,13 +524,15 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                             }
                             // TODO: Clean this up to prevent multiple saves
                             async move {
-                                persistence_handler
-                                    .synchronize_hyperlan_peer_list_as_client(&cnac, peers)
-                                    .await?;
-                                post_login_object
-                                    .setup_client_rtdb(&cnac)
-                                    .await
-                                    .map_err(|err| NetworkError::generic(err.to_string()))?;
+                                if full {
+                                    persistence_handler
+                                        .synchronize_hyperlan_peer_list_as_client(&cnac, peers)
+                                        .await?;
+                                    post_login_object
+                                        .setup_client_rtdb(&cnac)
+                                        .await
+                                        .map_err(|err| NetworkError::generic(err.to_string()))?;
+                                }
 
                                 if let ConnectMode::Fetch { .. } = connect_mode {
                                     log::trace!(target: "citadel", "[FETCH] complete ...");
@@ -554,8 +575,11 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                         .channel_signal
                         .take()
                         .ok_or(error!(ErrorCode::ConnectChannelSignalMissing))?;
-                    session.send_to_kernel(signal)?;
-                    prompt_member_to_restore_groups(session, &ratchet, security_level).await?;
+                    // The server's application never hears of a recovery session.
+                    if !pq_sign_in::restrict::is_recovery(session) {
+                        session.send_to_kernel(signal)?;
+                        prompt_member_to_restore_groups(session, &ratchet, security_level).await?;
+                    }
                     Ok(PrimaryProcessorResult::Void)
                 } else {
                     Err(error!(ErrorCode::ConnectSuccessAckAsClient))

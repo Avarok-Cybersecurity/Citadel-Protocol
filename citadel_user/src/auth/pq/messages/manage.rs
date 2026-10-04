@@ -1,7 +1,7 @@
 use super::login::{LoginChallenge, LoginFinish, LoginStart};
 use crate::auth::pq::kem::{EncapsulationKey, KemCiphertext};
 use crate::auth::pq::proof::Tag;
-use citadel_types::auth::{FactorId, SignInCredential, SignInManagementOp};
+use citadel_types::auth::{FactorId, SignInCredential, SignInManagementOp, SignInPolicy};
 use serde::{Deserialize, Serialize};
 
 /// The management exchange, in an authenticated session:
@@ -66,8 +66,13 @@ pub enum ManagementDone {
 /// What the server did. (The recovery codes themselves never reach it.)
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ServerOutcome {
-    Credentials(Vec<SignInCredential>),
-    Added { id: FactorId },
+    Credentials {
+        policy: SignInPolicy,
+        credentials: Vec<SignInCredential>,
+    },
+    Added {
+        id: FactorId,
+    },
     Renamed,
     Removed,
     PolicySet,

@@ -535,11 +535,11 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             .ticket
                             .unwrap_or_else(|| session.kernel_ticket.get());
                         drop(state_container);
-                        session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
+                        session.fail_connect(ConnectFail {
                             ticket,
                             cid_opt: Some(cnac.get_cid()),
                             error_message: "Preconnect stage failed".to_string(),
-                        }))?;
+                        })?;
                         Ok(PrimaryProcessorResult::EndSession(
                             "Failure packet received",
                         ))
@@ -599,11 +599,11 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                 let message =
                     String::from_utf8(payload.to_vec()).unwrap_or_else(|_| "INVALID UTF-8".into());
                 let ticket = session.kernel_ticket.get();
-                session.send_to_kernel(NodeResult::ConnectFail(ConnectFail {
+                session.fail_connect(ConnectFail {
                     ticket,
                     cid_opt: Some(header.session_cid.get()),
                     error_message: message,
-                }))?;
+                })?;
                 Ok(PrimaryProcessorResult::EndSession(
                     "Preconnect signalled to halt",
                 ))
@@ -637,6 +637,7 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
     if let Some(auth_start) = crate::proto::pq_sign_in::connect::begin(
         &mut state_container,
         ratchet,
+        resume_token,
         server_protocol_version,
         timestamp,
         security_level,

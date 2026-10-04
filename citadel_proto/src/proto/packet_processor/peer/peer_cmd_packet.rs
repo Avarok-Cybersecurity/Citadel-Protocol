@@ -62,6 +62,7 @@ use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
     CitadelNodePeerLayerInner, ClientConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
 };
+use crate::proto::pq_sign_in;
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::state_container::OutgoingPeerConnectionAttempt;
@@ -1118,7 +1119,30 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref;
+    if let PeerSignal::SignInManagement { message, .. } = signal {
+        let session_cid = return_if_none!(session.session_cid.get());
+        let reply = pq_sign_in::manage::on_message(session, message).await;
+        let signal = PeerSignal::SignInManagement {
+            session_cid,
+            message: reply,
+        };
+        return reply_to_sender(signal, &sess_ratchet, ticket, timestamp, security_level);
+    }
+    if pq_sign_in::restrict::is_recovery(session) && !pq_sign_in::restrict::admits_signal(&signal) {
+        log::warn!(target: "citadel", "Refusing a signal from a recovery session");
+        let session_cid = return_if_none!(session.session_cid.get());
+        let refusal = PeerSignal::SignalError {
+            ticket,
+            error: citadel_io::error!(citadel_io::ErrorCode::PqSignInRestricted).into_string(),
+            peer_connection_type: PeerConnectionType::LocalGroupPeer {
+                session_cid,
+                peer_cid: session_cid,
+            },
+        };
+        return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+    }
     match signal {
+        PeerSignal::SignInManagement { .. } => Ok(PrimaryProcessorResult::Void),
         PeerSignal::Kex {
             peer_conn_type: conn,
             kex_payload: mut kep,

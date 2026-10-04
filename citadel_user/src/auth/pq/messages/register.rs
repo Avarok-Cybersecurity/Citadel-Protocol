@@ -1,3 +1,4 @@
+use crate::auth::pq::admission::AdmissionToken;
 use crate::auth::pq::kem::EncapsulationKey;
 use crate::auth::pq::record::KsfParams;
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,8 @@ pub struct RegStart {
     pub username: String,
     /// `SHA3-256(password)`, blinded for the OPRF.
     pub oprf_blinded: Vec<u8>,
+    /// The registration's admission token, when the client has one.
+    pub admission: Option<AdmissionToken>,
 }
 
 /// S→C: what the client needs to derive its password factor.
