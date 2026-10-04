@@ -732,6 +732,15 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         crate::server_probe::probe_server(self, cid, timeout).await
     }
 
+    /// Ends session `cid` here and now, without asking the server: its transport is dropped, the
+    /// session is forgotten and its CID freed, so the next login is not refused with "Session for
+    /// CID .. already exists". For a link that died silently (after `probe_server` timed out):
+    /// the server's copy is replaced by that login's resume token. Resolves once the session has
+    /// dropped; `Err` when this node holds no session for `cid`.
+    async fn abandon_session(&self, cid: u64) -> Result<(), NetworkError> {
+        crate::server_probe::abandon_session(self, cid).await
+    }
+
     /// Returns all the active sessions in the protocol, including all P2P connections hierarchically placed as children to C2S
     /// connections
     async fn sessions(&self) -> Result<ActiveSessions, NetworkError> {

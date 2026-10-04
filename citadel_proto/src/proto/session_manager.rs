@@ -188,6 +188,10 @@ pub enum CidAdmission {
     Refused,
 }
 
+/// How long a session that was told to stop may take to drop before it is given up on: a new
+/// connection for its CID waits this long, and so does `abandon_session`.
+pub(crate) const SESSION_DROP_GRACE: Duration = Duration::from_secs(5);
+
 /// Safety-net lifetime for a provisional CID reservation. Reservations are released explicitly on
 /// SYN commit and on connection failure; this bounds how long an unexpectedly-dropped attempt can
 /// block a CID. It only needs to outlive the (fast) window between clearing `can_proceed` and the
@@ -344,7 +348,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
         // Timeout after 5s to ensure we don't wait indefinitely. We brute force disconnect the session if it doesn't disconnect within the timeout.
         let timeout = async move {
-            citadel_io::time::sleep(Duration::from_secs(5)).await;
+            citadel_io::time::sleep(SESSION_DROP_GRACE).await;
         };
 
         // Wait for the session to disconnect or timeout
@@ -352,21 +356,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             _ = wait_for_drop => CidAdmission::Free,
             _ = timeout => {
                 citadel_logging::warn!(target: "citadel", "Session attempt for {cid} failed to disconnect within the timeout. Force clearing");
-                let mut this = inner_mut!(self);
-                // STOP it, do not merely forget it. Removing the map entry left
-                // the session's task running: a zombie that still holds peer
-                // vconns and whose own teardown fires later, by which time the
-                // replacement session owns that CID -- and that teardown is
-                // keyed only by CID.
-                if let Some((stopper, _zombie)) = this.sessions.remove(&cid) {
-                    // Err means nothing is subscribed, i.e. it has already shut
-                    // down. That is the good outcome, not a failure.
-                    if stopper.send(()).is_err() {
-                        citadel_logging::trace!(target: "citadel", "Force-cleared session {cid} had already stopped");
-                    }
-                }
-                this.provisional_connections.retain(|_, sess| sess.2.session_cid.get().unwrap_or(0) != cid);
-                this.provisional_cid_reservations.remove(&cid);
+                let _ = inner_mut!(self).stop_and_forget(cid);
                 CidAdmission::Free
             },
         }
@@ -2128,6 +2118,32 @@ pub struct GroupDelivery {
 
 impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
     /// Clears a session from the SessionManager
+    /// Stops every session this node holds for `cid` (admitted or still provisional) and forgets
+    /// it, freeing the CID for a new connection. STOP it, do not merely forget it: removing the
+    /// map entry alone left the session's task running, a zombie that still holds peer vconns and
+    /// whose own teardown fires later, by which time the replacement session owns that CID -- and
+    /// that teardown is keyed only by CID. Returns the admitted session, if there was one.
+    pub(crate) fn stop_and_forget(&mut self, cid: u64) -> Option<CitadelSession<R, T>> {
+        let admitted = self.sessions.remove(&cid).map(|(stopper, session)| {
+            // Err means nothing is subscribed, i.e. it has already shut down. That is the good
+            // outcome, not a failure.
+            if stopper.send(()).is_err() {
+                citadel_logging::trace!(target: "citadel", "Stopped session {cid} had already ended");
+            }
+            session
+        });
+        self.provisional_connections
+            .retain(|_, (_, stopper, sess)| {
+                let ours = sess.session_cid.get() == Some(cid);
+                if ours {
+                    let _ = stopper.send(());
+                }
+                !ours
+            });
+        self.provisional_cid_reservations.remove(&cid);
+        admitted
+    }
+
     pub fn clear_session(&mut self, cid: u64, init_time: Instant) {
         if let Some((_, session)) = self.sessions.get(&cid) {
             if session.init_time == init_time {

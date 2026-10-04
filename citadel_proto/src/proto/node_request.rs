@@ -126,6 +126,13 @@ pub struct ProbeServer {
     pub timeout: std::time::Duration,
 }
 
+/// Ends the C2S session `session_cid` locally, without waiting for the server's ack (see
+/// `proto::session_abandon`). Answered with a [`NodeResult::Disconnect`](crate::proto::node_result::NodeResult)
+/// under the request's ticket once the session has dropped.
+pub struct AbandonSession {
+    pub session_cid: u64,
+}
+
 /// These are sent down the stack into the server. Most of the requests expect a ticket ID
 /// in order for processes sitting above the [Kernel] to know how the request went
 #[allow(variant_size_differences)]
@@ -154,6 +161,8 @@ pub enum NodeRequest {
     SetPeerTurnConfig(SetPeerTurnConfig),
     /// Probes the server's liveness now, outside the keep-alive schedule
     ProbeServer(ProbeServer),
+    /// Ends a C2S session locally, without the server's ack
+    AbandonSession(AbandonSession),
     /// Returns a list of connected sessions
     GetActiveSessions,
     /// shutdown signal
@@ -183,6 +192,7 @@ impl NodeRequest {
                 Some(*session_cid)
             }
             NodeRequest::ProbeServer(ProbeServer { session_cid, .. }) => Some(*session_cid),
+            NodeRequest::AbandonSession(AbandonSession { session_cid }) => Some(*session_cid),
             NodeRequest::GetActiveSessions => None,
             NodeRequest::Shutdown => None,
         }

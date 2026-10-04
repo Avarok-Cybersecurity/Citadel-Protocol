@@ -2,7 +2,8 @@
 //!
 //! A proxy stands in for the network: `sever` closes every relayed link on the client's side
 //! only, and abandons the server's side without a FIN or RST, so the server holds a session
-//! nobody is at the other end of (a laptop changing networks, sleep and wake).
+//! nobody is at the other end of (a laptop changing networks, sleep and wake). `stall` abandons
+//! both sides that way: neither end hears anything again, and both still think the link is up.
 
 use citadel_io::tokio::io::{AsyncReadExt, AsyncWriteExt};
 use citadel_io::tokio::net::{TcpListener, TcpStream};
@@ -36,6 +37,7 @@ pub const RECORD_AT_MOST: usize = 1024 * 1024;
 pub struct SeveringProxy {
     pub addr: SocketAddr,
     sever: Arc<Notify>,
+    stall: Arc<Notify>,
     client_streams: Arc<citadel_io::Mutex<Vec<Recording>>>,
 }
 
@@ -45,16 +47,22 @@ impl SeveringProxy {
         let proxy = Arc::new(Self {
             addr: listener.local_addr().unwrap(),
             sever: Arc::new(Notify::new()),
+            stall: Arc::new(Notify::new()),
             client_streams: Arc::new(citadel_io::Mutex::new(Vec::new())),
         });
         let sever = proxy.sever.clone();
+        let stall = proxy.stall.clone();
         let client_streams = proxy.client_streams.clone();
         citadel_io::tokio::spawn(async move {
             while let Ok((client, _)) = listener.accept().await {
                 let server = TcpStream::connect(upstream).await.unwrap();
                 let recorded = Arc::new(citadel_io::Mutex::new(Vec::new()));
                 client_streams.lock().push(recorded.clone());
-                citadel_io::tokio::spawn(relay(client, server, sever.clone(), recorded));
+                let cut = Cut {
+                    sever: sever.clone(),
+                    stall: stall.clone(),
+                };
+                citadel_io::tokio::spawn(relay(client, server, cut, recorded));
             }
         });
         proxy
@@ -63,6 +71,12 @@ impl SeveringProxy {
     /// Closes every current link on the client's side and abandons the server's side.
     pub fn sever(&self) {
         self.sever.notify_waiters();
+    }
+
+    /// Stops relaying on every current link without closing either side: a path that died
+    /// silently. Links made afterwards relay as usual.
+    pub fn stall(&self) {
+        self.stall.notify_waiters();
     }
 
     /// What the client has sent so far on the most recent link.
@@ -76,10 +90,17 @@ impl SeveringProxy {
     }
 }
 
-pub async fn relay(client: TcpStream, server: TcpStream, sever: Arc<Notify>, recorded: Recording) {
+/// How a relayed link can be cut.
+pub struct Cut {
+    pub sever: Arc<Notify>,
+    pub stall: Arc<Notify>,
+}
+
+pub async fn relay(client: TcpStream, server: TcpStream, cut: Cut, recorded: Recording) {
     let (mut client_read, mut client_write) = client.into_split();
     let (mut server_read, mut server_write) = server.into_split();
-    let severed = sever.notified();
+    let severed = cut.sever.notified();
+    let stalled = cut.stall.notified();
     let upstream = async {
         let mut buf = vec![0u8; 64 * 1024];
         loop {
@@ -105,10 +126,16 @@ pub async fn relay(client: TcpStream, server: TcpStream, sever: Arc<Notify>, rec
             client_write.write_all(&buf[..n]).await?;
         }
     };
-    citadel_io::tokio::select! {
+    let stall = citadel_io::tokio::select! {
         _ = upstream => return,
         _ = downstream => return,
-        _ = severed => {}
+        _ = severed => false,
+        _ = stalled => true,
+    };
+    if stall {
+        // Neither side is closed, read or written again.
+        std::mem::forget((client_read, client_write, server_read, server_write));
+        return;
     }
     // The client's side closes; the server's side is kept open and never read or
     // written again, so the server sees neither a FIN nor a RST.

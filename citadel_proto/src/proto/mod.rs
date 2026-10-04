@@ -63,6 +63,7 @@ mod reseal_tests;
 /// Each CID gets a session
 pub mod server_probe;
 pub(crate) mod session;
+mod session_abandon;
 /// Manages multiple sessions
 pub(crate) mod session_manager;
 mod session_probe;

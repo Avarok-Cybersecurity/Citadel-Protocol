@@ -692,6 +692,34 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     session_manager.probe_server(session_cid, ticket_id, timeout);
                 }
 
+                NodeRequest::AbandonSession(crate::proto::node_request::AbandonSession {
+                    session_cid,
+                }) => match session_manager.abandon_session(session_cid) {
+                    Ok(dropped) => {
+                        let to_kernel_tx = to_kernel_tx.clone();
+                        spawn!(async move {
+                            dropped.await;
+                            let done =
+                                NodeResult::Disconnect(crate::proto::node_result::Disconnect {
+                                    ticket: ticket_id,
+                                    cid_opt: Some(session_cid),
+                                    success: true,
+                                    conn_type: Some(
+                                        citadel_types::proto::ClientConnectionType::Server {
+                                            session_cid,
+                                        },
+                                    ),
+                                    message: "Abandoned locally".to_string(),
+                                    disconnect_token: None,
+                                });
+                            if to_kernel_tx.unbounded_send(done).is_err() {
+                                log::warn!(target: "citadel", "Kernel gone before abandon_session({session_cid}) could be answered");
+                            }
+                        });
+                    }
+                    Err(err) => send_error(&to_kernel_tx, ticket_id, request_cid, err)?,
+                },
+
                 NodeRequest::GetActiveSessions => {
                     if let Err(err) =
                         to_kernel_tx.unbounded_send(NodeResult::SessionList(SessionList {
