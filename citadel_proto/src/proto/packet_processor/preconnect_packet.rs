@@ -637,6 +637,7 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
     if let Some(auth_start) = crate::proto::pq_sign_in::connect::begin(
         &mut state_container,
         ratchet,
+        resume_token,
         server_protocol_version,
         timestamp,
         security_level,

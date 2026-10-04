@@ -27,6 +27,7 @@
 //! - `NetworkListener`: Manages network socket listeners
 //!
 
+use citadel_user::auth::pq::admission::AdmissionToken;
 use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
@@ -488,6 +489,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     session_password,
                     endpoint,
                     password,
+                    admission,
                 }) => {
                     match session_manager
                         .initiate_connection(
@@ -498,6 +500,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                                 credentials,
                                 endpoint,
                                 password,
+                                admission.map(AdmissionToken::new),
                             ),
                             ticket_id,
                             None,

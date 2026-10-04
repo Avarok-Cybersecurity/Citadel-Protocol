@@ -10,6 +10,7 @@
 //! keep the legacy exchange, so 0.11 and 0.12 nodes interoperate. Every message travels inside
 //! the session's post-quantum channel.
 
+pub(crate) mod admission;
 pub(crate) mod admit;
 pub(crate) mod connect;
 pub(crate) mod manage;
@@ -31,6 +32,7 @@ use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::session::HdpSessionInitMode;
 use crate::proto::state_container::StateContainerInner;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_user::auth::pq::admission::AdmissionToken;
 use state::OfferedFactors;
 
 /// Whether the adjacent node runs post-quantum sign-in.
@@ -54,6 +56,7 @@ pub(crate) fn store_offered<R: Ratchet>(
                 password: Some(password.clone()),
                 security_key: None,
                 recovery_code: None,
+                admission: None,
             });
         }
         HdpSessionInitMode::Connect(AuthenticationRequest::SignIn { factors, .. }) => {
@@ -61,10 +64,12 @@ pub(crate) fn store_offered<R: Ratchet>(
                 password: factors.password.clone(),
                 security_key: factors.security_key.clone(),
                 recovery_code: factors.recovery_code.clone(),
+                admission: factors.admission.clone().map(AdmissionToken::new),
             });
         }
-        HdpSessionInitMode::Register(_, _, _, password) => {
+        HdpSessionInitMode::Register(_, _, _, password, admission) => {
             state.register_state.pq.password = password.clone();
+            state.register_state.pq.admission = admission.clone();
         }
         HdpSessionInitMode::Connect(AuthenticationRequest::Passwordless { .. }) => {}
     }

@@ -423,6 +423,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         Ok(())
     }
 
+    /// Server side: whether the session held for `cid` was issued `presented` (or resumed from
+    /// it), i.e. this login is that session's own client reconnecting. Consulted only to skip
+    /// the admission check; it admits nothing by itself.
+    pub(crate) fn held_session_recognises(&self, cid: u64, presented: &ResumeToken) -> bool {
+        inner!(self)
+            .sessions
+            .get(&cid)
+            .is_some_and(|(_, held)| held.resume.get().is_own_client(Some(presented)))
+    }
+
     /// Client side: the resume token `cid`'s latest session was issued, if any.
     pub(crate) fn resume_token(&self, cid: u64) -> Option<ResumeToken> {
         inner!(self).resume_tokens.for_cid(cid)
@@ -505,6 +515,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                 peer_addr,
                                 proposed_credentials,
                                 endpoint,
+                                _,
                                 _,
                             ) => (
                                 *peer_addr,

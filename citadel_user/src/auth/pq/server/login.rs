@@ -90,6 +90,8 @@ pub fn build_login_challenge(
                     &RegStart {
                         username: start.username.clone(),
                         oprf_blinded: blinded.clone(),
+                        // Admission is the login's, already checked; an upgrade is not asked.
+                        admission: None,
                     },
                 )?),
                 _ => None,

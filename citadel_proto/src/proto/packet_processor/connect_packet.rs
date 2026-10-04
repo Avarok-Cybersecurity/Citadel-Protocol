@@ -124,29 +124,30 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     }
                 }
                 let task = {
-                    let validated =
-                        match pq_sign_in::admit::validate_stage0(session, &cnac, &payload).await {
-                            Ok((stage0_packet, admission)) => {
-                                if session.kernel_ticket.get() != ticket {
-                                    const REASON: &str = "Ticket mismatch";
-                                    return Ok(PrimaryProcessorResult::EndSession(REASON));
-                                }
-                                let presented = session_resume::exchanged_with(
-                                    adjacent_protocol_version,
-                                    stage0_packet.resume_token,
-                                );
-                                // Fully authenticated from here on, and only from here on.
-                                admit_authenticated_login(
-                                    session,
-                                    &cnac,
-                                    ratchet.get_cid(),
-                                    presented,
-                                )
+                    let validated = match pq_sign_in::admit::validate_stage0(
+                        session,
+                        &cnac,
+                        &payload,
+                        adjacent_protocol_version,
+                    )
+                    .await
+                    {
+                        Ok((stage0_packet, admission)) => {
+                            if session.kernel_ticket.get() != ticket {
+                                const REASON: &str = "Ticket mismatch";
+                                return Ok(PrimaryProcessorResult::EndSession(REASON));
+                            }
+                            let presented = session_resume::exchanged_with(
+                                adjacent_protocol_version,
+                                stage0_packet.resume_token,
+                            );
+                            // Fully authenticated from here on, and only from here on.
+                            admit_authenticated_login(session, &cnac, ratchet.get_cid(), presented)
                                 .await
                                 .map(|issued| (stage0_packet, issued, admission))
-                            }
-                            Err(err) => Err(err),
-                        };
+                        }
+                        Err(err) => Err(err),
+                    };
                     match validated {
                         Ok((stage0_packet, issued_resume_token, admission)) => {
                             // Compute inexpensive values and perform checks before taking the lock
@@ -342,6 +343,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     security_level,
                     ticket,
                 )
+                .await
             }
 
             packet_flags::cmd::aux::do_connect::AUTH_CHALLENGE if !session.is_server => {

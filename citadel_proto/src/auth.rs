@@ -130,6 +130,9 @@ pub struct SignInFactors {
     /// A recovery code. A sign-in with one is a recovery sign-in: it spends the code, and the
     /// session may only enrol a security key and set the policy.
     pub recovery_code: Option<RecoveryCode>,
+    /// The admission token (a Turnstile response) for a server that asks fresh sign-ins for one.
+    /// Sent only inside the post-quantum channel, and never printed.
+    pub admission: Option<String>,
 }
 
 impl SignInFactors {
@@ -138,6 +141,11 @@ impl SignInFactors {
             password: Some(password.into()),
             ..Default::default()
         }
+    }
+
+    pub fn with_admission(mut self, token: impl Into<String>) -> Self {
+        self.admission = Some(token.into());
+        self
     }
 
     pub fn with_security_key(mut self, security_key: SecurityKeyPrf) -> Self {
@@ -160,6 +168,7 @@ impl std::fmt::Debug for SignInFactors {
             .field("password", &self.password.as_ref().map(|_| "***"))
             .field("security_key", &self.security_key.is_some())
             .field("recovery_code", &self.recovery_code.as_ref().map(|_| "***"))
+            .field("admission", &self.admission.as_ref().map(|_| "***"))
             .finish()
     }
 }

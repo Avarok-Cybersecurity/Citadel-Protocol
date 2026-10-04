@@ -21,6 +21,8 @@ impl ClientRegistration {
         let start = RegStart {
             username: username.to_string(),
             oprf_blinded,
+            // Set by the registration that sends this.
+            admission: None,
         };
         Ok((start, Self { input, oprf }))
     }

@@ -109,3 +109,23 @@ fn stage2_reads_in_both_directions() {
         .unwrap();
     assert!(read.pq.is_none());
 }
+
+/// A client below 0.12 sends no `AUTH_START` and so cannot carry an admission token: a refusal
+/// tells it to update, not to complete a check it has no way to show.
+#[test]
+fn a_client_below_the_gate_is_told_to_update_and_one_at_it_is_not() {
+    use super::admission::is_legacy_client;
+    let (major, minor, patch) = PQ_SIGN_IN_SINCE;
+    let gate = version(major.into(), minor.into(), patch.into());
+    assert!(!is_legacy_client(gate));
+    assert!(is_legacy_client(version(0, 11, 2)));
+    let refusal = citadel_user::auth::pq::admission::refusal_error(
+        citadel_user::auth::pq::admission::AdmissionRefusal::Required,
+        is_legacy_client(version(0, 11, 2)),
+    );
+    assert_eq!(
+        refusal.code,
+        citadel_io::ErrorCode::PqSignInAdmissionNeedsUpdate
+    );
+    assert!(refusal.into_string().contains("update your app"));
+}

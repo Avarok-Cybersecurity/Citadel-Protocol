@@ -51,6 +51,9 @@ pub struct RegisterToHypernode {
     /// server never sees it: the client turns it into an ML-KEM key. `None` registers the legacy
     /// way only.
     pub password: Option<citadel_types::crypto::SecBuffer>,
+    /// The registration's admission token, for a server that asks for one (see
+    /// `citadel_user::auth::pq::admission`). Sent only inside the post-quantum channel.
+    pub admission: Option<String>,
 }
 
 pub struct PeerCommand {

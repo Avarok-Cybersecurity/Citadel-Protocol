@@ -17,6 +17,7 @@
 //! multiplication), encapsulates once per challenged factor, and compares tags. Argon2id runs only
 //! in [`client`]. No classical signature is created or verified anywhere.
 
+pub mod admission;
 pub mod client;
 pub mod kem;
 pub mod messages;
@@ -30,6 +31,8 @@ pub mod server;
 
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod tests_admission;
 #[cfg(test)]
 mod tests_decoy;
 #[cfg(test)]

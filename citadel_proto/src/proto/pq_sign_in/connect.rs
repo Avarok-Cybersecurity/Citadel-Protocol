@@ -11,11 +11,12 @@ use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet::packet_flags;
 use crate::proto::packet_processor::includes::*;
-use crate::proto::session_resume;
+use crate::proto::session_resume::{self, ResumeToken};
 use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::auth::SessionScope;
+use citadel_user::auth::pq::admission;
 use citadel_user::auth::pq::client::{ClientLogin, ClientProof};
 use citadel_user::auth::pq::login_transcript;
 use citadel_user::auth::pq::messages::{ChallengeBody, LoginChallenge, LoginProof, LoginStart};
@@ -36,6 +37,7 @@ fn kind(aux: u8) -> Kind {
 pub(crate) fn begin<R: Ratchet>(
     state: &mut StateContainerInner<R>,
     ratchet: &R,
+    resume: Option<ResumeToken>,
     server_version: u32,
     timestamp: i64,
     security_level: SecurityLevel,
@@ -52,7 +54,9 @@ pub(crate) fn begin<R: Ratchet>(
         .map(|creds| creds.username().to_string())
         .ok_or_else(|| NetworkError::msg("Proposed credentials not loaded at AUTH_START"))?;
     let recovery = offered.recovery_code.as_ref();
-    let (start, client) = ClientLogin::start(&username, offered.password.as_ref(), recovery)?;
+    let (mut start, client) = ClientLogin::start(&username, offered.password.as_ref(), recovery)?;
+    start.admission = offered.admission.clone();
+    start.resume = resume.map(ResumeToken::to_bytes);
     if recovery.is_some() {
         state.connect_state.pq.scope = SessionScope::Recovery;
     }
@@ -71,7 +75,7 @@ pub(crate) fn begin<R: Ratchet>(
 }
 
 /// Server: answers `AUTH_START` with a challenge, and remembers what STAGE0 must prove.
-pub(crate) fn on_auth_start<R: Ratchet, T: PlatformOps>(
+pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cnac: &ClientNetworkAccount<R, R>,
     ratchet: &R,
@@ -89,7 +93,20 @@ pub(crate) fn on_auth_start<R: Ratchet, T: PlatformOps>(
         }
     }
     let now = session.time_tracker.get_global_time_ns();
-    let (challenge, pending) = match issue_challenge(session, cnac, ratchet.get_cid(), payload) {
+    let issued = match packets::read::<LoginStart>(payload) {
+        // Before the challenge: a refused bot costs the server one call, not an OPRF
+        // evaluation and an encapsulation.
+        Ok(start) => {
+            let ctx = super::admission::sign_in(session, cnac.get_cid(), &start);
+            let policy = super::admission::policy(session);
+            admission::then(policy.as_ref(), ctx, false, || {
+                issue_challenge(session, cnac, ratchet.get_cid(), &start)
+            })
+            .await
+        }
+        Err(err) => Err(err),
+    };
+    let (challenge, pending) = match issued {
         Ok(issued) => issued,
         Err(err) => {
             log::warn!(target: "citadel", "Refusing AUTH_START: {err}");
@@ -114,20 +131,19 @@ fn issue_challenge<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cnac: &ClientNetworkAccount<R, R>,
     cid: u64,
-    payload: &[u8],
+    start: &LoginStart,
 ) -> Result<(LoginChallenge, ServerPending), NetworkError> {
-    let start: LoginStart = packets::read(payload)?;
     let account = cnac.pq_account_state(&start.username);
     match session.account_manager.pq_settings() {
         Some(settings) => {
             let (challenge, expectation) =
-                build_login_challenge(settings, account.as_account_auth(), &start)?;
+                build_login_challenge(settings, account.as_account_auth(), start)?;
             if ClientLogin::security_key_request(&challenge).is_some() {
                 super::presence::open(session);
             }
             let pending = match expectation {
                 Expectation::Factors(expected) => {
-                    ServerPending::Factors(expected.bind(login_transcript(cid, &start, &challenge)))
+                    ServerPending::Factors(expected.bind(login_transcript(cid, start, &challenge)))
                 }
                 Expectation::Legacy { upgrade } => ServerPending::Legacy(upgrade),
             };

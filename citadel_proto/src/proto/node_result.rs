@@ -257,11 +257,11 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: _,
                 cid_opt: _,
                 error_message: err,
-            }) => Err(NetworkError::generic(err)),
+            }) => Err(refused(err)),
             NodeResult::RegisterFailure(RegisterFailure {
                 ticket: _,
                 error_message: err,
-            }) => Err(NetworkError::generic(err)),
+            }) => Err(refused(err)),
             NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::generic(format!(
                 "Outbound request rejected: {:?}",
                 String::from_utf8(reason.message_opt.unwrap_or_default())
@@ -379,4 +379,11 @@ impl<R: Ratchet> NodeResult<R> {
             }) => Some(CallbackKey::new(*ticket, *session_cid)),
         }
     }
+}
+
+/// A connect or register FAILURE as an error: with its admission code when the server's
+/// admission check refused it (`citadel_user::auth::pq::admission`), generic otherwise.
+fn refused(message: String) -> NetworkError {
+    citadel_user::auth::pq::admission::refusal_from_message(&message)
+        .unwrap_or_else(|| NetworkError::generic(message))
 }

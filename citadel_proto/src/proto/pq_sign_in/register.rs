@@ -12,6 +12,7 @@ use bytes::BytesMut;
 use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_user::account_manager::AccountManager;
+use citadel_user::auth::pq::admission;
 use citadel_user::auth::pq::client::ClientRegistration;
 use citadel_user::auth::pq::messages::RegFinish;
 use citadel_user::auth::pq::messages::{RegStart, RegStartReply};
@@ -47,7 +48,8 @@ pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
     let Some(password) = password.filter(|_| runs_with(server_version)) else {
         return Ok(None);
     };
-    let (start, client) = ClientRegistration::start(username, &password)?;
+    let (mut start, client) = ClientRegistration::start(username, &password)?;
+    start.admission = state.register_state.pq.admission.take();
     let aux = packet_flags::cmd::aux::do_register::PQ_START;
     let packet = packets::craft(
         ratchet,
@@ -62,7 +64,7 @@ pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
 }
 
 /// Server: evaluates the OPRF and hands out the salts, or says it cannot.
-pub(crate) fn on_pq_start<R: Ratchet, T: PlatformOps>(
+pub(crate) async fn on_pq_start<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
     payload: &[u8],
@@ -70,7 +72,7 @@ pub(crate) fn on_pq_start<R: Ratchet, T: PlatformOps>(
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let reply = match reply_to(session, payload) {
+    let reply = match reply_to(session, payload).await {
         Ok(reply) => reply,
         Err(err) => {
             log::warn!(target: "citadel", "Refusing PQ_START: {err}");
@@ -81,6 +83,7 @@ pub(crate) fn on_pq_start<R: Ratchet, T: PlatformOps>(
                 ratchet.get_cid(),
                 ticket,
             );
+            session.release_provisional_slot();
             return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
                 packet,
                 "PQ_START refused",
@@ -98,18 +101,26 @@ pub(crate) fn on_pq_start<R: Ratchet, T: PlatformOps>(
     Ok(PrimaryProcessorResult::ReplyToSender(packet))
 }
 
-fn reply_to<R: Ratchet, T: PlatformOps>(
+async fn reply_to<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     payload: &[u8],
 ) -> Result<RegStartReply, NetworkError> {
     let start: RegStart = packets::read(payload)?;
-    match session.account_manager.pq_settings() {
-        Some(settings) => {
-            let (reply, pending) = registration_reply(settings, &start)?;
-            inner_mut_state!(session.state_container)
-                .register_state
-                .pq
-                .server = Some(pending);
+    // The OPRF runs only once the admission check has passed: a refused bot costs one call.
+    let ctx = super::admission::register(session, &start.username, start.admission.clone());
+    let policy = super::admission::policy(session);
+    let settings = session.account_manager.pq_settings();
+    let reply = admission::then(policy.as_ref(), Some(ctx), false, || {
+        settings
+            .map(|settings| registration_reply(settings, &start))
+            .transpose()
+    })
+    .await?;
+    let mut state = inner_mut_state!(session.state_container);
+    state.register_state.pq.admitted = true;
+    match reply {
+        Some((reply, pending)) => {
+            state.register_state.pq.server = Some(pending);
             Ok(RegStartReply::Accepted(reply))
         }
         None => Ok(RegStartReply::Unsupported),

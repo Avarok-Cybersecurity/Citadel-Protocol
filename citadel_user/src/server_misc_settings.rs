@@ -20,6 +20,7 @@
 //!     allow_transient_connections: false,
 //!     credential_requirements: CredentialRequirements::default(),
 //!     pq_sign_in: None,
+//!     admission: None,
 //! };
 //!
 //! // Or use default settings
@@ -40,8 +41,10 @@
 //! * `AccountManager` - Uses these settings for account creation and authentication
 //! * `HyperNodeAccount` - Server-side account management
 
+use crate::auth::pq::admission::AdmissionPolicy;
 use crate::auth::pq::server::PqAuthServerSettings;
 use crate::credentials::CredentialRequirements;
+use std::sync::Arc;
 
 /// Miscellaneous settings for a node serving connections
 #[derive(Clone)]
@@ -54,6 +57,10 @@ pub struct ServerMiscSettings {
     /// factors. `None` keeps this server on the legacy Argon2 path only: it refuses post-quantum
     /// registrations (clients fall back) and upgrades no legacy account.
     pub pq_sign_in: Option<PqAuthServerSettings>,
+    /// An optional check a FRESH sign-in or registration must pass before the server does any
+    /// work on it, such as a Turnstile token (see [`crate::auth::pq::admission`]). `None`
+    /// admits everyone. A resume-token reconnect and a recovery-code sign-in are not asked.
+    pub admission: Option<Arc<dyn AdmissionPolicy>>,
 }
 
 impl Default for ServerMiscSettings {
@@ -62,6 +69,7 @@ impl Default for ServerMiscSettings {
             allow_transient_connections: true,
             credential_requirements: Default::default(),
             pq_sign_in: None,
+            admission: None,
         }
     }
 }

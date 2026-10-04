@@ -335,13 +335,15 @@ pub enum SessionState {
 pub enum HdpSessionInitMode {
     Connect(AuthenticationRequest),
     /// The optional endpoint is the server's WebSocket URL (see `RegisterToHypernode::endpoint`),
-    /// and the optional password is for a post-quantum registration (see
-    /// `RegisterToHypernode::password`).
+    /// the optional password is for a post-quantum registration (see
+    /// `RegisterToHypernode::password`), and the optional token is its admission token (see
+    /// `RegisterToHypernode::admission`).
     Register(
         SocketAddr,
         ProposedCredentials,
         Option<citadel_io::WebSocketEndpoint>,
         Option<SecBuffer>,
+        Option<citadel_user::auth::pq::admission::AdmissionToken>,
     ),
 }
 
@@ -424,7 +426,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .as_ref()
             .map(|r| &r.init_mode)
         {
-            Some(HdpSessionInitMode::Register(_, _, endpoint, _)) => endpoint.clone(),
+            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _)) => endpoint.clone(),
             _ => None,
         };
 

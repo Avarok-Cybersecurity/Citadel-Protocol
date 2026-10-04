@@ -95,6 +95,7 @@ pub async fn register_legacy(
         session_password: Default::default(),
         endpoint: None,
         password: None,
+        admission: None,
     });
     let mut results = remote.send_callback_subscription(request).await?;
     while let Some(result) = results.next().await {

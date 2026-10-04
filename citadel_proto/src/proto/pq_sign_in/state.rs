@@ -5,6 +5,7 @@ use super::security_key::SecurityKeyPrf;
 use citadel_io::time::Instant;
 use citadel_types::auth::SessionScope;
 use citadel_types::crypto::SecBuffer;
+use citadel_user::auth::pq::admission::AdmissionToken;
 use citadel_user::auth::pq::client::{ClientLogin, ClientRegistration};
 use citadel_user::auth::pq::messages::LoginStart;
 use citadel_user::auth::pq::recovery::RecoveryCode;
@@ -16,6 +17,7 @@ pub(crate) struct OfferedFactors {
     pub password: Option<SecBuffer>,
     pub security_key: Option<SecurityKeyPrf>,
     pub recovery_code: Option<RecoveryCode>,
+    pub admission: Option<AdmissionToken>,
 }
 
 /// Kept in the connect state.
@@ -70,4 +72,9 @@ pub(crate) struct PqRegisterState {
     pub recovery_codes: Vec<String>,
     /// Server: between `PQ_REPLY` and STAGE2.
     pub server: Option<PendingRegistration>,
+    /// Client: the admission token, until `PQ_START` is sent.
+    pub admission: Option<AdmissionToken>,
+    /// Server: `PQ_START` passed the admission check, so a legacy STAGE2 (a server without
+    /// post-quantum settings) is not asked again.
+    pub admitted: bool,
 }

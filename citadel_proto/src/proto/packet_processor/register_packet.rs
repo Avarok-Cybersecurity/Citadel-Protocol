@@ -292,6 +292,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     security_level,
                     ticket,
                 )
+                .await
             }
 
             packet_flags::cmd::aux::do_register::PQ_REPLY if !session.is_server => {
@@ -374,11 +375,12 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let account_manager = session.account_manager.clone();
                             std::mem::drop(state_container);
-                            let pq_pending = inner_mut_state!(session.state_container)
-                                .register_state
-                                .pq
-                                .server
-                                .take();
+                            let (pq_pending, admitted) = {
+                                let mut state = inner_mut_state!(session.state_container);
+                                let pq_state = &mut state.register_state.pq;
+                                (pq_state.server.take(), pq_state.admitted)
+                            };
+                            let adjacent_version = header.protocol_version.get();
                             let session_crypto_state = initialize_peer_session_crypto(
                                 ratchet.get_cid(),
                                 ratchet.clone(),
@@ -386,8 +388,31 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             );
                             // we must now create the CNAC
                             async move {
-                                let registered =
-                                    match pq {
+                                // A legacy STAGE2 that no `PQ_START` admitted is asked now,
+                                // before the account is created.
+                                let gate = match (&pq, admitted) {
+                                    (None, false) => {
+                                        let ctx = pq_sign_in::admission::register(
+                                            &session,
+                                            creds.username(),
+                                            None,
+                                        );
+                                        let policy = pq_sign_in::admission::policy(&session);
+                                        let legacy = pq_sign_in::admission::is_legacy_client(
+                                            adjacent_version,
+                                        );
+                                        citadel_user::auth::pq::admission::check(
+                                            policy.as_ref(),
+                                            ctx,
+                                            legacy,
+                                        )
+                                        .await
+                                    }
+                                    _ => Ok(()),
+                                };
+                                let registered = match gate {
+                                    Err(refused) => Err(refused),
+                                    Ok(()) => match pq {
                                         Some(finish) => {
                                             pq_sign_in::register::create_account(
                                                 &account_manager,
@@ -406,7 +431,8 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                                 session_crypto_state,
                                             )
                                             .await,
-                                    };
+                                    },
+                                };
                                 match registered {
                                     Ok(peer_cnac) => {
                                         log::trace!(target: "citadel", "Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_cid());
@@ -624,6 +650,8 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     if let Some(error_message) =
                         validation::do_register::validate_failure(&header, &payload[..])
                     {
+                        // Freed before the caller hears, so it may retry at once.
+                        session.release_provisional_slot();
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
                             error_message: String::from_utf8(error_message)

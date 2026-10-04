@@ -72,6 +72,9 @@ impl ClientLogin {
             recovery: recovery
                 .as_ref()
                 .map(|kp| kp.encapsulation_key().fingerprint()),
+            // Set by the sign-in that sends this; a step-up inside a session needs neither.
+            admission: None,
+            resume: None,
         };
         Ok((start, Self { password, recovery }))
     }

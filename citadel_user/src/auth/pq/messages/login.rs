@@ -1,4 +1,5 @@
 use super::register::{RegFinish, RegReply};
+use crate::auth::pq::admission::AdmissionToken;
 use crate::auth::pq::kem::KemCiphertext;
 use crate::auth::pq::proof::Tag;
 use crate::auth::pq::record::KsfParams;
@@ -16,6 +17,11 @@ pub struct LoginStart {
     /// Present for a recovery sign-in: the fingerprint of the encapsulation key the client's
     /// recovery code gives, so the server challenges that code alone.
     pub recovery: Option<[u8; 32]>,
+    /// A fresh sign-in's admission token, when the client has one (see `auth::pq::admission`).
+    pub admission: Option<AdmissionToken>,
+    /// The resume token of the session the server may still hold for this client: a reconnect
+    /// it recognises is not asked for admission. Checked against the held session only.
+    pub resume: Option<[u8; 32]>,
 }
 
 /// S→C: the server's challenge. For an unknown username the server answers with decoys derived
