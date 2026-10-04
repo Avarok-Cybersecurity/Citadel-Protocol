@@ -177,3 +177,11 @@ ts-rs = { version = "11", features = ["bytes"] }
 wasm-bindgen = { version = "0.2", default-features = false }
 web-sys = { version = "0.3", default-features = false }
 js-sys = { version = "0.3", default-features = false }
+
+# quinn-proto 0.11.19 plus quinn-rs/quinn#2660 (set the loss-detection timer when a path
+# validation fails; upstream issue #2658). Without it a failed path validation, which the
+# relay-fallback path provokes, panics debug builds in `pto_time_and_space`. The fix is on
+# quinn `main` (0.12) only; drop this once quinn-proto 0.11.20+ carries it or we move to 0.12.
+# The fork's README says the same: https://github.com/Avarok-Cybersecurity/quinn
+[patch.crates-io]
+quinn-proto = { git = "https://github.com/Avarok-Cybersecurity/quinn", rev = "5413bbaa53a1df59b25b75da5f572369a0c811f7" }
