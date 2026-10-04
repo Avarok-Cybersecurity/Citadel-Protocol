@@ -72,6 +72,10 @@ pub(crate) mod direct_route;
 
 pub(crate) mod p2p_campaign;
 
+pub(crate) mod p2p_rearm;
+
+pub(crate) mod p2p_retry;
+
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod turn_p2p;
 #[cfg(not(target_family = "wasm"))]

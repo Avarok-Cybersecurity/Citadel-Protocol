@@ -53,7 +53,10 @@ pub const MINOR_VERSION: u8 = 12;
 // presents it, so a reconnect replaces the session the server still holds for that same client
 // (see `SESSION_RESUME_SINCE`). Additive, like 0 -> 1.
 // Reset to 0 by the minor bump to 12.
-pub const PATCH_VERSION: u8 = 0;
+// Bumped 0 -> 1: a client may probe its server's liveness at any time (see `SERVER_PROBE_SINCE`),
+// and peers can re-arm a P2P path campaign that gave up (see `PATH_REARM_SINCE`). Additive: each
+// side uses them only with a node at or above it.
+pub const PATCH_VERSION: u8 = 1;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -82,6 +85,16 @@ pub const SESSION_RESUME_SINCE: (u8, u8, u8) = (0, 11, 2);
 /// to a server below it, or of unknown version, logs in and registers the legacy way; a server
 /// receiving a legacy login checks it the legacy way, unless the account has already upgraded.
 pub const PQ_SIGN_IN_SINCE: (u8, u8, u8) = (0, 12, 0);
+
+/// The first protocol version whose server answers a liveness probe: a `KEEP_ALIVE` with
+/// `cmd_aux` PROBE, echoed at once (see `proto::server_probe`). A server below it reads a probe as
+/// a scheduled keep-alive and would start a second keep-alive cycle, so it is never sent one.
+pub const SERVER_PROBE_SINCE: (u8, u8, u8) = (0, 12, 1);
+
+/// The first protocol version whose P2P campaign, having given up, parks on the coordination
+/// endpoint instead of ending, so either peer can re-arm it (`PeerChannel::upgrade`). With a peer
+/// below it, or of unknown version, the campaign ends as before and an upgrade is refused.
+pub const PATH_REARM_SINCE: (u8, u8, u8) = (0, 12, 1);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

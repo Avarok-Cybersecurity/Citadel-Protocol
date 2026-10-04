@@ -235,6 +235,14 @@ pub(crate) mod native_p2p {
     ) -> std::io::Result<()> {
         let remote_peer = p2p_stream.peer_addr()?;
         let local_bind_addr = p2p_stream.local_addr()?;
+        // Only this connection's client can migrate, and not through its own TURN allocation.
+        let migratable = !from_listener && path != (P2pRoute::Turn { relayed_both: true });
+        if let Some(endpoint) = p2p_stream.p2p_endpoint().filter(|_| migratable) {
+            session
+                .session_manager
+                .local_rebinder()
+                .track_quic_client(endpoint);
+        }
         let quic_conn = p2p_stream
             .take_p2p_connection()
             .ok_or_else(|| generic_error("P2P Stream did not have QUIC connection loaded"))?;

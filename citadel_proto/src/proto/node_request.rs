@@ -119,6 +119,20 @@ pub struct SetPeerTurnConfig {
     pub config: Option<citadel_wire::udp_traversal::turn_relay::TurnRelayConfig>,
 }
 
+/// Sends a liveness probe to the server of `session_cid` now and reports its round trip, or that
+/// no answer came within `timeout` (see `proto::server_probe`).
+pub struct ProbeServer {
+    pub session_cid: u64,
+    pub timeout: std::time::Duration,
+}
+
+/// Ends the C2S session `session_cid` locally, without waiting for the server's ack (see
+/// `proto::session_abandon`). Answered with a [`NodeResult::Disconnect`](crate::proto::node_result::NodeResult)
+/// under the request's ticket once the session has dropped.
+pub struct AbandonSession {
+    pub session_cid: u64,
+}
+
 /// These are sent down the stack into the server. Most of the requests expect a ticket ID
 /// in order for processes sitting above the [Kernel] to know how the request went
 #[allow(variant_size_differences)]
@@ -145,6 +159,10 @@ pub enum NodeRequest {
     DisconnectFromHypernode(DisconnectFromHypernode),
     /// Sets the TURN relay configuration for the next P2P attempt with a peer
     SetPeerTurnConfig(SetPeerTurnConfig),
+    /// Probes the server's liveness now, outside the keep-alive schedule
+    ProbeServer(ProbeServer),
+    /// Ends a C2S session locally, without the server's ack
+    AbandonSession(AbandonSession),
     /// Returns a list of connected sessions
     GetActiveSessions,
     /// shutdown signal
@@ -173,6 +191,8 @@ impl NodeRequest {
             NodeRequest::SetPeerTurnConfig(SetPeerTurnConfig { session_cid, .. }) => {
                 Some(*session_cid)
             }
+            NodeRequest::ProbeServer(ProbeServer { session_cid, .. }) => Some(*session_cid),
+            NodeRequest::AbandonSession(AbandonSession { session_cid }) => Some(*session_cid),
             NodeRequest::GetActiveSessions => None,
             NodeRequest::Shutdown => None,
         }

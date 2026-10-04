@@ -40,6 +40,7 @@ async fn udp_disconnect_survives_a_full_request_queue() {
         },
         account_manager,
         NodeType::default(),
+        crate::proto::misc::local_rebind::LocalRebinder::new(),
     );
 
     for _ in 0..MAX_OUTGOING_UNPROCESSED_REQUESTS {

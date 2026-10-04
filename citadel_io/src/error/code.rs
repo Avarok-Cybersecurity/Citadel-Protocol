@@ -1174,4 +1174,25 @@ pub enum ErrorCode {
     /// The server requires an admission check, and the client is too old to send one.
     #[form = "This workspace needs a newer app to sign in; update your app"]
     PqSignInAdmissionNeedsUpdate = 352,
+
+    // --- citadel_proto: connection supervision (liveness probe, path re-arm) ---
+    /// A server probe's session ended before the probe was answered or timed out.
+    #[form = "The session ended before the server probe was answered"]
+    ServerProbeAbandoned = 370,
+    /// The server's protocol version does not answer liveness probes (version).
+    #[form = "The server does not answer liveness probes (protocol version {})"]
+    ServerProbeUnsupported = 371,
+    /// A server probe was asked of a session that is not connected (cid).
+    #[form = "Cannot probe the server: session {} is not connected"]
+    ServerProbeNotConnected = 372,
+    /// A P2P path upgrade was asked of a peer whose protocol cannot re-arm the campaign.
+    #[form = "The peer cannot re-arm its P2P path campaign; update it"]
+    P2pUpgradeUnsupported = 373,
+    /// A P2P path upgrade was asked of a connection with no campaign left to re-arm (reason).
+    #[form = "No P2P path campaign to re-arm: {}"]
+    P2pUpgradeUnavailable = 374,
+    /// `rebind_local` was asked of a node with no transport that can move to a new local address
+    /// (a browser node, whose transports the browser owns).
+    #[form = "This node cannot rebind its transports to a new local address"]
+    RebindLocalUnsupported = 380,
 }

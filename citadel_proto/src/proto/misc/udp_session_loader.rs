@@ -111,25 +111,21 @@ pub(crate) fn spawn<R: Ratchet, T: PlatformOps>(
                     if let Some(channel) = state_container
                         .insert_udp_channel(target_cid, v_target, ticket, udp_sender, stopper_tx)
                     {
-                        if let Some(kem_state) =
-                            state_container.peer_kem_states.get_mut(&target_cid)
-                        {
-                            if let Some(sender) = kem_state.udp_channel_sender.tx.take() {
-                                sender
-                                    .send(channel)
-                                    .map_err(|_| error!(ErrorCode::UdpChannelSendFailed))?;
-                                EndpointCryptoAccessor::P2P(
-                                    target_cid,
-                                    sess.state_container.clone(),
-                                )
-                            } else {
-                                log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had no UDP sender");
-                                return Err(error!(ErrorCode::UdpStateContainerNoSender));
-                            }
-                        } else {
+                        let Some(kem_state) = state_container.peer_kem_states.get_mut(&target_cid)
+                        else {
                             log::error!(target: "citadel", "Tried loading the peer kem state, but was absent");
                             return Err(error!(ErrorCode::UdpPeerKemStateAbsent));
+                        };
+                        if let Some(sender) = kem_state.udp_channel_sender.tx.take() {
+                            sender
+                                .send(channel)
+                                .map_err(|_| error!(ErrorCode::UdpChannelSendFailed))?;
+                        } else {
+                            // The first UDP channel went with the connection; this one is a
+                            // recovery's (see `peer::p2p_rearm`).
+                            super::udp_restored::deliver(&state_container, target_cid, channel)?;
                         }
+                        EndpointCryptoAccessor::P2P(target_cid, sess.state_container.clone())
                     } else {
                         log::error!(target: "citadel", "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
                         return Err(error!(ErrorCode::UdpStateContainerInvalidConfig));

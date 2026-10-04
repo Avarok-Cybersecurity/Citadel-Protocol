@@ -663,13 +663,25 @@ pub(crate) mod keep_alive {
         timestamp: i64,
         security_level: SecurityLevel,
     ) -> BytesMut {
+        craft_keep_alive_packet_with(ratchet, timestamp, security_level, 0, 0)
+    }
+
+    /// A keep-alive with `cmd_aux` and `context_info` set, as a liveness probe and its reply are
+    /// (see `proto::server_probe`); a scheduled keep-alive has both 0.
+    pub(crate) fn craft_keep_alive_packet_with<R: Ratchet>(
+        ratchet: &R,
+        timestamp: i64,
+        security_level: SecurityLevel,
+        cmd_aux: u8,
+        context_info: u128,
+    ) -> BytesMut {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
             cmd_primary: packet_flags::cmd::primary::KEEP_ALIVE,
-            cmd_aux: 0,
+            cmd_aux,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U128::new(0),
+            context_info: U128::new(context_info),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(ratchet.get_cid()),

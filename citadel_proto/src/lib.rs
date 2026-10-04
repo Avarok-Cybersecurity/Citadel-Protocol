@@ -562,6 +562,7 @@ pub mod prelude {
     pub use async_trait::async_trait;
     pub use citadel_io::WebSocketEndpoint;
     pub use citadel_wire::hypernode_type::NodeType;
+    pub use citadel_wire::quic_rebind::{RebindFailure, RebindReport, Rebound};
 
     // Native-only prelude exports
     #[cfg(not(target_family = "wasm"))]
@@ -602,9 +603,11 @@ pub mod prelude {
         GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
     };
     pub use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
+    pub use crate::proto::peer::p2p_rearm::PathControl;
     pub use crate::proto::peer::peer_layer::PeerResponse;
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
     pub use crate::proto::remote::Ticket;
+    pub use crate::proto::server_probe::{ServerProbeOutcome, ServerProbeResult};
     pub use crate::proto::state_container::VirtualTargetType;
     pub use citadel_io::ServerMode;
     pub use citadel_types::crypto::SecrecyMode;

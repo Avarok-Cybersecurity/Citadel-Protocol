@@ -33,6 +33,7 @@ use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::Mutex;
@@ -206,6 +207,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             kernel_async_callback_handler.clone(),
             account_manager,
             node_type,
+            read.session_manager.local_rebinder(),
         );
         let tt = read
             .session_manager
@@ -683,6 +685,41 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     }
                 }
 
+                NodeRequest::ProbeServer(crate::proto::node_request::ProbeServer {
+                    session_cid,
+                    timeout,
+                }) => {
+                    session_manager.probe_server(session_cid, ticket_id, timeout);
+                }
+
+                NodeRequest::AbandonSession(crate::proto::node_request::AbandonSession {
+                    session_cid,
+                }) => match session_manager.abandon_session(session_cid) {
+                    Ok(dropped) => {
+                        let to_kernel_tx = to_kernel_tx.clone();
+                        spawn!(async move {
+                            dropped.await;
+                            let done =
+                                NodeResult::Disconnect(crate::proto::node_result::Disconnect {
+                                    ticket: ticket_id,
+                                    cid_opt: Some(session_cid),
+                                    success: true,
+                                    conn_type: Some(
+                                        citadel_types::proto::ClientConnectionType::Server {
+                                            session_cid,
+                                        },
+                                    ),
+                                    message: "Abandoned locally".to_string(),
+                                    disconnect_token: None,
+                                });
+                            if to_kernel_tx.unbounded_send(done).is_err() {
+                                log::warn!(target: "citadel", "Kernel gone before abandon_session({session_cid}) could be answered");
+                            }
+                        });
+                    }
+                    Err(err) => send_error(&to_kernel_tx, ticket_id, request_cid, err)?,
+                },
+
                 NodeRequest::GetActiveSessions => {
                     if let Err(err) =
                         to_kernel_tx.unbounded_send(NodeResult::SessionList(SessionList {
@@ -716,4 +753,5 @@ pub(crate) struct CitadelNodeRemoteInner<R: Ratchet> {
     pub callback_handler: KernelAsyncCallbackHandler<R>,
     pub node_type: NodeType,
     pub account_manager: AccountManager<R, R>,
+    pub local_rebinder: LocalRebinder,
 }

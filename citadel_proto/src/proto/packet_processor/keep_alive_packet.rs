@@ -75,8 +75,17 @@ pub async fn process_keep_alive<R: Ratchet, T: PlatformOps>(
 
         let (header, payload, _, _) = packet.decompose();
 
-        if let Some((header, _payload, _ratchet)) = validation::aead::validate(hr, &header, payload)
+        if let Some((header, _payload, ratchet)) = validation::aead::validate(hr, &header, payload)
         {
+            if super::server_probe_packet::is_probe(header.cmd_aux) {
+                return super::server_probe_packet::process(
+                    session,
+                    header.cmd_aux,
+                    header.context_info.get(),
+                    &ratchet,
+                    header.security_level.into(),
+                );
+            }
             let current_timestamp_ns = session.time_tracker.get_global_time_ns();
             let to_primary_stream = return_if_none!(
                 session.to_primary_stream.clone(),

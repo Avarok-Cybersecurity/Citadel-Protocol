@@ -19,6 +19,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
 pub use super::native_ws_transport::WsTransport;
+use super::ws_ping::WsPinger;
 
 /// Byte-oriented wrapper around a WebSocket connection.
 ///
@@ -29,6 +30,7 @@ pub struct WebSocketByteStream {
     read_buf: VecDeque<u8>,
     peer_addr: SocketAddr,
     local_addr: SocketAddr,
+    pinger: WsPinger,
 }
 
 impl WebSocketByteStream {
@@ -42,7 +44,32 @@ impl WebSocketByteStream {
             read_buf: VecDeque::new(),
             peer_addr,
             local_addr,
+            pinger: WsPinger::new(),
         }
+    }
+
+    /// Queues WebSocket pings on this connection and reports the pongs.
+    pub fn pinger(&self) -> &WsPinger {
+        &self.pinger
+    }
+
+    /// Writes the pings queued since the last frame, ahead of it.
+    fn poll_write_pings(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        while let Some(payload) = self.pinger.next_queued() {
+            match Pin::new(&mut self.inner).poll_ready(cx) {
+                Poll::Ready(Ok(())) => {}
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(io::Error::other(e.to_string()))),
+                Poll::Pending => {
+                    self.pinger.requeue(payload);
+                    return Poll::Pending;
+                }
+            }
+            let ping = Message::Ping(payload.to_vec().into());
+            Pin::new(&mut self.inner)
+                .start_send(ping)
+                .map_err(|e| io::Error::other(e.to_string()))?;
+        }
+        Poll::Ready(Ok(()))
     }
 
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
@@ -93,7 +120,12 @@ impl AsyncRead for WebSocketByteStream {
             Poll::Ready(Some(Ok(Message::Close(_)))) | Poll::Ready(None) => {
                 Poll::Ready(Ok(())) // EOF
             }
-            Poll::Ready(Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_)))) => {
+            Poll::Ready(Some(Ok(Message::Pong(payload)))) => {
+                self.pinger.on_pong(&payload);
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            Poll::Ready(Some(Ok(Message::Ping(_) | Message::Frame(_)))) => {
                 // Control frames handled automatically by tungstenite; re-poll
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -110,6 +142,7 @@ impl AsyncWrite for WebSocketByteStream {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        std::task::ready!(self.poll_write_pings(cx))?;
         // Ensure the sink is ready
         match Pin::new(&mut self.inner).poll_ready(cx) {
             Poll::Ready(Ok(())) => {}
@@ -128,6 +161,7 @@ impl AsyncWrite for WebSocketByteStream {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        std::task::ready!(self.poll_write_pings(cx))?;
         Pin::new(&mut self.inner)
             .poll_flush(cx)
             .map_err(|e| io::Error::other(e.to_string()))
@@ -139,6 +173,10 @@ impl AsyncWrite for WebSocketByteStream {
             .map_err(|e| io::Error::other(e.to_string()))
     }
 }
+
+#[cfg(test)]
+#[path = "native_ws_ping_tests.rs"]
+mod ping_tests;
 
 #[cfg(test)]
 mod tests {

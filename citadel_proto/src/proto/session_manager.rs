@@ -41,6 +41,7 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
+use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ServerMode;
@@ -163,6 +164,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     disconnect_tracker: DisconnectSignalTracker,
     /// Client side: each account's latest resume token, kept after its session ends.
     resume_tokens: ResumeTokens,
+    /// The node's client-role QUIC endpoints, shared with its remote's `rebind_local`.
+    local_rebinder: LocalRebinder,
 }
 
 /// The reason given to a login refused because the server already holds a session for the account.
@@ -184,6 +187,10 @@ pub enum CidAdmission {
     /// Another attempt for the CID is in flight, or (client side) a session exists.
     Refused,
 }
+
+/// How long a session that was told to stop may take to drop before it is given up on: a new
+/// connection for its CID waits this long, and so does `abandon_session`.
+pub(crate) const SESSION_DROP_GRACE: Duration = Duration::from_secs(5);
 
 /// Safety-net lifetime for a provisional CID reservation. Reservations are released explicitly on
 /// SYN commit and on connection failure; this bounds how long an unexpectedly-dropped attempt can
@@ -224,6 +231,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             turn_servers,
             disconnect_tracker: DisconnectSignalTracker::new(),
             resume_tokens: ResumeTokens::default(),
+            local_rebinder: LocalRebinder::new(),
         };
 
         Self::from(inner)
@@ -340,7 +348,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
         // Timeout after 5s to ensure we don't wait indefinitely. We brute force disconnect the session if it doesn't disconnect within the timeout.
         let timeout = async move {
-            citadel_io::time::sleep(Duration::from_secs(5)).await;
+            citadel_io::time::sleep(SESSION_DROP_GRACE).await;
         };
 
         // Wait for the session to disconnect or timeout
@@ -348,21 +356,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             _ = wait_for_drop => CidAdmission::Free,
             _ = timeout => {
                 citadel_logging::warn!(target: "citadel", "Session attempt for {cid} failed to disconnect within the timeout. Force clearing");
-                let mut this = inner_mut!(self);
-                // STOP it, do not merely forget it. Removing the map entry left
-                // the session's task running: a zombie that still holds peer
-                // vconns and whose own teardown fires later, by which time the
-                // replacement session owns that CID -- and that teardown is
-                // keyed only by CID.
-                if let Some((stopper, _zombie)) = this.sessions.remove(&cid) {
-                    // Err means nothing is subscribed, i.e. it has already shut
-                    // down. That is the good outcome, not a failure.
-                    if stopper.send(()).is_err() {
-                        citadel_logging::trace!(target: "citadel", "Force-cleared session {cid} had already stopped");
-                    }
-                }
-                this.provisional_connections.retain(|_, sess| sess.2.session_cid.get().unwrap_or(0) != cid);
-                this.provisional_cid_reservations.remove(&cid);
+                let _ = inner_mut!(self).stop_and_forget(cid);
                 CidAdmission::Free
             },
         }
@@ -421,6 +415,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         }
 
         Ok(())
+    }
+
+    /// The node's tracker of transports that can move to a new local address.
+    pub(crate) fn local_rebinder(&self) -> LocalRebinder {
+        inner!(self).local_rebinder.clone()
     }
 
     /// Server side: whether the session held for `cid` was issued `presented` (or resumed from
@@ -658,6 +657,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     None => T::connect(default_client_config, T::from_socket_addr(peer_addr)).await,
                 }
                 .map_err(|err| NetworkError::socket(err.to_string()))?;
+                T::track_client_transport(&primary_stream, &self.local_rebinder());
                 let local_bind_addr: SocketAddr = T::to_socket_addr(
                     &T::local_addr(&primary_stream)
                         .map_err(|err| NetworkError::generic(err.to_string()))?,
@@ -1201,6 +1201,31 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             None => state_container.peer_turn_configs.remove(&peer_cid),
         };
         Ok(())
+    }
+
+    /// Probes the server of `session_cid` now; the outcome reaches the kernel under `ticket` as
+    /// [`NodeResult::ServerProbe`], an `Error` one when there is no such session.
+    pub fn probe_server(&self, session_cid: u64, ticket: Ticket, timeout: std::time::Duration) {
+        let session = inner!(self)
+            .sessions
+            .get(&session_cid)
+            .map(|(_, sess)| sess.clone());
+        match session {
+            Some(session) => session.probe_server(ticket, timeout),
+            None => {
+                let result = crate::proto::server_probe::ServerProbeResult {
+                    ticket,
+                    session_cid,
+                    outcome: crate::proto::server_probe::ServerProbeOutcome::Error(error!(
+                        ErrorCode::ServerProbeNotConnected,
+                        session_cid
+                    )),
+                };
+                let _ = inner!(self)
+                    .kernel_tx
+                    .unbounded_send(NodeResult::ServerProbe(result));
+            }
+        }
     }
 
     /// Returns true if the process initiated successfully
@@ -2093,6 +2118,32 @@ pub struct GroupDelivery {
 
 impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
     /// Clears a session from the SessionManager
+    /// Stops every session this node holds for `cid` (admitted or still provisional) and forgets
+    /// it, freeing the CID for a new connection. STOP it, do not merely forget it: removing the
+    /// map entry alone left the session's task running, a zombie that still holds peer vconns and
+    /// whose own teardown fires later, by which time the replacement session owns that CID -- and
+    /// that teardown is keyed only by CID. Returns the admitted session, if there was one.
+    pub(crate) fn stop_and_forget(&mut self, cid: u64) -> Option<CitadelSession<R, T>> {
+        let admitted = self.sessions.remove(&cid).map(|(stopper, session)| {
+            // Err means nothing is subscribed, i.e. it has already shut down. That is the good
+            // outcome, not a failure.
+            if stopper.send(()).is_err() {
+                citadel_logging::trace!(target: "citadel", "Stopped session {cid} had already ended");
+            }
+            session
+        });
+        self.provisional_connections
+            .retain(|_, (_, stopper, sess)| {
+                let ours = sess.session_cid.get() == Some(cid);
+                if ours {
+                    let _ = stopper.send(());
+                }
+                !ours
+            });
+        self.provisional_cid_reservations.remove(&cid);
+        admitted
+    }
+
     pub fn clear_session(&mut self, cid: u64, init_time: Instant) {
         if let Some((_, session)) = self.sessions.get(&cid) {
             if session.init_time == init_time {

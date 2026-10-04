@@ -97,7 +97,6 @@ impl GenericNetworkStream {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn p2p_endpoint(&self) -> Option<Endpoint> {
         match self {
             Self::P2P(_, _, endpoint, _, _) => Some(endpoint.clone()),

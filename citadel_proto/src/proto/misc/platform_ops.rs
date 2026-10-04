@@ -78,6 +78,13 @@ pub trait PlatformOps: ProtocolIO {
         }
     }
 
+    /// Tracks a client connection's transport with `rebinder` if it can move to a new local
+    /// address (a QUIC client endpoint). Every platform says what it does: no default.
+    fn track_client_transport(
+        stream: &Self::Stream,
+        rebinder: &crate::proto::misc::local_rebind::LocalRebinder,
+    );
+
     /// Create a UDP channel from an existing QUIC connection.
     /// Default: returns `None` (QUIC not available).
     fn quic_udp_channel(conn: Connection, local_addr: SocketAddr) -> Option<UdpSplittableTypes> {
@@ -144,6 +151,15 @@ pub trait PlatformOps: ProtocolIO {
     ) -> Result<TransferMetadata, NetworkError> {
         let _ = (source_path, expected_metadata);
         Err(error!(ErrorCode::FileTransferPlatformUnsupported))
+    }
+
+    // ── C2S transport liveness ──
+
+    /// The WebSocket pinger of a C2S stream carried by a WebSocket (see `misc::ws_ping`), taken
+    /// before the stream is split. Default: `None`, a transport with no ping of its own.
+    fn ws_pinger(stream: &Self::Stream) -> Option<super::ws_ping::WsPinger> {
+        let _ = stream;
+        None
     }
 
     // ── UDP session ──

@@ -52,6 +52,7 @@ use crate::kernel::kernel_communicator::{
     CallbackKey, KernelAsyncCallbackHandler, KernelStreamSubscription,
 };
 use crate::prelude::NodeRequest;
+use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::node::CitadelNodeRemoteInner;
 use crate::proto::outbound_sender::BoundedSender;
 use bytemuck::NoUninit;
@@ -145,6 +146,7 @@ impl<R: Ratchet> NodeRemote<R> {
         callback_handler: KernelAsyncCallbackHandler<R>,
         account_manager: AccountManager<R, R>,
         node_type: NodeType,
+        local_rebinder: LocalRebinder,
     ) -> Self {
         // starts at 1. Ticket 0 is for reserved
         Self {
@@ -153,8 +155,17 @@ impl<R: Ratchet> NodeRemote<R> {
                 callback_handler,
                 account_manager,
                 node_type,
+                local_rebinder,
             }),
         }
+    }
+
+    /// Moves every client-role QUIC endpoint this node holds (C2S QUIC, and the dialing side of
+    /// direct and TURN P2P paths) to a fresh socket on the current local address, so their
+    /// connections migrate without a new handshake. Call it when the local network changes.
+    /// Local only: nothing crosses the wire. See `proto::misc::local_rebind` for what cannot move.
+    pub fn rebind_local(&self) -> Result<crate::prelude::RebindReport, NetworkError> {
+        self.inner.local_rebinder.rebind_local()
     }
 
     /// Sends a request to the server with a custom ticket.

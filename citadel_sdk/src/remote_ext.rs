@@ -723,6 +723,24 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         ))
     }
 
+    /// Round-trips an authenticated probe to the server of session `cid` now, rather than on the
+    /// keep-alive schedule (15 minutes, 45 to time out): `Ok(rtt)`, `Timeout` when no answer came
+    /// within `timeout`, or `Error` when it could not be sent (no such connected session, or a
+    /// server below protocol 0.12.1, which cannot answer one). Over a WebSocket the probe also
+    /// sends a WebSocket ping.
+    async fn probe_server(&self, cid: u64, timeout: Duration) -> ServerProbeOutcome {
+        crate::server_probe::probe_server(self, cid, timeout).await
+    }
+
+    /// Ends session `cid` here and now, without asking the server: its transport is dropped, the
+    /// session is forgotten and its CID freed, so the next login is not refused with "Session for
+    /// CID .. already exists". For a link that died silently (after `probe_server` timed out):
+    /// the server's copy is replaced by that login's resume token. Resolves once the session has
+    /// dropped; `Err` when this node holds no session for `cid`.
+    async fn abandon_session(&self, cid: u64) -> Result<(), NetworkError> {
+        crate::server_probe::abandon_session(self, cid).await
+    }
+
     /// Returns all the active sessions in the protocol, including all P2P connections hierarchically placed as children to C2S
     /// connections
     async fn sessions(&self) -> Result<ActiveSessions, NetworkError> {
@@ -754,6 +772,14 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         Err(citadel_io::error!(
             citadel_io::ErrorCode::RemoteQuerySessionsFailed
         ))
+    }
+
+    /// Moves this node's live client-role QUIC endpoints to fresh sockets on the current local
+    /// address, so Direct and TURN QUIC paths (and a C2S QUIC connection) migrate without a new
+    /// handshake. Call it on a local network change. Local only, so not version-gated; see
+    /// [`NodeRemote::rebind_local`].
+    fn rebind_local(&self) -> Result<RebindReport, NetworkError> {
+        self.remote_ref().rebind_local()
     }
 
     #[doc(hidden)]

@@ -323,6 +323,13 @@ impl<R: Ratchet> StateContainerInner<R> {
         };
 
         let p2p_path = P2pPathCell::server_relayed();
+        let (udp_restored, restored_udp) = match virtual_connection_type {
+            VirtualConnectionType::LocalGroupPeer { .. } => {
+                let (tx, rx) = unbounded_channel();
+                (Some(tx), Some(rx))
+            }
+            _ => (None, None),
+        };
         let peer_channel = PeerChannel::new(
             self.node_remote.clone(),
             target_cid,
@@ -334,6 +341,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             disconnect_token,
             p2p_path.clone(),
             peer_protocol_version,
+            restored_udp,
         );
 
         CitadelSession::spawn_message_sender_function(
@@ -354,6 +362,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             // P2P disconnect notifier - set to None initially, will be populated
             // by p2p_conn_handler when P2P stream is established
             p2p_disconnect_notifier: None,
+            udp_restored,
         });
 
         // For C2S connections, get the adjacent NAT type from the session
