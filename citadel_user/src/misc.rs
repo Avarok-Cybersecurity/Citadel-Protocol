@@ -123,16 +123,23 @@ pub fn prepare_virtual_path<P: AsRef<Path>>(path: P) -> PathBuf {
     format_path(path).into()
 }
 
+/// The local filesystem's path separator.
 #[cfg(not(target_os = "windows"))]
-/// #
+pub(crate) const PLATFORM_SEPARATOR: char = '/';
+/// The local filesystem's path separator.
+#[cfg(target_os = "windows")]
+pub(crate) const PLATFORM_SEPARATOR: char = '\\';
+
+/// Rewrites every separator in `input` as the local filesystem's.
 pub fn format_path(input: String) -> String {
-    input.replace('\\', "/")
+    format_path_for(input, PLATFORM_SEPARATOR)
 }
 
-#[cfg(target_os = "windows")]
-/// #
-pub fn format_path(input: String) -> String {
-    input.replace("/", "\\")
+/// [`format_path`] for a given separator, so either platform's behaviour can be
+/// exercised on any host.
+pub(crate) fn format_path_for(input: String, separator: char) -> String {
+    let other = if separator == '/' { '\\' } else { '/' };
+    input.replace(other, &separator.to_string())
 }
 
 pub const VIRTUAL_FILE_METADATA_EXT: &str = ".vxe";
