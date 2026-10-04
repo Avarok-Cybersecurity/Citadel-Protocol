@@ -74,6 +74,7 @@ either = { workspace = true }
 async-stream = { workspace = true }
 citadel_crypt = { workspace = true }
 citadel_user = { workspace = true }
+zeroize = { workspace = true }
 citadel_wire = { workspace = true }
 citadel_io = { workspace = true }
 citadel_pqcrypto = { workspace = true }

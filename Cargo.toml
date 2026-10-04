@@ -109,6 +109,11 @@ num-integer = { default-features = false, version = "0.1.45" }
 arrayvec = { version = "0.7.2", default-features = false }
 bitvec = { default-features = false, version = "1.0.1" }
 rust-argon2 = { version = "3.0", default-features = false }
+# Post-quantum sign-in (citadel_user::auth::pq): the RFC 9497 OPRF that hardens the password factor
+# (ristretto255 / SHA-512, base mode), and HKDF / HMAC over SHA3 for seeds, tags and the session key.
+voprf = { version = "0.5.0", default-features = false, features = ["ristretto255-ciphersuite"] }
+hkdf = { version = "0.12.4", default-features = false }
+hmac = { version = "0.12.1", default-features = false }
 tokio-stream = { default-features = false, version = "0.1.17" }
 zeroize = { default-features = false, version = "1.5.7" }
 libc = { version = "0.2.139", default-features = false }
@@ -172,3 +177,11 @@ ts-rs = { version = "11", features = ["bytes"] }
 wasm-bindgen = { version = "0.2", default-features = false }
 web-sys = { version = "0.3", default-features = false }
 js-sys = { version = "0.3", default-features = false }
+
+# quinn-proto 0.11.19 plus quinn-rs/quinn#2660 (set the loss-detection timer when a path
+# validation fails; upstream issue #2658). Without it a failed path validation, which the
+# relay-fallback path provokes, panics debug builds in `pto_time_and_space`. The fix is on
+# quinn `main` (0.12) only; drop this once quinn-proto 0.11.20+ carries it or we move to 0.12.
+# The fork's README says the same: https://github.com/Avarok-Cybersecurity/quinn
+[patch.crates-io]
+quinn-proto = { git = "https://github.com/Avarok-Cybersecurity/quinn", rev = "5413bbaa53a1df59b25b75da5f572369a0c811f7" }

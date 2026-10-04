@@ -215,6 +215,9 @@ impl<R: Ratchet> DerefMut for CitadelClientServerConnection<R> {
 /// Contains the elements entailed by a successful registration
 pub struct RegisterSuccess {
     pub cid: u64,
+    /// The recovery codes of a post-quantum registration, to show the user once (see
+    /// `RegisterOkay::recovery_codes`). Empty for a legacy registration.
+    pub recovery_codes: Vec<String>,
 }
 
 /// Waits for the outcome of a registration request.
@@ -225,8 +228,15 @@ async fn await_registration<R: Ratchet, Rem: Remote<R>>(
     let mut subscription = remote.send_callback_subscription(register_request).await?;
     while let Some(status) = subscription.next().await {
         match status.into_result()? {
-            NodeResult::RegisterOkay(RegisterOkay { cid, .. }) => {
-                return Ok(RegisterSuccess { cid });
+            NodeResult::RegisterOkay(RegisterOkay {
+                cid,
+                recovery_codes,
+                ..
+            }) => {
+                return Ok(RegisterSuccess {
+                    cid,
+                    recovery_codes,
+                });
             }
             NodeResult::RegisterFailure(err) => {
                 return Err(citadel_io::error!(
@@ -252,6 +262,23 @@ async fn await_registration<R: Ratchet, Rem: Remote<R>>(
     ))
 }
 
+/// The legacy credentials (for a server below 0.12) and the password a post-quantum registration
+/// uses, trimmed the same way the legacy credentials trim it.
+async fn registration_credentials<
+    P: Into<String> + Send,
+    V: Into<String> + Send,
+    K: Into<SecBuffer>,
+>(
+    full_name: P,
+    username: V,
+    proposed_password: K,
+) -> Result<(ProposedCredentials, SecBuffer), NetworkError> {
+    let password: SecBuffer = proposed_password.into();
+    let trimmed = ProposedCredentials::registration_password(&password);
+    let creds = ProposedCredentials::new_register(full_name, username, password).await?;
+    Ok((creds, trimmed))
+}
+
 #[async_trait]
 /// Endows the [NodeRemote] with additional functions
 pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
@@ -271,9 +298,39 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
     ) -> Result<RegisterSuccess, NetworkError> {
-        let creds =
-            ProposedCredentials::new_register(full_name, username, proposed_password.into())
-                .await?;
+        self.register_admitted(
+            addr,
+            full_name,
+            username,
+            proposed_password,
+            default_security_settings,
+            server_password,
+            None,
+        )
+        .await
+    }
+
+    /// As [`register`](Self::register), carrying an admission token (a Turnstile response) for a
+    /// server that asks fresh registrations for one. A refusal is a `PqSignInAdmissionRequired`
+    /// or `PqSignInAdmissionFailed` error.
+    #[allow(clippy::too_many_arguments)]
+    async fn register_admitted<
+        T: std::net::ToSocketAddrs + Send,
+        P: Into<String> + Send,
+        V: Into<String> + Send,
+        K: Into<SecBuffer> + Send,
+    >(
+        &self,
+        addr: T,
+        full_name: P,
+        username: V,
+        proposed_password: K,
+        default_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
+        admission: Option<String>,
+    ) -> Result<RegisterSuccess, NetworkError> {
+        let (creds, password) =
+            registration_credentials(full_name, username, proposed_password).await?;
         let register_request = NodeRequest::RegisterToHypernode(RegisterToHypernode {
             remote_addr: addr.to_socket_addrs()?.next().ok_or(citadel_io::error!(
                 citadel_io::ErrorCode::RemoteInvalidSocketAddr
@@ -282,6 +339,8 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             static_security_settings: default_security_settings,
             session_password: server_password.unwrap_or_default(),
             endpoint: None,
+            password: Some(password),
+            admission,
         });
 
         await_registration(self, register_request).await
@@ -305,16 +364,46 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
     ) -> Result<RegisterSuccess, NetworkError> {
+        self.register_to_endpoint_admitted(
+            endpoint,
+            full_name,
+            username,
+            proposed_password,
+            default_security_settings,
+            server_password,
+            None,
+        )
+        .await
+    }
+
+    /// As [`register_to_endpoint`](Self::register_to_endpoint), carrying an admission token.
+    #[cfg(not(target_family = "wasm"))]
+    #[allow(clippy::too_many_arguments)]
+    async fn register_to_endpoint_admitted<
+        P: Into<String> + Send,
+        V: Into<String> + Send,
+        K: Into<SecBuffer> + Send,
+    >(
+        &self,
+        endpoint: citadel_io::WebSocketEndpoint,
+        full_name: P,
+        username: V,
+        proposed_password: K,
+        default_security_settings: SessionSecuritySettings,
+        server_password: Option<PreSharedKey>,
+        admission: Option<String>,
+    ) -> Result<RegisterSuccess, NetworkError> {
         let remote_addr = endpoint.resolve().await?;
-        let creds =
-            ProposedCredentials::new_register(full_name, username, proposed_password.into())
-                .await?;
+        let (creds, password) =
+            registration_credentials(full_name, username, proposed_password).await?;
         let register_request = NodeRequest::RegisterToHypernode(RegisterToHypernode {
             remote_addr,
             proposed_credentials: creds,
             static_security_settings: default_security_settings,
             session_password: server_password.unwrap_or_default(),
             endpoint: Some(endpoint),
+            password: Some(password),
+            admission,
         });
 
         await_registration(self, register_request).await

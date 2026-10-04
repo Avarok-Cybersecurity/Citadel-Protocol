@@ -62,6 +62,20 @@ pub fn ciphertext_len(alg: KemAlgorithm) -> Result<usize, Error> {
     }
 }
 
+/// The FIPS 203 input check on an encapsulation key received from elsewhere: the right length,
+/// and every coefficient reduced mod q. A key that fails it must not be encapsulated to.
+pub fn public_key_is_valid(alg: KemAlgorithm, public_key: &[u8]) -> bool {
+    match alg {
+        KemAlgorithm::MlKem768Fips203 => public_key
+            .try_into()
+            .is_ok_and(|pk: mlkem768::MlKem768PublicKey| mlkem768::validate_public_key(&pk)),
+        KemAlgorithm::MlKem1024Fips203 => public_key
+            .try_into()
+            .is_ok_and(|pk: mlkem1024::MlKem1024PublicKey| mlkem1024::validate_public_key(&pk)),
+        _ => false,
+    }
+}
+
 /// Generate a fresh keypair. Returns `(public_key, secret_key)`.
 pub fn keypair(alg: KemAlgorithm) -> Result<(Vec<u8>, Vec<u8>), Error> {
     let mut seed = [0u8; 64];
@@ -224,74 +238,5 @@ pub fn decrypt_pke(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const ALGS: [KemAlgorithm; 2] = [
-        KemAlgorithm::MlKem768Fips203,
-        KemAlgorithm::MlKem1024Fips203,
-    ];
-
-    #[test]
-    fn kem_round_trip() {
-        for alg in ALGS {
-            let (pk, sk) = keypair(alg).unwrap();
-            let (ct, ss_a) = encapsulate(alg, &pk).unwrap();
-            let ss_b = decapsulate(alg, &ct, &sk).unwrap();
-            assert_eq!(ss_a, ss_b, "{alg:?} shared secrets differ");
-            assert_eq!(ss_a.len(), 32, "{alg:?} shared secret is not 32 bytes");
-            assert_eq!(ct.len(), ciphertext_len(alg).unwrap());
-        }
-    }
-
-    #[test]
-    fn keygen_is_deterministic_from_seed() {
-        let seed = [7u8; 64];
-        for alg in ALGS {
-            let (pk1, sk1) = keypair_from_seed(alg, &seed).unwrap();
-            let (pk2, sk2) = keypair_from_seed(alg, &seed).unwrap();
-            assert_eq!(pk1, pk2, "{alg:?} public key is not seed-deterministic");
-            assert_eq!(sk1, sk2, "{alg:?} secret key is not seed-deterministic");
-        }
-    }
-
-    #[test]
-    fn key_lengths_match_fips203() {
-        let (pk, sk) = keypair(KemAlgorithm::MlKem768Fips203).unwrap();
-        assert_eq!(pk.len(), sizes::PK_768);
-        assert_eq!(sk.len(), sizes::SK_768);
-        let (pk, sk) = keypair(KemAlgorithm::MlKem1024Fips203).unwrap();
-        assert_eq!(pk.len(), sizes::PK_1024);
-        assert_eq!(sk.len(), sizes::SK_1024);
-    }
-
-    #[test]
-    fn pke_round_trip_arbitrary_lengths() {
-        for alg in ALGS {
-            let (pk, sk) = keypair(alg).unwrap();
-            for len in [0usize, 1, 31, 32, 33, 4096] {
-                let msg = vec![0xABu8; len];
-                let nonce = b"associated-nonce";
-                let ct = encrypt_pke(alg, &pk, &msg, nonce).unwrap();
-                let out = decrypt_pke(alg, &sk, &ct).unwrap();
-                assert_eq!(out, msg, "{alg:?} PKE round-trip failed at len {len}");
-            }
-        }
-    }
-
-    #[test]
-    fn pke_rejects_tampered_ciphertext() {
-        let alg = KemAlgorithm::MlKem768Fips203;
-        let (pk, sk) = keypair(alg).unwrap();
-        let mut ct = encrypt_pke(alg, &pk, b"secret", b"nonce").unwrap();
-        let last = ct.len() - 1;
-        ct[last] ^= 0x01;
-        assert!(decrypt_pke(alg, &sk, &ct).is_err());
-    }
-
-    #[test]
-    fn legacy_variant_is_rejected() {
-        assert!(keypair(KemAlgorithm::MlKem).is_err());
-        assert!(ciphertext_len(KemAlgorithm::MlKem).is_err());
-    }
-}
+#[path = "libcrux_kem_tests.rs"]
+mod tests;

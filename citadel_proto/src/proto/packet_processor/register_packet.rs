@@ -33,6 +33,7 @@ use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};
+use crate::proto::pq_sign_in;
 use citadel_crypt::endpoint_crypto_container::{
     AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto,
 };
@@ -221,11 +222,32 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         "Unable to load proposed credentials"
                     );
 
+                    // A server that runs post-quantum sign-in evaluates the OPRF first; STAGE2
+                    // then carries the keys instead of a password hash.
+                    if let Some(pq_start) = pq_sign_in::register::begin(
+                        &session,
+                        &new_ratchet,
+                        header.protocol_version.get(),
+                        proposed_credentials.username(),
+                        algorithm,
+                        timestamp,
+                        security_level,
+                        ticket,
+                    )? {
+                        let mut state_container = inner_mut_state!(session.state_container);
+                        state_container.register_state.created_ratchet = Some(new_ratchet);
+                        state_container.register_state.last_stage =
+                            packet_flags::cmd::aux::do_register::PQ_START;
+                        state_container.register_state.on_register_packet_received();
+                        return Ok(PrimaryProcessorResult::ReplyToSender(pq_start));
+                    }
+
                     let stage2_packet = packet_crafter::do_register::craft_stage2(
                         &new_ratchet,
                         algorithm,
                         timestamp,
                         proposed_credentials,
+                        None,
                         security_level,
                         ticket,
                     )?;
@@ -241,6 +263,89 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     log::error!(target: "citadel", "Register stage is one, yet, no PQC is present. Aborting.");
                     Ok(PrimaryProcessorResult::Void)
                 }
+            }
+
+            packet_flags::cmd::aux::do_register::PQ_START if session.is_server => {
+                let ratchet = {
+                    let state_container = inner_state!(session.state_container);
+                    let in_order = state_container.register_state.last_stage
+                        == packet_flags::cmd::aux::do_register::STAGE1
+                        && state_container.register_state.pq.server.is_none();
+                    if !in_order {
+                        warn!(target: "citadel", "Dropping a PQ_START out of order");
+                        return Ok(PrimaryProcessorResult::Void);
+                    }
+                    return_if_none!(
+                        state_container.register_state.created_ratchet.clone(),
+                        "Unable to load created hyper ratchet"
+                    )
+                };
+                let (_, plaintext) = return_if_none!(
+                    validation::aead::validate_custom(&ratchet, &header.bytes(), payload),
+                    "Unable to validate PQ_START"
+                );
+                pq_sign_in::register::on_pq_start(
+                    &session,
+                    &ratchet,
+                    &plaintext,
+                    header.algorithm,
+                    security_level,
+                    ticket,
+                )
+                .await
+            }
+
+            packet_flags::cmd::aux::do_register::PQ_REPLY if !session.is_server => {
+                let (ratchet, credentials) = {
+                    let state_container = inner_state!(session.state_container);
+                    if state_container.register_state.last_stage
+                        != packet_flags::cmd::aux::do_register::PQ_START
+                    {
+                        warn!(target: "citadel", "Dropping a PQ_REPLY that was not asked for");
+                        return Ok(PrimaryProcessorResult::Void);
+                    }
+                    (
+                        return_if_none!(
+                            state_container.register_state.created_ratchet.clone(),
+                            "Unable to load created hyper ratchet"
+                        ),
+                        return_if_none!(
+                            state_container.connect_state.proposed_credentials.clone(),
+                            "Unable to load proposed credentials"
+                        ),
+                    )
+                };
+                let (_, plaintext) = return_if_none!(
+                    validation::aead::validate_custom(&ratchet, &header.bytes(), payload),
+                    "Unable to validate PQ_REPLY"
+                );
+                let pq = match pq_sign_in::register::on_pq_reply(&session, &plaintext).await {
+                    Ok(pq) => pq,
+                    Err(err) => {
+                        session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
+                            ticket: session.kernel_ticket.get(),
+                            error_message: err.into_string(),
+                        }))?;
+                        session.shutdown();
+                        return Ok(PrimaryProcessorResult::EndSession(
+                            "Post-quantum registration could not complete",
+                        ));
+                    }
+                };
+                let stage2_packet = packet_crafter::do_register::craft_stage2(
+                    &ratchet,
+                    header.algorithm,
+                    session.time_tracker.get_global_time_ns(),
+                    &credentials,
+                    pq,
+                    security_level,
+                    ticket,
+                )?;
+                let mut state_container = inner_mut_state!(session.state_container);
+                state_container.register_state.last_stage =
+                    packet_flags::cmd::aux::do_register::STAGE2;
+                state_container.register_state.on_register_packet_received();
+                Ok(PrimaryProcessorResult::ReplyToSender(stage2_packet))
             }
 
             packet_flags::cmd::aux::do_register::STAGE2 => {
@@ -266,9 +371,16 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             )
                         {
                             let creds = stage2_packet.credentials;
+                            let pq = stage2_packet.pq;
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let account_manager = session.account_manager.clone();
                             std::mem::drop(state_container);
+                            let (pq_pending, admitted) = {
+                                let mut state = inner_mut_state!(session.state_container);
+                                let pq_state = &mut state.register_state.pq;
+                                (pq_state.server.take(), pq_state.admitted)
+                            };
+                            let adjacent_version = header.protocol_version.get();
                             let session_crypto_state = initialize_peer_session_crypto(
                                 ratchet.get_cid(),
                                 ratchet.clone(),
@@ -276,14 +388,52 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             );
                             // we must now create the CNAC
                             async move {
-                                match account_manager
-                                    .register_impersonal_hyperlan_client_network_account(
-                                        conn_info,
-                                        creds,
-                                        session_crypto_state,
-                                    )
-                                    .await
-                                {
+                                // A legacy STAGE2 that no `PQ_START` admitted is asked now,
+                                // before the account is created.
+                                let gate = match (&pq, admitted) {
+                                    (None, false) => {
+                                        let ctx = pq_sign_in::admission::register(
+                                            &session,
+                                            creds.username(),
+                                            None,
+                                        );
+                                        let policy = pq_sign_in::admission::policy(&session);
+                                        let legacy = pq_sign_in::admission::is_legacy_client(
+                                            adjacent_version,
+                                        );
+                                        citadel_user::auth::pq::admission::check(
+                                            policy.as_ref(),
+                                            ctx,
+                                            legacy,
+                                        )
+                                        .await
+                                    }
+                                    _ => Ok(()),
+                                };
+                                let registered = match gate {
+                                    Err(refused) => Err(refused),
+                                    Ok(()) => match pq {
+                                        Some(finish) => {
+                                            pq_sign_in::register::create_account(
+                                                &account_manager,
+                                                pq_pending,
+                                                finish,
+                                                creds,
+                                                conn_info,
+                                                session_crypto_state,
+                                            )
+                                            .await
+                                        }
+                                        None => account_manager
+                                            .register_impersonal_hyperlan_client_network_account(
+                                                conn_info,
+                                                creds,
+                                                session_crypto_state,
+                                            )
+                                            .await,
+                                    },
+                                };
+                                match registered {
                                     Ok(peer_cnac) => {
                                         log::trace!(target: "citadel", "Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_cid());
                                         let success_message =
@@ -380,14 +530,29 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             let session_crypto_state =
                                 initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
 
+                            let (registered_pq, recovery_codes) = {
+                                let mut state_container = inner_mut_state!(session.state_container);
+                                let pq = &mut state_container.register_state.pq;
+                                (pq.registered, std::mem::take(&mut pq.recovery_codes))
+                            };
                             async move {
-                                let registered = account_manager
-                                    .register_personal_hyperlan_server(
-                                        session_crypto_state,
-                                        credentials,
-                                        conn_info,
-                                    )
-                                    .await;
+                                let registered = if registered_pq {
+                                    account_manager
+                                        .register_personal_pq_server(
+                                            session_crypto_state,
+                                            credentials,
+                                            conn_info,
+                                        )
+                                        .await
+                                } else {
+                                    account_manager
+                                        .register_personal_hyperlan_server(
+                                            session_crypto_state,
+                                            credentials,
+                                            conn_info,
+                                        )
+                                        .await
+                                };
                                 // An account whose server is a URL must remember the URL, or its
                                 // next login dials the bare address and cannot reach the server.
                                 let registered = match (registered, &endpoint_to_persist) {
@@ -422,6 +587,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                                     ticket: reg_ticket.get(),
                                                     cid: new_cnac.get_cid(),
                                                     welcome_message: success_message,
+                                                    recovery_codes,
                                                 },
                                             ))?;
                                             session.shutdown();
@@ -484,6 +650,8 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     if let Some(error_message) =
                         validation::do_register::validate_failure(&header, &payload[..])
                     {
+                        // Freed before the caller hears, so it may retry at once.
+                        session.release_provisional_slot();
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
                             error_message: String::from_utf8(error_message)

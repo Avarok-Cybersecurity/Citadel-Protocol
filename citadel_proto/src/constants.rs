@@ -42,14 +42,18 @@ pub const MAJOR_VERSION: u8 = 0;
 // key-exchange signals carry the sender's protocol version, media endpoints exchange
 // transport offers (see `MEDIA_TRANSPORT_OFFER_SINCE`), and servers answer
 // `GroupBroadcast::AwaitGroup` (see `AWAIT_GROUP_SINCE`).
-pub const MINOR_VERSION: u8 = 11;
+// Bumped 11 -> 12: post-quantum sign-in (see `PQ_SIGN_IN_SINCE`). Additive like the patches before
+// it: each side runs the new exchange only with a node at or above it, and an older node keeps the
+// legacy Argon2 path, so 0.11 and 0.12 nodes still interoperate.
+pub const MINOR_VERSION: u8 = 12;
 // Bumped 0 -> 1: group members acknowledge each CGKA Commit to the server, which tells the owner
 // once every member it reached has applied it, and the owner holds a joiner's Welcome until then
 // (see `GROUP_COMMIT_ACK_SINCE`). Additive: each side uses it only with a peer at or above it.
 // Bumped 1 -> 2: the server issues a resume token at connect SUCCESS, and a client's next login
 // presents it, so a reconnect replaces the session the server still holds for that same client
 // (see `SESSION_RESUME_SINCE`). Additive, like 0 -> 1.
-pub const PATCH_VERSION: u8 = 2;
+// Reset to 0 by the minor bump to 12.
+pub const PATCH_VERSION: u8 = 0;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -71,6 +75,13 @@ pub const GROUP_COMMIT_ACK_SINCE: (u8, u8, u8) = (0, 11, 1);
 /// client (see `proto::session_resume`). A node below it, or of unknown version, sends and reads
 /// none, and a login from it is refused while the server holds a session for the account.
 pub const SESSION_RESUME_SINCE: (u8, u8, u8) = (0, 11, 2);
+
+/// The first protocol version whose nodes run post-quantum sign-in (see `proto::pq_sign_in`): a
+/// client sends connect `AUTH_START` before STAGE0 and register `PQ_START` before STAGE2, and the
+/// server proves the account's ML-KEM factors instead of verifying an Argon2 hash. A client talking
+/// to a server below it, or of unknown version, logs in and registers the legacy way; a server
+/// receiving a legacy login checks it the legacy way, unless the account has already upgraded.
+pub const PQ_SIGN_IN_SINCE: (u8, u8, u8) = (0, 12, 0);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

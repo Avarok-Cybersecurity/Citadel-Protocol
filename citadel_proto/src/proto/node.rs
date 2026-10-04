@@ -27,6 +27,7 @@
 //! - `NetworkListener`: Manages network socket listeners
 //!
 
+use citadel_user::auth::pq::admission::AdmissionToken;
 use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
@@ -487,12 +488,20 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     static_security_settings: security_settings,
                     session_password,
                     endpoint,
+                    password,
+                    admission,
                 }) => {
                     match session_manager
                         .initiate_connection(
                             local_node_type,
                             local_nat_type.clone(),
-                            HdpSessionInitMode::Register(peer_addr, credentials, endpoint),
+                            HdpSessionInitMode::Register(
+                                peer_addr,
+                                credentials,
+                                endpoint,
+                                password,
+                                admission.map(AdmissionToken::new),
+                            ),
                             ticket_id,
                             None,
                             listener_underlying_proto.clone(),

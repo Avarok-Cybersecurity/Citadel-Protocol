@@ -517,6 +517,8 @@ jobs:
         run: cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
       - name: Check citadel_sdk for wasm32
         run: cargo check --package citadel_sdk --target wasm32-unknown-unknown
+      - name: No classical signature crate in the wasm32 server graph
+        run: ci/no-classical-signatures.sh
       - name: Check citadel_media for wasm32
         run: cargo check --package citadel_media --target wasm32-unknown-unknown
       - name: Setup Node.js 22

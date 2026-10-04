@@ -63,7 +63,7 @@ use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::session_resume::HeldSessionResume;
 //use futures_codec::Framed;
 use crate::proto::disconnect_tracker::{DisconnectSignalTracker, DisconnectToken};
-use crate::proto::node_result::{Disconnect, InternalServerError, NodeResult};
+use crate::proto::node_result::{ConnectFail, Disconnect, InternalServerError, NodeResult};
 use crate::proto::outbound_sender::{channel, unbounded, SendError, UnboundedSender};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamReceiver, OutboundPrimaryStreamSender};
 use crate::proto::packet::{packet_flags, HdpPacket, HeaderObfuscator};
@@ -334,11 +334,16 @@ pub enum SessionState {
 #[allow(variant_size_differences)]
 pub enum HdpSessionInitMode {
     Connect(AuthenticationRequest),
-    /// The optional endpoint is the server's WebSocket URL (see `RegisterToHypernode::endpoint`).
+    /// The optional endpoint is the server's WebSocket URL (see `RegisterToHypernode::endpoint`),
+    /// the optional password is for a post-quantum registration (see
+    /// `RegisterToHypernode::password`), and the optional token is its admission token (see
+    /// `RegisterToHypernode::admission`).
     Register(
         SocketAddr,
         ProposedCredentials,
         Option<citadel_io::WebSocketEndpoint>,
+        Option<SecBuffer>,
+        Option<citadel_user::auth::pq::admission::AdmissionToken>,
     ),
 }
 
@@ -421,7 +426,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .as_ref()
             .map(|r| &r.init_mode)
         {
-            Some(HdpSessionInitMode::Register(_, _, endpoint)) => endpoint.clone(),
+            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _)) => endpoint.clone(),
             _ => None,
         };
 
@@ -430,7 +435,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 match &client_init_settings.init_mode {
                     HdpSessionInitMode::Connect(auth) => {
                         match auth {
-                            AuthenticationRequest::Credentialed { .. } => {
+                            AuthenticationRequest::Credentialed { .. }
+                            | AuthenticationRequest::SignIn { .. } => {
                                 let cnac = client_init_settings
                                     .cnac
                                     .clone()
@@ -555,11 +561,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             disconnect_tracker,
         };
 
-        if let Some(proposed_credentials) = session_init_params
-            .client_only_settings
-            .map(|r| r.proposed_credentials)
-        {
-            inner.store_proposed_credentials(proposed_credentials);
+        if let Some(client_only_settings) = session_init_params.client_only_settings {
+            crate::proto::pq_sign_in::store_offered(
+                &mut inner_mut_state!(inner.state_container),
+                &client_only_settings.init_mode,
+            );
+            inner.store_proposed_credentials(client_only_settings.proposed_credentials);
         }
 
         Ok((stopper_tx, Self::from(inner)))
@@ -1369,13 +1376,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     RESERVED_CID_IDX,
                 )),
                 LOGIN_EXPIRATION_TIME,
+                // Ends a session still unconnected now, unless it is waiting on a security-key
+                // touch (see `pq_sign_in::presence`).
                 |state_container| {
-                    if !state_container.state.is_connected() {
-                        QueueWorkerResult::EndSession
-                    } else {
-                        // remove it from being called again
-                        QueueWorkerResult::Complete
-                    }
+                    crate::proto::pq_sign_in::presence::provisional_check(&mut **state_container)
                 },
             );
 
@@ -2320,6 +2324,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
         let mut state_container = inner_mut_state!(this.state_container);
 
+        // An older server cannot decode the signal; it would be dropped and the caller would wait.
+        if matches!(peer_command, PeerSignal::SignInManagement { .. })
+            && !crate::proto::pq_sign_in::runs_with_known(state_container.adjacent_protocol_version)
+        {
+            return Err(error!(
+                ErrorCode::PqSignInUnavailable,
+                "the server predates post-quantum sign-in"
+            ));
+        }
+
         // TODO: send errors if any commands have Some() responses
         if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
             let signal_processed = match peer_command {
@@ -2633,6 +2647,25 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
     #[allow(clippy::result_large_err)]
     pub fn send_to_kernel(&self, msg: NodeResult<R>) -> Result<(), SendError<NodeResult<R>>> {
         self.kernel_tx.unbounded_send(msg)
+    }
+
+    /// Gives up this attempt's provisional slot now, rather than when the session's task winds
+    /// down. A login that has failed must release it BEFORE anyone can learn of the failure: the
+    /// client before telling its kernel (whose caller may retry at once, and found the slot for
+    /// the server's address still taken: "Localhost is already trying to connect"), the server
+    /// before its FAILURE reply (a retry's SYN found the refused attempt still provisional under
+    /// the CID and was turned away as a competing login). Idempotent: the session's own
+    /// teardown clears the same entry, matched by `init_time`.
+    pub(crate) fn release_provisional_slot(&self) {
+        self.session_manager
+            .clear_provisional_session(&self.provisional_key, self.init_time);
+    }
+
+    /// Reports a failed connect to the kernel, after releasing the attempt's provisional slot.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn fail_connect(&self, fail: ConnectFail) -> Result<(), SendError<NodeResult<R>>> {
+        self.release_provisional_slot();
+        self.send_to_kernel(NodeResult::ConnectFail(fail))
     }
 
     /// Returns ICE server configurations derived from the session's STUN and TURN servers.

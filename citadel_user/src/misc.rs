@@ -76,6 +76,11 @@ pub fn get_present_formatted_timestamp() -> String {
     Utc::now().to_rfc3339()
 }
 
+/// Milliseconds since the Unix epoch (0 before it), for sign-in factor timestamps.
+pub fn now_ms() -> u64 {
+    u64::try_from(Utc::now().timestamp_millis()).unwrap_or(0)
+}
+
 pub fn validate_virtual_path<R: AsRef<Path>>(virtual_path: R) -> Result<(), AccountError> {
     let virtual_path = virtual_path.as_ref();
     #[cfg(not(target_os = "windows"))]

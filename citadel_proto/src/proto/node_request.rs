@@ -46,6 +46,14 @@ pub struct RegisterToHypernode {
     /// `remote_addr` itself (`remote_addr` is then what the URL's host resolved to). The account
     /// remembers it, so later credentialed connects dial it too. `None` dials `remote_addr`.
     pub endpoint: Option<citadel_io::WebSocketEndpoint>,
+    /// The password as the user typed it (trimmed, as `ProposedCredentials::new_register` trims
+    /// it), for a post-quantum registration with a server at `PQ_SIGN_IN_SINCE` or later. The
+    /// server never sees it: the client turns it into an ML-KEM key. `None` registers the legacy
+    /// way only.
+    pub password: Option<citadel_types::crypto::SecBuffer>,
+    /// The registration's admission token, for a server that asks for one (see
+    /// `citadel_user::auth::pq::admission`). Sent only inside the post-quantum channel.
+    pub admission: Option<String>,
 }
 
 pub struct PeerCommand {

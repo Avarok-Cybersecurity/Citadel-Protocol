@@ -57,6 +57,7 @@ pub(crate) mod packet_crafter;
 /// Contains the library for processing inbound packet types. all #[inline]'d
 pub(crate) mod packet_processor;
 pub(crate) mod peer;
+pub(crate) mod pq_sign_in;
 pub mod remote;
 mod reseal_tests;
 /// Each CID gets a session

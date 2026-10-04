@@ -78,6 +78,14 @@ pub async fn process_raw_packet<R: Ratchet, T: PlatformOps>(
     let cmd_aux = header.cmd_aux;
     let header_entropy_bank_vers = header.entropy_bank_version.get();
 
+    if session.is_server
+        && crate::proto::pq_sign_in::restrict::is_recovery(session)
+        && !crate::proto::pq_sign_in::restrict::admits_packet(cmd_primary)
+    {
+        log::warn!(target: "citadel", "Dropping packet {cmd_primary} from a recovery session");
+        return Ok(PrimaryProcessorResult::Void);
+    }
+
     match check_proxy(
         this_session_cid,
         header.cmd_primary,

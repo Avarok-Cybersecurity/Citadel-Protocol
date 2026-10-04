@@ -31,29 +31,8 @@
 //! - [`crypto`]: Cryptographic operations
 //!
 pub(crate) mod do_connect {
-    use citadel_crypt::ratchets::Ratchet;
-    use citadel_user::client_account::ClientNetworkAccount;
-
-    use crate::error::NetworkError;
-    use crate::proto::packet_crafter::do_connect::{
-        DoConnectFinalStatusPacket, DoConnectStage0Packet,
-    };
+    use crate::proto::packet_crafter::do_connect::DoConnectFinalStatusPacket;
     use citadel_user::serialization::SyncIO;
-
-    /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
-    pub(crate) async fn validate_stage0_packet<R: Ratchet>(
-        cnac: &ClientNetworkAccount<R, R>,
-        payload: &[u8],
-    ) -> Result<DoConnectStage0Packet, NetworkError> {
-        // Now, validate the username and password. The payload is already decrypted
-        let payload = DoConnectStage0Packet::deserialize_from_vector(payload)
-            .map_err(|err| NetworkError::generic(err.into_string()))?;
-        cnac.validate_credentials(payload.proposed_credentials.clone())
-            .await
-            .map_err(|err| NetworkError::generic(err.into_string()))?;
-        log::trace!(target: "citadel", "Success validating credentials!");
-        Ok(payload)
-    }
 
     pub(crate) fn validate_final_status_packet(
         payload: &[u8],

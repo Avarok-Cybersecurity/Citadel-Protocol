@@ -1136,4 +1136,42 @@ pub enum ErrorCode {
     /// A peer connection has no direct (P2P) path and will not get one (reason).
     #[form = "No direct P2P path: {}"]
     P2pDirectPathUnavailable = 341,
+
+    // --- citadel_user / citadel_proto: post-quantum sign-in ---
+    /// A sign-in proof did not verify. Deliberately says nothing about which part failed, or
+    /// whether the account exists.
+    #[form = "Authentication failed"]
+    PqSignInFailed = 342,
+    /// A sign-in message could not be parsed or was out of place (what).
+    #[form = "Malformed sign-in message: {}"]
+    PqSignInMalformed = 343,
+    /// Post-quantum sign-in cannot run here (reason).
+    #[form = "Post-quantum sign-in is unavailable: {}"]
+    PqSignInUnavailable = 344,
+    /// A legacy password login for an account that has moved to post-quantum sign-in.
+    #[form = "This account uses post-quantum sign-in; update your app"]
+    PqSignInLegacyRefused = 345,
+    /// A change to an account's factors would leave its sign-in policy unsatisfiable (reason).
+    #[form = "Sign-in policy refused the change: {}"]
+    PqSignInPolicy = 346,
+    /// A sign-in cryptographic operation failed (reason).
+    #[form = "Sign-in cryptography failed: {}"]
+    PqSignInCrypto = 347,
+    /// The account needs a factor the caller did not supply (which).
+    #[form = "This sign-in needs a factor that was not supplied: {}"]
+    PqSignInFactorMissing = 348,
+    /// A session signed in with a recovery code asked for something other than enrolling a key or
+    /// setting the policy.
+    #[form = "A recovery session may only enrol a security key or set the sign-in policy"]
+    PqSignInRestricted = 349,
+    /// The server requires an admission check (a Turnstile token) for a fresh sign-in or
+    /// registration, and none was sent.
+    #[form = "This workspace needs a verification check before you sign in"]
+    PqSignInAdmissionRequired = 350,
+    /// The server's admission check refused the token that was sent (reason).
+    #[form = "The verification check failed: {}"]
+    PqSignInAdmissionFailed = 351,
+    /// The server requires an admission check, and the client is too old to send one.
+    #[form = "This workspace needs a newer app to sign in; update your app"]
+    PqSignInAdmissionNeedsUpdate = 352,
 }
