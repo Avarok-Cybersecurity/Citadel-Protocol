@@ -831,16 +831,19 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     .map(|r| r.security_level)
                     .unwrap_or(SecurityLevel::Standard);
 
-                // This session was already removed from the map, so an entry for the cid is a
-                // newer incarnation: its groups are not this session's to release.
-                let replaced = sess_mgr.sessions.contains_key(&session_cid);
+                // Each step acts only while this session is still the cid's current one (see
+                // `CitadelNodePeerLayer::admit`): a newer one admitted meanwhile owns the cid's
+                // postings, watches and groups.
                 let group_notifier = session_manager.clone();
                 let time_tracker = sess.time_tracker;
+                let incarnation = sess.init_time;
                 let task = async move {
-                    peer_layer.on_session_shutdown(session_cid).await?;
-                    if !replaced {
-                        peer_layer.drop_group_watches(session_cid).await;
-                    }
+                    peer_layer
+                        .on_session_shutdown(session_cid, incarnation)
+                        .await?;
+                    peer_layer
+                        .drop_group_watches(session_cid, incarnation)
+                        .await;
                     for settled in peer_layer.commit_gate_session_ended(session_cid).await {
                         group_notifier.notify_commit_settled(
                             settled,
@@ -852,7 +855,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     let departure = peer_layer
                         .on_owner_departure(
                             session_cid,
-                            replaced,
+                            incarnation,
                             time_tracker.get_global_time_ns(),
                         )
                         .await;
@@ -873,6 +876,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                             )
                             .await;
                     }
+                    peer_layer.retire(session_cid, incarnation);
                     Ok::<_, NetworkError>(())
                 };
 
@@ -1322,8 +1326,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     pub fn upgrade_connection(&self, key: &ProvisionalKey, session_cid: u64) -> bool {
         let mut this = inner_mut!(self);
         if let Some((_, stopper, session)) = this.provisional_connections.remove(key) {
-            //let _ = this.hypernode_peer_layer.register_peer(session_cid, true);
             session.admitted.set(true);
+            this.hypernode_peer_layer
+                .admit(session_cid, session.init_time);
             if let Some(lingering_conn) = this.sessions.insert(session_cid, (stopper, session)) {
                 // sometimes (especially on cellular networks), when the network changes due to
                 // changing cell towers (or between WIFI/Cellular modes), the session lingers
