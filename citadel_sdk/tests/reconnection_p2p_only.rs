@@ -175,15 +175,6 @@ mod tests {
                         state.p2p_disconnect_received_count.load(Ordering::SeqCst)
                     );
 
-                    // Every report of that end names the connection that ended, whichever
-                    // path reported it (the peer's signal relayed by the server, the local
-                    // channel's drop, or the direct stream's end).
-                    let named = state.p2p_disconnect_connections.lock().unwrap().clone();
-                    assert!(
-                        named.iter().all(|id| *id == first_connection),
-                        "a disconnect named another connection than {first_connection:?}: {named:?}"
-                    );
-
                     // ===== PHASE 3: Reconnect P2P =====
                     state.set_phase(3);
                     barrier3.wait().await;
@@ -224,6 +215,24 @@ mod tests {
                     }
 
                     log::info!(target: "citadel", "[Peer A] Phase 4 complete");
+
+                    // Every report of the first connection's end names it, whichever path
+                    // reported it: the peer's signal relayed by the server (its channel's drop,
+                    // and its explicit disconnect), the local vConn's drop, or the direct
+                    // stream's end. Checked here, not when the first report arrives: the peer's
+                    // explicit disconnect is relayed on this session's C2S stream before the
+                    // reconnect's answers, so by now every report of that end has arrived. It
+                    // reached macOS and Windows runners before the first wait returned, and
+                    // Ubuntu's after, which is why only Ubuntu passed a check made there.
+                    let named = state.p2p_disconnect_connections.lock().unwrap().clone();
+                    assert!(
+                        named.len() >= 2,
+                        "both of the peer's disconnects are reported: {named:?}"
+                    );
+                    assert!(
+                        named.iter().all(|id| *id == first_connection),
+                        "a disconnect named another connection than {first_connection:?}: {named:?}"
+                    );
 
                     // ===== PHASE 5: Verification =====
                     state.set_phase(5);

@@ -2387,6 +2387,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             .map_err(|err| NetworkError::generic(err.to_string()));
                     }
 
+                    // A disconnect the application asked for (`PeerRemote::disconnect`) names no
+                    // connection: it ends the one this session has now, and says so, so the
+                    // peer can tell it from a connection that has since replaced it.
+                    let disconnect_token = disconnect_token.or_else(|| {
+                        let vconn = state_container.active_virtual_connections.get(&target)?;
+                        Some(DisconnectToken {
+                            cid: self.session_cid.get()?,
+                            connection_id: vconn.p2p_connection_id,
+                        })
+                    });
+
                     PeerSignal::Disconnect {
                         peer_conn_type: v_conn,
                         disconnect_response: resp,
