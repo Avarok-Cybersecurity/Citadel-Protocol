@@ -121,6 +121,8 @@ pub struct P2PInboundHandle<R: Ratchet> {
     pub kernel_tx: UnboundedSender<NodeResult<R>>,
     pub to_primary_stream: OutboundPrimaryStreamSender,
     pub peer_cid: u64,
+    /// The P2P connection this stream carries, named in the disconnect its end reports.
+    pub p2p_connection_id: Ticket,
 }
 
 impl<R: Ratchet> P2PInboundHandle<R> {
@@ -131,6 +133,7 @@ impl<R: Ratchet> P2PInboundHandle<R> {
         kernel_tx: UnboundedSender<NodeResult<R>>,
         to_primary_stream: OutboundPrimaryStreamSender,
         peer_cid: u64,
+        p2p_connection_id: Ticket,
     ) -> Self {
         Self {
             remote_peer,
@@ -139,6 +142,7 @@ impl<R: Ratchet> P2PInboundHandle<R> {
             kernel_tx,
             to_primary_stream,
             peer_cid,
+            p2p_connection_id,
         }
     }
 }
@@ -263,6 +267,11 @@ pub(crate) mod native_p2p {
         let session_cid_for_dc = session_cid.clone();
         let implcid = session_cid.get().unwrap_or(0);
         let kernel_tx_for_dc = kernel_tx.clone();
+        let cleanup_connection_id = inner_state!(session.state_container)
+            .active_virtual_connections
+            .get(&peer_cid)
+            .map(|vconn| vconn.p2p_connection_id)
+            .unwrap_or(Ticket(0));
         let p2p_handle = P2PInboundHandle::new(
             remote_peer,
             local_bind_addr.port(),
@@ -270,6 +279,7 @@ pub(crate) mod native_p2p {
             kernel_tx,
             p2p_primary_stream_tx.clone(),
             peer_cid,
+            cleanup_connection_id,
         );
         let writer_future = CitadelSession::<R, T>::outbound_stream(
             p2p_primary_stream_rx,
@@ -301,12 +311,6 @@ pub(crate) mod native_p2p {
                 Some(p2p_dc_tx),
             )
             .map_err(|err| generic_error(err.into_string()))?;
-
-        let cleanup_connection_id = state_container
-            .active_virtual_connections
-            .get(&peer_cid)
-            .map(|vconn| vconn.p2p_connection_id)
-            .unwrap_or(Ticket(0));
 
         if let Some(endpoint) = state_container
             .active_virtual_connections

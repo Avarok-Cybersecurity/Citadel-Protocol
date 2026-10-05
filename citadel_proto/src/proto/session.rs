@@ -1058,7 +1058,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             ref session_cid,
             ref kernel_tx,
             ref primary_stream,
-            peer_cid,
+            peer,
             is_server,
         ) = if let Some(p2p) = p2p_handle {
             (
@@ -1067,7 +1067,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 p2p.session_cid,
                 p2p.kernel_tx,
                 p2p.to_primary_stream,
-                Some(p2p.peer_cid),
+                Some((p2p.peer_cid, p2p.p2p_connection_id)),
                 false,
             )
         } else {
@@ -1182,7 +1182,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             session: &CitadelSession<R, T>,
             err: std::io::Error,
             is_server: bool,
-            peer_cid: Option<u64>,
+            peer: Option<(u64, Ticket)>,
         ) -> SessionShutdownReason {
             const _WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
             const _RST: i32 = 104;
@@ -1191,7 +1191,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             let error = err.raw_os_error().unwrap_or(-1);
             // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
             if error != -1 {
-                log::error!(target: "citadel", "primary port reader error {}: {err}. is server: {}. P2P: {}", error, is_server, peer_cid.is_some());
+                log::error!(target: "citadel", "primary port reader error {}: {err}. is server: {}. P2P: {}", error, is_server, peer.is_some());
             }
 
             let err_string = err.to_string();
@@ -1201,7 +1201,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             } else {
                 let session_cid = session.session_cid.get().unwrap_or_default();
 
-                if let Some(peer_cid) = peer_cid {
+                if let Some((peer_cid, p2p_connection_id)) = peer {
                     // P2P disconnect — gated by tracker to prevent double-sends.
                     // Both this error handler AND p2p_conn_handler's disconnect task
                     // can fire for the same P2P connection; the tracker ensures only
@@ -1220,9 +1220,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                 disconnect_response: Some(PeerResponse::Disconnected(
                                     err_string.clone(),
                                 )),
+                                // The connection whose stream ended, as every other report
+                                // of a P2P end names it: not the C2S session's ticket.
                                 disconnect_token: Some(DisconnectToken {
-                                    cid: peer_cid,
-                                    connection_id: session_ticket,
+                                    cid: session_cid,
+                                    connection_id: p2p_connection_id,
                                 }),
                             },
                             ticket: session_ticket,
@@ -1312,7 +1314,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 // takes the event-driven wait-for-clean-drop path. No sleep needed.)
                 evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid).await
             })
-            .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer_cid));
+            .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer));
         let res = citadel_io::tokio::select! {
             res = res => res,
             _ = stream_ended => {

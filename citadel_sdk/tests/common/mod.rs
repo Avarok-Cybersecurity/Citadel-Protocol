@@ -61,6 +61,8 @@ pub struct NodeState {
     pub p2p_disconnect_semaphore: Semaphore,
     /// The `disconnect_response` of each PeerSignal::Disconnect received, in order
     pub p2p_disconnect_responses: std::sync::Mutex<Vec<Option<PeerResponse>>>,
+    /// The connection each PeerSignal::Disconnect received names, in order
+    pub p2p_disconnect_connections: std::sync::Mutex<Vec<Option<Ticket>>>,
 }
 
 impl Default for NodeState {
@@ -78,6 +80,7 @@ impl Default for NodeState {
             cid_consistent: AtomicBool::new(true),
             p2p_disconnect_semaphore: Semaphore::new(0),
             p2p_disconnect_responses: std::sync::Mutex::new(Vec::new()),
+            p2p_disconnect_connections: std::sync::Mutex::new(Vec::new()),
         }
     }
 }
@@ -168,11 +171,16 @@ impl NodeState {
                 event:
                     PeerSignal::Disconnect {
                         disconnect_response,
+                        disconnect_token,
                         ..
                     },
                 ..
             }) => {
                 log::trace!("NodeState: P2P Disconnect received via PeerEvent");
+                self.p2p_disconnect_connections
+                    .lock()
+                    .unwrap()
+                    .push(disconnect_token.map(|token| token.connection_id));
                 self.p2p_disconnect_responses
                     .lock()
                     .unwrap()

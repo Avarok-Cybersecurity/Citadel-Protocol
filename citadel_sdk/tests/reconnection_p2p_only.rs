@@ -127,6 +127,11 @@ mod tests {
                     log::info!(target: "citadel", "[Peer A] P2P Connected");
 
                     let channel = p2p.channel;
+                    let first_connection = channel.connection_id();
+                    assert!(
+                        first_connection.is_some(),
+                        "a P2P channel names its connection"
+                    );
                     let (mut tx, mut rx) = channel.split();
 
                     // Rekey P2P
@@ -170,6 +175,15 @@ mod tests {
                         state.p2p_disconnect_received_count.load(Ordering::SeqCst)
                     );
 
+                    // Every report of that end names the connection that ended, whichever
+                    // path reported it (the peer's signal relayed by the server, the local
+                    // channel's drop, or the direct stream's end).
+                    let named = state.p2p_disconnect_connections.lock().unwrap().clone();
+                    assert!(
+                        named.iter().all(|id| *id == first_connection),
+                        "a disconnect named another connection than {first_connection:?}: {named:?}"
+                    );
+
                     // ===== PHASE 3: Reconnect P2P =====
                     state.set_phase(3);
                     barrier3.wait().await;
@@ -180,6 +194,12 @@ mod tests {
                     log::info!(target: "citadel", "[Peer A] P2P Reconnected");
 
                     let channel2 = p2p2.channel;
+                    assert!(channel2.connection_id().is_some());
+                    assert_ne!(
+                        channel2.connection_id(),
+                        first_connection,
+                        "the replacement is another connection"
+                    );
                     let (mut tx2, mut rx2) = channel2.split();
 
                     // Rekey P2P

@@ -1572,7 +1572,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
         PeerSignal::Disconnect {
             peer_conn_type,
             disconnect_response: resp,
-            ..
+            disconnect_token,
         } => {
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
@@ -1610,7 +1610,9 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                 peer_cid: target_cid,
                             },
                             disconnect_response: resp,
-                            disconnect_token: None,
+                            // The connection the sender ended, so the peer can tell it from
+                            // one that has since replaced it.
+                            disconnect_token,
                         };
 
                         // now, remove target CID's v_conn to `session_cid`
@@ -1640,7 +1642,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                         disconnect_response: Some(PeerResponse::Disconnected(
                             "Server has begun disconnection".to_string(),
                         )),
-                        disconnect_token: None,
+                        disconnect_token,
                     };
 
                     reply_to_sender(
