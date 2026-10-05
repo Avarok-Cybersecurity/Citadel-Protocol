@@ -847,6 +847,11 @@ pub enum PeerSignal {
     Disconnect {
         peer_conn_type: PeerConnectionType,
         disconnect_response: Option<PeerResponse>,
+        /// The connection that ended. Every connection that closes is reported with it (its
+        /// channel's, its vConn's or its stream's end, and a disconnect the application asked
+        /// for). `None` names no connection: the server's notice that the peer's whole session
+        /// ended, or a peer whose SDK predates the token. It must not be taken for the end of
+        /// a connection that has one; that connection's own end follows, named.
         #[serde(default)]
         disconnect_token: Option<DisconnectToken>,
     },
