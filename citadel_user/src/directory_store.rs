@@ -75,7 +75,7 @@
 //!
 
 use crate::backend::file_io::FileIO;
-use crate::misc::{format_path, AccountError};
+use crate::misc::{format_path_for, AccountError, PLATFORM_SEPARATOR};
 use std::path::PathBuf;
 
 /// Home directory
@@ -131,46 +131,47 @@ impl DirectoryStore {
             BasePath::FileTransferDir => &self.file_transfer_dir,
         };
 
-        PathBuf::from(append_to_path(base.clone(), file.as_ref()))
+        PathBuf::from(append_to_path(
+            base.clone(),
+            file.as_ref(),
+            PLATFORM_SEPARATOR,
+        ))
     }
 }
 
-#[allow(unused_results)]
-fn setup_directory(mut home_dir: String) -> Result<DirectoryStore, AccountError> {
-    let home = {
-        {
-            if !home_dir.ends_with('/') {
-                home_dir.push('/');
-            }
-        }
-        #[cfg(target_os = "windows")]
-        {
-            if !home_dir.ends_with("\\") {
-                home_dir.push('\\');
-            }
-        }
-
-        home_dir
-    };
-
-    let hyxe_server_dir = append_to_path(home.clone(), "server/");
-
-    let dirs = DirectoryStore {
-        home: home.clone(),
-        nac_dir_base: append_to_path(home.clone(), "accounts/"),
-        nac_dir_impersonal: append_to_path(home.clone(), "accounts/impersonal/"),
-        nac_dir_personal: append_to_path(home.clone(), "accounts/personal/"),
-        server_dir: hyxe_server_dir,
-        config_dir: append_to_path(home.clone(), "config/"),
-        virtual_dir: append_to_path(home.clone(), "virtual/"),
-        file_transfer_dir: append_to_path(home, "transfers/"),
-    };
-
-    Ok(dirs)
+fn setup_directory(home_dir: String) -> Result<DirectoryStore, AccountError> {
+    Ok(setup_directory_for(home_dir, PLATFORM_SEPARATOR))
 }
 
-fn append_to_path(base: String, addition: &str) -> String {
-    format_path(base + addition)
+/// The directory layout under `home_dir` for a filesystem whose separator is
+/// `separator`. Pure, so the Windows layout is testable on any host.
+///
+/// The home gets exactly one trailing separator. It used to push `/` on every
+/// platform and then, on Windows, a backslash after it, so `C:\Users\A\.citadel`
+/// became `C:\Users\A\.citadel/\` and every directory under it (after
+/// `format_path`) carried a doubled backslash -- including the saved-file path
+/// the agent reports for a received transfer.
+fn setup_directory_for(home_dir: String, separator: char) -> DirectoryStore {
+    let mut home = format_path_for(home_dir, separator);
+    if !home.ends_with(separator) {
+        home.push(separator);
+    }
+    let append = |addition: &str| append_to_path(home.clone(), addition, separator);
+
+    DirectoryStore {
+        home: home.clone(),
+        nac_dir_base: append("accounts/"),
+        nac_dir_impersonal: append("accounts/impersonal/"),
+        nac_dir_personal: append("accounts/personal/"),
+        server_dir: append("server/"),
+        config_dir: append("config/"),
+        virtual_dir: append("virtual/"),
+        file_transfer_dir: append("transfers/"),
+    }
+}
+
+fn append_to_path(base: String, addition: &str, separator: char) -> String {
+    format_path_for(base + addition, separator)
 }
 
 /// Sets up local directories that are pre-requisite to launching either client or server application.
@@ -200,3 +201,6 @@ pub async fn setup_directories(
 
     Ok(store)
 }
+
+#[cfg(test)]
+mod tests;
