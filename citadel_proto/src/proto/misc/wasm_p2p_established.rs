@@ -40,7 +40,7 @@ pub(super) fn on_datachannel_established<
     };
     let session_cid_val = session.session_cid.get().unwrap_or(0);
 
-    {
+    let p2p_connection_id = {
         let mut state = inner_mut_state!(session.state_container);
         state.insert_direct_p2p_connection(direct_p2p_remote, peer_cid, session_cid_val, None)?;
         if let Some(endpoint) = state
@@ -52,7 +52,12 @@ pub(super) fn on_datachannel_established<
                 .p2p_path
                 .set(crate::proto::peer::p2p_path::P2pRoute::Direct);
         }
-    }
+        state
+            .active_virtual_connections
+            .get(&peer_cid)
+            .map(|vconn| vconn.p2p_connection_id)
+            .unwrap_or(crate::proto::remote::Ticket(0))
+    };
 
     let header_obfuscator = crate::proto::packet::HeaderObfuscator::new(
         !is_initiator,
@@ -65,6 +70,7 @@ pub(super) fn on_datachannel_established<
         session.kernel_tx.clone(),
         p2p_tx,
         peer_cid,
+        p2p_connection_id,
     );
     let writer = crate::proto::session::CitadelSession::<R, T>::outbound_stream(
         p2p_rx,

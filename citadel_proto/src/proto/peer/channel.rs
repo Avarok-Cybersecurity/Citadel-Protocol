@@ -114,6 +114,7 @@ impl<R: Ratchet> PeerChannel<R> {
             vconn_type,
             session_cid,
             channel_id,
+            connection_id: disconnect_token.map(|token| token.connection_id),
             security_level,
         };
 
@@ -201,6 +202,14 @@ impl<R: Ratchet> PeerChannel<R> {
         self.path.clone()
     }
 
+    /// The P2P connection this channel is: the id every report of its end names
+    /// (`DisconnectToken::connection_id`, the same on both peers). A connection that replaced
+    /// it under the same peer CID has another, so a late report of this one's end can be told
+    /// apart. `None` for a C2S channel, whose session is named by `channel_id`.
+    pub fn connection_id(&self) -> Option<Ticket> {
+        self.send_half.connection_id
+    }
+
     /// Gets the CID of the endpoint
     pub fn get_peer_cid(&self) -> u64 {
         self.send_half.target_cid
@@ -231,6 +240,7 @@ pub struct PeerChannelSendHalf<R: Ratchet> {
     session_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
+    connection_id: Option<Ticket>,
     security_level: SecurityLevel,
 }
 
@@ -302,6 +312,11 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
     /// used to identify this channel in the network
     pub fn channel_id(&self) -> Ticket {
         self.channel_id
+    }
+
+    /// See [`PeerChannel::connection_id`].
+    pub fn connection_id(&self) -> Option<Ticket> {
+        self.connection_id
     }
 }
 
