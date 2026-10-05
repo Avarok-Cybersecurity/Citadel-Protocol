@@ -9,6 +9,7 @@
 //! the group before it takes the watches, so a watch is either answered at registration or
 //! taken at creation; it cannot fall between the two.
 
+use crate::proto::packet_processor::includes::Instant;
 use crate::proto::peer::peer_layer::CitadelNodePeerLayer;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
@@ -66,15 +67,19 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     }
 
     /// Forgets `watcher`'s watches when its session ends; nobody is left to answer.
-    pub async fn drop_group_watches(&self, watcher: u64) {
-        let _ = self.inner.write().await.group_watches.remove(&watcher);
+    /// Only while `incarnation` is still `watcher`'s session: a replaced one's watches were
+    /// handed to nobody else, but the replacement's are its own.
+    pub async fn drop_group_watches(&self, watcher: u64, incarnation: Instant) {
+        let mut this = self.inner.write().await;
+        if this.is_current_session(watcher, incarnation) {
+            let _ = this.group_watches.remove(&watcher);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proto::packet_processor::includes::Instant;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_io::tokio;
     use citadel_types::proto::MessageGroupOptions;
@@ -82,6 +87,8 @@ mod tests {
     use citadel_user::backend::BackendType;
 
     const OWNER: u64 = 10;
+    /// The owner's session.
+    static SESSION: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
     const JOINER: u64 = 20;
     const MGID: u128 = 7;
 
@@ -102,7 +109,8 @@ mod tests {
         .await
         .unwrap();
         let layer = CitadelNodePeerLayer::new(acc.get_persistence_handler().clone());
-        let _ = layer.register_peer(OWNER, Instant::now()).await.unwrap();
+        layer.admit(OWNER, *SESSION);
+        let _ = layer.register_peer(OWNER).await.unwrap();
         layer
     }
 
@@ -163,8 +171,9 @@ mod tests {
     #[citadel_io::tokio::test]
     async fn a_departed_watcher_is_not_answered() {
         let layer = layer().await;
+        layer.admit(JOINER, *SESSION);
         let _ = layer.watch_group(JOINER, Ticket(1), key()).await;
-        layer.drop_group_watches(JOINER).await;
+        layer.drop_group_watches(JOINER, *SESSION).await;
         create(&layer).await;
         assert!(layer.take_group_watchers(key()).await.is_empty());
     }

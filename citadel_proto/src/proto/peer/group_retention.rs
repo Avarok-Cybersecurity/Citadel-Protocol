@@ -13,6 +13,7 @@
 //! and silently turning a group whose members may read only their subordinates into one where
 //! everyone reads everything would be a confidentiality downgrade nobody agreed to.
 
+use crate::proto::packet_processor::includes::Instant;
 use crate::proto::peer::group_persistence::store_hold;
 use crate::proto::peer::peer_layer::CitadelNodePeerLayer;
 use citadel_crypt::ratchets::Ratchet;
@@ -38,20 +39,21 @@ pub struct OwnerDeparture {
 }
 
 impl<R: Ratchet> CitadelNodePeerLayer<R> {
-    /// Called when `owner`'s session ends. `replaced` is true when a newer session already holds
-    /// this cid (a lingering session being cleaned up after its replacement connected): the
-    /// groups belong to the live session, so nothing is touched. `now_ns` (ns since the Unix
-    /// epoch) is recorded as the start of the hold, so a server restart keeps only what is left.
+    /// Called when `owner`'s session `incarnation` ends. When a newer session has been admitted
+    /// for this cid (a lingering session cleaned up after its replacement connected), the groups
+    /// belong to the live session, so nothing is touched; it is decided under the lock, as it
+    /// acts, so a replacement admitted before then is seen. `now_ns` (ns since the Unix epoch) is
+    /// recorded as the start of the hold, so a server restart keeps only what is left.
     pub async fn on_owner_departure(
         &self,
         owner: u64,
-        replaced: bool,
+        incarnation: Instant,
         now_ns: i64,
     ) -> OwnerDeparture {
-        if replaced {
+        let mut this = self.inner.write().await;
+        if !this.is_current_session(owner, incarnation) {
             return OwnerDeparture::default();
         }
-        let mut this = self.inner.write().await;
         let Some(groups) = this.message_groups.get_mut(&owner) else {
             return OwnerDeparture::default();
         };
@@ -128,7 +130,6 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proto::packet_processor::includes::Instant;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_io::tokio;
     use citadel_types::proto::{MessageGroupOptions, ReadPolicy};
@@ -136,6 +137,8 @@ mod tests {
     use citadel_user::backend::BackendType;
 
     const OWNER: u64 = 10;
+    /// The owner's session.
+    static SESSION: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
     const MEMBER: u64 = 20;
 
     async fn layer_with_groups(
@@ -150,7 +153,8 @@ mod tests {
         .await
         .unwrap();
         let layer = CitadelNodePeerLayer::new(acc.get_persistence_handler().clone());
-        let _ = layer.register_peer(OWNER, Instant::now()).await.unwrap();
+        layer.admit(OWNER, *SESSION);
+        let _ = layer.register_peer(OWNER).await.unwrap();
         let mut keys = Vec::new();
         for opts in options {
             let key = layer
@@ -180,13 +184,14 @@ mod tests {
     #[tokio::test]
     async fn a_departed_owners_flat_group_is_held_and_survives_a_reconnect() {
         let (layer, keys) = layer_with_groups(&[flat()]).await;
-        let departure = layer.on_owner_departure(OWNER, false, 0).await;
+        let departure = layer.on_owner_departure(OWNER, *SESSION, 0).await;
         assert!(departure.dissolved.is_empty());
         let token = departure.held.expect("a flat group is held");
         assert!(layer.message_group_exists(keys[0]).await);
 
         // The owner reconnects inside the grace period: the expiry finds nothing to do.
-        let _ = layer.register_peer(OWNER, Instant::now()).await.unwrap();
+        layer.admit(OWNER, *SESSION);
+        let _ = layer.register_peer(OWNER).await.unwrap();
         assert!(layer.expire_ownerless_groups(OWNER, token).await.is_empty());
         assert!(layer.message_group_exists(keys[0]).await);
     }
@@ -195,7 +200,7 @@ mod tests {
     async fn an_owner_who_never_returns_loses_the_group_and_members_are_named() {
         let (layer, keys) = layer_with_groups(&[flat()]).await;
         let token = layer
-            .on_owner_departure(OWNER, false, 0)
+            .on_owner_departure(OWNER, *SESSION, 0)
             .await
             .held
             .unwrap();
@@ -208,13 +213,14 @@ mod tests {
     async fn an_earlier_departures_timer_cannot_expire_a_later_one() {
         let (layer, keys) = layer_with_groups(&[flat()]).await;
         let first = layer
-            .on_owner_departure(OWNER, false, 0)
+            .on_owner_departure(OWNER, *SESSION, 0)
             .await
             .held
             .unwrap();
-        let _ = layer.register_peer(OWNER, Instant::now()).await.unwrap();
+        layer.admit(OWNER, *SESSION);
+        let _ = layer.register_peer(OWNER).await.unwrap();
         let second = layer
-            .on_owner_departure(OWNER, false, 0)
+            .on_owner_departure(OWNER, *SESSION, 0)
             .await
             .held
             .unwrap();
@@ -226,7 +232,7 @@ mod tests {
     #[tokio::test]
     async fn a_hierarchy_group_is_dissolved_at_departure_not_held() {
         let (layer, keys) = layer_with_groups(&[hierarchical(), flat()]).await;
-        let departure = layer.on_owner_departure(OWNER, false, 0).await;
+        let departure = layer.on_owner_departure(OWNER, *SESSION, 0).await;
         assert_eq!(departure.dissolved, vec![(keys[0], vec![MEMBER])]);
         assert!(departure.held.is_some(), "the flat group is still held");
         assert!(!layer.message_group_exists(keys[0]).await);
@@ -236,8 +242,9 @@ mod tests {
     #[tokio::test]
     async fn a_lingering_sessions_shutdown_leaves_the_replacements_groups_alone() {
         let (layer, keys) = layer_with_groups(&[hierarchical()]).await;
+        layer.admit(OWNER, *SESSION + Duration::from_millis(1));
         assert_eq!(
-            layer.on_owner_departure(OWNER, true, 0).await,
+            layer.on_owner_departure(OWNER, *SESSION, 0).await,
             OwnerDeparture::default()
         );
         assert!(layer.message_group_exists(keys[0]).await);

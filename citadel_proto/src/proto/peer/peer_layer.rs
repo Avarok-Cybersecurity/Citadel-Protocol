@@ -81,10 +81,6 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     /// Waits for members to apply each group's latest Commit (see `group_commit_gate`).
     pub(crate) commit_gates: crate::proto::peer::group_commit_gate::CommitGates,
     pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
-    /// The session (by its `init_time`) each cid's postings and mailbox were last registered
-    /// for. A CID is permanent, so a session that replaces another registers the same cid; the
-    /// replaced one's shutdown runs on its own task and can land after that registration.
-    pub(crate) registered: HashMap<u64, Instant>,
     waker: Arc<AtomicWaker>,
     inner: Arc<citadel_io::RwLock<SharedInner>>,
 }
@@ -92,12 +88,17 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
 #[derive(Default)]
 struct SharedInner {
     observed_postings: HashMap<u64, HashMap<Ticket, TrackedPosting>>,
+    /// Each cid's current session, by its `init_time`, recorded as it is admitted. A CID is
+    /// permanent, so a session that replaces another is admitted under the same cid while the
+    /// replaced one's shutdown is still to run on its own task; that shutdown acts on the cid's
+    /// state only while its session is still the current one.
+    admitted: HashMap<u64, Instant>,
     delay_queue: DelayQueue<(u64, Ticket)>,
 }
 
-/// Whether the session `incarnation` names is the one `cid` is registered for.
-fn owns_registration(registered: &HashMap<u64, Instant>, cid: u64, incarnation: Instant) -> bool {
-    registered.get(&cid) == Some(&incarnation)
+/// Whether the session `incarnation` names is `cid`'s current one.
+fn is_current(admitted: &HashMap<u64, Instant>, cid: u64, incarnation: Instant) -> bool {
+    admitted.get(&cid) == Some(&incarnation)
 }
 
 // message group byte map key layout:
@@ -109,6 +110,9 @@ const MAILBOX: &str = "mailbox";
 pub struct CitadelNodePeerLayer<R: Ratchet> {
     pub(crate) inner: std::sync::Arc<citadel_io::tokio::sync::RwLock<CitadelNodePeerLayerInner<R>>>,
     waker: std::sync::Arc<AtomicWaker>,
+    /// The same state as `inner.inner`, reachable without the async lock, so a session is
+    /// admitted here synchronously with the session manager's map.
+    shared: Arc<citadel_io::RwLock<SharedInner>>,
 }
 
 pub struct CitadelNodePeerLayerExecutor {
@@ -122,6 +126,13 @@ pub struct TrackedPosting {
     pub(crate) signal: PeerSignal,
     pub(crate) key: delay_queue::Key,
     pub(crate) on_timeout: Box<dyn PeerLayerTimeoutFunction>,
+}
+
+impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
+    /// Whether `incarnation` is `cid`'s current session (see `SharedInner::admitted`).
+    pub(crate) fn is_current_session(&self, cid: u64, incarnation: Instant) -> bool {
+        is_current(&self.inner.read().admitted, cid, incarnation)
+    }
 }
 
 impl TrackedPosting {
@@ -142,11 +153,11 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     #[allow(clippy::arc_with_non_send_sync)]
     pub fn new(persistence_handler: PersistenceHandler<R, R>) -> CitadelNodePeerLayer<R> {
         let waker = Arc::new(AtomicWaker::new());
+        let shared = Arc::new(citadel_io::RwLock::new(SharedInner::default()));
         let inner = CitadelNodePeerLayerInner {
             waker: waker.clone(),
-            inner: Arc::new(citadel_io::RwLock::new(Default::default())),
+            inner: shared.clone(),
             simultaneous_ticket_mappings: Default::default(),
-            registered: HashMap::new(),
             persistence_handler,
             message_groups: HashMap::new(),
             ownerless_groups: HashMap::new(),
@@ -156,7 +167,26 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         };
         let inner = Arc::new(citadel_io::tokio::sync::RwLock::new(inner));
 
-        Self { inner, waker }
+        Self {
+            inner,
+            waker,
+            shared,
+        }
+    }
+
+    /// `incarnation` (a session's `init_time`) is now `cid`'s session. Called as the session is
+    /// admitted, under the session manager's lock, with its insert into the session map.
+    pub fn admit(&self, cid: u64, incarnation: Instant) {
+        let _ = self.shared.write().admitted.insert(cid, incarnation);
+    }
+
+    /// The end of `incarnation`'s shutdown: `cid` has no current session, unless a newer one
+    /// was admitted meanwhile.
+    pub fn retire(&self, cid: u64, incarnation: Instant) {
+        let mut shared = self.shared.write();
+        if is_current(&shared.admitted, cid, incarnation) {
+            let _ = shared.admitted.remove(&cid);
+        }
     }
 
     pub async fn create_executor(&self) -> CitadelNodePeerLayerExecutor {
@@ -167,16 +197,10 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     }
 
     #[allow(unused_results)]
-    /// This should be called during the DO_CONNECT phase, by the session `incarnation` (its
-    /// `init_time`) names.
-    pub async fn register_peer(
-        &self,
-        cid: u64,
-        incarnation: Instant,
-    ) -> Result<Option<MailboxTransfer>, NetworkError> {
+    /// This should be called during the DO_CONNECT phase
+    pub async fn register_peer(&self, cid: u64) -> Result<Option<MailboxTransfer>, NetworkError> {
         let pers = {
             let mut this_orig = self.inner.write().await;
-            this_orig.registered.insert(cid, incarnation);
 
             this_orig.message_groups.entry(cid).or_insert_with(|| {
                 log::trace!(target: "citadel", "Adding message group hashmap for {cid}");
@@ -218,23 +242,25 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     /// outlive the session for a grace period (see `group_retention::on_owner_departure`).
     #[allow(unused_results)]
     ///
-    /// Only the session they are registered for releases them: one that a newer session for the
-    /// same cid replaced would otherwise take that session's postings with it, and every
-    /// PostConnect it then made failed ("Unable to find session_cid in observed_posting", and
-    /// the peer's accept: "Tracked posting ... does not exist").
+    /// Only the cid's current session releases them: one that a newer session replaced would
+    /// otherwise take that session's postings with it, and every PostConnect it then made failed
+    /// ("Unable to find session_cid in observed_posting", and the peer's accept: "Tracked posting
+    /// ... does not exist").
     pub async fn on_session_shutdown(
         &self,
         session_cid: u64,
         incarnation: Instant,
     ) -> Result<(), NetworkError> {
         let pers = {
-            let mut this = self.inner.write().await;
-            if !owns_registration(&this.registered, session_cid, incarnation) {
-                log::trace!(target: "citadel", "Session {session_cid} ended after a newer one registered; its peer-layer state stays");
-                return Ok(());
+            let this = self.inner.write().await;
+            {
+                let mut shared = this.inner.write();
+                if !is_current(&shared.admitted, session_cid, incarnation) {
+                    log::trace!(target: "citadel", "Session {session_cid} ended after a newer one was admitted; its peer-layer state stays");
+                    return Ok(());
+                }
+                shared.observed_postings.remove(&session_cid);
             }
-            this.registered.remove(&session_cid);
-            this.inner.write().observed_postings.remove(&session_cid);
             this.persistence_handler.clone()
         };
 

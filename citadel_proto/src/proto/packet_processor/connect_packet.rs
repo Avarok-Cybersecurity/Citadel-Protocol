@@ -246,7 +246,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 let (mailbox_items, peers, post_login_object) = if full {
                                     let mailbox_items = session
                                         .session_manager
-                                        .register_session_with_peer_layer(cid, session.init_time)
+                                        .register_session_with_peer_layer(cid)
                                         .await?;
                                     let peers = account_manager
                                         .get_persistence_handler()
