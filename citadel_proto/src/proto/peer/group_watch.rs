@@ -74,6 +74,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::proto::packet_processor::includes::Instant;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_io::tokio;
     use citadel_types::proto::MessageGroupOptions;
@@ -101,7 +102,7 @@ mod tests {
         .await
         .unwrap();
         let layer = CitadelNodePeerLayer::new(acc.get_persistence_handler().clone());
-        let _ = layer.register_peer(OWNER).await.unwrap();
+        let _ = layer.register_peer(OWNER, Instant::now()).await.unwrap();
         layer
     }
 

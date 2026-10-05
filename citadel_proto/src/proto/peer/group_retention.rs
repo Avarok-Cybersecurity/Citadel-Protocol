@@ -128,6 +128,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::proto::packet_processor::includes::Instant;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_io::tokio;
     use citadel_types::proto::{MessageGroupOptions, ReadPolicy};
@@ -149,7 +150,7 @@ mod tests {
         .await
         .unwrap();
         let layer = CitadelNodePeerLayer::new(acc.get_persistence_handler().clone());
-        let _ = layer.register_peer(OWNER).await.unwrap();
+        let _ = layer.register_peer(OWNER, Instant::now()).await.unwrap();
         let mut keys = Vec::new();
         for opts in options {
             let key = layer
@@ -185,7 +186,7 @@ mod tests {
         assert!(layer.message_group_exists(keys[0]).await);
 
         // The owner reconnects inside the grace period: the expiry finds nothing to do.
-        let _ = layer.register_peer(OWNER).await.unwrap();
+        let _ = layer.register_peer(OWNER, Instant::now()).await.unwrap();
         assert!(layer.expire_ownerless_groups(OWNER, token).await.is_empty());
         assert!(layer.message_group_exists(keys[0]).await);
     }
@@ -211,7 +212,7 @@ mod tests {
             .await
             .held
             .unwrap();
-        let _ = layer.register_peer(OWNER).await.unwrap();
+        let _ = layer.register_peer(OWNER, Instant::now()).await.unwrap();
         let second = layer
             .on_owner_departure(OWNER, false, 0)
             .await

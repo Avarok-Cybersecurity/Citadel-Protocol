@@ -836,8 +836,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let replaced = sess_mgr.sessions.contains_key(&session_cid);
                 let group_notifier = session_manager.clone();
                 let time_tracker = sess.time_tracker;
+                let incarnation = sess.init_time;
                 let task = async move {
-                    peer_layer.on_session_shutdown(session_cid).await?;
+                    peer_layer
+                        .on_session_shutdown(session_cid, incarnation)
+                        .await?;
                     if !replaced {
                         peer_layer.drop_group_watches(session_cid).await;
                     }
@@ -1749,10 +1752,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     pub async fn register_session_with_peer_layer(
         &self,
         session_cid: u64,
+        incarnation: Instant,
     ) -> Result<Option<MailboxTransfer>, NetworkError> {
         let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
 
-        peer_layer.register_peer(session_cid).await
+        peer_layer.register_peer(session_cid, incarnation).await
     }
 
     /// Removes a virtual connection `session_cid` from `peer_cid`

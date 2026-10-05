@@ -33,6 +33,7 @@ This module implements the core peer-to-peer networking layer for the Citadel Pr
 use crate::error::NetworkError;
 use crate::macros::SyncContextRequirements;
 use crate::proto::disconnect_tracker::DisconnectToken;
+use crate::proto::packet_processor::includes::Instant;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::peer::group_persistence;
 use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
@@ -80,6 +81,10 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     /// Waits for members to apply each group's latest Commit (see `group_commit_gate`).
     pub(crate) commit_gates: crate::proto::peer::group_commit_gate::CommitGates,
     pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
+    /// The session (by its `init_time`) each cid's postings and mailbox were last registered
+    /// for. A CID is permanent, so a session that replaces another registers the same cid; the
+    /// replaced one's shutdown runs on its own task and can land after that registration.
+    pub(crate) registered: HashMap<u64, Instant>,
     waker: Arc<AtomicWaker>,
     inner: Arc<citadel_io::RwLock<SharedInner>>,
 }
@@ -88,6 +93,11 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
 struct SharedInner {
     observed_postings: HashMap<u64, HashMap<Ticket, TrackedPosting>>,
     delay_queue: DelayQueue<(u64, Ticket)>,
+}
+
+/// Whether the session `incarnation` names is the one `cid` is registered for.
+fn owns_registration(registered: &HashMap<u64, Instant>, cid: u64, incarnation: Instant) -> bool {
+    registered.get(&cid) == Some(&incarnation)
 }
 
 // message group byte map key layout:
@@ -136,6 +146,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             waker: waker.clone(),
             inner: Arc::new(citadel_io::RwLock::new(Default::default())),
             simultaneous_ticket_mappings: Default::default(),
+            registered: HashMap::new(),
             persistence_handler,
             message_groups: HashMap::new(),
             ownerless_groups: HashMap::new(),
@@ -156,10 +167,16 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     }
 
     #[allow(unused_results)]
-    /// This should be called during the DO_CONNECT phase
-    pub async fn register_peer(&self, cid: u64) -> Result<Option<MailboxTransfer>, NetworkError> {
+    /// This should be called during the DO_CONNECT phase, by the session `incarnation` (its
+    /// `init_time`) names.
+    pub async fn register_peer(
+        &self,
+        cid: u64,
+        incarnation: Instant,
+    ) -> Result<Option<MailboxTransfer>, NetworkError> {
         let pers = {
             let mut this_orig = self.inner.write().await;
+            this_orig.registered.insert(cid, incarnation);
 
             this_orig.message_groups.entry(cid).or_insert_with(|| {
                 log::trace!(target: "citadel", "Adding message group hashmap for {cid}");
@@ -200,9 +217,23 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     /// Cleans up the internal entries. The cid's owned message groups are NOT removed here: they
     /// outlive the session for a grace period (see `group_retention::on_owner_departure`).
     #[allow(unused_results)]
-    pub async fn on_session_shutdown(&self, session_cid: u64) -> Result<(), NetworkError> {
+    ///
+    /// Only the session they are registered for releases them: one that a newer session for the
+    /// same cid replaced would otherwise take that session's postings with it, and every
+    /// PostConnect it then made failed ("Unable to find session_cid in observed_posting", and
+    /// the peer's accept: "Tracked posting ... does not exist").
+    pub async fn on_session_shutdown(
+        &self,
+        session_cid: u64,
+        incarnation: Instant,
+    ) -> Result<(), NetworkError> {
         let pers = {
-            let this = self.inner.write().await;
+            let mut this = self.inner.write().await;
+            if !owns_registration(&this.registered, session_cid, incarnation) {
+                log::trace!(target: "citadel", "Session {session_cid} ended after a newer one registered; its peer-layer state stays");
+                return Ok(());
+            }
+            this.registered.remove(&session_cid);
             this.inner.write().observed_postings.remove(&session_cid);
             this.persistence_handler.clone()
         };
@@ -1105,3 +1136,7 @@ mod tests {
         assert_eq!(inner.check_simultaneous_connect(a, b), None);
     }
 }
+
+#[cfg(test)]
+#[path = "peer_layer_incarnation_tests.rs"]
+mod incarnation_tests;
