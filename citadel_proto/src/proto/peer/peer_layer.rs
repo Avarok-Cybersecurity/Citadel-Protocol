@@ -133,6 +133,11 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
     pub(crate) fn is_current_session(&self, cid: u64, incarnation: Instant) -> bool {
         is_current(&self.inner.read().admitted, cid, incarnation)
     }
+
+    /// `cid`'s current session, if one is admitted.
+    pub(crate) fn current_session(&self, cid: u64) -> Option<Instant> {
+        self.inner.read().admitted.get(&cid).copied()
+    }
 }
 
 impl TrackedPosting {

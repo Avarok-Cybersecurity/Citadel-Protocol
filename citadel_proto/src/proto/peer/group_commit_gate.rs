@@ -13,8 +13,13 @@
 //!   group state, so it seals nothing until it has rejoined at the current epoch. An older member
 //!   cannot acknowledge and is not waited on either; it can still lose a joiner a message, which
 //!   the joiner's application then sees as `MessageDropped`.
-//! - A member leaves the wait when it acknowledges the Commit (`CommitApplied`), when its
-//!   session ends, or when it is removed from the group. It acknowledges once it has processed
+//! - A member leaves the wait when it acknowledges the Commit (`CommitApplied`), when the
+//!   session the Commit was delivered to ends, or when it is removed from the group. A session
+//!   that replaced that one (a reconnect under the same cid) is not waited on: like a returning
+//!   offline member it holds no group state from before and rejoins at the current epoch, and
+//!   it never received this Commit to acknowledge. So the replaced session's end, whenever it
+//!   lands, settles what it was waited on for, and never touches a wait the replacement is in.
+//!   Sessions are named by their `init_time` (the peer layer's admission record). It acknowledges once it has processed
 //!   the Commit, whether or not the Commit applied to it (a joiner awaiting its own Welcome holds
 //!   nothing to seal with); a member whose processing fails ends its session.
 //! - The wait settles when no member is left in it, at once if there was none. A later Commit
@@ -25,8 +30,13 @@
 //!
 //! The state here is I/O-free; `group_commit_relay` sends what it decides.
 
+use crate::proto::packet_processor::includes::Instant;
 use citadel_types::proto::MessageGroupKey;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+/// The session (its `init_time`) a party to a wait is, when one is admitted under its cid.
+/// `None` is ended by any end of that cid.
+pub type Session = Option<Instant>;
 
 /// The owner's Commit for `epoch` in `key` has settled: tell the owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +49,14 @@ pub struct Settled {
 
 struct Gate {
     epoch: u64,
-    awaiting: HashSet<u64>,
+    /// The owner's session that made the Commit.
+    owner: Session,
+    /// Each member waited on, and the session the Commit was delivered to.
+    awaiting: HashMap<u64, Session>,
+}
+
+fn same_session(party: Session, ended: Instant) -> bool {
+    party.is_none_or(|party| party == ended)
 }
 
 /// One wait per group, for the owner's latest Commit.
@@ -55,9 +72,17 @@ impl CommitGates {
         &mut self,
         key: MessageGroupKey,
         epoch: u64,
-        awaiting: HashSet<u64>,
+        owner: Session,
+        awaiting: HashMap<u64, Session>,
     ) -> Option<Settled> {
-        let _ = self.gates.insert(key, Gate { epoch, awaiting });
+        let _ = self.gates.insert(
+            key,
+            Gate {
+                epoch,
+                owner,
+                awaiting,
+            },
+        );
         self.settle_if_done(key)
     }
 
@@ -81,14 +106,22 @@ impl CommitGates {
         self.remove_from(key, None, members)
     }
 
-    /// `cid`'s session ended: it leaves every wait, and the waits of the groups it owns end
-    /// unsettled, since there is no owner to tell.
-    pub fn session_ended(&mut self, cid: u64) -> Vec<Settled> {
-        self.gates.retain(|key, _| key.cid != cid);
+    /// `cid`'s session `ended` ended: it leaves every wait it was waited on in, and the waits
+    /// for Commits it made end unsettled, since there is no owner to tell. A wait for another
+    /// session under the same cid is untouched.
+    pub fn session_ended(&mut self, cid: u64, ended: Instant) -> Vec<Settled> {
+        self.gates
+            .retain(|key, gate| key.cid != cid || !same_session(gate.owner, ended));
         let keys: Vec<MessageGroupKey> = self
             .gates
             .iter_mut()
-            .filter_map(|(key, gate)| gate.awaiting.remove(&cid).then_some(*key))
+            .filter_map(|(key, gate)| {
+                let waited = gate
+                    .awaiting
+                    .get(&cid)
+                    .is_some_and(|session| same_session(*session, ended));
+                (waited && gate.awaiting.remove(&cid).is_some()).then_some(*key)
+            })
             .collect();
         keys.into_iter()
             .filter_map(|key| self.settle_if_done(key))
@@ -111,7 +144,7 @@ impl CommitGates {
             return None;
         }
         let before = gate.awaiting.len();
-        gate.awaiting.retain(|cid| !members.contains(cid));
+        gate.awaiting.retain(|cid, _| !members.contains(cid));
         if gate.awaiting.len() == before {
             return None;
         }
@@ -133,17 +166,18 @@ impl CommitGates {
 mod tests {
     use super::*;
 
-    const KEY: MessageGroupKey = MessageGroupKey { cid: 1, mgid: 7 };
+    pub(super) const KEY: MessageGroupKey = MessageGroupKey { cid: 1, mgid: 7 };
 
-    fn set(cids: &[u64]) -> HashSet<u64> {
-        cids.iter().copied().collect()
+    /// Members waited on with no session recorded (ended by any end of their cid).
+    pub(super) fn set(cids: &[u64]) -> HashMap<u64, Session> {
+        cids.iter().map(|cid| (*cid, None)).collect()
     }
 
     #[test]
     fn a_commit_nobody_must_apply_settles_at_once() {
         let mut gates = CommitGates::default();
         assert_eq!(
-            gates.open(KEY, 3, set(&[])),
+            gates.open(KEY, 3, None, set(&[])),
             Some(Settled { key: KEY, epoch: 3 })
         );
     }
@@ -151,7 +185,7 @@ mod tests {
     #[test]
     fn a_commit_settles_once_every_member_applied_it() {
         let mut gates = CommitGates::default();
-        assert_eq!(gates.open(KEY, 3, set(&[2, 3])), None);
+        assert_eq!(gates.open(KEY, 3, None, set(&[2, 3])), None);
         assert_eq!(
             gates.applied(KEY, 3, 2),
             None,
@@ -176,7 +210,7 @@ mod tests {
     #[test]
     fn an_ack_for_another_epoch_or_member_settles_nothing() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, set(&[2]));
+        let _ = gates.open(KEY, 3, None, set(&[2]));
         assert_eq!(gates.applied(KEY, 2, 2), None);
         assert_eq!(gates.applied(KEY, 3, 9), None);
         assert_eq!(gates.undelivered(KEY, 4, &[2]), None);
@@ -189,8 +223,8 @@ mod tests {
     #[test]
     fn a_later_commit_replaces_the_wait() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, set(&[2]));
-        let _ = gates.open(KEY, 4, set(&[2]));
+        let _ = gates.open(KEY, 3, None, set(&[2]));
+        let _ = gates.open(KEY, 4, None, set(&[2]));
         assert_eq!(gates.applied(KEY, 3, 2), None);
         assert_eq!(
             gates.applied(KEY, 4, 2),
@@ -201,25 +235,32 @@ mod tests {
     #[test]
     fn members_that_cannot_apply_it_leave_the_wait() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, set(&[2, 3, 4]));
+        let _ = gates.open(KEY, 3, None, set(&[2, 3, 4]));
         assert_eq!(gates.undelivered(KEY, 3, &[2]), None);
         assert_eq!(gates.removed(KEY, &[3]), None);
-        assert_eq!(gates.session_ended(4), vec![Settled { key: KEY, epoch: 3 }]);
+        assert_eq!(
+            gates.session_ended(4, Instant::now()),
+            vec![Settled { key: KEY, epoch: 3 }]
+        );
     }
 
     #[test]
     fn an_owners_departure_ends_its_waits_unsettled() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, set(&[2]));
-        assert_eq!(gates.session_ended(KEY.cid), vec![]);
+        let _ = gates.open(KEY, 3, None, set(&[2]));
+        assert_eq!(gates.session_ended(KEY.cid, Instant::now()), vec![]);
         assert_eq!(gates.applied(KEY, 3, 2), None);
     }
 
     #[test]
     fn a_closed_group_settles_nothing() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, set(&[2]));
+        let _ = gates.open(KEY, 3, None, set(&[2]));
         gates.close(KEY);
         assert_eq!(gates.applied(KEY, 3, 2), None);
     }
 }
+
+#[cfg(test)]
+#[path = "group_commit_gate_replacement_tests.rs"]
+mod replacement_tests;
