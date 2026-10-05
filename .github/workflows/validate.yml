@@ -369,6 +369,20 @@ jobs:
         run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,io-uring -E 'test(stress_test_c2s_messaging) | test(stress_test_p2p_messaging)'
 
   citadel_sdk_release:
+    # One leg per nextest pass, in parallel. Both passes in one job (each compiling its own
+    # test binaries, then running) took 1h17m51s on #359 against an 80-minute budget, and
+    # #360's was cancelled at 80 minutes mid-way through the second pass with every test so
+    # far green. Each leg now compiles and runs one feature set, about half the work, under
+    # the same budget; the budget is not raised.
+    name: citadel_sdk_release (${{ matrix.threading }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - threading: single-threaded
+            features: localhost-testing
+          - threading: multi-threaded
+            features: multi-threaded,localhost-testing
     runs-on: macos-latest
     timeout-minutes: 80
     # What this job exists to test is release SEMANTICS: debug_assertions off and
@@ -418,10 +432,15 @@ jobs:
         id: deps-retry-5
         uses: Avarok-Cybersecurity/gh-actions-deps@master
       - uses: taiki-e/install-action@nextest
-      - name: Single-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=localhost-testing --release
-      - name: Multi-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing --release
+      # Each leg's own cache: the two feature sets build different artifacts, and one shared
+      # key would have each leg evict the other's.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: citadel-sdk-release-${{ matrix.threading }}
+          cache-on-failure: true
+        continue-on-error: true  # Don't fail if cache service is unavailable
+      - name: ${{ matrix.threading }} testing
+        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }} --release
 
   misc_checks:
     name: miscellaneous
