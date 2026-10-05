@@ -5,9 +5,13 @@
 # Sign-in is post-quantum only (ML-KEM factors, see citadel_user::auth::pq): nothing may verify
 # an ECDSA, Ed25519 or RSA signature, so none of the crates that do can be linked. `ring` and
 # `webauthn-rs` are listed because each brings them in.
+#
+# Nor may the server stretch or verify a password: since the Argon2 sunset only a client runs
+# Argon2id (the password factor's KSF), so `rust-argon2` (and the RustCrypto `argon2`) must not be
+# in this graph either. A wasm32 client opts in with citadel_sdk's `wasm-password-ksf`.
 set -euo pipefail
 
-BANNED='^(p256|p384|p521|ecdsa|ed25519|ed25519-dalek|ed25519-compact|rsa|ring|webauthn-rs|webauthn-rs-core|k256)$'
+BANNED='^(p256|p384|p521|ecdsa|ed25519|ed25519-dalek|ed25519-compact|rsa|ring|webauthn-rs|webauthn-rs-core|k256|rust-argon2|argon2)$'
 TARGET="${TARGET:-wasm32-unknown-unknown}"
 PACKAGE="${PACKAGE:-citadel_sdk}"
 
@@ -19,11 +23,11 @@ if [ -z "$crates" ]; then
 fi
 found="$(printf '%s\n' "$crates" | grep -E "$BANNED" || true)"
 if [ -n "$found" ]; then
-    echo "Classical signature crates in the $PACKAGE $TARGET build graph:" >&2
+    echo "Banned crates (classical signatures, server-side password hashing) in the $PACKAGE $TARGET build graph:" >&2
     printf '  %s\n' $found >&2
     for crate in $found; do
         cargo tree --package "$PACKAGE" --target "$TARGET" --edges normal --invert "$crate" >&2 || true
     done
     exit 1
 fi
-echo "No classical signature crate in the $PACKAGE $TARGET build graph ($(printf '%s\n' "$crates" | wc -l | tr -d ' ') crates checked)."
+echo "No classical signature or password-hashing crate in the $PACKAGE $TARGET build graph ($(printf '%s\n' "$crates" | wc -l | tr -d ' ') crates checked)."

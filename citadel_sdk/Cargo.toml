@@ -27,6 +27,8 @@ io-uring = ["citadel_proto/io-uring"]
 
 std = ["citadel_proto/std"]
 wasm-threads = ["citadel_proto/wasm-threads"]
+# Argon2id for a wasm32 client's password factor; a wasm32 server never links it.
+wasm-password-ksf = ["citadel_proto/wasm-password-ksf"]
 google-services = ["citadel_proto/google-services"]
 vendored = ["citadel_proto/vendored"]
 

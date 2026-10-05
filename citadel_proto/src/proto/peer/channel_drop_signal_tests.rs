@@ -23,14 +23,10 @@ const PEER_CID: u64 = 20;
 #[tokio::test]
 async fn udp_disconnect_survives_a_full_request_queue() {
     let (tx, mut rx) = BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS);
-    let account_manager = AccountManager::<StackedRatchet, StackedRatchet>::new(
-        BackendType::InMemory,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let account_manager =
+        AccountManager::<StackedRatchet, StackedRatchet>::new(BackendType::InMemory, None, None)
+            .await
+            .unwrap();
     let node_remote = NodeRemote::new(
         tx,
         KernelAsyncCallbackHandler {

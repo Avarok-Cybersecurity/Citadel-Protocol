@@ -52,7 +52,7 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_key_is_enrolled_and_then_required_and_the_wrong_key_is_refused() {
         citadel_logging::setup_log();
-        let (server, addr, _) = server(pq_settings(), Some(poisoned_argon()), None);
+        let (server, addr, _) = server(pq_settings(), None);
         let user = username("key");
         run(server, move |remote, _| async move {
             let reg = remote
@@ -111,7 +111,7 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_recovery_code_signs_in_once_to_a_session_that_can_only_add_a_key_and_set_policy() {
         citadel_logging::setup_log();
-        let (server, addr, _) = server(pq_settings(), Some(poisoned_argon()), None);
+        let (server, addr, _) = server(pq_settings(), None);
         let user = username("rec");
         run(server, move |remote, _| async move {
             let reg = remote
@@ -153,7 +153,7 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn management_lists_renames_refuses_the_last_factor_and_regenerates_codes() {
         citadel_logging::setup_log();
-        let (server, addr, _) = server(pq_settings(), Some(poisoned_argon()), None);
+        let (server, addr, _) = server(pq_settings(), None);
         let user = username("mgmt");
         run(server, move |remote, _| async move {
             let reg = remote

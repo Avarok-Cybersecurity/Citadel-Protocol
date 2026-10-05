@@ -1,10 +1,6 @@
 #[cfg(test)]
 mod tests {
     use bytes::{BufMut, BytesMut};
-    #[cfg(all(not(target_family = "wasm"), not(feature = "skip-argon-tests")))]
-    use citadel_crypt::argon::argon_container::{
-        ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
-    };
     use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
     #[cfg(not(target_family = "wasm"))]
     use citadel_crypt::packet_vector::PacketVector;
@@ -29,106 +25,6 @@ mod tests {
     lazy_static::lazy_static! {
         pub static ref PRE_SHARED_KEYS: Vec<Vec<u8>> = vec!["Hello".into(), "World".into()];
         pub static ref PRE_SHARED_KEYS2: Vec<Vec<u8>> = vec!["World".into(), "Hello".into()];
-    }
-
-    #[cfg(all(not(target_family = "wasm"), not(feature = "skip-argon-tests")))]
-    #[tokio::test]
-    async fn argon_autotuner() {
-        use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
-        citadel_logging::setup_log();
-        let start_time = std::time::Instant::now();
-        let final_cfg = calculate_optimal_argon_params(500_u16, Some(32), None)
-            .await
-            .unwrap();
-        log::trace!(target: "citadel", "DONE. Elapsed time: {:?}", start_time.elapsed());
-        log::trace!(target: "citadel", "{final_cfg:?}")
-    }
-
-    #[cfg(all(not(target_family = "wasm"), not(feature = "skip-argon-tests")))]
-    #[tokio::test]
-    async fn argon() {
-        citadel_logging::setup_log();
-
-        // Client config should be a weaker version than the server version, since the client doesn't actually store the password on their own device. Still, if login time can in total be kept under 2s, then it's good
-        let client_config = ArgonSettings::new_gen_salt(
-            "Thomas P Braun".as_bytes().to_vec(),
-            8,
-            32,
-            1024 * 64,
-            4,
-            vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0],
-        );
-        // client hashes their password
-        match AsyncArgon::hash(SecBuffer::from("password"), client_config.clone())
-            .await
-            .unwrap()
-        {
-            ArgonStatus::HashSuccess(hashed_password) => {
-                log::trace!(target: "citadel", "Hash success!");
-                // now, the client stores the config in their CNAC to be able to hash again in the future. Next, client sends the hashed password through an encrypted stream to the server
-                let server_recv = hashed_password;
-                // The server creates their own version of the settings, which should be dependent on the capabilities of that server. (Aim for 0.5s < x < 1.0s hash time)
-                let server_config = ArgonSettings::new_gen_salt(
-                    "Thomas P Braun".as_bytes().to_vec(),
-                    8,
-                    32,
-                    1024 * 64,
-                    4,
-                    vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0],
-                );
-                // the server then hashes the server_recv
-                match AsyncArgon::hash(server_recv.clone(), server_config.clone())
-                    .await
-                    .unwrap()
-                {
-                    ArgonStatus::HashSuccess(hashed_password_x2) => {
-                        // The server saves this hashed output to the backend. Then, if a client wants to login, they have to hash their password
-                        let server_argon_container =
-                            ServerArgonContainer::new(server_config, hashed_password_x2.clone());
-
-                        match AsyncArgon::hash(SecBuffer::from("password"), client_config.clone())
-                            .await
-                            .unwrap()
-                        {
-                            ArgonStatus::HashSuccess(hashed_password_v2) => {
-                                //assert_eq!(hashed_password_v2.as_ref(), server_recv.as_ref());
-                                // client sends to server to verify
-                                match AsyncArgon::verify(
-                                    hashed_password_v2,
-                                    server_argon_container.clone(),
-                                )
-                                .await
-                                .unwrap()
-                                {
-                                    ArgonStatus::VerificationSuccess => {
-                                        log::trace!(target: "citadel", "Verification success!");
-                                        return;
-                                    }
-
-                                    n => {
-                                        log::error!(target: "citadel", "{n:?}");
-                                    }
-                                }
-                            }
-
-                            n => {
-                                log::error!(target: "citadel", "{n:?}");
-                            }
-                        }
-                    }
-
-                    n => {
-                        log::error!(target: "citadel", "{n:?}");
-                    }
-                }
-            }
-
-            n => {
-                log::error!(target: "citadel", "{n:?}");
-            }
-        }
-
-        panic!("Failed somewhere");
     }
 
     #[test]

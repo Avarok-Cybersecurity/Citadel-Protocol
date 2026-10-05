@@ -7,7 +7,7 @@ use super::oprf::OprfSeed;
 use super::record::{KsfParams, PqAuthRecord};
 use super::recovery::RecoveryCode;
 use super::server::{
-    build_login_challenge, registration_reply, AccountAuth, Expectation, PqAuthServerSettings,
+    build_login_challenge, registration_reply, AccountAuth, Expected, PqAuthServerSettings,
     VerifiedLogin,
 };
 use citadel_io::tokio;
@@ -39,7 +39,7 @@ pub(crate) struct Exchange {
     pub start: LoginStart,
     pub challenge: LoginChallenge,
     pub client: ClientLogin,
-    pub expectation: Expectation,
+    pub expected: Expected,
 }
 
 pub(crate) fn begin(
@@ -51,12 +51,12 @@ pub(crate) fn begin(
     let pw = pw.map(password);
     let (start, client) = ClientLogin::start(username, pw.as_ref(), code).unwrap();
     let account = record.map_or(AccountAuth::Unknown, AccountAuth::PostQuantum);
-    let (challenge, expectation) = build_login_challenge(&settings(), account, &start).unwrap();
+    let (challenge, expected) = build_login_challenge(&settings(), account, &start).unwrap();
     Exchange {
         start,
         challenge,
         client,
-        expectation,
+        expected,
     }
 }
 
@@ -70,20 +70,15 @@ pub(crate) async fn complete_with_key(
     key: Option<SecurityKeyAnswer>,
 ) -> Result<VerifiedLogin, citadel_io::NetworkError> {
     let server_transcript = login_transcript(CID, &x.start, &x.challenge);
-    let Expectation::Factors(expected) = x.expectation else {
-        panic!("not a post-quantum challenge");
-    };
+    let expected = x.expected;
     let proof = x
         .client
         .respond(&x.challenge, &server_transcript, key)
         .await?;
-    let ClientProof::Factors {
+    let ClientProof {
         proof: LoginProof::Factors(finish),
         ..
-    } = proof
-    else {
-        panic!("not a factor proof");
-    };
+    } = proof;
     expected.bind(server_transcript).verify(&finish)
 }
 
@@ -112,24 +107,19 @@ async fn a_wrong_password_is_refused() {
 async fn a_tag_replayed_from_another_transcript_is_refused() {
     let (record, _) = register("correct horse").await;
     let x = begin(Some(&record), "alice", Some("correct horse"), None);
-    let Expectation::Factors(expected) = x.expectation else {
-        panic!()
-    };
+    let expected = x.expected;
     // The client's tags are bound to a transcript other than the one the server issued.
     let mut other = x.challenge.clone();
     other.server_nonce[0] ^= 1;
     let elsewhere = login_transcript(CID, &x.start, &other);
-    let ClientProof::Factors {
+    let ClientProof {
         proof: LoginProof::Factors(finish),
         ..
     } = x
         .client
         .respond(&x.challenge, &elsewhere, None)
         .await
-        .unwrap()
-    else {
-        panic!()
-    };
+        .unwrap();
     let server_transcript = login_transcript(CID, &x.start, &x.challenge);
     assert!(is_generic_failure(
         &expected.bind(server_transcript).verify(&finish)
@@ -140,9 +130,7 @@ async fn a_tag_replayed_from_another_transcript_is_refused() {
 async fn a_tampered_ciphertext_is_refused() {
     let (record, _) = register("correct horse").await;
     let mut x = begin(Some(&record), "alice", Some("correct horse"), None);
-    let ChallengeBody::Factors(factors) = &mut x.challenge.body else {
-        panic!()
-    };
+    let ChallengeBody::Factors(factors) = &mut x.challenge.body;
     let mut ct: Vec<u8> = factors.challenges[0].ct.clone().into();
     ct[100] ^= 0x01;
     factors.challenges[0].ct = ct.try_into().unwrap();
@@ -156,10 +144,7 @@ async fn a_tampered_oprf_evaluation_is_refused() {
     // A valid group element, but the evaluation under another user's key.
     let forged = begin(Some(&record), "mallory", Some("correct horse"), None);
     let (ChallengeBody::Factors(real), ChallengeBody::Factors(fake)) =
-        (&mut x.challenge.body, &forged.challenge.body)
-    else {
-        panic!()
-    };
+        (&mut x.challenge.body, &forged.challenge.body);
     assert_ne!(real.oprf_evaluated, fake.oprf_evaluated);
     real.oprf_evaluated = fake.oprf_evaluated.clone();
     assert!(is_generic_failure(&complete(x).await));

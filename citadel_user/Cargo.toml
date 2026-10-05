@@ -23,6 +23,9 @@ std = ["citadel_crypt/std", "rand/std", "sha3/std", "bstr/std"]
 google-services = ["openssl", "jwt", "firebase-rtdb", "serde_millis"]
 vendored = ["openssl/vendored"]
 
+# Argon2id for a wasm32 client's password factor (see citadel_crypt's feature of the same name).
+wasm-password-ksf = ["citadel_crypt/wasm-password-ksf"]
+
 localhost-testing = []
 jwt-testing = []
 

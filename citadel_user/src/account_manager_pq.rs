@@ -1,7 +1,9 @@
 //! The account manager's post-quantum operations: creating an account from a post-quantum
-//! registration, upgrading a legacy account, and changing a record under one lock.
+//! registration, changing a record under one lock, and the auth-migration hook a verified sign-in
+//! runs (see `auth::migration`).
 
 use super::AccountManager;
+use crate::auth::migration::{upgrade_at_proof, ProvenSignIn};
 use crate::auth::pq::record::PqAuthRecord;
 use crate::auth::pq::server::PqAuthServerSettings;
 use crate::auth::proposed_credentials::ProposedCredentials;
@@ -42,32 +44,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             .await
     }
 
-    /// Server side: replaces a legacy account's Argon2 record with `record`, after a legacy login
-    /// verified. From then on the legacy path is refused for the account.
-    pub async fn upgrade_to_pq(&self, cid: u64, record: PqAuthRecord) -> Result<(), AccountError> {
-        let _guard = self.pq_record_lock.lock().await;
-        let cnac = self.load(cid).await?;
-        let (username, full_name) = match &*cnac.auth_store() {
-            DeclaredAuthenticationMode::Argon {
-                username,
-                full_name,
-                ..
-            } => (username.clone(), full_name.clone()),
-            _ => {
-                return Err(error!(
-                    ErrorCode::PqSignInMalformed,
-                    "an upgrade of a non-legacy account"
-                ))
-            }
-        };
-        cnac.replace_auth_store(DeclaredAuthenticationMode::PostQuantum {
-            username,
-            full_name,
-            side: PqAuthSide::Server(Box::new(record)),
-        });
-        self.persistence_handler.save_cnac(&cnac).await
-    }
-
     /// Server side: reads the account's current record, applies `change`, and saves the result,
     /// all under one lock. Nothing is saved when `change` fails.
     pub async fn update_pq_record<T>(
@@ -89,11 +65,33 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         Ok(out)
     }
 
-    /// Server side: a verified login's factors get `last_used_ms`, and a recovery code among them
-    /// is spent. Fails, saving nothing, if a factor was spent meanwhile.
+    /// Server side, after a login verified: its factors get `last_used_ms`, a recovery code among
+    /// them is spent, and the record migrates forward if a newer version exists
+    /// ([`upgrade_at_proof`]), all under the record lock and in one save. Fails, saving nothing,
+    /// if a factor was spent meanwhile.
     pub async fn record_pq_sign_in(&self, cid: u64, used: &[FactorId]) -> Result<(), AccountError> {
-        self.update_pq_record(cid, |record| record.record_use(used, now_ms()))
-            .await
+        let _guard = self.pq_record_lock.lock().await;
+        let cnac = self.load(cid).await?;
+        let mut mode = cnac.auth_store().clone();
+        let proven = ProvenSignIn {
+            used: used.to_vec(),
+            now_ms: now_ms(),
+        };
+        match &mut mode {
+            DeclaredAuthenticationMode::PostQuantum {
+                side: PqAuthSide::Server(record),
+                ..
+            } => record.record_use(used, proven.now_ms)?,
+            _ => {
+                return Err(error!(
+                    ErrorCode::PqSignInUnavailable,
+                    "the account has no post-quantum record"
+                ))
+            }
+        }
+        let _ = upgrade_at_proof(&mut mode, &proven)?;
+        cnac.replace_auth_store(mode);
+        self.persistence_handler.save_cnac(&cnac).await
     }
 
     /// Client side, after a post-quantum registration: the account keeps no secret at all, since
@@ -110,7 +108,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         if valid_cid == 0 {
             return Err(error!(ErrorCode::RegisterCidZero));
         }
-        let (username, _, full_name, _) = creds.decompose();
+        let (username, full_name) = creds.decompose();
         let auth_store = DeclaredAuthenticationMode::PostQuantum {
             username,
             full_name,

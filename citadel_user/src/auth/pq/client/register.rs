@@ -8,7 +8,7 @@ use crate::misc::AccountError;
 use citadel_types::crypto::SecBuffer;
 use zeroize::Zeroizing;
 
-/// A registration (or a legacy account's upgrade) between [`RegStart`] and [`RegFinish`].
+/// A registration between [`RegStart`] and [`RegFinish`].
 pub struct ClientRegistration {
     input: Zeroizing<[u8; 32]>,
     oprf: OprfClientState,
@@ -25,11 +25,6 @@ impl ClientRegistration {
             admission: None,
         };
         Ok((start, Self { input, oprf }))
-    }
-
-    /// Resumes from a blinding the client already sent, as the `oprf_blinded` of a legacy login.
-    pub(crate) fn resume(input: Zeroizing<[u8; 32]>, oprf: OprfClientState) -> Self {
-        Self { input, oprf }
     }
 
     /// The factors' keys, and the recovery codes behind them (empty unless asked for). The codes

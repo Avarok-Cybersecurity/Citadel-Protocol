@@ -34,8 +34,8 @@ pub(crate) struct PqConnectState {
     pub client: Option<(LoginStart, ClientLogin, Option<SecurityKeyPrf>)>,
     /// Client: from STAGE0 until SUCCESS, when it joins the session's pre-shared keys.
     pub session_key: Option<Zeroizing<[u8; 32]>>,
-    /// Server: between `AUTH_CHALLENGE` and STAGE0.
-    pub server: Option<ServerPending>,
+    /// Server: between `AUTH_CHALLENGE` and STAGE0, what STAGE0 must prove.
+    pub server: Option<PendingLogin>,
 }
 
 impl Default for PqConnectState {
@@ -50,13 +50,6 @@ impl Default for PqConnectState {
             server: None,
         }
     }
-}
-
-/// What the server expects in STAGE0 after the challenge it issued.
-pub(crate) enum ServerPending {
-    Factors(PendingLogin),
-    /// A legacy account. `Some` when the login also offered to upgrade it.
-    Legacy(Option<PendingRegistration>),
 }
 
 /// Kept in the register state.
@@ -74,7 +67,6 @@ pub(crate) struct PqRegisterState {
     pub server: Option<PendingRegistration>,
     /// Client: the admission token, until `PQ_START` is sent.
     pub admission: Option<AdmissionToken>,
-    /// Server: `PQ_START` passed the admission check, so a legacy STAGE2 (a server without
-    /// post-quantum settings) is not asked again.
+    /// Server: `PQ_START` passed the admission check, so STAGE2 is not asked again.
     pub admitted: bool,
 }

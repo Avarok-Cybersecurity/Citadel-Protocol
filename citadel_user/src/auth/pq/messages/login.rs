@@ -1,4 +1,3 @@
-use super::register::{RegFinish, RegReply};
 use crate::auth::pq::admission::AdmissionToken;
 use crate::auth::pq::kem::KemCiphertext;
 use crate::auth::pq::proof::Tag;
@@ -32,15 +31,11 @@ pub struct LoginChallenge {
     pub body: ChallengeBody,
 }
 
+/// An enum on the wire, so a new kind of challenge can be appended. Index 1 was the legacy
+/// Argon2 challenge, retired with the Argon2 sunset; it must not be reused.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ChallengeBody {
     Factors(FactorChallenges),
-    /// The account still has a legacy Argon2 record. The client logs in with its legacy
-    /// credentials; with `upgrade`, the same login also enrols the post-quantum password factor,
-    /// after which the legacy path is refused for the account.
-    Legacy {
-        upgrade: Option<RegReply>,
-    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -75,12 +70,10 @@ pub struct FactorTag {
     pub tag: Tag,
 }
 
-/// C→S, carried by connect STAGE0 after a [`LoginChallenge`].
+/// C→S, carried by connect STAGE0 after a [`LoginChallenge`]. Index 1 was the legacy Argon2
+/// account's upgrade, retired with the Argon2 sunset; it must not be reused.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum LoginProof {
     /// The answer to [`ChallengeBody::Factors`].
     Factors(LoginFinish),
-    /// The answer to [`ChallengeBody::Legacy`] with an upgrade offer: the legacy credentials ride
-    /// in STAGE0 as before, and these keys replace the legacy record once they have verified.
-    Upgrade(RegFinish),
 }

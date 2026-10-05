@@ -531,9 +531,6 @@ pub mod re_imports {
 }
 
 pub mod prelude {
-    pub use citadel_crypt::argon::argon_container::ArgonDefaultServerSettings;
-    #[cfg(all(not(coverage), not(target_family = "wasm")))]
-    pub use citadel_crypt::argon::autotuner::calculate_optimal_argon_params;
     pub use citadel_crypt::ratchets::mono::keys::FcmKeys;
     pub use citadel_crypt::ratchets::mono::MonoRatchet;
     pub use citadel_crypt::ratchets::stacked::StackedRatchet;

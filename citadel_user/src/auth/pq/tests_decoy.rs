@@ -8,10 +8,8 @@ use citadel_io::tokio;
 use citadel_types::auth::FactorKind;
 
 fn factors(challenge: &LoginChallenge) -> &FactorChallenges {
-    match &challenge.body {
-        ChallengeBody::Factors(f) => f,
-        ChallengeBody::Legacy { .. } => panic!("a decoy must never look legacy"),
-    }
+    let ChallengeBody::Factors(f) = &challenge.body;
+    f
 }
 
 /// Everything an observer can compare without knowing any secret. A recovery code's id is left

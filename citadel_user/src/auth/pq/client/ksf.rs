@@ -1,10 +1,13 @@
 //! The password factor's seed: `Argon2id(rwd, salt_user)`, computed on the client only.
 
-use crate::auth::pq::kem::{FactorKeypair, FactorSeed, SEED_LEN};
+#[cfg(any(not(target_family = "wasm"), feature = "wasm-password-ksf"))]
+use crate::auth::pq::kem::SEED_LEN;
+use crate::auth::pq::kem::{FactorKeypair, FactorSeed};
 use crate::auth::pq::oprf::{OprfClientState, RWD_LEN};
 use crate::auth::pq::record::KsfParams;
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::misc::AccountError;
+#[cfg(any(not(target_family = "wasm"), feature = "wasm-password-ksf"))]
 use citadel_crypt::argon::argon_container::{ArgonSettings, ArgonStatus, AsyncArgon};
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
@@ -33,6 +36,29 @@ pub async fn password_seed(
             "the server asked for Argon2id parameters below the floor"
         ));
     }
+    stretch(rwd, salt_user, ksf).await
+}
+
+/// A wasm32 build without `wasm-password-ksf` is the tenant server's, which links no Argon2: it
+/// cannot derive a password factor, and says so.
+#[cfg(all(target_family = "wasm", not(feature = "wasm-password-ksf")))]
+async fn stretch(
+    _rwd: &[u8; RWD_LEN],
+    _salt_user: &[u8; 32],
+    _ksf: KsfParams,
+) -> Result<FactorSeed, AccountError> {
+    Err(error!(
+        ErrorCode::PqSignInUnavailable,
+        "this build has no password key-stretching (wasm32 without `wasm-password-ksf`)"
+    ))
+}
+
+#[cfg(any(not(target_family = "wasm"), feature = "wasm-password-ksf"))]
+async fn stretch(
+    rwd: &[u8; RWD_LEN],
+    salt_user: &[u8; 32],
+    ksf: KsfParams,
+) -> Result<FactorSeed, AccountError> {
     let settings = ArgonSettings::new(
         KSF_AD.to_vec(),
         salt_user.to_vec(),

@@ -94,7 +94,7 @@ mod tests {
     async fn a_missing_token_and_a_bad_one_are_refused_and_a_good_one_admitted() {
         citadel_logging::setup_log();
         let policy = Arc::new(Turnstile::default());
-        let (server, addr, _) = server(guarded(policy.clone()), Some(poisoned_argon()), None);
+        let (server, addr, _) = server(guarded(policy.clone()), None);
         let user = username("adm");
         let seen = policy.clone();
         run(server, move |remote, _| async move {
@@ -125,7 +125,7 @@ mod tests {
     async fn a_recovery_code_sign_in_is_not_asked() {
         citadel_logging::setup_log();
         let policy = Arc::new(Turnstile::default());
-        let (server, addr, _) = server(guarded(policy.clone()), Some(poisoned_argon()), None);
+        let (server, addr, _) = server(guarded(policy.clone()), None);
         let user = username("admrec");
         let seen = policy.clone();
         run(server, move |remote, _| async move {
@@ -144,8 +144,7 @@ mod tests {
     async fn a_resume_token_reconnect_is_not_asked() {
         citadel_logging::setup_log();
         let policy = Arc::new(Turnstile::default());
-        let (server, server_addr, _) =
-            server(guarded(policy.clone()), Some(poisoned_argon()), None);
+        let (server, server_addr, _) = server(guarded(policy.clone()), None);
         let proxy = SeveringProxy::start(server_addr).await;
         let user = username("admres");
         let seen = policy.clone();
@@ -170,30 +169,9 @@ mod tests {
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn a_legacy_registration_is_asked_too() {
-        citadel_logging::setup_log();
-        let policy = Arc::new(Turnstile::default());
-        let (server, addr, _) = server(guarded(policy.clone()), None, None);
-        let user = username("admleg");
-        let seen = policy.clone();
-        run(server, move |remote, _| async move {
-            // No PQ_START: the registration is legacy, and is asked at STAGE2 instead.
-            let refused = register_legacy(&remote, addr, &user).await;
-            let message = refused.expect_err("a legacy registration skipped admission");
-            assert_eq!(
-                message.into_string(),
-                ErrorCode::PqSignInAdmissionRequired.raw_string()
-            );
-            assert_eq!(seen.asked(), ["register"]);
-            remote.shutdown().await
-        })
-        .await;
-    }
-
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn without_a_policy_everyone_is_admitted() {
         citadel_logging::setup_log();
-        let (server, addr, _) = server(pq_settings(), Some(poisoned_argon()), None);
+        let (server, addr, _) = server(pq_settings(), None);
         let user = username("admnone");
         run(server, move |remote, _| async move {
             register(&remote, addr, &user, None).await?;

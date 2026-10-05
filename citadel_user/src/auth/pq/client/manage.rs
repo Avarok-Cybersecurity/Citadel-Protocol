@@ -67,9 +67,7 @@ impl ClientManagement {
         let SignInManagementOp::AddSecurityKey { credential_id, .. } = &self.begin.op else {
             return None;
         };
-        let ChallengeBody::Factors(factors) = &challenge.step_up.body else {
-            return None;
-        };
+        let ChallengeBody::Factors(factors) = &challenge.step_up.body;
         Some(SecurityKeyRequest {
             credential_ids: vec![credential_id.clone()],
             prf_eval_salt: factors.prf_eval_salt,
@@ -98,22 +96,17 @@ impl ClientManagement {
         let new_key_ek: Option<EncapsulationKey> =
             new_key.as_ref().map(|kp| kp.encapsulation_key().clone());
         let transcript = management_transcript(cid, &self.begin, challenge, new_key_ek.as_ref());
-        let challenged = match &challenge.step_up.body {
-            ChallengeBody::Factors(factors) => !factors.challenges.is_empty(),
-            ChallengeBody::Legacy { .. } => true,
-        };
+        let ChallengeBody::Factors(factors) = &challenge.step_up.body;
+        let challenged = !factors.challenges.is_empty();
         let step_up = if challenged {
-            match self
+            let ClientProof {
+                proof: LoginProof::Factors(finish),
+                ..
+            } = self
                 .login
                 .respond(&challenge.step_up, &transcript, step_up_key)
-                .await?
-            {
-                ClientProof::Factors {
-                    proof: LoginProof::Factors(finish),
-                    ..
-                } => finish,
-                _ => return Err(error!(ErrorCode::PqSignInMalformed, "a legacy step-up")),
-            }
+                .await?;
+            finish
         } else {
             // A recovery session: the server proves nothing again.
             LoginFinish { tags: Vec::new() }

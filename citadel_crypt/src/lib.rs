@@ -53,7 +53,8 @@ pub mod prelude {
     pub use citadel_types::crypto::SecurityLevel;
 }
 
-/// For argon-related functionality
+/// Argon2id, the client's password key-stretching function
+#[cfg(any(not(target_family = "wasm"), feature = "wasm-password-ksf"))]
 pub mod argon;
 /// An abstraction binding the entropy_bank and the PQC
 pub mod endpoint_crypto_container;

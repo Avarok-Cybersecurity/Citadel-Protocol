@@ -52,7 +52,6 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     hypernode_type: Option<NodeType>,
     underlying_protocol: Option<ServerMode<T>>,
     backend_type: Option<BackendType>,
-    server_argon_settings: Option<ArgonDefaultServerSettings>,
     #[cfg(feature = "google-services")]
     services: Option<ServicesConfig>,
     server_misc_settings: Option<ServerMiscSettings>,
@@ -80,7 +79,6 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             hypernode_type: None,
             underlying_protocol: None,
             backend_type: None,
-            server_argon_settings: None,
             #[cfg(feature = "google-services")]
             services: None,
             server_misc_settings: None,
@@ -150,7 +148,6 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let backend_type = self.backend_type.take().unwrap_or_default();
-        let server_argon_settings = self.server_argon_settings.take();
         #[cfg(feature = "google-services")]
         let server_services_cfg = self.services.take();
         #[cfg(not(feature = "google-services"))]
@@ -209,13 +206,9 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
                 let rt = citadel_io::try_current_runtime().map_err(NetworkError::generic)?;
                 log::trace!(target: "citadel", "[NodeBuilder] Creating account manager ...");
-                let account_manager = AccountManager::new(
-                    backend_type,
-                    server_argon_settings,
-                    server_services_cfg,
-                    server_misc_settings,
-                )
-                .await?;
+                let account_manager =
+                    AccountManager::new(backend_type, server_services_cfg, server_misc_settings)
+                        .await?;
 
                 let args: KernelExecutorArguments<_, _, T> = KernelExecutorArguments {
                     rt,
@@ -266,15 +259,6 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         kernel_executor_settings: KernelExecutorSettings,
     ) -> &mut Self {
         self.kernel_executor_settings = Some(kernel_executor_settings);
-        self
-    }
-
-    /// Attaches custom Argon settings for password hashing at the server
-    pub fn with_server_argon_settings(
-        &mut self,
-        settings: ArgonDefaultServerSettings,
-    ) -> &mut Self {
-        self.server_argon_settings = Some(settings);
         self
     }
 

@@ -633,8 +633,8 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
     );
     let mut state_container = inner_mut_state!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
-    // A server that runs post-quantum sign-in is asked for a challenge first; STAGE0 answers it.
-    if let Some(auth_start) = crate::proto::pq_sign_in::connect::begin(
+    // A login that offers factors asks for a challenge first; STAGE0 answers it.
+    let auth_start = crate::proto::pq_sign_in::connect::begin(
         &mut state_container,
         ratchet,
         resume_token,
@@ -642,7 +642,16 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
         timestamp,
         security_level,
         ticket,
-    )? {
+    );
+    let auth_start = match auth_start {
+        Ok(auth_start) => auth_start,
+        Err(err) => {
+            std::mem::drop(state_container);
+            let cid = ratchet.get_cid();
+            return crate::proto::pq_sign_in::refusal::fail_login(session, cid, err.into_string());
+        }
+    };
+    if let Some(auth_start) = auth_start {
         std::mem::drop(state_container);
         session.state.set(SessionState::ConnectionProcess);
         return Ok(PrimaryProcessorResult::ReplyToSender(auth_start));

@@ -262,8 +262,8 @@ async fn await_registration<R: Ratchet, Rem: Remote<R>>(
     ))
 }
 
-/// The legacy credentials (for a server below 0.12) and the password a post-quantum registration
-/// uses, trimmed the same way the legacy credentials trim it.
+/// The registration's credentials (the names, trimmed) and the password its post-quantum exchange
+/// turns into a key, trimmed the same way.
 async fn registration_credentials<
     P: Into<String> + Send,
     V: Into<String> + Send,
@@ -275,7 +275,7 @@ async fn registration_credentials<
 ) -> Result<(ProposedCredentials, SecBuffer), NetworkError> {
     let password: SecBuffer = proposed_password.into();
     let trimmed = ProposedCredentials::registration_password(&password);
-    let creds = ProposedCredentials::new_register(full_name, username, password).await?;
+    let creds = ProposedCredentials::new_register(full_name, username);
     Ok((creds, trimmed))
 }
 

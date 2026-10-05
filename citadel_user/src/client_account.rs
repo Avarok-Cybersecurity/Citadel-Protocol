@@ -105,7 +105,6 @@ use crate::serialization::SyncIO;
 use citadel_crypt::prelude::Toolset;
 use citadel_crypt::ratchets::mono::MonoRatchet;
 use citadel_crypt::ratchets::stacked::StackedRatchet;
-use citadel_types::crypto::SecBuffer;
 use citadel_types::user::MutualPeer;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -163,7 +162,7 @@ struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = Mon
     #[serde(bound = "")]
     pub crypto_session_state: Option<PeerSessionCrypto<R>>,
     /// For storing critical ID information for this CNAC. Behind a lock because a post-quantum
-    /// record changes after creation (a legacy upgrade, a used recovery code, a managed factor).
+    /// record changes after creation (a migration, a used recovery code, a managed factor).
     pub auth_store: RwLock<DeclaredAuthenticationMode>,
     peer_state: RwLock<AccountState>,
     // For future use cases
@@ -264,69 +263,35 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         self.inner.auth_store.read().username().to_string()
     }
 
-    /// Checks the credentials for validity. Used for the login process.
-    pub async fn validate_credentials(
-        &self,
-        creds: ProposedCredentials,
-    ) -> Result<(), AccountError> {
-        let argon_container = {
-            let auth_store = self.inner.auth_store.read();
-            let username = auth_store.username();
-
-            if !creds.compare_username(username.as_bytes()) {
-                return Err(AccountError::account_invalid_username());
-            }
-
-            match &*auth_store {
-                DeclaredAuthenticationMode::Argon { argon, .. } => argon.clone(),
-                DeclaredAuthenticationMode::Transient { .. } => return Ok(()),
-                // Its factors are proven by the post-quantum exchange, never by a password hash.
-                DeclaredAuthenticationMode::PostQuantum { .. } => {
-                    return Err(citadel_io::error!(
-                        citadel_io::ErrorCode::PqSignInLegacyRefused
-                    ))
-                }
-            }
-        };
-
-        creds.validate_credentials(argon_container).await
+    /// Server side: whether a login that ran no post-quantum exchange may sign this account in.
+    /// Only a transient account, named by its own username, may: every other account proves its
+    /// factors before STAGE0, and has no password hash to check here.
+    pub fn admits_without_factors(&self, creds: &ProposedCredentials) -> Result<(), AccountError> {
+        let auth_store = self.inner.auth_store.read();
+        if !creds.compare_username(auth_store.username().as_bytes()) {
+            return Err(AccountError::account_invalid_username());
+        }
+        match &*auth_store {
+            DeclaredAuthenticationMode::Transient { .. } => Ok(()),
+            DeclaredAuthenticationMode::PostQuantum { .. } => Err(citadel_io::error!(
+                citadel_io::ErrorCode::PqSignInLegacyRefused
+            )),
+        }
     }
 
-    /// This should be called on the client before passing a connect request to the protocol
-    pub async fn generate_connect_credentials(
-        &self,
-        password_raw: SecBuffer,
-    ) -> Result<ProposedCredentials, AccountError> {
-        let (settings, full_name, username) = {
-            match &*self.inner.auth_store.read() {
-                DeclaredAuthenticationMode::Argon {
-                    argon,
-                    full_name,
-                    username,
-                } => (
-                    argon.settings().clone(),
-                    full_name.clone(),
-                    username.clone(),
-                ),
-                DeclaredAuthenticationMode::Transient { username, .. } => {
-                    return Ok(ProposedCredentials::transient(username.clone()))
-                }
-                // Nothing to hash: the password reaches the server only as a factor proof. The
-                // name is still sent, as the account's identifier.
-                DeclaredAuthenticationMode::PostQuantum {
-                    username,
-                    full_name,
-                    ..
-                } => {
-                    return Ok(ProposedCredentials::post_quantum(
-                        username.clone(),
-                        full_name.clone(),
-                    ))
-                }
+    /// The credentials a login carries in STAGE0: the account's names. Nothing about the
+    /// password travels; its factor is proven by the exchange before STAGE0.
+    pub fn connect_credentials(&self) -> ProposedCredentials {
+        match &*self.inner.auth_store.read() {
+            DeclaredAuthenticationMode::Transient { username, .. } => {
+                ProposedCredentials::transient(username.clone())
             }
-        };
-
-        ProposedCredentials::new_connect(full_name, username, password_raw, settings).await
+            DeclaredAuthenticationMode::PostQuantum {
+                username,
+                full_name,
+                ..
+            } => ProposedCredentials::post_quantum(username.clone(), full_name.clone()),
+        }
     }
 
     /// Replaces the internal toolset and resets version tracking.

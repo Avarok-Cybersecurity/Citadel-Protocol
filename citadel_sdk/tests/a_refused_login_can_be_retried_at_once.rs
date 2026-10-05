@@ -9,7 +9,8 @@
 //! one run in eighteen of `pq_sign_in_host_sql`.
 //!
 //! The race is a window between two tasks, so one attempt rarely shows it; this makes many, each
-//! retried the moment the refusal arrives, against both sign-in paths.
+//! retried the moment the refusal arrives (post-quantum sign-in: since the Argon2 sunset the only
+//! password sign-in there is).
 
 mod common;
 
@@ -23,7 +24,7 @@ mod tests {
 
     async fn refuse_then_retry(misc: ServerMiscSettings) {
         citadel_logging::setup_log();
-        let (server, addr, _) = server(misc, None, None);
+        let (server, addr, _) = server(misc, None);
         let user = username("retry");
         run(server, move |remote, _| async move {
             let _ = remote
@@ -45,11 +46,6 @@ mod tests {
             remote.shutdown().await
         })
         .await;
-    }
-
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn a_refused_legacy_login_can_be_retried_at_once() {
-        refuse_then_retry(ServerMiscSettings::default()).await;
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]

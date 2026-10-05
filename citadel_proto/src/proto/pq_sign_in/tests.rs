@@ -24,7 +24,7 @@ fn only_nodes_at_or_above_the_gate_run_post_quantum_sign_in() {
     assert!(runs_with(version(major as _, minor as _, patch as _)));
     assert!(
         !runs_with(version(0, 11, 2)),
-        "0.11.2 keeps the legacy login"
+        "0.11.2 has no post-quantum sign-in"
     );
     assert!(!runs_with(version(0, 10, 9)));
     assert!(
@@ -128,4 +128,29 @@ fn a_client_below_the_gate_is_told_to_update_and_one_at_it_is_not() {
         citadel_io::ErrorCode::PqSignInAdmissionNeedsUpdate
     );
     assert!(refusal.into_string().contains("update your app"));
+}
+
+/// Since the Argon2 sunset nothing verifies a password hash: a password login or registration
+/// without the post-quantum exchange is refused, and a client below 0.12, which can do nothing
+/// else, is told to update. A passwordless one is unaffected at any version.
+#[test]
+fn without_the_exchange_only_a_passwordless_sign_in_continues() {
+    use super::without_factors::refuse_unless_passwordless;
+    let (major, minor, patch) = PQ_SIGN_IN_SINCE;
+    let gate = version(major.into(), minor.into(), patch.into());
+    let old = version(0, 11, 2);
+    let password = ProposedCredentials::post_quantum("alice".into(), "Alice".into());
+
+    let refused = refuse_unless_passwordless(old, &password).unwrap_err();
+    assert_eq!(
+        refused.code,
+        citadel_io::ErrorCode::PqSignInAdmissionNeedsUpdate
+    );
+    assert!(refused.into_string().contains("update your app"));
+    let refused = refuse_unless_passwordless(gate, &password).unwrap_err();
+    assert_eq!(refused.code, citadel_io::ErrorCode::PqSignInLegacyRefused);
+
+    for adjacent in [old, gate, *PROTOCOL_VERSION] {
+        refuse_unless_passwordless(adjacent, &ProposedCredentials::transient("bob")).unwrap();
+    }
 }

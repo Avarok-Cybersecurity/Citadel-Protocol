@@ -81,9 +81,9 @@ pub const SESSION_RESUME_SINCE: (u8, u8, u8) = (0, 11, 2);
 
 /// The first protocol version whose nodes run post-quantum sign-in (see `proto::pq_sign_in`): a
 /// client sends connect `AUTH_START` before STAGE0 and register `PQ_START` before STAGE2, and the
-/// server proves the account's ML-KEM factors instead of verifying an Argon2 hash. A client talking
-/// to a server below it, or of unknown version, logs in and registers the legacy way; a server
-/// receiving a legacy login checks it the legacy way, unless the account has already upgraded.
+/// server proves the account's ML-KEM factors. Since the Argon2 sunset it is the only password
+/// sign-in: a client refuses to sign a password account in or up with a server below it, and a
+/// server tells a client below it to update unless the sign-in is passwordless.
 pub const PQ_SIGN_IN_SINCE: (u8, u8, u8) = (0, 12, 0);
 
 /// The first protocol version whose server answers a liveness probe: a `KEEP_ALIVE` with

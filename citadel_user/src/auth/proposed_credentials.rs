@@ -1,52 +1,26 @@
-//! Credential Proposal and Validation
+//! The credentials a login or registration carries.
 //!
-//! This module handles the creation, validation, and processing of user credentials
-//! in the Citadel Protocol, supporting both password-based and passwordless authentication.
-//!
-//! # Features
-//!
-//! * **Credential Management**
-//!   - Password hashing with Argon2id
-//!   - Username sanitization
-//!   - Full name handling
-//!   - Passwordless mode support
-//!
-//! * **Security Features**
-//!   - Secure password transformation
-//!   - Random salt generation
-//!   - Configurable Argon2 parameters
-//!   - Memory-safe credential handling
-//!
-//! * **Validation**
-//!   - Server-side validation
-//!   - Credential comparison
-//!   - Username uniqueness
-//!   - Format sanitization
+//! They name the account and nothing more. A password never travels and is never hashed here:
+//! post-quantum sign-in turns it into an ML-KEM key on the client (see `auth::pq`), and the
+//! server proves that key by encapsulation. A passwordless (transient) login carries only its
+//! username.
 //!
 //! # Important Notes
 //!
-//! * Passwords are pre-hashed with SHA-3 before Argon2
-//! * All strings are trimmed and sanitized
-//! * Registration generates secure random secrets
-//! * Credentials are zeroed after use
-//! * Server validates all client credentials
+//! * Usernames and full names are trimmed (Unicode `White_Space`)
+//! * `password_hashed` is always empty since the Argon2 sunset; it keeps the wire shape older
+//!   nodes parse
 //!
 //! # Related Components
 //!
 //! * `DeclaredAuthenticationMode` - Final auth state
 //! * `ServerMiscSettings` - Server validation rules
-//! * `ArgonContainerType` - Password hashing
 //! * `AccountManager` - Uses proposed credentials
 
 use crate::auth::DeclaredAuthenticationMode;
 use crate::misc::AccountError;
-use crate::server_misc_settings::ServerMiscSettings;
 use bstr::ByteSlice;
-use citadel_crypt::argon::argon_container::{
-    ArgonContainerType, ArgonSettings, ArgonStatus, AsyncArgon, ServerArgonContainer,
-};
 use citadel_types::crypto::SecBuffer;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha3::Digest;
 
@@ -58,48 +32,25 @@ pub enum ProposedCredentials {
     Enabled {
         /// Username of the client
         username: String,
-        /// Password (hashed)
+        /// Empty. Before the Argon2 sunset it carried the client's Argon2 hash; it stays so the
+        /// encoding is the one every node since 0.11 parses.
         password_hashed: SecBuffer,
         /// Full name or alternative moniker
         full_name: String,
-        /// Only existent if the new_register constructor is called. Serialization of this field is skipped since this is only used for clientside
-        #[serde(skip)]
-        clientside_only_registration_settings: Option<ArgonSettings>,
     },
 
     /// Denotes that credentials will not be used (passwordless)
     Disabled { username: String },
 }
 
-// Clientside impls
 impl ProposedCredentials {
-    /// Generates the proper connect credentials. Does NOT trim the password (if trimming is needed, make sure the password is already trimmed before calling this function).
-    pub async fn new_connect<T: Into<String> + Send, R: Into<String> + Send>(
-        full_name: T,
-        username: R,
-        password_raw: SecBuffer,
-        settings: ArgonSettings,
-    ) -> Result<Self, AccountError> {
-        let (username, full_name, password_hashed) =
-            Self::sanitize_and_prepare(username, full_name, password_raw.as_ref(), false);
-
-        let password_hashed = Self::argon_hash(password_hashed, settings).await?;
-        Ok(Self::Enabled {
-            username,
-            password_hashed,
-            full_name,
-            clientside_only_registration_settings: None,
-        })
-    }
-
-    /// The credentials a post-quantum login carries in connect STAGE0: the account's names and no
-    /// password hash. The factors are proven by the exchange that precedes STAGE0.
+    /// The credentials a post-quantum login carries in connect STAGE0: the account's names. The
+    /// factors are proven by the exchange that precedes STAGE0.
     pub fn post_quantum(username: String, full_name: String) -> Self {
         Self::Enabled {
             username,
             password_hashed: SecBuffer::empty(),
             full_name,
-            clientside_only_registration_settings: None,
         }
     }
 
@@ -110,128 +61,58 @@ impl ProposedCredentials {
         }
     }
 
-    /// Generates the proper registration credentials. Trims the username, password, and full name, removing any whitespace from the ends. Should only be called client-side
-    ///
-    /// 'Whitespace' is defined according to the terms of the Unicode Derived Core Property White_Space.
-    pub async fn new_register<T: Into<String> + Send, R: Into<String> + Send>(
-        full_name: T,
-        username: R,
-        password_unhashed: SecBuffer,
-    ) -> Result<Self, AccountError> {
-        let (username, full_name, password_unhashed) =
-            Self::sanitize_and_prepare(username, full_name, password_unhashed.as_ref(), true);
-
-        // the secret will be stored in the settings which is stored in the CNAC locally clientside
-        let secret = &mut [0u8; 32];
-        {
-            let mut rng = rand::thread_rng();
-            rng.fill_bytes(secret);
-        }
-
-        let settings = ArgonSettings::new_defaults_with_static_secret(
-            full_name.clone().into_bytes(),
-            secret.to_vec(),
-        );
-        let password_hashed = Self::argon_hash(password_unhashed, settings.clone()).await?;
-        Ok(Self::Enabled {
-            username,
-            password_hashed,
-            full_name,
-            clientside_only_registration_settings: Some(settings),
-        })
+    /// The credentials a registration carries, with the names trimmed of whitespace (as defined by
+    /// the Unicode Derived Core Property `White_Space`). The password goes to the post-quantum
+    /// registration instead, through [`Self::registration_password`].
+    pub fn new_register<T: Into<String>, R: Into<String>>(full_name: T, username: R) -> Self {
+        let (username, full_name) = Self::sanitize(username, full_name);
+        Self::post_quantum(username, full_name)
     }
 
-    /// The password exactly as [`Self::new_register`] takes it (trimmed), for a post-quantum
-    /// registration, which turns it into a key rather than hashing it.
+    /// The password a post-quantum registration turns into a key: trimmed, as the names are.
     pub fn registration_password(password_unhashed: &SecBuffer) -> SecBuffer {
         password_unhashed.as_ref().trim().into()
     }
 
-    async fn argon_hash(
-        password_unhashed: SecBuffer,
-        settings: ArgonSettings,
-    ) -> Result<SecBuffer, AccountError> {
-        match AsyncArgon::hash(
-            Self::password_transform(password_unhashed),
-            settings.clone(),
-        )
-        .await
-        .map_err(|err| {
-            citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string())
-        })? {
-            ArgonStatus::HashSuccess(ret) => Ok(ret),
-            other => Err(citadel_io::error!(
-                citadel_io::ErrorCode::ArgonHashUnexpected,
-                citadel_io::Dbg(other)
-            )),
-        }
-    }
-
-    fn sanitize_and_prepare<T: Into<String> + Send, R: Into<String> + Send>(
-        username: T,
-        full_name: R,
-        maybe_hashed_password: &[u8],
-        do_password_trim: bool,
-    ) -> (String, String, SecBuffer) {
+    fn sanitize<T: Into<String>, R: Into<String>>(username: T, full_name: R) -> (String, String) {
         let username = username.into();
         let full_name = full_name.into();
-
-        let username = username.trim();
-        let password = if do_password_trim {
-            maybe_hashed_password.trim()
-        } else {
-            maybe_hashed_password
-        };
-        let full_name = full_name.trim();
-
-        (username.to_string(), full_name.to_string(), password.into())
+        (username.trim().to_string(), full_name.trim().to_string())
     }
 
-    /// Gets all the internal values
-    pub fn decompose(self) -> (String, SecBuffer, String, Option<ArgonSettings>) {
+    /// The username and full name. A passwordless login has no full name.
+    pub fn decompose(self) -> (String, String) {
         match self {
             Self::Enabled {
                 username,
-                password_hashed,
                 full_name,
-                clientside_only_registration_settings,
-            } => (
-                username,
-                password_hashed,
-                full_name,
-                clientside_only_registration_settings,
-            ),
-            Self::Disabled { username } => (username, SecBuffer::empty(), String::new(), None),
+                ..
+            } => (username, full_name),
+            Self::Disabled { username } => (username, String::new()),
         }
     }
 
-    /// SHA's the password before input into argon
+    /// `SHA3-256` of the password, the input of the password factor's OPRF.
     pub fn password_transform<T: AsRef<[u8]>>(password_raw: T) -> SecBuffer {
         let mut digest = sha3::Sha3_256::default();
         digest.update(password_raw.as_ref());
         digest.finalize().to_vec().into()
     }
 
-    pub(crate) fn into_auth_store(self) -> DeclaredAuthenticationMode {
+    /// The account a passwordless registration creates. A password account is created only by a
+    /// post-quantum registration, which enrols its factors.
+    pub(crate) fn into_transient_auth_store(
+        self,
+    ) -> Result<DeclaredAuthenticationMode, AccountError> {
         match self {
-            Self::Disabled { username } => DeclaredAuthenticationMode::Transient {
+            Self::Disabled { username } => Ok(DeclaredAuthenticationMode::Transient {
                 username,
                 full_name: "authless.client".to_string(),
-            },
-            Self::Enabled {
-                username,
-                full_name,
-                clientside_only_registration_settings,
-                ..
-            } => DeclaredAuthenticationMode::Argon {
-                username,
-                full_name,
-                argon: ArgonContainerType::Client(
-                    clientside_only_registration_settings
-                        .unwrap_or_default()
-                        .into(),
-                ),
-            },
+            }),
+            Self::Enabled { .. } => Err(citadel_io::error!(
+                citadel_io::ErrorCode::PqSignInUnavailable,
+                "a password account registers with post-quantum factors"
+            )),
         }
     }
 
@@ -247,105 +128,10 @@ impl ProposedCredentials {
             | ProposedCredentials::Disabled { username } => username.as_str(),
         }
     }
-}
-
-// Serverside impls
-impl ProposedCredentials {
-    /// Called when the server registers the client-provided credentials
-    pub async fn derive_server_container(
-        self,
-        server_argon_settings: &ArgonSettings,
-        server_misc_settings: &ServerMiscSettings,
-    ) -> Result<DeclaredAuthenticationMode, AccountError> {
-        match self {
-            Self::Disabled { .. } => {
-                if server_misc_settings.allow_transient_connections {
-                    Ok(self.into_auth_store())
-                } else {
-                    Err(citadel_io::error!(
-                        citadel_io::ErrorCode::PasswordlessUnsupported
-                    ))
-                }
-            }
-
-            Self::Enabled {
-                username,
-                password_hashed,
-                full_name,
-                ..
-            } => {
-                let settings =
-                    server_argon_settings.derive_new_with_custom_ad(username.clone().into_bytes());
-
-                match AsyncArgon::hash(password_hashed, settings.clone())
-                    .await
-                    .map_err(|err| {
-                        citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string())
-                    })? {
-                    ArgonStatus::HashSuccess(hash_x2) => Ok(DeclaredAuthenticationMode::Argon {
-                        username,
-                        full_name,
-                        argon: ArgonContainerType::Server(ServerArgonContainer::new(
-                            settings, hash_x2,
-                        )),
-                    }),
-
-                    _ => Err(citadel_io::error!(
-                        citadel_io::ErrorCode::PasswordHashFailed
-                    )),
-                }
-            }
-        }
-    }
-
-    /// Validates the credentials against a password-protected account's container. Passwordless
-    /// credentials never satisfy one: they are for transient accounts, which are not checked here.
-    pub async fn validate_credentials(
-        self,
-        argon_container: ArgonContainerType,
-    ) -> Result<(), AccountError> {
-        if self.is_passwordless() {
-            return Err(AccountError::account_invalid_password());
-        }
-
-        let password_hashed = self.decompose().1;
-
-        match argon_container {
-            ArgonContainerType::Server(server_container) => {
-                match AsyncArgon::verify(password_hashed, server_container)
-                    .await
-                    .map_err(|err| {
-                        citadel_io::error!(citadel_io::ErrorCode::ArgonHashFailed, err.to_string())
-                    })? {
-                    ArgonStatus::VerificationSuccess => Ok(()),
-
-                    ArgonStatus::VerificationFailed(None) => {
-                        log::warn!(target: "citadel", "Invalid password specified ...");
-                        Err(AccountError::account_invalid_password())
-                    }
-
-                    ArgonStatus::VerificationFailed(Some(err)) => {
-                        log::error!(target: "citadel", "Password verification failed: {}", err);
-                        Err(AccountError::generic(err))
-                    }
-
-                    _ => Err(AccountError::account_invalid_password()),
-                }
-            }
-
-            _ => Err(citadel_io::error!(
-                citadel_io::ErrorCode::AccountNotPasswordProtected
-            )),
-        }
-    }
 
     /// Compares usernames for equality
     pub fn compare_username(&self, other: &[u8]) -> bool {
-        match self {
-            Self::Disabled { username } | Self::Enabled { username, .. } => {
-                username.as_bytes() == other
-            }
-        }
+        self.username().as_bytes() == other
     }
 }
 
@@ -356,9 +142,8 @@ mod tests {
     fn enabled(user: &str) -> ProposedCredentials {
         ProposedCredentials::Enabled {
             username: user.to_string(),
-            password_hashed: SecBuffer::from(b"hash".to_vec()),
+            password_hashed: SecBuffer::empty(),
             full_name: "Full Name".to_string(),
-            clientside_only_registration_settings: None,
         }
     }
 
@@ -386,35 +171,31 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_trims_username_fullname_and_optional_password() {
-        // do_password_trim = false → password left untouched
-        let (u, f, p) = ProposedCredentials::sanitize_and_prepare(
-            "  alice  ",
-            "  Alice S  ",
-            b"  pwd  ",
-            false,
-        );
-        assert_eq!(u, "alice");
-        assert_eq!(f, "Alice S");
-        assert_eq!(p.as_ref(), b"  pwd  ");
-        // do_password_trim = true → password trimmed too
-        let (_u, _f, p2) = ProposedCredentials::sanitize_and_prepare("a", "b", b"  pwd  ", true);
-        assert_eq!(p2.as_ref(), b"pwd");
+    fn registration_trims_the_names_and_the_password() {
+        let creds = ProposedCredentials::new_register("  Alice S  ", "  alice  ");
+        assert_eq!(creds.decompose(), ("alice".into(), "Alice S".into()));
+        let password = ProposedCredentials::registration_password(&b"  pwd  "[..].into());
+        assert_eq!(password.as_ref(), b"pwd");
     }
 
     #[test]
     fn decompose_enabled_and_disabled() {
-        let (u, pw, fname, settings) = enabled("alice").decompose();
-        assert_eq!(u, "alice");
-        assert_eq!(pw.as_ref(), b"hash");
-        assert_eq!(fname, "Full Name");
-        assert!(settings.is_none());
+        assert_eq!(
+            enabled("alice").decompose(),
+            ("alice".into(), "Full Name".into())
+        );
+        assert_eq!(
+            ProposedCredentials::transient("bob").decompose(),
+            ("bob".into(), String::new())
+        );
+    }
 
-        let (u2, pw2, fname2, settings2) = ProposedCredentials::transient("bob").decompose();
-        assert_eq!(u2, "bob");
-        assert!(pw2.as_ref().is_empty());
-        assert!(fname2.is_empty());
-        assert!(settings2.is_none());
+    #[test]
+    fn only_passwordless_credentials_make_an_account_without_factors() {
+        let transient = ProposedCredentials::transient("bob").into_transient_auth_store();
+        assert!(transient.unwrap().is_transient());
+        let refused = enabled("alice").into_transient_auth_store().unwrap_err();
+        assert_eq!(refused.code, citadel_io::ErrorCode::PqSignInUnavailable);
     }
 
     #[test]

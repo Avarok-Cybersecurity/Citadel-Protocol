@@ -20,6 +20,9 @@ pub mod half_open_scenario;
 pub mod media;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod pq;
+#[cfg(not(target_family = "wasm"))]
+#[allow(dead_code)]
+pub mod restart;
 
 use citadel_io::tokio::sync::{Mutex, Semaphore};
 use citadel_sdk::async_trait;

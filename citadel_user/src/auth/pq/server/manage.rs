@@ -1,7 +1,7 @@
 //! The server's side of sign-in management: a step-up bound to the operation, a proof of
 //! possession for a key being added, then the change itself.
 
-use super::login::{build_login_challenge, AccountAuth, Expectation, Expected};
+use super::login::{build_login_challenge, AccountAuth, Expected};
 use super::PqAuthServerSettings;
 use crate::auth::pq::kem::{encapsulate, EncapsulationKey, SharedSecret};
 use crate::auth::pq::messages::{
@@ -60,10 +60,8 @@ pub fn begin_management(
     let (step_up, expected) = match scope {
         SessionScope::Full => {
             let account = AccountAuth::PostQuantum(record);
-            match build_login_challenge(settings, account, &begin.step_up)? {
-                (challenge, Expectation::Factors(expected)) => (challenge, Some(expected)),
-                _ => return Err(malformed("a step-up for a legacy account")),
-            }
+            let (challenge, expected) = build_login_challenge(settings, account, &begin.step_up)?;
+            (challenge, Some(expected))
         }
         SessionScope::Recovery => (recovery_challenge(record), None),
     };

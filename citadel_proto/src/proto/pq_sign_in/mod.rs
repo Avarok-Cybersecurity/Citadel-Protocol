@@ -3,12 +3,12 @@
 //! - Register, after the key exchange: `PQ_START` (C→S `RegStart`), `PQ_REPLY` (S→C
 //!   `RegStartReply`), then STAGE2 carries the `RegFinish` keys. The server hashes nothing.
 //! - Connect, after pre-connect: `AUTH_START` (C→S `LoginStart`), `AUTH_CHALLENGE` (S→C
-//!   `LoginChallenge`), then STAGE0 carries the `LoginProof`. A legacy account answers with a
-//!   legacy challenge, logs in with its Argon2 credentials, and upgrades in the same STAGE0.
+//!   `LoginChallenge`), then STAGE0 carries the `LoginProof`.
 //!
-//! Both sides use it only with a node at or above [`PQ_SIGN_IN_SINCE`]; with an older one they
-//! keep the legacy exchange, so 0.11 and 0.12 nodes interoperate. Every message travels inside
-//! the session's post-quantum channel.
+//! It is the only password sign-in: since the Argon2 sunset nothing verifies an Argon2 hash. A
+//! node below [`PQ_SIGN_IN_SINCE`] can still sign in passwordless (transient), and is told to
+//! update for anything else ([`without_factors`]). Every message travels inside the session's
+//! post-quantum channel.
 
 pub(crate) mod admission;
 pub(crate) mod admit;
@@ -21,6 +21,7 @@ pub(crate) mod register;
 pub(crate) mod restrict;
 pub mod security_key;
 pub(crate) mod state;
+pub(crate) mod without_factors;
 
 #[cfg(test)]
 mod tests;
