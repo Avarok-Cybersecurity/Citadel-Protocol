@@ -77,20 +77,29 @@ pub mod tests {
             .unwrap();
         let taken = occupant.local_addr().unwrap();
 
-        let proto = ServerMode::OrderedReliable(NativeOrderedReliableConfig::new());
-        match NativeIO::bind(proto, taken).await {
-            Ok(_) => panic!("bind unexpectedly succeeded on an occupied port {taken}"),
-            Err(e) => {
-                assert_eq!(
-                    e.kind(),
-                    std::io::ErrorKind::AddrInUse,
-                    "kind was flattened; got {:?} ({e})",
-                    e.kind()
-                );
-                assert!(
-                    e.raw_os_error().is_some(),
-                    "errno was stringified away; got {e:?}"
-                );
+        // Every mode, P2P included: its TCP-to-QUIC upgrade listener stringified the errno, so on
+        // Windows a reserved ephemeral port (WSAEACCES) was not retried and three tests failed
+        // (Citadel-Protocol #360, windows core_libs, "os error 10013").
+        for proto in [
+            ServerMode::OrderedReliable(NativeOrderedReliableConfig::new()),
+            ServerMode::OrderedReliableSecure(NativeSecureConfig::self_signed().unwrap()),
+            ServerMode::P2P(NativeP2PConfig::self_signed()),
+        ] {
+            let mode = format!("{proto:?}");
+            match NativeIO::bind(proto, taken).await {
+                Ok(_) => panic!("{mode}: bind unexpectedly succeeded on an occupied port {taken}"),
+                Err(e) => {
+                    assert_eq!(
+                        e.kind(),
+                        std::io::ErrorKind::AddrInUse,
+                        "{mode}: kind was flattened; got {:?} ({e})",
+                        e.kind()
+                    );
+                    assert!(
+                        e.raw_os_error().is_some(),
+                        "{mode}: errno was stringified away; got {e:?}"
+                    );
+                }
             }
         }
     }

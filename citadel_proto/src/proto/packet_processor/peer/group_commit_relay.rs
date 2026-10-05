@@ -118,11 +118,14 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         epoch: u64,
         awaiting: HashSet<u64>,
     ) -> Option<Settled> {
-        self.inner
-            .write()
-            .await
-            .commit_gates
-            .open(key, epoch, awaiting)
+        let mut this = self.inner.write().await;
+        // The sessions the Commit is about to be delivered to (and the owner's that made it).
+        let owner = this.current_session(key.cid);
+        let awaiting = awaiting
+            .into_iter()
+            .map(|cid| (cid, this.current_session(cid)))
+            .collect();
+        this.commit_gates.open(key, epoch, owner, awaiting)
     }
 
     /// See [`crate::proto::peer::group_commit_gate::CommitGates::applied`]. The write lock is fair, so it is taken only after every
@@ -163,8 +166,14 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         self.inner.write().await.commit_gates.removed(key, members)
     }
 
-    /// See [`crate::proto::peer::group_commit_gate::CommitGates::session_ended`].
-    pub async fn commit_gate_session_ended(&self, cid: u64) -> Vec<Settled> {
-        self.inner.write().await.commit_gates.session_ended(cid)
+    /// See [`crate::proto::peer::group_commit_gate::CommitGates::session_ended`]: only the
+    /// waits for the session `incarnation` names, so a replaced session's late end neither takes
+    /// its replacement out of a wait nor leaves a wait it was in stuck on it.
+    pub async fn commit_gate_session_ended(&self, cid: u64, incarnation: Instant) -> Vec<Settled> {
+        self.inner
+            .write()
+            .await
+            .commit_gates
+            .session_ended(cid, incarnation)
     }
 }

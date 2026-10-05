@@ -87,8 +87,10 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
 
         // TCP signaling listener: sends redirect signal to each connecting client
         let redirect_info = Some((p2p_config.domain.clone(), p2p_config.is_self_signed));
+        // The errno is kept (as `native_bind` keeps it): a caller retrying a reserved ephemeral
+        // port on Windows (WSAEACCES) reads it, and `to_string` left only its English.
         let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener(addr)
-            .map_err(|e| io::Error::other(e.to_string()))?;
+            .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::AddrNotAvailable))?;
         let bind_addr = tcp_listener.local_addr()?;
         let tcp_gnl = GenericNetworkListener::new_tcp(tcp_listener, redirect_info)?;
 
@@ -99,7 +101,7 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
             is_self_signed,
         } = p2p_config.clone();
         let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind_addr)
-            .map_err(|e| io::Error::other(e.to_string()))?;
+            .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::AddrNotAvailable))?;
         let mut quic =
             QuicServer::create(udp_socket, crypto).map_err(|e| io::Error::other(e.to_string()))?;
         quic.tls_domain_opt = domain;

@@ -124,3 +124,57 @@ async fn a_session_that_ends_before_its_replacement_is_admitted_releases_its_own
     connect(&layer, replaced + Duration::from_millis(1)).await;
     assert!(has_postings(&layer).await, "the replacement starts afresh");
 }
+
+/// Through the peer layer, as the server runs it: a member's Commit wait is on the session the
+/// Commit was delivered to. Replaced mid-commit, the new session never acknowledges it; the
+/// replaced session's late end settles it. A wait opened after the replacement is the
+/// replacement's, and the replaced session's end leaves it.
+#[tokio::test]
+async fn a_member_replaced_mid_commit_neither_stalls_nor_steals_a_wait() {
+    let layer = layer().await;
+    let replaced = Instant::now();
+    let replacement = replaced + Duration::from_millis(1);
+    layer.admit(MEMBER, Instant::now());
+    connect(&layer, replaced).await;
+    let owned_by_member = MessageGroupKey {
+        cid: MEMBER,
+        mgid: 1,
+    };
+    let only = |cid| std::iter::once(cid).collect::<std::collections::HashSet<u64>>();
+    assert_eq!(
+        layer.open_commit_gate(owned_by_member, 1, only(CID)).await,
+        None
+    );
+
+    connect(&layer, replacement).await;
+    let later = MessageGroupKey {
+        cid: MEMBER,
+        mgid: 2,
+    };
+    assert_eq!(layer.open_commit_gate(later, 1, only(CID)).await, None);
+
+    let settled = shut_down_waits(&layer, replaced).await;
+    assert_eq!(
+        settled,
+        vec![crate::proto::peer::group_commit_gate::Settled {
+            key: owned_by_member,
+            epoch: 1
+        }],
+        "the wait the replaced session was in stalled, or the replacement's was taken with it"
+    );
+    assert_eq!(
+        layer.commit_applied(later, 1, CID).await,
+        Some(crate::proto::peer::group_commit_gate::Settled {
+            key: later,
+            epoch: 1
+        }),
+        "the replacement's own wait still settles on its acknowledgement"
+    );
+}
+
+async fn shut_down_waits(
+    layer: &CitadelNodePeerLayer<StackedRatchet>,
+    incarnation: Instant,
+) -> Vec<crate::proto::peer::group_commit_gate::Settled> {
+    layer.commit_gate_session_ended(CID, incarnation).await
+}
