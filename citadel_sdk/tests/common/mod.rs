@@ -109,6 +109,40 @@ impl NodeState {
         }
     }
 
+    /// Wait for the P2P disconnect whose `disconnect_response` satisfies `which`, however many
+    /// others arrive first, and return the connection it names. An event, not a moment: each
+    /// report adds a permit, and the reports so far are checked after each one.
+    pub async fn wait_for_p2p_disconnect_where(
+        &self,
+        timeout: Duration,
+        which: impl Fn(&Option<PeerResponse>) -> bool,
+    ) -> Option<Ticket> {
+        citadel_io::tokio::time::timeout(timeout, async {
+            loop {
+                let found = {
+                    let responses = self.p2p_disconnect_responses.lock().unwrap();
+                    responses.iter().position(&which)
+                };
+                if let Some(index) = found {
+                    return self.p2p_disconnect_connections.lock().unwrap()[index];
+                }
+                self.p2p_disconnect_semaphore
+                    .acquire()
+                    .await
+                    .expect("P2P disconnect semaphore closed unexpectedly")
+                    .forget();
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "Timed out waiting for the P2P disconnect ({}s); got {:?}",
+                timeout.as_secs(),
+                self.p2p_disconnect_responses.lock().unwrap()
+            )
+        })
+    }
+
     pub fn increment_messages_sent(&self) {
         self.messages_sent.fetch_add(1, Ordering::SeqCst);
     }

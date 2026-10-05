@@ -160,14 +160,30 @@ mod tests {
                     // ===== PHASE 2: Wait for B to disconnect P2P =====
                     state.set_phase(2);
 
-                    // Drop channel refs to allow disconnect
-                    drop(tx);
-                    drop(rx);
-
                     barrier2.wait().await;
 
-                    // Wait for actual P2P disconnect signal from B
-                    state.wait_for_p2p_disconnect(Duration::from_secs(30)).await;
+                    // Wait for B's disconnect, as the server relays it ("Peer B closed the
+                    // virtual connection to A"): the report of B's explicit disconnect, which B
+                    // makes while its channel is still open, so it always goes out. Other reports
+                    // of the same end (this side's vConn dropping) may come before or after it, or
+                    // be folded into it; this one is guaranteed.
+                    let relayed = state
+                        .wait_for_p2p_disconnect_where(Duration::from_secs(30), |response| {
+                            matches!(response, Some(PeerResponse::Disconnected(text))
+                                if text.contains("closed the virtual connection"))
+                        })
+                        .await;
+                    assert_eq!(
+                        relayed, first_connection,
+                        "B's disconnect, relayed, names another connection than the one it ended"
+                    );
+
+                    // Only now does this side drop its channel. Dropped earlier, its own
+                    // disconnect raced B's: whichever reached the server first ended the
+                    // connection, and when it was this side's, B's was never relayed and this
+                    // side saw only the server's answer to its own.
+                    drop(tx);
+                    drop(rx);
 
                     log::info!(
                         target: "citadel",
@@ -216,19 +232,10 @@ mod tests {
 
                     log::info!(target: "citadel", "[Peer A] Phase 4 complete");
 
-                    // Every report of the first connection's end names it, whichever path
-                    // reported it: the peer's signal relayed by the server (its channel's drop,
-                    // and its explicit disconnect), the local vConn's drop, or the direct
-                    // stream's end. Checked here, not when the first report arrives: the peer's
-                    // explicit disconnect is relayed on this session's C2S stream before the
-                    // reconnect's answers, so by now every report of that end has arrived. It
-                    // reached macOS and Windows runners before the first wait returned, and
-                    // Ubuntu's after, which is why only Ubuntu passed a check made there.
+                    // Every report of the first connection's end that arrived names it, whichever
+                    // path reported it (the relay above, the local vConn's drop, the direct
+                    // stream's end): none names no connection or another.
                     let named = state.p2p_disconnect_connections.lock().unwrap().clone();
-                    assert!(
-                        named.len() >= 2,
-                        "both of the peer's disconnects are reported: {named:?}"
-                    );
                     assert!(
                         named.iter().all(|id| *id == first_connection),
                         "a disconnect named another connection than {first_connection:?}: {named:?}"
@@ -342,12 +349,13 @@ mod tests {
                     // ===== PHASE 2: B disconnects P2P (C2S stays active) =====
                     state.set_phase(2);
 
-                    // Drop channel refs before disconnect
+                    // Disconnect P2P only, with the channel still open: the explicit disconnect
+                    // is then what ends the connection, and is relayed to A. Dropped first, the
+                    // channel's own disconnect raced it, and either one might end the connection
+                    // and be the only one relayed (CI run 37333622257 saw one report).
+                    p2p_remote.disconnect().await?;
                     drop(tx);
                     drop(rx);
-
-                    // Disconnect P2P only
-                    p2p_remote.disconnect().await?;
                     log::info!(target: "citadel", "[Peer B] P2P disconnected (C2S still active)");
 
                     barrier2.wait().await;
