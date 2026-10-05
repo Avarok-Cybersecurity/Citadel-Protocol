@@ -124,3 +124,47 @@ async fn a_session_that_ends_before_its_replacement_is_admitted_releases_its_own
     connect(&layer, replaced + Duration::from_millis(1)).await;
     assert!(has_postings(&layer).await, "the replacement starts afresh");
 }
+
+/// The commit gates of `CID`'s groups, and of the groups it is waited on in, outlive a replaced
+/// session's shutdown: the replacement has not applied a Commit just because the session it
+/// replaced ended.
+#[tokio::test]
+async fn a_replaced_sessions_late_shutdown_leaves_its_replacements_commit_waits() {
+    let layer = layer().await;
+    let replaced = Instant::now();
+    let replacement = replaced + Duration::from_millis(1);
+    connect(&layer, replaced).await;
+    connect(&layer, replacement).await;
+    let awaited_in = MessageGroupKey {
+        cid: MEMBER,
+        mgid: 1,
+    };
+    let owned = MessageGroupKey { cid: CID, mgid: 2 };
+    let only = |cid| std::iter::once(cid).collect::<std::collections::HashSet<u64>>();
+    assert_eq!(layer.open_commit_gate(awaited_in, 1, only(CID)).await, None);
+    assert_eq!(layer.open_commit_gate(owned, 1, only(MEMBER)).await, None);
+
+    assert!(
+        layer
+            .commit_gate_session_ended(CID, replaced)
+            .await
+            .is_empty(),
+        "the replaced session's end settled a Commit the new session has not applied"
+    );
+    assert_eq!(
+        layer.commit_applied(owned, 1, MEMBER).await,
+        Some(crate::proto::peer::group_commit_gate::Settled {
+            key: owned,
+            epoch: 1
+        }),
+        "the replaced session's end dropped the wait of a group the new session owns"
+    );
+    assert_eq!(
+        layer.commit_gate_session_ended(CID, replacement).await,
+        vec![crate::proto::peer::group_commit_gate::Settled {
+            key: awaited_in,
+            epoch: 1
+        }],
+        "the new session's own end leaves the wait it was in"
+    );
+}

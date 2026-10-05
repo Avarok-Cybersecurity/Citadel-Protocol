@@ -163,8 +163,16 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         self.inner.write().await.commit_gates.removed(key, members)
     }
 
-    /// See [`crate::proto::peer::group_commit_gate::CommitGates::session_ended`].
-    pub async fn commit_gate_session_ended(&self, cid: u64) -> Vec<Settled> {
-        self.inner.write().await.commit_gates.session_ended(cid)
+    /// See [`crate::proto::peer::group_commit_gate::CommitGates::session_ended`]. Only while
+    /// `incarnation` is still `cid`'s session (see `CitadelNodePeerLayer::admit`): a replaced
+    /// session's shutdown would otherwise take its replacement out of every wait it is in (a
+    /// Commit settled that the new session has not applied) and end the waits of the groups it
+    /// owns.
+    pub async fn commit_gate_session_ended(&self, cid: u64, incarnation: Instant) -> Vec<Settled> {
+        let mut this = self.inner.write().await;
+        if !this.is_current_session(cid, incarnation) {
+            return Vec::new();
+        }
+        this.commit_gates.session_ended(cid)
     }
 }

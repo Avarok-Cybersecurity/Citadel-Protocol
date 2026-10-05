@@ -844,7 +844,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_layer
                         .drop_group_watches(session_cid, incarnation)
                         .await;
-                    for settled in peer_layer.commit_gate_session_ended(session_cid).await {
+                    for settled in peer_layer
+                        .commit_gate_session_ended(session_cid, incarnation)
+                        .await
+                    {
                         group_notifier.notify_commit_settled(
                             settled,
                             Ticket(0),
