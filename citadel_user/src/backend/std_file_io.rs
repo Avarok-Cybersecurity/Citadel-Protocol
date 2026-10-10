@@ -9,6 +9,17 @@ use citadel_io::tokio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::io::AsyncWriteExt;
 
+/// Build an I/O error naming the operation and path, with the origin at the
+/// invoking line rather than inside a shared constructor.
+macro_rules! io_err {
+    ($op:expr, $path:expr, $err:expr) => {
+        citadel_io::error!(
+            citadel_io::ErrorCode::Io,
+            format!("{} {:?}: {}", $op, $path, $err)
+        )
+    };
+}
+
 /// Rename `from` over `to`, retrying briefly on Windows.
 ///
 /// POSIX replaces the destination even while a reader holds it open. Windows
@@ -48,7 +59,7 @@ impl FileIO for StdFileIO {
     async fn create_dir_all(&self, path: &str) -> Result<(), AccountError> {
         tokio::fs::create_dir_all(path)
             .await
-            .map_err(|err| AccountError::io(err.to_string()))
+            .map_err(|err| io_err!("create_dir_all", path, err))
     }
 
     /// Write via a sibling temp file and a rename, so the destination is never
@@ -91,12 +102,12 @@ impl FileIO for StdFileIO {
             // Best effort: the temp file may not exist, and the write error is
             // what the caller needs to see either way.
             let _ = tokio::fs::remove_file(&temp).await;
-            return Err(AccountError::io(err.to_string()));
+            return Err(io_err!("write", temp, err));
         }
 
         if let Err(err) = rename_replacing(&temp, path).await {
             let _ = tokio::fs::remove_file(&temp).await;
-            return Err(AccountError::io(err.to_string()));
+            return Err(io_err!("rename", format!("{temp} -> {path}"), err));
         }
 
         Ok(())
@@ -105,31 +116,31 @@ impl FileIO for StdFileIO {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, AccountError> {
         tokio::fs::read(path)
             .await
-            .map_err(|err| AccountError::io(err.to_string()))
+            .map_err(|err| io_err!("read", path, err))
     }
 
     async fn remove_file(&self, path: &str) -> Result<(), AccountError> {
         tokio::fs::remove_file(path)
             .await
-            .map_err(|err| AccountError::io(err.to_string()))
+            .map_err(|err| io_err!("remove_file", path, err))
     }
 
     async fn remove_dir_all(&self, path: &str) -> Result<(), AccountError> {
         tokio::fs::remove_dir_all(path)
             .await
-            .map_err(|err| AccountError::io(err.to_string()))
+            .map_err(|err| io_err!("remove_dir_all", path, err))
     }
 
     async fn read_dir(&self, path: &str) -> Result<Vec<DirEntry>, AccountError> {
         let mut entries = Vec::new();
         let mut dir = tokio::fs::read_dir(path)
             .await
-            .map_err(|err| AccountError::io(err.to_string()))?;
+            .map_err(|err| io_err!("read_dir", path, err))?;
 
         while let Some(entry) = dir
             .next_entry()
             .await
-            .map_err(|err| AccountError::io(err.to_string()))?
+            .map_err(|err| io_err!("read_dir entry", path, err))?
         {
             let path_buf = entry.path();
             let is_file = path_buf.is_file();
@@ -154,14 +165,16 @@ impl FileIO for StdFileIO {
     ) -> Result<Box<dyn AsyncStreamWriter>, AccountError> {
         let file = tokio::fs::File::create(path)
             .await
-            .map_err(|err| AccountError::io(err.to_string()))?;
+            .map_err(|err| io_err!("create", path, err))?;
         Ok(Box::new(StdStreamWriter {
+            path: path.to_string(),
             writer: tokio::io::BufWriter::new(file),
         }))
     }
 }
 
 struct StdStreamWriter {
+    path: String,
     writer: tokio::io::BufWriter<tokio::fs::File>,
 }
 
@@ -171,19 +184,19 @@ impl AsyncStreamWriter for StdStreamWriter {
         self.writer
             .write_all(data)
             .await
-            .map_err(|err| AccountError::io(err.to_string()))
+            .map_err(|err| io_err!("write_chunk", self.path, err))
     }
 
     async fn finish(mut self: Box<Self>) -> Result<(), AccountError> {
         self.writer
             .flush()
             .await
-            .map_err(|err| AccountError::io(err.to_string()))?;
+            .map_err(|err| io_err!("flush", self.path, err))?;
         self.writer
             .into_inner()
             .sync_all()
             .await
-            .map_err(|err| AccountError::io(err.to_string()))
+            .map_err(|err| io_err!("sync_all", self.path, err))
     }
 }
 
@@ -322,5 +335,42 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"original");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Every operation's failure must name the operation and the path, or a
+    /// startup log of "No such file or directory" cannot be traced to a file.
+    #[citadel_io::tokio::test]
+    async fn a_missing_path_is_named_in_every_error() {
+        let dir = temp_dir().join("never-created");
+        let path = dir.to_string_lossy().to_string();
+        let file = dir.join("account.hca").to_string_lossy().to_string();
+        let io = StdFileIO;
+
+        let errors = [
+            ("read_dir", io.read_dir(&path).await.err()),
+            ("read", io.read_file(&file).await.err()),
+            ("remove_file", io.remove_file(&file).await.err()),
+            ("remove_dir_all", io.remove_dir_all(&path).await.err()),
+            ("write", io.write_file(&file, b"x").await.err()),
+            ("create", io.create_streaming_writer(&file).await.err()),
+        ];
+        for (op, err) in errors {
+            let msg = err.unwrap_or_else(|| panic!("{op} must fail")).to_string();
+            assert!(msg.contains(op), "{op}: operation missing from {msg:?}");
+            assert!(
+                msg.contains("never-created"),
+                "{op}: path missing from {msg:?}"
+            );
+        }
+    }
+
+    /// Negative control: the message the helper used to produce carries no path,
+    /// so the assertion above would have failed against it.
+    #[citadel_io::tokio::test]
+    async fn the_old_message_carried_no_path() {
+        let missing = temp_dir().join("never-created");
+        let err = tokio::fs::read(&missing).await.unwrap_err();
+        let old = AccountError::io(err.to_string()).to_string();
+        assert!(!old.contains("never-created"), "{old:?}");
     }
 }

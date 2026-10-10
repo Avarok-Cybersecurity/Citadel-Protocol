@@ -1,6 +1,7 @@
 //! Object-transfer failure notification helpers for [`StateContainerInner`].
 
 use super::includes::*;
+use super::OutboundFileTransfer;
 use citadel_io::{error, Dbg, ErrorCode};
 
 impl<R: Ratchet> StateContainerInner<R> {
@@ -89,9 +90,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
         for key in &outbound {
             if let Some(mut transfer) = self.outbound_files.remove(key) {
-                if let Some(stop) = transfer.stop_tx.take() {
-                    let _ = stop.send(());
-                }
+                transfer.halt();
             }
         }
         let ended: usize = inbound.len() + outbound.len();
@@ -102,5 +101,72 @@ impl<R: Ratchet> StateContainerInner<R> {
             log::warn!(target: "citadel", "Ended {ended} object transfer(s) with {peer_cid}: {reason}");
         }
         ended
+    }
+}
+
+impl OutboundFileTransfer {
+    /// Stop the scrambler and tell the waiting streaming task not to begin.
+    ///
+    /// Dropping `start` instead resolves the task's receiver with `RecvError`,
+    /// which it logs as an error although nothing went wrong.
+    pub(crate) fn halt(&mut self) {
+        if let Some(stop) = self.stop_tx.take() {
+            let _ = stop.send(());
+        }
+        if let Some(start) = self.start.take() {
+            let _ = start.send(false);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use citadel_io::tokio::sync::oneshot;
+    use citadel_types::proto::{TransferType, VirtualObjectMetadata};
+
+    fn transfer() -> (
+        OutboundFileTransfer,
+        oneshot::Receiver<bool>,
+        oneshot::Receiver<()>,
+    ) {
+        let (start, start_rx) = oneshot::channel();
+        let (stop_tx, stop_rx) = oneshot::channel();
+        let (next_gs_alerter, _rx) = crate::proto::outbound_sender::unbounded();
+        let transfer = OutboundFileTransfer {
+            metadata: VirtualObjectMetadata {
+                name: "f".into(),
+                date_created: String::new(),
+                author: String::new(),
+                plaintext_length: 0,
+                group_count: 0,
+                object_id: ObjectId(1),
+                cid: 1,
+                transfer_type: TransferType::FileTransfer,
+            },
+            ticket: Ticket(1),
+            target_cid: 2,
+            next_gs_alerter,
+            start: Some(start),
+            stop_tx: Some(stop_tx),
+        };
+        (transfer, start_rx, stop_rx)
+    }
+
+    #[citadel_io::tokio::test]
+    async fn halting_tells_the_waiting_task_not_to_begin() {
+        let (mut transfer, start_rx, stop_rx) = transfer();
+        transfer.halt();
+        assert_eq!(start_rx.await, Ok(false));
+        assert_eq!(stop_rx.await, Ok(()));
+    }
+
+    /// Negative control: dropping the record, which is what the end paths did,
+    /// surfaces to the waiting task as the error `halt` exists to avoid.
+    #[citadel_io::tokio::test]
+    async fn dropping_the_record_is_what_produced_the_recv_error() {
+        let (transfer, start_rx, _stop_rx) = transfer();
+        drop(transfer);
+        assert!(start_rx.await.is_err());
     }
 }

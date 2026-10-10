@@ -96,7 +96,7 @@ impl Coordination {
 
     fn fail_if_both_failed(&self) -> Result<(), anyhow::Error> {
         if self.both_failed() {
-            log::error!(target: "citadel", "Remote has already failed, and locally failed, therefore returning");
+            log::warn!(target: "citadel", "Remote has already failed, and locally failed, therefore returning");
             Err(anyhow::Error::msg(
                 "All local and remote hold punchers failed",
             ))

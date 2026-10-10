@@ -251,13 +251,17 @@ impl<R: Ratchet> StateContainerInner<R> {
                     log::trace!(target: "citadel", "Notified object sender to begin sending the next group");
                 }
             }
+        } else if self.completed_outbound_groups.contains(&key) {
+            // Per-wave acks can trail the final ack that already completed the group.
+            log::trace!(target: "citadel", "Late wave ack for object {object_id}, group {group}: the group already completed");
         } else {
-            log::error!(target: "citadel", "File-transfer for object {object_id} does not map to a transmitter container");
+            log::warn!(target: "citadel", "File-transfer for object {object_id} does not map to a transmitter container");
         }
 
         if delete_group {
             log::trace!(target: "citadel", "Group is done transmitting! Freeing memory ...");
             self.outbound_transmitters.remove(&key);
+            self.completed_outbound_groups.record(key);
         }
 
         true

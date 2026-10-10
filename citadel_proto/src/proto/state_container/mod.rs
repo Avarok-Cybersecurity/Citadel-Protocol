@@ -146,6 +146,7 @@ impl<R: Ratchet> Debug for StateContainer<R> {
 define_outer_struct_wrapper!(StateContainer, StateContainerInner, <R: Ratchet>, <R>);
 
 mod channels;
+mod completed_groups;
 mod group_hierarchy_outbound;
 mod inbound_transfer;
 mod monitoring;
@@ -178,6 +179,8 @@ pub struct StateContainerInner<R: Ratchet> {
     // it on the GROUP_HEADER_ACK — both per message. A `DashMap` lets those happen under a *read* lock
     // on the StateContainer, so concurrent vconns' sends don't serialize on the coarse write lock.
     pub(super) outbound_transmitters: DashMap<GroupKey, OutboundTransmitterContainer<R>>,
+    /// Groups whose final ack has been handled; classifies wave acks that arrive afterwards.
+    pub(super) completed_outbound_groups: completed_groups::CompletedGroups,
     pub(super) peer_kem_states: HashMap<u64, PeerKemStateContainer<R>>,
     // u64 is peer id, ticket is the local original ticket (ticket may
     // transform if a simultaneous connect)
@@ -582,6 +585,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(),
             inbound_groups: DashMap::new(),
             outbound_transmitters: DashMap::new(),
+            completed_outbound_groups: Default::default(),
             peer_kem_states: HashMap::new(),
             inbound_files: DashMap::new(),
             outbound_files: HashMap::new(),

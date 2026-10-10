@@ -2050,11 +2050,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                             log::error!(target: "citadel", "Outbound group {group_id} has expired; dropping entire transfer");
                             if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
-                                if let Some(stop) = outbound_container.stop_tx.take() {
-                                    if stop.send(()).is_err() {
-                                        log::error!(target: "citadel", "Unable to send stop signal");
-                                    }
-                                }
+                                outbound_container.halt();
                             } else {
                                 log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", file_key);
                             }

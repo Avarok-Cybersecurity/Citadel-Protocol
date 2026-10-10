@@ -172,8 +172,8 @@ pub async fn write_one_packet<S: AsyncWrite + Unpin, R: Into<Bytes>>(
         .send(packet.clone())
         .await
         .map_err(|err| NetworkError::generic(err.to_string()))?;
-    framed
-        .flush()
+    // tokio-util 0.7.20 added `Encoder<&[u8]>`, so the item type is ambiguous here.
+    SinkExt::<Bytes>::flush(&mut framed)
         .await
         .map_err(|err| NetworkError::generic(err.to_string()))?;
     Ok(framed.into_inner())
