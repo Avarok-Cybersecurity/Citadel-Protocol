@@ -33,6 +33,11 @@ impl AdmissionPolicy for Wants {
             Some(_) => Err(AdmissionRefusal::Failed("invalid-input-response".into())),
         }
     }
+
+    // These checks run no session, so no session ends and nothing is resumed.
+    fn resume_grace(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
 }
 
 const NOT_A_POINT: [u8; 32] = [0xff; 32];

@@ -376,7 +376,7 @@ pub trait ProtocolUpgrade<T: ProtocolIO>: Send + Sync + 'static {
                 .send(bytes)
                 .await
                 .map_err(|e| io::Error::other(e.to_string()))?;
-            // tokio-util 0.7.20 added `Encoder<&[u8]>`, so the item type is ambiguous here.
+            // tokio-util 0.7.20 also encodes `&[u8]`, so the item a flush is for must be named.
             SinkExt::<Bytes>::flush(&mut framed)
                 .await
                 .map_err(|e| io::Error::other(e.to_string()))?;

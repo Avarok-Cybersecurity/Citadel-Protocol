@@ -77,7 +77,7 @@ use crate::proto::session::{
     CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode,
     ServerOnlySessionInitSettings, SessionInitParams, SessionState,
 };
-use crate::proto::session_resume::{self, ResumeToken, ResumeTokens};
+use crate::proto::session_resume::{self, EndedSessions, ResumeToken, ResumeTokens};
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio::sync::broadcast::Sender;
@@ -164,6 +164,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     disconnect_tracker: DisconnectSignalTracker,
     /// Client side: each account's latest resume token, kept after its session ends.
     resume_tokens: ResumeTokens,
+    /// Server side: each CID's last ended session's resume token, for admission's grace.
+    ended_sessions: EndedSessions,
     /// The node's client-role QUIC endpoints, shared with its remote's `rebind_local`.
     local_rebinder: LocalRebinder,
 }
@@ -231,6 +233,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             turn_servers,
             disconnect_tracker: DisconnectSignalTracker::new(),
             resume_tokens: ResumeTokens::default(),
+            ended_sessions: EndedSessions::default(),
             local_rebinder: LocalRebinder::new(),
         };
 
@@ -422,14 +425,18 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         inner!(self).local_rebinder.clone()
     }
 
-    /// Server side: whether the session held for `cid` was issued `presented` (or resumed from
-    /// it), i.e. this login is that session's own client reconnecting. Consulted only to skip
-    /// the admission check; it admits nothing by itself.
-    pub(crate) fn held_session_recognises(&self, cid: u64, presented: &ResumeToken) -> bool {
-        inner!(self)
-            .sessions
+    /// Server side: whether `presented` shows this login to be the own client of a session
+    /// for `cid` that was admitted already: the session held for `cid` was issued it (or
+    /// resumed from it), or `cid`'s last session, which ended within the admission policy's
+    /// grace, was issued it. Consulted only to skip the admission check; it admits nothing.
+    pub(crate) fn resume_was_admitted(&self, cid: u64, presented: &ResumeToken) -> bool {
+        let this = inner!(self);
+        this.sessions
             .get(&cid)
             .is_some_and(|(_, held)| held.resume.get().is_own_client(Some(presented)))
+            || this
+                .ended_sessions
+                .recognises(cid, presented, Instant::now())
     }
 
     /// Client side: the resume token `cid`'s latest session was issued, if any.
@@ -1332,6 +1339,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             session.admitted.set(true);
             this.hypernode_peer_layer
                 .admit(session_cid, session.init_time);
+            this.ended_sessions.on_session_admitted(session_cid);
             if let Some(lingering_conn) = this.sessions.insert(session_cid, (stopper, session)) {
                 // sometimes (especially on cellular networks), when the network changes due to
                 // changing cell towers (or between WIFI/Cellular modes), the session lingers
@@ -2133,6 +2141,7 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
     /// that teardown is keyed only by CID. Returns the admitted session, if there was one.
     pub(crate) fn stop_and_forget(&mut self, cid: u64) -> Option<CitadelSession<R, T>> {
         let admitted = self.sessions.remove(&cid).map(|(stopper, session)| {
+            self.remember_ended(cid, &session);
             // Err means nothing is subscribed, i.e. it has already shut down. That is the good
             // outcome, not a failure.
             if stopper.send(()).is_err() {
@@ -2152,10 +2161,28 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
         admitted
     }
 
+    /// Server side: keeps an ended session's resume token for the admission policy's grace,
+    /// so its client's reconnect is not asked the check again (see `EndedSessions`).
+    fn remember_ended(&mut self, cid: u64, session: &CitadelSession<R, T>) {
+        if !session.is_server {
+            return;
+        }
+        let Some(issued) = session.resume.get().issued() else {
+            return;
+        };
+        let Some(policy) = self.account_manager.get_misc_settings().admission.clone() else {
+            return;
+        };
+        self.ended_sessions
+            .on_session_end(cid, issued, Instant::now(), policy.resume_grace());
+    }
+
     pub fn clear_session(&mut self, cid: u64, init_time: Instant) {
         if let Some((_, session)) = self.sessions.get(&cid) {
             if session.init_time == init_time {
-                self.sessions.remove(&cid);
+                if let Some((_, session)) = self.sessions.remove(&cid) {
+                    self.remember_ended(cid, &session);
+                }
                 log::info!(target: "citadel", "Session for {cid} cleared");
             } else {
                 log::warn!(target: "citadel", "Attempted to remove a connection {cid:?} that was for a different process");

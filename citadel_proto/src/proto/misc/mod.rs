@@ -172,7 +172,7 @@ pub async fn write_one_packet<S: AsyncWrite + Unpin, R: Into<Bytes>>(
         .send(packet.clone())
         .await
         .map_err(|err| NetworkError::generic(err.to_string()))?;
-    // tokio-util 0.7.20 added `Encoder<&[u8]>`, so the item type is ambiguous here.
+    // tokio-util 0.7.20 also encodes `&[u8]`, so the item a flush is for must be named.
     SinkExt::<Bytes>::flush(&mut framed)
         .await
         .map_err(|err| NetworkError::generic(err.to_string()))?;
