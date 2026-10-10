@@ -4,7 +4,8 @@
 //! It lives inside the login protocol, not in front of it. A WebSocket edge cannot tell a fresh
 //! login from a reconnect, so gating the socket would either break every reconnect or be
 //! bypassed by one. Here the server knows which is which: a login presenting a resume token its
-//! held session recognises, and a recovery-code sign-in, are not asked.
+//! held session recognises, or that a session which ended less than
+//! [`AdmissionPolicy::resume_grace`] ago was issued, and a recovery-code sign-in, are not asked.
 //!
 //! The token travels in `LoginStart`/`RegStart`, inside the post-quantum channel, and is never
 //! printed: [`AdmissionToken`]'s `Debug` shows only that one is present.
@@ -14,6 +15,7 @@ use citadel_io::{error, ErrorCode, NetworkError};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// The token a client obtained for this sign-in or registration (a Turnstile response).
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -77,6 +79,13 @@ pub enum AdmissionRefusal {
 #[async_trait]
 pub trait AdmissionPolicy: Send + Sync {
     async fn admit(&self, ctx: AdmissionContext) -> Result<(), AdmissionRefusal>;
+
+    /// How long after a session ENDS its resume token still shows a login to be that session's
+    /// own client, admitted once already, and so not asked again. It must cover the client's
+    /// whole reconnect window: a server that has already dropped the session (a clean close,
+    /// a keep-alive expiry) otherwise asks a reconnect for a check it cannot show. Zero asks
+    /// every login whose session is gone. Each token is honoured once, for its own CID only.
+    fn resume_grace(&self) -> Duration;
 }
 
 /// Runs `policy`, if the server set one (`ServerMiscSettings::admission`); with none, everyone

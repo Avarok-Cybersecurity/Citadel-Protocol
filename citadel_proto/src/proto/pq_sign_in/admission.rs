@@ -2,8 +2,9 @@
 //! sign-in or registration, before the OPRF, any encapsulation or any Argon2 work.
 //!
 //! Not asked: a recovery-code sign-in (the user's way back in) and a login whose resume token
-//! the session the server still holds recognises (its own client reconnecting, admitted once
-//! already). A server without a policy admits everyone.
+//! shows it to be an admitted session's own client reconnecting: the session the server still
+//! holds recognises it, or the session it was issued to ended within the policy's
+//! `resume_grace` (see `EndedSessions`). A server without a policy admits everyone.
 
 use super::runs_with;
 use crate::error::NetworkError;
@@ -38,7 +39,7 @@ pub(crate) fn sign_in<R: Ratchet, T: PlatformOps>(
         return None;
     }
     let resumed = start.resume.map(ResumeToken::from_bytes);
-    if resumed.is_some_and(|token| session.session_manager.held_session_recognises(cid, &token)) {
+    if resumed.is_some_and(|token| session.session_manager.resume_was_admitted(cid, &token)) {
         return None;
     }
     let token = start.admission.clone();
@@ -59,7 +60,7 @@ pub(crate) async fn legacy_sign_in<R: Ratchet, T: PlatformOps>(
     presented: Option<&ResumeToken>,
     adjacent_version: u32,
 ) -> Result<(), NetworkError> {
-    if presented.is_some_and(|token| session.session_manager.held_session_recognises(cid, token)) {
+    if presented.is_some_and(|token| session.session_manager.resume_was_admitted(cid, token)) {
         return Ok(());
     }
     let ctx = context(session, username, AdmissionKind::SignIn, None);

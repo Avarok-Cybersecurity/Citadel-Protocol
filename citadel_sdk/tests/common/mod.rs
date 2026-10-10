@@ -6,6 +6,8 @@
 
 #![allow(dead_code)]
 
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod admission;
 #[cfg(not(target_family = "wasm"))]
 pub mod fixtures;
 #[cfg(not(target_family = "wasm"))]
