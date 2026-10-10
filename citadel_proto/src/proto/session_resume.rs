@@ -16,9 +16,15 @@
 //! login's SUCCESS was lost on the way back, the client still holds the older token, and its
 //! next attempt must still count as its own.
 //!
+//! The server also remembers each ended session's token for the admission policy's
+//! `resume_grace` ([`EndedSessions`]): a reconnect after a clean close or a keep-alive expiry
+//! finds no held session to recognise it, and without this would be asked the admission check
+//! (Turnstile) again. That memory exempts from admission only; it displaces nothing.
+//!
 //! Both sides exchange tokens only with a node at [`SESSION_RESUME_SINCE`] or later. Older
 //! nodes see neither field (trailing bytes are ignored), and a newer node reads none from them.
 use crate::constants::{protocol_version_at_least, SESSION_RESUME_SINCE};
+use citadel_io::time::{Duration, Instant};
 use citadel_io::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -83,6 +89,11 @@ impl HeldSessionResume {
             issued: Some(issued),
             resumed_from: presented,
         }
+    }
+
+    /// The token this session was issued, if it was admitted.
+    pub(crate) fn issued(&self) -> Option<ResumeToken> {
+        self.issued
     }
 
     pub(crate) fn is_own_client(&self, presented: Option<&ResumeToken>) -> bool {
@@ -161,6 +172,53 @@ impl ResumeTokens {
     }
 }
 
+/// Server side: the token each CID's last ended session was issued, until it expires.
+///
+/// Only the ended session's OWN token is kept (not the one it resumed from), and a CID's
+/// entry goes as soon as any new session for it is admitted, so each token exempts one
+/// reconnect at most. One entry per CID, and every write drops the expired ones.
+#[derive(Default)]
+pub(crate) struct EndedSessions {
+    by_cid: HashMap<u64, (ResumeToken, Instant)>,
+}
+
+impl EndedSessions {
+    /// `cid`'s session, issued `issued`, ended at `now`; its token counts for `grace`.
+    pub(crate) fn on_session_end(
+        &mut self,
+        cid: u64,
+        issued: ResumeToken,
+        now: Instant,
+        grace: Duration,
+    ) {
+        self.by_cid.retain(|_, (_, expires)| *expires > now);
+        if let Some(expires) = now.checked_add(grace).filter(|expires| *expires > now) {
+            let _ = self.by_cid.insert(cid, (issued, expires));
+        }
+    }
+
+    /// A session for `cid` was admitted: whatever ended before it is spent.
+    pub(crate) fn on_session_admitted(&mut self, cid: u64) {
+        let _ = self.by_cid.remove(&cid);
+    }
+
+    /// Whether `presented`, at `now`, is the unexpired token of `cid`'s last ended session.
+    pub(crate) fn recognises(&self, cid: u64, presented: &ResumeToken, now: Instant) -> bool {
+        self.by_cid
+            .get(&cid)
+            .is_some_and(|(token, expires)| now < *expires && token.same_as(presented))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.by_cid.len()
+    }
+}
+
 #[cfg(test)]
 #[path = "session_resume_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "session_resume_ended_tests.rs"]
+mod ended_tests;

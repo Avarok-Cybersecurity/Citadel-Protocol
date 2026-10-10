@@ -9,91 +9,26 @@ mod common;
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
+    use crate::common::admission::*;
     use crate::common::half_open::{login_after_local_teardown, standard, SeveringProxy};
     use crate::common::pq::*;
     use citadel_io::{tokio, ErrorCode};
-    use citadel_sdk::async_trait;
     use citadel_sdk::prelude::*;
-    use citadel_user::auth::pq::admission::{
-        AdmissionContext, AdmissionKind, AdmissionPolicy, AdmissionRefusal, AdmissionToken,
-    };
-    use std::sync::{Arc, Mutex};
+    use citadel_user::auth::pq::admission::AdmissionKind;
+    use std::sync::Arc;
+    use std::time::Duration;
 
-    const GOOD: &str = "turnstile-ok";
+    /// Longer than any test here: a session that ends in one is still within it.
+    const GRACE: Duration = Duration::from_secs(900);
 
-    /// Admits `GOOD` for the action it was asked for, and records every call.
-    #[derive(Default)]
-    struct Turnstile {
-        asked: Mutex<Vec<&'static str>>,
-    }
-
-    #[async_trait]
-    impl AdmissionPolicy for Turnstile {
-        async fn admit(&self, ctx: AdmissionContext) -> Result<(), AdmissionRefusal> {
-            self.asked.lock().unwrap().push(ctx.kind.action());
-            assert!(
-                ctx.remote_addr.is_some(),
-                "the hook was not given the address"
-            );
-            match ctx.token.as_ref().map(AdmissionToken::as_str) {
-                None => Err(AdmissionRefusal::Required),
-                Some(GOOD) => Ok(()),
-                Some(_) => Err(AdmissionRefusal::Failed("invalid-input-response".into())),
-            }
-        }
-    }
-
-    impl Turnstile {
-        fn asked(&self) -> Vec<&'static str> {
-            self.asked.lock().unwrap().clone()
-        }
-    }
-
-    fn guarded(policy: Arc<Turnstile>) -> ServerMiscSettings {
-        ServerMiscSettings {
-            admission: Some(policy),
-            ..pq_settings()
-        }
-    }
-
-    fn code<T>(result: &Result<T, NetworkError>) -> Option<ErrorCode> {
-        result.as_ref().err().map(|err| err.code)
-    }
-
-    async fn register(
-        remote: &NodeRemote<StackedRatchet>,
-        addr: std::net::SocketAddr,
-        user: &str,
-        token: Option<&str>,
-    ) -> Result<RegisterSuccess, NetworkError> {
-        let admission = token.map(str::to_string);
-        remote
-            .register_admitted(
-                addr,
-                user,
-                user,
-                PASSWORD,
-                Default::default(),
-                None,
-                admission,
-            )
-            .await
-    }
-
-    async fn sign_in(
-        remote: &NodeRemote<StackedRatchet>,
-        user: &str,
-        factors: SignInFactors,
-    ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
-        remote
-            .connect_with_defaults(AuthenticationRequest::sign_in(user.to_string(), factors))
-            .await
+    fn turnstile() -> Arc<Turnstile> {
+        Arc::new(Turnstile::with_grace(GRACE))
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_missing_token_and_a_bad_one_are_refused_and_a_good_one_admitted() {
         citadel_logging::setup_log();
-        let policy = Arc::new(Turnstile::default());
+        let policy = turnstile();
         let (server, addr, _) = server(guarded(policy.clone()), Some(poisoned_argon()), None);
         let user = username("adm");
         let seen = policy.clone();
@@ -124,7 +59,7 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_recovery_code_sign_in_is_not_asked() {
         citadel_logging::setup_log();
-        let policy = Arc::new(Turnstile::default());
+        let policy = turnstile();
         let (server, addr, _) = server(guarded(policy.clone()), Some(poisoned_argon()), None);
         let user = username("admrec");
         let seen = policy.clone();
@@ -143,7 +78,7 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_resume_token_reconnect_is_not_asked() {
         citadel_logging::setup_log();
-        let policy = Arc::new(Turnstile::default());
+        let policy = turnstile();
         let (server, server_addr, _) =
             server(guarded(policy.clone()), Some(poisoned_argon()), None);
         let proxy = SeveringProxy::start(server_addr).await;
@@ -172,7 +107,7 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_legacy_registration_is_asked_too() {
         citadel_logging::setup_log();
-        let policy = Arc::new(Turnstile::default());
+        let policy = turnstile();
         let (server, addr, _) = server(guarded(policy.clone()), None, None);
         let user = username("admleg");
         let seen = policy.clone();
