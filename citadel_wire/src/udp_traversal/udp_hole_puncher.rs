@@ -297,7 +297,7 @@ async fn driver_inner(
         &peer_internal_bind_addrs,
         &peer_candidates.reflexive_addrs,
         sockets,
-    );
+    )?;
 
     // Step 5: Execute DualStackUdpHolePuncher
     let conn = conn.clone();
@@ -372,11 +372,9 @@ async fn probe_reflexive_addrs(
 /// `[Hole-punch/Err] invalid remote address: 0.0.0.0:54960` and the `[::]`
 /// equivalent, in whichever family the branch above chose.
 ///
-/// Substitution rather than removal, and the position is kept: `HolePunchConfig`
-/// asserts `peer_internal_addrs.len() == local_sockets.len()`, so dropping an
-/// entry desynchronises the peer into an assertion failure — and each internal
-/// address also carries the reflexive candidates in its band-set, so a dropped
-/// entry would take good STUN-derived addresses with it.
+/// Substitution rather than removal: the peer pools these candidates by address
+/// family against its own sockets (see `HolePunchConfig::new`), so a dropped
+/// entry would cost it the only candidate of that family.
 ///
 /// Falls back to the wildcard unchanged when no internal IP is known, which is
 /// the previous behaviour.
