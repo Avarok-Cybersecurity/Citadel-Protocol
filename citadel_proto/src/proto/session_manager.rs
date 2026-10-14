@@ -78,6 +78,7 @@ use crate::proto::session::{
     ServerOnlySessionInitSettings, SessionInitParams, SessionState,
 };
 use crate::proto::session_resume::{self, EndedSessions, ResumeToken, ResumeTokens};
+use crate::proto::session_resume_store;
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
 use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;
 use citadel_io::tokio::sync::broadcast::Sender;
@@ -166,6 +167,9 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     resume_tokens: ResumeTokens,
     /// Server side: each CID's last ended session's resume token, for admission's grace.
     ended_sessions: EndedSessions,
+    /// When this node started: a session live when the previous run stopped ended by then
+    /// (see `session_resume_store`).
+    started: Instant,
     /// The node's client-role QUIC endpoints, shared with its remote's `rebind_local`.
     local_rebinder: LocalRebinder,
 }
@@ -234,6 +238,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             disconnect_tracker: DisconnectSignalTracker::new(),
             resume_tokens: ResumeTokens::default(),
             ended_sessions: EndedSessions::default(),
+            started: Instant::now(),
             local_rebinder: LocalRebinder::new(),
         };
 
@@ -428,15 +433,40 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Server side: whether `presented` shows this login to be the own client of a session
     /// for `cid` that was admitted already: the session held for `cid` was issued it (or
     /// resumed from it), or `cid`'s last session, which ended within the admission policy's
-    /// grace, was issued it. Consulted only to skip the admission check; it admits nothing.
-    pub(crate) fn resume_was_admitted(&self, cid: u64, presented: &ResumeToken) -> bool {
-        let this = inner!(self);
-        this.sessions
-            .get(&cid)
-            .is_some_and(|(_, held)| held.resume.get().is_own_client(Some(presented)))
-            || this
-                .ended_sessions
-                .recognises(cid, presented, Instant::now())
+    /// grace, was issued it. What memory does not recognise, the backend's durable copy may,
+    /// when this node restarted since (see `session_resume_store`). Consulted only to skip the
+    /// admission check; it admits nothing.
+    pub(crate) async fn resume_was_admitted(&self, cid: u64, presented: &ResumeToken) -> bool {
+        let (pers, grace, started) = {
+            let this = inner!(self);
+            let in_memory = this
+                .sessions
+                .get(&cid)
+                .is_some_and(|(_, held)| held.resume.get().is_own_client(Some(presented)))
+                || this
+                    .ended_sessions
+                    .recognises(cid, presented, Instant::now());
+            if in_memory {
+                return true;
+            }
+            let Some(policy) = this.account_manager.get_misc_settings().admission.clone() else {
+                return false;
+            };
+            let pers = this.account_manager.get_persistence_handler().clone();
+            (pers, policy.resume_grace(), this.started)
+        };
+        let stored = session_resume_store::lookup(&pers, cid, presented).await;
+        let now_ms = session_resume_store::now_ms();
+        match (stored, now_ms) {
+            (Ok(Some(record)), Ok(now_ms)) => {
+                record.within_grace(grace, now_ms, started, Instant::now())
+            }
+            (Ok(None), _) => false,
+            (Err(err), _) | (_, Err(err)) => {
+                log::error!(target: "citadel", "Unable to read {cid}'s stored resume token, so its login is asked the admission check: {err}");
+                false
+            }
+        }
     }
 
     /// Client side: the resume token `cid`'s latest session was issued, if any.
@@ -2162,7 +2192,8 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
     }
 
     /// Server side: keeps an ended session's resume token for the admission policy's grace,
-    /// so its client's reconnect is not asked the check again (see `EndedSessions`).
+    /// so its client's reconnect is not asked the check again (see `EndedSessions`), and
+    /// records the end in the backend's durable copy (see `session_resume_store`).
     fn remember_ended(&mut self, cid: u64, session: &CitadelSession<R, T>) {
         if !session.is_server {
             return;
@@ -2175,6 +2206,16 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
         };
         self.ended_sessions
             .on_session_end(cid, issued, Instant::now(), policy.resume_grace());
+        let pers = self.account_manager.get_persistence_handler().clone();
+        spawn!(async move {
+            let stored = match session_resume_store::now_ms() {
+                Ok(ended_ms) => session_resume_store::on_ended(&pers, cid, &issued, ended_ms).await,
+                Err(err) => Err(err),
+            };
+            if let Err(err) = stored {
+                log::error!(target: "citadel", "Unable to record the end of {cid}'s session: after a restart its reconnect counts only within the grace of the node's start: {err}");
+            }
+        });
     }
 
     pub fn clear_session(&mut self, cid: u64, init_time: Instant) {

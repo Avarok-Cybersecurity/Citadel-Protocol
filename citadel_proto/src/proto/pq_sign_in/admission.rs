@@ -30,7 +30,7 @@ pub(crate) fn policy<R: Ratchet, T: PlatformOps>(
 }
 
 /// What a post-quantum client's `AUTH_START` is asked, or `None` when it is not.
-pub(crate) fn sign_in<R: Ratchet, T: PlatformOps>(
+pub(crate) async fn sign_in<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cid: u64,
     start: &LoginStart,
@@ -38,9 +38,14 @@ pub(crate) fn sign_in<R: Ratchet, T: PlatformOps>(
     if start.recovery.is_some() {
         return None;
     }
-    let resumed = start.resume.map(ResumeToken::from_bytes);
-    if resumed.is_some_and(|token| session.session_manager.resume_was_admitted(cid, &token)) {
-        return None;
+    if let Some(token) = start.resume.map(ResumeToken::from_bytes) {
+        if session
+            .session_manager
+            .resume_was_admitted(cid, &token)
+            .await
+        {
+            return None;
+        }
     }
     let token = start.admission.clone();
     Some(context(
@@ -60,8 +65,14 @@ pub(crate) async fn legacy_sign_in<R: Ratchet, T: PlatformOps>(
     presented: Option<&ResumeToken>,
     adjacent_version: u32,
 ) -> Result<(), NetworkError> {
-    if presented.is_some_and(|token| session.session_manager.resume_was_admitted(cid, token)) {
-        return Ok(());
+    if let Some(token) = presented {
+        if session
+            .session_manager
+            .resume_was_admitted(cid, token)
+            .await
+        {
+            return Ok(());
+        }
     }
     let ctx = context(session, username, AdmissionKind::SignIn, None);
     let policy = policy(session);

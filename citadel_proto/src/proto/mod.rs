@@ -69,6 +69,7 @@ pub(crate) mod session_manager;
 mod session_probe;
 pub(crate) mod session_queue_handler;
 pub(crate) mod session_resume;
+pub(crate) mod session_resume_store;
 /// For keeping track of the stages of different processes
 pub(crate) mod state_container;
 /// For organizing the stage containers

@@ -97,7 +97,7 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
         // Before the challenge: a refused bot costs the server one call, not an OPRF
         // evaluation and an encapsulation.
         Ok(start) => {
-            let ctx = super::admission::sign_in(session, cnac.get_cid(), &start);
+            let ctx = super::admission::sign_in(session, cnac.get_cid(), &start).await;
             let policy = super::admission::policy(session);
             admission::then(policy.as_ref(), ctx, false, || {
                 issue_challenge(session, cnac, ratchet.get_cid(), &start)

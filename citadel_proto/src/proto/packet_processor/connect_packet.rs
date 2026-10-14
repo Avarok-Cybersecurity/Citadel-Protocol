@@ -42,6 +42,7 @@ use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use crate::proto::pq_sign_in;
 use crate::proto::session_resume::{self, HeldSessionResume, ResumeToken};
+use crate::proto::session_resume_store;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
 use citadel_io::{error, ErrorCode};
@@ -712,5 +713,13 @@ async fn admit_authenticated_login<R: Ratchet, T: PlatformOps>(
     session
         .resume
         .set(HeldSessionResume::admitted(issued, presented));
+    if pq_sign_in::admission::policy(session).is_some() {
+        let pers = session.account_manager.get_persistence_handler();
+        session_resume_store::on_admitted(pers, cid, &issued)
+            .await
+            .map_err(|err| {
+                NetworkError::msg(format!("Unable to store {cid}'s resume token: {err}"))
+            })?;
+    }
     Ok(issued)
 }
