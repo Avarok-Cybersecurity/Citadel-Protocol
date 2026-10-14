@@ -22,7 +22,8 @@ fn aimed_at_silence(
         &[silent_peer.local_addr().unwrap()],
         &[],
         vec![get_udp_socket("127.0.0.1:0").unwrap()],
-    );
+    )
+    .unwrap();
     DualStackUdpHolePuncher::new(app.node_type(), Default::default(), config, app).unwrap()
 }
 

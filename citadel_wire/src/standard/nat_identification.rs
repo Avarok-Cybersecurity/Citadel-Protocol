@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 
+#[cfg(not(target_family = "wasm"))]
 use crate::udp_traversal::hole_punch_config::AddrBand;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -120,9 +121,16 @@ impl NatType {
         }
     }
 
-    /// Given a local socket address, predicts the external addresses. Returns None if unpredictable.
+    #[cfg(not(target_family = "wasm"))]
+    /// Given a local socket address, predicts the external addresses.
     /// Pure math — no I/O.
-    pub(crate) fn predict(&self, internal_addr: &SocketAddr) -> Option<Vec<AddrBand>> {
+    /// `Ok(None)` when the model cannot predict. `Err` when the model is out of the
+    /// range any honest `NatType::new` produces — a peer sends its own `NatType`, so
+    /// an unbounded delta here would size the candidate lists on the peer's say-so.
+    pub(crate) fn predict(
+        &self,
+        internal_addr: &SocketAddr,
+    ) -> Result<Option<Vec<AddrBand>>, FirewallError> {
         let mut bands = Vec::new();
         let internal_port = internal_addr.port();
 
@@ -137,12 +145,12 @@ impl NatType {
                 last_allocated_external_port,
             } => {
                 let mut ports = Vec::new();
-                for i in average_delta..=(3 * average_delta) {
+                for i in delta_range(average_delta)? {
                     ports.push(Self::wrapping_port_add(last_allocated_external_port, i));
                 }
                 ports
             }
-            PortTranslation::Unpredictable => return None,
+            PortTranslation::Unpredictable => return Ok(None),
         };
 
         // add the base IPs
@@ -165,7 +173,7 @@ impl NatType {
                 average_delta,
                 last_allocated_external_ip,
             } => {
-                for i in average_delta..=(3 * average_delta) {
+                for i in delta_range(average_delta)? {
                     let next_ip = match last_allocated_external_ip {
                         IpAddr::V4(ip) => {
                             let mut octets = ip.octets();
@@ -187,7 +195,7 @@ impl NatType {
                     bands.push(band);
                 }
             }
-            IpTranslation::Unpredictable => return None,
+            IpTranslation::Unpredictable => return Ok(None),
         }
 
         // finally, add the ipv6 band (if we have it)
@@ -222,7 +230,7 @@ impl NatType {
             bands.push(band);
         }
 
-        Some(bands)
+        Ok(Some(bands))
     }
 
     /// Given 3 socket addresses, determine the IP translation. Pure math.
@@ -338,6 +346,7 @@ impl NatType {
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     fn wrapping_port_add(port: u16, delta: i32) -> u16 {
         let mut new_port = port.wrapping_add(delta as u16);
         if new_port < 1024 {
@@ -390,6 +399,17 @@ impl NatType {
     pub fn is_ipv6_compatible(&self) -> bool {
         self.is_ipv6_enabled
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+/// The candidate offsets for a delta model, bounded to what `NatType::new` can emit.
+fn delta_range(average_delta: i32) -> Result<std::ops::RangeInclusive<i32>, FirewallError> {
+    if !(0..=MAX_OCTET_DELTA).contains(&average_delta) {
+        return Err(FirewallError::firewall_hole_punch(format!(
+            "NAT model average_delta {average_delta} is outside 0..={MAX_OCTET_DELTA}"
+        )));
+    }
+    Ok(average_delta..=3 * average_delta)
 }
 
 fn average_delta<T: Ord + Copy + Sized + Sub>(vals: impl AsRef<[T]>) -> usize
@@ -886,7 +906,7 @@ mod tests {
         ));
 
         let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
-        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap().unwrap();
         assert_eq!(
             predicted_addrs,
             vec![AddrBand {
@@ -920,7 +940,7 @@ mod tests {
             PortTranslation::DeltaConstantOffset { delta: 10 }
         ));
         let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
-        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap().unwrap();
         assert_eq!(
             predicted_addrs,
             vec![AddrBand {
@@ -960,7 +980,7 @@ mod tests {
         ));
 
         let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
-        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap().unwrap();
         assert_eq!(
             predicted_addrs,
             vec![AddrBand {
@@ -1006,7 +1026,7 @@ mod tests {
         ));
 
         let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
-        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap().unwrap();
         assert_eq!(
             predicted_addrs,
             vec![AddrBand {
@@ -1049,7 +1069,7 @@ mod tests {
         ));
 
         let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
-        let predicted_addrs = nat_type.predict(&internal_addr);
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
         assert!(predicted_addrs.is_none());
     }
 
@@ -1078,7 +1098,7 @@ mod tests {
         ));
 
         let internal_addr = SocketAddr::from_str("192.168.2.1:10000").unwrap();
-        let predicted_addrs = nat_type.predict(&internal_addr);
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
         assert!(predicted_addrs.is_none());
     }
 
@@ -1113,7 +1133,7 @@ mod tests {
         ));
 
         let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
-        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap().unwrap();
         assert_eq!(
             predicted_addrs,
             vec![AddrBand {
@@ -1155,7 +1175,7 @@ mod tests {
         ));
 
         let internal_addr = SocketAddr::from_str("192.168.2.1:30000").unwrap();
-        let predicted_addrs = nat_type.predict(&internal_addr).unwrap();
+        let predicted_addrs = nat_type.predict(&internal_addr).unwrap().unwrap();
         assert_eq!(
             predicted_addrs,
             vec![

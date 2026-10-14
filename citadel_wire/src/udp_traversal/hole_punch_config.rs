@@ -15,7 +15,7 @@
 //!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 //!     let target_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
 //!     let peer_nat = NatType::identify(None).await?;
-//!     let config = HolePunchConfig::new(&peer_nat, &[target_addr], &[], vec![socket]);
+//!     let config = HolePunchConfig::new(&peer_nat, &[target_addr], &[], vec![socket])?;
 //!     Ok(())
 //! }
 //! ```
@@ -53,7 +53,7 @@
 //!         &[peer_addr],
 //!         &[],
 //!         vec![socket]
-//!     );
+//!     )?;
 //!     
 //!     for addrs in config {
 //!         // Try connecting to predicted addresses
@@ -101,6 +101,7 @@ impl Iterator for AddrBand {
 #[cfg(not(target_family = "wasm"))]
 mod native {
     use super::*;
+    use crate::error::FirewallError;
     use crate::nat_identification::NatType;
     use citadel_io::tokio::net::UdpSocket;
     use itertools::Itertools;
@@ -136,50 +137,85 @@ mod native {
     }
 
     impl HolePunchConfig {
+        /// Pairs every local socket with every peer candidate it can actually send to.
+        ///
+        /// The peer's candidate list is untrusted and need not line up with
+        /// `local_sockets`: a host with an IPv6 bind also binds an IPv4 socket, while
+        /// an IPv4-only peer advertises a single address. So the peer's candidates
+        /// are pooled, and each local socket receives the pooled bands of its own
+        /// address family. `bands[i]` therefore always belongs to `local_sockets[i]`.
+        ///
         /// `peer_reflexive_addrs` are the peer's *observed* server-reflexive (external)
-        /// addresses — see [`NatType::get_reflexive_addr`]. They are exact (not predicted),
-        /// so they are added as candidates to every band set, letting traversal succeed for
-        /// endpoint-independent NATs whose port the predictive model cannot infer.
-        /// Version-incompatible entries are filtered downstream per local socket.
+        /// addresses — see [`NatType::get_reflexive_addr`]. They are exact (not
+        /// predicted), so they join the pool alongside the predicted bands, letting
+        /// traversal succeed for endpoint-independent NATs whose port the predictive
+        /// model cannot infer.
+        ///
+        /// Fails, rather than producing an attempt that cannot succeed, when the peer's
+        /// NAT model is out of range or no local socket shares a family with any
+        /// peer candidate.
         pub fn new(
             peer_nat: &NatType,
             peer_internal_addrs: &[SocketAddr],
             peer_reflexive_addrs: &[SocketAddr],
             local_sockets: Vec<UdpSocket>,
-        ) -> Self {
-            assert_eq!(peer_internal_addrs.len(), local_sockets.len());
-            let mut this = HolePunchConfig {
-                bands: Vec::new(),
-                locally_bound_sockets: Some(local_sockets),
-            };
+        ) -> Result<Self, FirewallError> {
+            let pool = peer_candidate_pool(peer_nat, peer_internal_addrs, peer_reflexive_addrs)?;
+            let bands = local_sockets
+                .iter()
+                .map(|socket| {
+                    let socket_is_ipv4 = socket.local_addr()?.is_ipv4();
+                    Ok(pool
+                        .iter()
+                        .filter(|band| band.necessary_ip.is_ipv4() == socket_is_ipv4)
+                        .cloned()
+                        .collect())
+                })
+                .collect::<Result<Vec<Vec<AddrBand>>, FirewallError>>()?;
 
-            for peer_internal_addr in peer_internal_addrs {
-                let mut bands = if let Some(bands) = peer_nat.predict(peer_internal_addr) {
-                    bands
-                } else if cfg!(feature = "localhost-testing") {
-                    log::info!(target: "citadel", "Will revert to localhost testing mode (not recommended for production use (peer addr: {peer_internal_addr:?}))");
-                    get_localhost_bands(peer_internal_addr)
-                } else {
-                    vec![AddrBand {
-                        necessary_ip: peer_internal_addr.ip(),
-                        anticipated_ports: vec![peer_internal_addr.port()],
-                    }]
-                };
-
-                // ICE-style server-reflexive candidates: exact, observed external addrs.
-                bands.extend(peer_reflexive_addrs.iter().map(|addr| AddrBand {
-                    necessary_ip: addr.ip(),
-                    anticipated_ports: vec![addr.port()],
-                }));
-
-                bands.extend(get_localhost_bands(peer_internal_addr));
-
-                let bands = bands.into_iter().unique().collect();
-                this.bands.push(bands)
+            if bands.iter().all(Vec::is_empty) {
+                return Err(FirewallError::firewall_hole_punch(format!(
+                    "no local socket shares an address family with any peer candidate \
+                     (peer internal: {peer_internal_addrs:?}, peer reflexive: {peer_reflexive_addrs:?})"
+                )));
             }
 
-            this
+            Ok(HolePunchConfig {
+                bands,
+                locally_bound_sockets: Some(local_sockets),
+            })
         }
+    }
+
+    fn peer_candidate_pool(
+        peer_nat: &NatType,
+        peer_internal_addrs: &[SocketAddr],
+        peer_reflexive_addrs: &[SocketAddr],
+    ) -> Result<Vec<AddrBand>, FirewallError> {
+        let mut pool = Vec::new();
+        for peer_internal_addr in peer_internal_addrs {
+            pool.extend(match peer_nat.predict(peer_internal_addr)? {
+                Some(bands) => bands,
+                None if cfg!(feature = "localhost-testing") => {
+                    log::info!(target: "citadel", "Will revert to localhost testing mode (not recommended for production use (peer addr: {peer_internal_addr:?}))");
+                    get_localhost_bands(peer_internal_addr)
+                }
+                None => vec![AddrBand {
+                    necessary_ip: peer_internal_addr.ip(),
+                    anticipated_ports: vec![peer_internal_addr.port()],
+                }],
+            });
+        }
+
+        // ICE-style server-reflexive candidates: exact, observed external addrs.
+        pool.extend(peer_reflexive_addrs.iter().map(|addr| AddrBand {
+            necessary_ip: addr.ip(),
+            anticipated_ports: vec![addr.port()],
+        }));
+
+        pool.extend(peer_internal_addrs.iter().flat_map(get_localhost_bands));
+
+        Ok(pool.into_iter().unique().collect())
     }
 
     fn get_localhost_bands(peer_internal_addr: &SocketAddr) -> Vec<AddrBand> {
@@ -200,32 +236,5 @@ mod native {
 pub use native::HolePunchConfig;
 
 #[cfg(all(test, not(target_family = "wasm")))]
-mod tests {
-    use super::HolePunchConfig;
-    use crate::nat_identification::NatType;
-    use citadel_io::tokio;
-    use std::net::SocketAddr;
-    use std::str::FromStr;
-
-    /// An observed server-reflexive (external) address must become a ping candidate even
-    /// when the predictive NAT model yields nothing — this is the whole point of probing
-    /// the real socket for endpoint-independent NATs that randomize the external port.
-    #[tokio::test]
-    async fn reflexive_addr_becomes_candidate() {
-        let socket = citadel_io::tokio::net::UdpSocket::bind("127.0.0.1:0")
-            .await
-            .unwrap();
-        let peer_internal = SocketAddr::from_str("192.168.1.50:40000").unwrap();
-        let reflexive = SocketAddr::from_str("203.0.113.7:55555").unwrap();
-
-        // Default NatType is Unpredictable -> predict() returns None (no model bands).
-        let nat = NatType::default();
-        let config = HolePunchConfig::new(&nat, &[peer_internal], &[reflexive], vec![socket]);
-
-        let candidates: Vec<SocketAddr> = config.into_iter().flatten().collect();
-        assert!(
-            candidates.contains(&reflexive),
-            "observed reflexive candidate must be pinged, got: {candidates:?}"
-        );
-    }
-}
+#[path = "hole_punch_config_tests.rs"]
+mod tests;

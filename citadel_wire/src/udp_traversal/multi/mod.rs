@@ -111,19 +111,19 @@ impl DualStackUdpHolePuncher {
             .into_iter()
             .collect::<Vec<Vec<SocketAddr>>>();
 
+        // `HolePunchConfig::new` builds one family-compatible band set per socket; a
+        // mismatch would make `zip` silently drop sockets or candidates.
+        if sockets.len() != addrs_to_ping.len() {
+            return Err(anyhow::Error::msg(format!(
+                "hole punch config has {} band sets for {} sockets",
+                addrs_to_ping.len(),
+                sockets.len()
+            )));
+        }
+
         // each individual hole puncher fans-out from 1 bound socket to n many peer addrs (determined by addrs_to_ping)
-        for (socket, mut addrs_to_ping) in sockets.into_iter().zip(addrs_to_ping) {
+        for (socket, addrs_to_ping) in sockets.into_iter().zip(addrs_to_ping) {
             let socket_local_addr = socket.local_addr()?;
-            // We can't send from an ipv4 socket to an ipv6, addr, so remove any addrs that are ipv6
-            if socket_local_addr.is_ipv4() {
-                addrs_to_ping.retain(|addr| addr.is_ipv4());
-            }
-
-            // We can't send from an ipv6 socket to and ipv4, addr, so remove any addrs that are ipv4
-            if socket_local_addr.is_ipv6() {
-                addrs_to_ping.retain(|addr| addr.is_ipv6());
-            }
-
             log::trace!(target: "citadel", "Hole punching with socket: {socket_local_addr} | addrs to ping: {addrs_to_ping:?}");
             let hole_puncher = SingleUDPHolePuncher::new(
                 relative_node_type,
@@ -431,7 +431,11 @@ async fn drive(
                             return signal_done();
                         }
 
-                        unreachable!("Winner did not find any enqueued sockets. This is a developer bug. Please report this issue to github");
+                        // Reachable: the rebuilder drains the same set concurrently. Any panic
+                        // exits the process via the logging panic hook, so fail the attempt.
+                        return Err(anyhow::Error::msg(
+                            "Winner did not find any enqueued sockets",
+                        ));
                     }
                 }
 
