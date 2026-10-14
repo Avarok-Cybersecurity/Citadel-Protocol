@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 
+#[cfg(not(target_family = "wasm"))]
 use crate::udp_traversal::hole_punch_config::AddrBand;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -120,6 +121,7 @@ impl NatType {
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     /// Given a local socket address, predicts the external addresses.
     /// Pure math — no I/O.
     /// `Ok(None)` when the model cannot predict. `Err` when the model is out of the
@@ -344,6 +346,7 @@ impl NatType {
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     fn wrapping_port_add(port: u16, delta: i32) -> u16 {
         let mut new_port = port.wrapping_add(delta as u16);
         if new_port < 1024 {
@@ -398,6 +401,7 @@ impl NatType {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 /// The candidate offsets for a delta model, bounded to what `NatType::new` can emit.
 fn delta_range(average_delta: i32) -> Result<std::ops::RangeInclusive<i32>, FirewallError> {
     if !(0..=MAX_OCTET_DELTA).contains(&average_delta) {
