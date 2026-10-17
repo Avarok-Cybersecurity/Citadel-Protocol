@@ -72,14 +72,18 @@ pub(crate) async fn on_pq_start<R: Ratchet, T: PlatformOps>(
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let reply = match reply_to(session, payload).await {
+    let (reads_challenge, replied) = match packets::read::<RegStart>(payload) {
+        Ok(start) => (start.reads_challenge, reply_to(session, start).await),
+        Err(err) => (false, Err(err)),
+    };
+    let reply = match replied {
         Ok(reply) => reply,
         Err(err) => {
             log::warn!(target: "citadel", "Refusing PQ_START: {err}");
             let packet = packet_crafter::do_register::craft_failure(
                 algorithm,
                 session.time_tracker.get_global_time_ns(),
-                err.into_string(),
+                super::refusal::register_failure(err, reads_challenge),
                 ratchet.get_cid(),
                 ticket,
             );
@@ -103,9 +107,8 @@ pub(crate) async fn on_pq_start<R: Ratchet, T: PlatformOps>(
 
 async fn reply_to<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
-    payload: &[u8],
+    start: RegStart,
 ) -> Result<RegStartReply, NetworkError> {
-    let start: RegStart = packets::read(payload)?;
     // The OPRF runs only once the admission check has passed: a refused bot costs one call.
     let ctx = super::admission::register(session, &start.username, start.admission.clone());
     let policy = super::admission::policy(session);

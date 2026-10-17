@@ -539,6 +539,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             ticket,
                             cid_opt: Some(cnac.get_cid()),
                             error_message: "Preconnect stage failed".to_string(),
+                            admission_challenge: None,
                         })?;
                         Ok(PrimaryProcessorResult::EndSession(
                             "Failure packet received",
@@ -603,6 +604,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     ticket,
                     cid_opt: Some(header.session_cid.get()),
                     error_message: message,
+                    admission_challenge: None,
                 })?;
                 Ok(PrimaryProcessorResult::EndSession(
                     "Preconnect signalled to halt",

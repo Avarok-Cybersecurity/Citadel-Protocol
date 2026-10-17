@@ -12,6 +12,11 @@ pub struct RegStart {
     pub oprf_blinded: Vec<u8>,
     /// The registration's admission token, when the client has one.
     pub admission: Option<AdmissionToken>,
+    /// This client reads a refusal's challenge (`admission::AdmissionChallenge`) off the
+    /// registration FAILURE. An older client's `RegStart` has no such field and reads as false,
+    /// so it is sent the plain message it understands.
+    #[serde(default, deserialize_with = "crate::wire_compat::ok_or_default")]
+    pub reads_challenge: bool,
 }
 
 /// S→C: what the client needs to derive its password factor.

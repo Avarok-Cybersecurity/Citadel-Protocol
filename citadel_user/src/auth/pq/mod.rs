@@ -18,6 +18,7 @@
 //! in [`client`]. No classical signature is created or verified anywhere.
 
 pub mod admission;
+mod challenge;
 pub mod client;
 pub mod kem;
 pub mod messages;
@@ -33,6 +34,8 @@ pub mod server;
 pub(crate) mod tests;
 #[cfg(test)]
 mod tests_admission;
+#[cfg(test)]
+mod tests_challenge;
 #[cfg(test)]
 mod tests_decoy;
 #[cfg(test)]

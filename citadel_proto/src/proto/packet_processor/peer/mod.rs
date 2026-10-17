@@ -50,6 +50,7 @@ pub(crate) fn send_dc_signal_peer<S: Into<String>, R: Ratchet, T: PlatformOps>(
             ticket,
             cid_opt: Some(session_cid),
             error_message: err.into(),
+            admission_challenge: None,
         }))
         .map_err(|err| NetworkError::generic(err.to_string()))?;
 

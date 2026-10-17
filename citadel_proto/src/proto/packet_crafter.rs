@@ -461,6 +461,7 @@ pub(crate) mod do_connect {
     use citadel_crypt::ratchets::Ratchet;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::user::MutualPeer;
+    use citadel_user::auth::pq::admission::AdmissionChallenge;
     use citadel_user::auth::proposed_credentials::ProposedCredentials;
     use citadel_user::backend::BackendType;
     use citadel_user::serialization::SyncIO;
@@ -546,17 +547,15 @@ pub(crate) mod do_connect {
         #[serde(deserialize_with = "ok_or_default")]
         #[serde(default)]
         pub resume_token: Option<ResumeToken>,
+        /// A FAILURE's admission challenge (public: see `AdmissionChallenge`). Absent from an older
+        /// server's packet, and from one naming a provider this client does not know, so it
+        /// defaults; an older client ignores it.
+        #[serde(deserialize_with = "ok_or_default")]
+        #[serde(default)]
+        pub admission_challenge: Option<AdmissionChallenge>,
     }
 
-    pub(crate) fn ok_or_default<'a, T, D>(
-        deserializer: D,
-    ) -> Result<T, <D as serde::Deserializer<'a>>::Error>
-    where
-        T: Deserialize<'a> + Default,
-        D: serde::Deserializer<'a>,
-    {
-        Ok(T::deserialize(deserializer).unwrap_or_default())
-    }
+    pub(crate) use citadel_user::wire_compat::ok_or_default;
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>, R: Ratchet>(
@@ -571,6 +570,7 @@ pub(crate) mod do_connect {
         backend_type: &BackendType,
         ticket: Ticket,
         resume_token: Option<ResumeToken>,
+        admission_challenge: Option<AdmissionChallenge>,
     ) -> BytesMut {
         let payload = DoConnectFinalStatusPacket {
             mailbox,
@@ -578,6 +578,7 @@ pub(crate) mod do_connect {
             message: message.as_ref(),
             post_login_object,
             resume_token,
+            admission_challenge,
         };
 
         let cmd_aux = if success {

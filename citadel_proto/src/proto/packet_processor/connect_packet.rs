@@ -279,6 +279,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                             adjacent_protocol_version,
                                             Some(issued_resume_token),
                                         ),
+                                        None,
                                     );
 
                                 session.session_cid.set(Some(cid));
@@ -310,18 +311,13 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                             log::error!(target: "citadel", "Error validating stage2 packet. Reason: {err}");
                             let fail_time = time_tracker.get_global_time_ns();
 
-                            let packet = packet_crafter::do_connect::craft_final_status_packet(
+                            let packet = pq_sign_in::refusal::failure(
+                                session,
                                 &ratchet,
-                                false,
-                                None,
-                                ServicesObject::default(),
-                                err.to_string(),
-                                Vec::new(),
+                                err,
                                 fail_time,
                                 security_level,
-                                session.account_manager.get_backend_type(),
                                 ticket,
-                                None,
                             );
                             session.release_provisional_slot();
                             return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
@@ -382,6 +378,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                         ticket: kernel_ticket,
                         cid_opt: Some(cid),
                         error_message: message,
+                        admission_challenge: payload.admission_challenge,
                     })?;
                     Ok(PrimaryProcessorResult::EndSession(
                         "Failed connecting. Try again",

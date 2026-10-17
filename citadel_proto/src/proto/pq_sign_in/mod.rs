@@ -24,6 +24,8 @@ pub(crate) mod state;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_challenge;
 
 use crate::auth::AuthenticationRequest;
 use crate::constants::{protocol_version_at_least, PQ_SIGN_IN_SINCE};

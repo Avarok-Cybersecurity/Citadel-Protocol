@@ -6,7 +6,7 @@ use citadel_io::ErrorCode;
 use citadel_sdk::async_trait;
 use citadel_sdk::prelude::*;
 use citadel_user::auth::pq::admission::{
-    AdmissionContext, AdmissionPolicy, AdmissionRefusal, AdmissionToken,
+    AdmissionChallenge, AdmissionContext, AdmissionPolicy, AdmissionRefusal, AdmissionToken,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -16,6 +16,7 @@ pub const GOOD: &str = "turnstile-ok";
 pub struct Turnstile {
     asked: Mutex<Vec<&'static str>>,
     grace: Duration,
+    challenge: Option<AdmissionChallenge>,
 }
 
 impl Turnstile {
@@ -24,6 +25,16 @@ impl Turnstile {
         Self {
             asked: Mutex::new(Vec::new()),
             grace,
+            challenge: None,
+        }
+    }
+
+    /// This policy, publishing `challenge` on each refusal that asks for a token.
+    #[allow(dead_code)]
+    pub fn publishing(self, challenge: AdmissionChallenge) -> Self {
+        Self {
+            challenge: Some(challenge),
+            ..self
         }
     }
 
@@ -41,7 +52,7 @@ impl AdmissionPolicy for Turnstile {
             "the hook was not given the address"
         );
         match ctx.token.as_ref().map(AdmissionToken::as_str) {
-            None => Err(AdmissionRefusal::Required),
+            None => Err(AdmissionRefusal::Required(self.challenge.clone())),
             Some(GOOD) => Ok(()),
             Some(_) => Err(AdmissionRefusal::Failed("invalid-input-response".into())),
         }

@@ -92,6 +92,7 @@ pub fn build_login_challenge(
                         oprf_blinded: blinded.clone(),
                         // Admission is the login's, already checked; an upgrade is not asked.
                         admission: None,
+                        reads_challenge: false,
                     },
                 )?),
                 _ => None,
