@@ -268,6 +268,9 @@ pub mod prelude {
         SignInManagementOutcome, SignInPolicy,
     };
     pub use citadel_types::prelude::*;
+    pub use citadel_user::auth::pq::admission::{
+        challenge_of, AdmissionChallenge, AdmissionProvider,
+    };
 }
 
 /// Store data to the backend using this library
