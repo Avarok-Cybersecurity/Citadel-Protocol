@@ -134,7 +134,11 @@ impl<R: Ratchet> StateContainerInner<R> {
             return true;
         }
 
-        let mut outbound_container = self.outbound_transmitters.get_mut(&key).unwrap();
+        let Some(mut outbound_container) = self.outbound_transmitters.get_mut(&key) else {
+            self.completed_outbound_groups
+                .note_orphan_ack("header", &key);
+            return true;
+        };
         outbound_container.waves_in_current_window = next_window.unwrap_or(0..=0).count();
         // file-transfer, or TCP only mode since next_window is none. Use TCP
         outbound_container
@@ -251,11 +255,8 @@ impl<R: Ratchet> StateContainerInner<R> {
                     log::trace!(target: "citadel", "Notified object sender to begin sending the next group");
                 }
             }
-        } else if self.completed_outbound_groups.contains(&key) {
-            // Per-wave acks can trail the final ack that already completed the group.
-            log::trace!(target: "citadel", "Late wave ack for object {object_id}, group {group}: the group already completed");
         } else {
-            log::warn!(target: "citadel", "File-transfer for object {object_id} does not map to a transmitter container");
+            self.completed_outbound_groups.note_orphan_ack("wave", &key);
         }
 
         if delete_group {

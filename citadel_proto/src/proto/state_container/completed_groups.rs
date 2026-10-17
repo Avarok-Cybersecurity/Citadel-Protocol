@@ -30,6 +30,34 @@ impl CompletedGroups {
     pub(crate) fn contains(&self, key: &GroupKey) -> bool {
         self.members.contains(key)
     }
+
+    /// Why an ack names a group that has no transmitter. Acks travel on more
+    /// than one stream, so the final wave ack can complete and free a group
+    /// before its header ack, or a trailing wave ack, is read.
+    pub(crate) fn orphan_ack(&self, key: &GroupKey) -> OrphanAck {
+        if self.contains(key) {
+            OrphanAck::GroupCompleted
+        } else {
+            OrphanAck::GroupUnknown
+        }
+    }
+
+    pub(crate) fn note_orphan_ack(&self, ack: &str, key: &GroupKey) {
+        match self.orphan_ack(key) {
+            OrphanAck::GroupCompleted => {
+                log::trace!(target: "citadel", "Late {ack} ack for {key:?}: the group already completed")
+            }
+            OrphanAck::GroupUnknown => {
+                log::warn!(target: "citadel", "{ack} ack for {key:?} does not map to a transmitter container")
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum OrphanAck {
+    GroupCompleted,
+    GroupUnknown,
 }
 
 #[cfg(test)]
@@ -48,6 +76,14 @@ mod tests {
         // negative control: a group never recorded must not read as completed,
         // or the warn for a truly unknown group would be silenced too.
         assert!(!done.contains(&key(8)));
+    }
+
+    #[test]
+    fn an_ack_for_a_completed_group_is_told_apart_from_an_unknown_one() {
+        let mut done = CompletedGroups::default();
+        done.record(key(7));
+        assert_eq!(done.orphan_ack(&key(7)), OrphanAck::GroupCompleted);
+        assert_eq!(done.orphan_ack(&key(8)), OrphanAck::GroupUnknown);
     }
 
     #[test]
