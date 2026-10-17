@@ -325,6 +325,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
                             error_message: err.into_string(),
+                            admission_challenge: None,
                         }))?;
                         session.shutdown();
                         return Ok(PrimaryProcessorResult::EndSession(
@@ -600,6 +601,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                             RegisterFailure {
                                                 ticket: reg_ticket.get(),
                                                 error_message: err.into_string(),
+                                                admission_challenge: None,
                                             },
                                         ))?;
                                         Ok(PrimaryProcessorResult::EndSession(
@@ -652,10 +654,12 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     {
                         // Freed before the caller hears, so it may retry at once.
                         session.release_provisional_slot();
+                        let (error_message, admission_challenge) =
+                            pq_sign_in::refusal::read_register_failure(error_message);
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
-                            error_message: String::from_utf8(error_message)
-                                .unwrap_or_else(|_| "Non-UTF8 error message".to_string()),
+                            error_message,
+                            admission_challenge,
                         }))?;
                         session.shutdown();
                     } else {

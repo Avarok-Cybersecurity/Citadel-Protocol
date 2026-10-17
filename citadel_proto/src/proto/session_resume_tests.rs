@@ -168,6 +168,7 @@ fn success_interoperates_with_an_older_node_both_ways() {
         post_login_object: ServicesObject::default(),
         message: b"welcome",
         resume_token: Some(issued),
+        admission_challenge: None,
     };
     let bytes = current.serialize_to_vector().unwrap();
     let round_trip = DoConnectFinalStatusPacket::deserialize_from_vector(&bytes).unwrap();

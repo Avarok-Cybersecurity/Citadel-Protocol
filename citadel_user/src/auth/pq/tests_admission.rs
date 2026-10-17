@@ -28,7 +28,7 @@ impl AdmissionPolicy for Wants {
     async fn admit(&self, ctx: AdmissionContext) -> Result<(), AdmissionRefusal> {
         let _ = self.calls.fetch_add(1, Ordering::SeqCst);
         match ctx.token.as_ref().map(AdmissionToken::as_str) {
-            None => Err(AdmissionRefusal::Required),
+            None => Err(AdmissionRefusal::Required(None)),
             Some("good") => Ok(()),
             Some(_) => Err(AdmissionRefusal::Failed("invalid-input-response".into())),
         }
@@ -113,6 +113,7 @@ async fn a_registration_is_refused_before_the_oprf_runs() {
         username: "bob".into(),
         oprf_blinded: NOT_A_POINT.to_vec(),
         admission: None,
+        reads_challenge: true,
     };
     let register = |token: Option<&str>| {
         let ctx = ctx(AdmissionKind::Register, token);

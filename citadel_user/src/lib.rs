@@ -140,3 +140,4 @@ pub mod misc;
 /// Contains basic subroutines for serialization
 pub mod serialization;
 pub mod server_misc_settings;
+pub mod wire_compat;

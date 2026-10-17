@@ -10,6 +10,7 @@
 
 mod code;
 mod construct;
+mod detail;
 
 pub use code::ErrorCode;
 
@@ -33,6 +34,8 @@ pub struct NetworkErrorInner {
     pub(crate) origin: &'static str,
     /// The positional format arguments (`None` when the form has no `{}`).
     pub(crate) args: Option<Arc<[Box<dyn ErrorArgs>]>>,
+    /// A typed value the error carries beside its message (see [`NetworkError::with_detail`]).
+    pub(crate) detail: Option<detail::Detail>,
 }
 
 /// The single error type used across the entire Citadel workspace.
@@ -76,7 +79,12 @@ impl NetworkError {
         } else {
             Some(Arc::from(args))
         };
-        Self(Box::new(NetworkErrorInner { code, origin, args }))
+        Self(Box::new(NetworkErrorInner {
+            code,
+            origin,
+            args,
+            detail: None,
+        }))
     }
 
     /// The stable error code.

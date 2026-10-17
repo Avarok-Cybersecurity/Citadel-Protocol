@@ -498,9 +498,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 session_security_settings,
             }),
             NodeResult::ConnectFail(ConnectFail {
-                ticket: _,
-                cid_opt: _,
-                error_message: err,
+                error_message: err, ..
             }) => Err(citadel_io::error!(
                 citadel_io::ErrorCode::RemoteConnectFailed,
                 err

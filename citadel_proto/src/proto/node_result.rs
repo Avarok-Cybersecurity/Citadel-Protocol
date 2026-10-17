@@ -37,6 +37,7 @@ use crate::kernel::kernel_communicator::CallbackKey;
 use citadel_crypt::prelude::CryptError;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::{ClientConnectionType, SessionSecuritySettings};
+use citadel_user::auth::pq::admission::AdmissionChallenge;
 use citadel_user::backend::utils::ObjectTransferHandler;
 use citadel_wire::nat_identification::NatType;
 use std::net::SocketAddr;
@@ -57,6 +58,9 @@ pub struct RegisterOkay {
 pub struct RegisterFailure {
     pub ticket: Ticket,
     pub error_message: String,
+    /// The check to complete before trying again, when the server's admission refusal sent one
+    /// (public: see `citadel_user::auth::pq::admission::AdmissionChallenge`).
+    pub admission_challenge: Option<AdmissionChallenge>,
 }
 
 #[derive(Debug)]
@@ -85,6 +89,8 @@ pub struct ConnectFail {
     pub ticket: Ticket,
     pub cid_opt: Option<u64>,
     pub error_message: String,
+    /// As [`RegisterFailure::admission_challenge`].
+    pub admission_challenge: Option<AdmissionChallenge>,
 }
 
 #[derive(Debug)]
@@ -259,11 +265,13 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: _,
                 cid_opt: _,
                 error_message: err,
-            }) => Err(refused(err)),
+                admission_challenge,
+            }) => Err(refused(err, admission_challenge)),
             NodeResult::RegisterFailure(RegisterFailure {
                 ticket: _,
                 error_message: err,
-            }) => Err(refused(err)),
+                admission_challenge,
+            }) => Err(refused(err, admission_challenge)),
             NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::generic(format!(
                 "Outbound request rejected: {:?}",
                 String::from_utf8(reason.message_opt.unwrap_or_default())
@@ -296,10 +304,9 @@ impl<R: Ratchet> NodeResult<R> {
             NodeResult::RegisterOkay(RegisterOkay { ticket: t, cid, .. }) => {
                 Some(CallbackKey::new(*t, *cid))
             }
-            NodeResult::RegisterFailure(RegisterFailure {
-                ticket: t,
-                error_message: _,
-            }) => Some(CallbackKey::ticket_only(*t)),
+            NodeResult::RegisterFailure(RegisterFailure { ticket: t, .. }) => {
+                Some(CallbackKey::ticket_only(*t))
+            }
             NodeResult::DeRegistration(DeRegistration {
                 session_cid,
                 ticket_opt: t,
@@ -311,9 +318,7 @@ impl<R: Ratchet> NodeResult<R> {
                 ..
             }) => Some(CallbackKey::new(*t, *session_cid)),
             NodeResult::ConnectFail(ConnectFail {
-                ticket: t,
-                cid_opt,
-                error_message: _,
+                ticket: t, cid_opt, ..
             }) => Some(CallbackKey {
                 ticket: *t,
                 session_cid: *cid_opt,
@@ -388,9 +393,10 @@ impl<R: Ratchet> NodeResult<R> {
     }
 }
 
-/// A connect or register FAILURE as an error: with its admission code when the server's
-/// admission check refused it (`citadel_user::auth::pq::admission`), generic otherwise.
-fn refused(message: String) -> NetworkError {
-    citadel_user::auth::pq::admission::refusal_from_message(&message)
+/// A connect or register FAILURE as an error: with its admission code (and, on a required check,
+/// its challenge) when the server's admission check refused it
+/// (`citadel_user::auth::pq::admission`), generic otherwise.
+fn refused(message: String, challenge: Option<AdmissionChallenge>) -> NetworkError {
+    citadel_user::auth::pq::admission::refusal_from_message(&message, challenge)
         .unwrap_or_else(|| NetworkError::generic(message))
 }

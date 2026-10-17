@@ -23,6 +23,7 @@ impl ClientRegistration {
             oprf_blinded,
             // Set by the registration that sends this.
             admission: None,
+            reads_challenge: true,
         };
         Ok((start, Self { input, oprf }))
     }

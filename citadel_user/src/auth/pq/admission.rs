@@ -17,6 +17,8 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+pub use super::challenge::{challenge_of, AdmissionChallenge, AdmissionProvider};
+
 /// The token a client obtained for this sign-in or registration (a Turnstile response).
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AdmissionToken(String);
@@ -68,8 +70,9 @@ pub struct AdmissionContext {
 /// Why a fresh sign-in or registration was not admitted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AdmissionRefusal {
-    /// No token was sent and one is needed.
-    Required,
+    /// No token was sent and one is needed: with the check to show, when the server publishes
+    /// it in-protocol (it is public: see [`AdmissionChallenge`]).
+    Required(Option<AdmissionChallenge>),
     /// The token was refused (the reason, for the client to show).
     Failed(String),
 }
@@ -123,27 +126,34 @@ pub async fn then<T>(
 }
 
 /// The error a refusal travels as. Its message is the code's own form, so a client can tell it
-/// apart from any other failure ([`recognise`]).
+/// apart from any other failure ([`refusal_from_message`]); a required check's challenge rides
+/// beside it ([`challenge_of`]). A legacy client cannot show one, so it is not given one.
 pub fn refusal_error(refusal: AdmissionRefusal, legacy_client: bool) -> NetworkError {
     match (refusal, legacy_client) {
         (_, true) => error!(ErrorCode::PqSignInAdmissionNeedsUpdate),
-        (AdmissionRefusal::Required, false) => error!(ErrorCode::PqSignInAdmissionRequired),
+        (AdmissionRefusal::Required(None), false) => error!(ErrorCode::PqSignInAdmissionRequired),
+        (AdmissionRefusal::Required(Some(challenge)), false) => {
+            error!(ErrorCode::PqSignInAdmissionRequired).with_detail(challenge)
+        }
         (AdmissionRefusal::Failed(reason), false) => {
             error!(ErrorCode::PqSignInAdmissionFailed, reason)
         }
     }
 }
 
-/// The refusal a connect or register FAILURE's message is, if it is one, rebuilt as its error.
-/// A FAILURE carries only a message, so the server sends the code's own form ([`refusal_error`])
-/// and the client reads the code back here, for the application to tell a refused or missing
-/// admission token apart from a wrong password.
-pub fn refusal_from_message(message: &str) -> Option<NetworkError> {
+/// The refusal a connect or register FAILURE is, if it is one, rebuilt as its error. The server
+/// sends the code's own form ([`refusal_error`]) and the client reads the code back here, for the
+/// application to tell a refused or missing admission token apart from a wrong password. The
+/// FAILURE's `challenge` is kept only on the refusal that asks for one.
+pub fn refusal_from_message(
+    message: &str,
+    challenge: Option<AdmissionChallenge>,
+) -> Option<NetworkError> {
     if message == ErrorCode::PqSignInAdmissionRequired.raw_string() {
-        return Some(refusal_error(AdmissionRefusal::Required, false));
+        return Some(refusal_error(AdmissionRefusal::Required(challenge), false));
     }
     if message == ErrorCode::PqSignInAdmissionNeedsUpdate.raw_string() {
-        return Some(refusal_error(AdmissionRefusal::Required, true));
+        return Some(refusal_error(AdmissionRefusal::Required(None), true));
     }
     let failed = ErrorCode::PqSignInAdmissionFailed.raw_string();
     let prefix = failed.strip_suffix("{}").unwrap_or(failed);
@@ -162,7 +172,7 @@ mod tests {
     fn a_refusal_reads_back_as_its_code_and_nothing_else_does() {
         for (refusal, legacy, code) in [
             (
-                AdmissionRefusal::Required,
+                AdmissionRefusal::Required(None),
                 false,
                 ErrorCode::PqSignInAdmissionRequired,
             ),
@@ -172,18 +182,18 @@ mod tests {
                 ErrorCode::PqSignInAdmissionFailed,
             ),
             (
-                AdmissionRefusal::Required,
+                AdmissionRefusal::Required(None),
                 true,
                 ErrorCode::PqSignInAdmissionNeedsUpdate,
             ),
         ] {
             let message = refusal_error(refusal, legacy).into_string();
-            let read_back = refusal_from_message(&message).expect("not recognised");
+            let read_back = refusal_from_message(&message, None).expect("not recognised");
             assert_eq!(read_back.code, code, "{message}");
             assert_eq!(read_back.into_string(), message, "the reason is lost");
         }
-        assert!(refusal_from_message("Authentication failed").is_none());
-        assert!(refusal_from_message("").is_none());
+        assert!(refusal_from_message("Authentication failed", None).is_none());
+        assert!(refusal_from_message("", None).is_none());
     }
 
     #[test]

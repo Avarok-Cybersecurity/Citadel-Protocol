@@ -120,7 +120,7 @@ fn a_client_below_the_gate_is_told_to_update_and_one_at_it_is_not() {
     assert!(!is_legacy_client(gate));
     assert!(is_legacy_client(version(0, 11, 2)));
     let refusal = citadel_user::auth::pq::admission::refusal_error(
-        citadel_user::auth::pq::admission::AdmissionRefusal::Required,
+        citadel_user::auth::pq::admission::AdmissionRefusal::Required(None),
         is_legacy_client(version(0, 11, 2)),
     );
     assert_eq!(
