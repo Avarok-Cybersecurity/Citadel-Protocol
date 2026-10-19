@@ -329,6 +329,33 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         let mut state_container =
                                             inner_mut_state!(session.state_container);
 
+                                        // Our dial was accepted, but the pair already has a live
+                                        // connection: the peer's dial won. Starting a second
+                                        // exchange would replace that connection's KEM state
+                                        // below, withdrawing its UDP channel offer on both ends.
+                                        if state_container
+                                            .has_live_peer_connection(*original_session_cid)
+                                        {
+                                            let dial = state_container
+                                                .outgoing_peer_connect_attempts
+                                                .remove(original_session_cid);
+                                            drop(state_container);
+                                            let ticket = dial.map_or(ticket, |dial| dial.ticket);
+                                            log::info!(target: "citadel", "Dual-connect race: {original_target_cid} is already connected to {original_session_cid}; not starting a second exchange");
+                                            session.send_to_kernel(NodeResult::PeerEvent(
+                                                PeerEvent {
+                                                    event: PeerSignal::SignalError {
+                                                        ticket,
+                                                        error: format!("Already connected to peer {original_session_cid}"),
+                                                        peer_connection_type: conn.reverse(),
+                                                    },
+                                                    ticket,
+                                                    session_cid,
+                                                },
+                                            ))?;
+                                            return Ok(PrimaryProcessorResult::Void);
+                                        }
+
                                         let session_password = state_container
                                             .get_session_password(conn.get_original_session_cid())
                                             .cloned();
@@ -440,6 +467,13 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
 
                                     let mut state_container =
                                         inner_mut_state!(session.state_container);
+
+                                    // A live connection's KEM state holds its UDP channel
+                                    // offer: a second exchange must not replace it.
+                                    if state_container.has_live_peer_connection(peer_cid) {
+                                        log::info!(target: "citadel", "Dual-connect race: dropping Stage0 from {peer_cid}, already connected");
+                                        return Ok(PrimaryProcessorResult::Void);
+                                    }
 
                                     // Guard: during simultaneous P2P connect, both peers
                                     // run Accept handlers, each storing an alice_constructor
@@ -563,6 +597,17 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             inner_mut_state!(session.state_container);
                                         let peer_cid = conn.get_original_session_cid();
                                         let this_cid = conn.get_original_target_cid();
+                                        // Stage1 finishes an exchange we started, so the slot
+                                        // must hold our constructor; anything else there (a live
+                                        // connection's state) is not this exchange's to take.
+                                        if !state_container
+                                            .peer_kem_states
+                                            .get(&peer_cid)
+                                            .is_some_and(|kem| kem.constructor.is_some())
+                                        {
+                                            log::info!(target: "citadel", "Dual-connect race: Stage1 from {peer_cid} answers no exchange of ours; ignored");
+                                            return Ok(PrimaryProcessorResult::Void);
+                                        }
                                         let mut kem_state = return_if_none!(state_container
                                             .peer_kem_states
                                             .remove(&peer_cid));
@@ -996,12 +1041,23 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             ..
                         } => {
                             let peer_cid = conn.get_original_session_cid();
-                            let has_outgoing = {
+                            let (has_outgoing, connected) = {
                                 let state_container = inner_state!(session.state_container);
-                                state_container
-                                    .outgoing_peer_connect_attempts
-                                    .contains_key(&peer_cid)
+                                (
+                                    state_container
+                                        .outgoing_peer_connect_attempts
+                                        .contains_key(&peer_cid),
+                                    state_container.has_live_peer_connection(peer_cid),
+                                )
                             };
+
+                            if has_outgoing && connected {
+                                // Both sides dialled again over a live connection. Accepting
+                                // here would replace its KEM state (and UDP offer) below; the
+                                // live connection already won, so neither dial goes ahead.
+                                log::info!(target: "citadel", "Dual-connect race: {session_cid} ignoring PostConnect from {peer_cid}, already connected");
+                                return Ok(PrimaryProcessorResult::Void);
+                            }
 
                             if has_outgoing {
                                 // Both sides are trying to connect to each other.
