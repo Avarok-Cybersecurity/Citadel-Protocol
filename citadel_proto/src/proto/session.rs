@@ -74,7 +74,7 @@ use crate::proto::packet_processor::includes::{Duration, SocketAddr};
 use crate::proto::packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::proto::packet_processor::{self, PrimaryProcessorResult};
 use crate::proto::peer::p2p_conn_handler::P2PInboundHandle;
-use crate::proto::peer::peer_layer::{CitadelNodePeerLayer, PeerConnectionType, PeerSignal};
+use crate::proto::peer::peer_layer::{CitadelNodePeerLayer, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::session_queue_handler::{
@@ -1201,40 +1201,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             } else {
                 let session_cid = session.session_cid.get().unwrap_or_default();
 
-                if let Some((peer_cid, p2p_connection_id)) = peer {
-                    // P2P disconnect — gated by tracker to prevent double-sends.
-                    // Both this error handler AND p2p_conn_handler's disconnect task
-                    // can fire for the same P2P connection; the tracker ensures only
-                    // one signal reaches the kernel with a valid DisconnectToken.
-                    let session_ticket = session.kernel_ticket.get();
-                    if session
-                        .disconnect_tracker
-                        .try_p2p_disconnect(session_ticket, peer_cid)
-                    {
-                        if let Err(err) = session.send_to_kernel(NodeResult::PeerEvent(PeerEvent {
-                            event: PeerSignal::Disconnect {
-                                peer_conn_type: PeerConnectionType::LocalGroupPeer {
-                                    session_cid,
-                                    peer_cid,
-                                },
-                                disconnect_response: Some(PeerResponse::Disconnected(
-                                    err_string.clone(),
-                                )),
-                                // The connection whose stream ended, as every other report
-                                // of a P2P end names it: not the C2S session's ticket.
-                                disconnect_token: Some(DisconnectToken {
-                                    cid: session_cid,
-                                    connection_id: p2p_connection_id,
-                                }),
-                            },
-                            ticket: session_ticket,
-                            session_cid,
-                        })) {
-                            log::error!(target: "citadel", "Error sending P2P disconnect signal to kernel: {err:?}");
-                        }
-                    } else {
-                        log::trace!(target: "citadel", "Skipping P2P D/C signal in error handler — already sent for peer {peer_cid}");
-                    }
+                if let Some((peer_cid, _)) = peer {
+                    // Only the end of a DIRECT route: whether the connection ends with it is
+                    // decided by p2p_conn_handler once this reader returns. A live connection
+                    // falls back to the server relay and carries on; one that really ends is
+                    // reported to the kernel when its vconn drops (the disconnect notifier).
+                    // Reporting a Disconnect here told the application a connection had ended
+                    // that was still up, and an application that believes it tears down what
+                    // was still working -- the channel, the call -- and redials. It also used
+                    // up the tracker's one report, silencing the real end that might follow.
+                    log::trace!(target: "citadel", "Direct route to peer {peer_cid} ended: {err_string}");
                 } else {
                     // C2S disconnect — route through tracker-gated path only.
                     // send_session_dc_signal checks try_c2s_disconnect() and includes

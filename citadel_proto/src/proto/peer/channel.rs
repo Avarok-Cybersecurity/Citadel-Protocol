@@ -339,8 +339,15 @@ pub struct PeerChannelRecvHalf<R: Ratchet> {
 }
 
 enum ReceiverType<R: Ratchet> {
-    OrderedReliable { rx: Box<ProtocolMessengerRx<R>> },
-    UnorderedUnreliable { rx: UnboundedReceiver<SecBuffer> },
+    OrderedReliable {
+        rx: Box<ProtocolMessengerRx<R>>,
+    },
+    UnorderedUnreliable {
+        rx: UnboundedReceiver<SecBuffer>,
+        /// False once the connection's UDP slot holds another channel (a recovery restored
+        /// one) or none.
+        current: Arc<AtomicBool>,
+    },
 }
 
 impl<R: Ratchet> Stream for ReceiverType<R> {
@@ -358,7 +365,7 @@ impl<R: Ratchet> Stream for ReceiverType<R> {
                 }
             }
 
-            ReceiverType::UnorderedUnreliable { rx } => {
+            ReceiverType::UnorderedUnreliable { rx, .. } => {
                 match futures::ready!(Pin::new(rx).poll_recv(cx)) {
                     Some(data) => Poll::Ready(Some(data)),
                     _ => {
@@ -426,7 +433,13 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
                     })
                 }
 
-                ReceiverType::UnorderedUnreliable { .. } => {
+                ReceiverType::UnorderedUnreliable { current, .. } => {
+                    // `DisconnectUDP` names the connection, not the channel: sent for a channel
+                    // a recovery already replaced, it closed the replacement on both peers. A
+                    // channel that is no longer current has nothing left to disconnect.
+                    if !current.load(Ordering::SeqCst) {
+                        return;
+                    }
                     if let Some(peer_conn_type) = self.vconn_type.try_as_peer_connection() {
                         NodeRequest::PeerCommand(PeerCommand {
                             session_cid: local_cid,
@@ -466,11 +479,12 @@ impl<R: Ratchet> UdpChannel<R> {
         is_alive: Arc<AtomicBool>,
         node_remote: NodeRemote<R>,
         disconnect_token: Option<DisconnectToken>,
+        current: Arc<AtomicBool>,
     ) -> Self {
         Self {
             send_half,
             recv_half: PeerChannelRecvHalf {
-                receiver: ReceiverType::UnorderedUnreliable { rx },
+                receiver: ReceiverType::UnorderedUnreliable { rx, current },
                 target_cid,
                 vconn_type,
                 channel_id,

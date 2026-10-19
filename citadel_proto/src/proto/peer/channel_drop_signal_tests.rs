@@ -51,7 +51,10 @@ async fn udp_disconnect_survives_a_full_request_queue() {
 
     let (_udp_tx, udp_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
     let recv_half = PeerChannelRecvHalf::<StackedRatchet> {
-        receiver: ReceiverType::UnorderedUnreliable { rx: udp_rx },
+        receiver: ReceiverType::UnorderedUnreliable {
+            rx: udp_rx,
+            current: Arc::new(AtomicBool::new(true)),
+        },
         target_cid: PEER_CID,
         vconn_type: VirtualConnectionType::LocalGroupPeer {
             session_cid: LOCAL_CID,
