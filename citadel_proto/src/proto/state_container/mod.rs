@@ -131,9 +131,9 @@ pub(crate) mod includes {
     // Local types defined in `mod.rs`, re-exported so child modules reach
     // them via `use super::includes::*;`.
     pub(crate) use super::{
-        EndpointChannelContainer, FileKey, GroupKey, GroupReceiverContainer, InboundFileTransfer,
-        P2PDisconnectSignal, StateContainer, StateContainerInner, UnorderedChannelContainer,
-        VirtualConnection,
+        CurrentUdpChannel, EndpointChannelContainer, FileKey, GroupKey, GroupReceiverContainer,
+        InboundFileTransfer, P2PDisconnectSignal, StateContainer, StateContainerInner,
+        UnorderedChannelContainer, VirtualConnection,
     };
 }
 
@@ -398,6 +398,29 @@ pub struct EndpointChannelContainer<R: Ratchet> {
 pub(crate) struct UnorderedChannelContainer {
     to_channel: UnboundedSender<SecBuffer>,
     stopper_tx: citadel_io::tokio::sync::oneshot::Sender<()>,
+    /// Lowers the channel's `current` flag however this container goes (replaced by a
+    /// restored channel, or removed), so the old receive half's drop knows it no longer
+    /// speaks for the connection's UDP.
+    _current: CurrentUdpChannel,
+}
+
+/// Owned by the connection's live UDP channel slot; see [`UnorderedChannelContainer`].
+pub(crate) struct CurrentUdpChannel(Arc<AtomicBool>);
+
+impl CurrentUdpChannel {
+    pub(crate) fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
+
+    pub(crate) fn flag(&self) -> Arc<AtomicBool> {
+        self.0.clone()
+    }
+}
+
+impl Drop for CurrentUdpChannel {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 impl<R: Ratchet> EndpointChannelContainer<R> {

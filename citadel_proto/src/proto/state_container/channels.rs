@@ -75,6 +75,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                         }
                         _ => None,
                     };
+                    let current = CurrentUdpChannel::new();
                     let udp_channel = UdpChannel::new(
                         to_udp_stream,
                         rx,
@@ -84,11 +85,15 @@ impl<R: Ratchet> StateContainerInner<R> {
                         p2p_container.is_active.clone(),
                         self.node_remote.clone(),
                         disconnect_token,
+                        current.flag(),
                     );
+                    // Replacing the slot drops the previous channel's container, which lowers
+                    // that channel's `current` flag.
                     p2p_endpoint_container.to_unordered_local_channel =
                         Some(UnorderedChannelContainer {
                             to_channel,
                             stopper_tx,
+                            _current: current,
                         });
                     // data can now be forwarded
                     Some(udp_channel)
