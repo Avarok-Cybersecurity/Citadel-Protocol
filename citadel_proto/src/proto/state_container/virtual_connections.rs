@@ -389,16 +389,14 @@ impl<R: Ratchet> StateContainerInner<R> {
         // exists — the first connection is valid and should be preserved.
         // During reconnect, the old vconn is marked inactive by disconnect processing,
         // so the overwrite proceeds correctly.
-        if let Some(existing) = self.active_virtual_connections.get(&target_cid) {
-            if existing.is_active.load(Ordering::SeqCst) && existing.endpoint_container.is_some() {
-                log::info!(target: "citadel",
-                    "Active vconn for peer {target_cid} already exists (simultaneous connect race), \
-                     dropping duplicate Kex result");
-                // Err so callers skip PeerChannelCreated and hole punch (they treat this as a
-                // benign "duplicate suppressed", not a session failure). The new vconn drops here;
-                // its Drop calls ratchet_manager.shutdown(), safe — it was never connected to a stream.
-                return Err(error!(ErrorCode::StateVconnSimultaneousRace, target_cid));
-            }
+        if self.has_live_peer_connection(target_cid) {
+            log::info!(target: "citadel",
+                "Active vconn for peer {target_cid} already exists (simultaneous connect race), \
+                 dropping duplicate Kex result");
+            // Err so callers skip PeerChannelCreated and hole punch (they treat this as a
+            // benign "duplicate suppressed", not a session failure). The new vconn drops here;
+            // its Drop calls ratchet_manager.shutdown(), safe — it was never connected to a stream.
+            return Err(error!(ErrorCode::StateVconnSimultaneousRace, target_cid));
         }
 
         // Clear any stale ratchet for this peer — the new connection
@@ -408,6 +406,20 @@ impl<R: Ratchet> StateContainerInner<R> {
         self.active_virtual_connections.insert(target_cid, vconn);
 
         Ok(peer_channel)
+    }
+
+    /// Whether `peer_cid` has a live P2P connection: an active vconn with endpoint crypto. The
+    /// first connection of a pair wins, so a key exchange that starts (or finishes) while one is
+    /// live is a duplicate, the losing half of a simultaneous dial. The live connection's state
+    /// in `peer_kem_states` -- which holds the sender of its UDP channel offer and its hole
+    /// punch's cancel handle -- must then be left alone: replacing it withdraws that offer for
+    /// good, and the application reads that as "this connection will never carry UDP".
+    pub(crate) fn has_live_peer_connection(&self, peer_cid: u64) -> bool {
+        self.active_virtual_connections
+            .get(&peer_cid)
+            .is_some_and(|vconn| {
+                vconn.is_active.load(Ordering::SeqCst) && vconn.endpoint_container.is_some()
+            })
     }
 
     /// Note: the `endpoint_crypto` container needs to be Some in order for transfer to occur between peers w/o encryption/decryption at the center point
