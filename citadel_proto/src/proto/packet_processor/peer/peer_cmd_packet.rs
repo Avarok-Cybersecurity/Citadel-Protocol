@@ -379,6 +379,43 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             Some(alice_constructor);
                                         peer_kem_state_container.p2p_connection_id =
                                             p2p_connection_id;
+                                        // This accepted dial makes us alice for the pair.
+                                        // Record the role so the Stage0 tie-break and the
+                                        // Stage2 handler can tell our alice constructor
+                                        // apart from a bob constructor stored for the
+                                        // same peer.
+                                        peer_kem_state_container.local_is_initiator = true;
+
+                                        // A second exchange must not replace an
+                                        // in-progress one. The slot may hold a bob
+                                        // constructor for a Stage0 we already answered
+                                        // (its Stage2 is on its way), or an alice
+                                        // constructor of our own dial. The Stage2
+                                        // handler resolves whichever constructor
+                                        // occupies the slot, so replacing it here
+                                        // would finish the peer's Stage2 against the
+                                        // wrong constructor and desync the ratchets
+                                        // (#370). Keep the first exchange; drop this one.
+                                        let exchange_in_progress = state_container
+                                            .peer_kem_states
+                                            .get(original_session_cid)
+                                            .is_some_and(|kem| kem.constructor.is_some());
+                                        if exchange_in_progress {
+                                            drop(state_container);
+                                            log::info!(target: "citadel", "Dual-connect race: dropping second key exchange with {original_session_cid}; first exchange still in progress");
+                                            session.send_to_kernel(NodeResult::PeerEvent(
+                                                PeerEvent {
+                                                    event: PeerSignal::SignalError {
+                                                        ticket,
+                                                        error: format!("Already exchanging keys with peer {original_session_cid}"),
+                                                        peer_connection_type: conn.reverse(),
+                                                    },
+                                                    ticket,
+                                                    session_cid,
+                                                },
+                                            ))?;
+                                            return Ok(PrimaryProcessorResult::Void);
+                                        }
 
                                         state_container.peer_kem_states.insert(
                                             *original_session_cid,
@@ -488,6 +525,22 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     {
                                         if existing_kem.constructor.is_some() {
                                             let our_cid = conn.get_original_target_cid();
+                                            // If the slot holds a bob constructor, we are
+                                            // mid-exchange as bob for this peer's Stage0
+                                            // and its Stage2 is on its way. The CID
+                                            // tie-break below only arbitrates two alice
+                                            // constructors (a simultaneous dial); against
+                                            // a bob exchange, replacing the slot would
+                                            // orphan that Stage2 (#370). Drop this Stage0
+                                            // regardless of CID order.
+                                            if !existing_kem.local_is_initiator {
+                                                log::info!(target: "citadel",
+                                                    "Simultaneous P2P KEX race: dropping \
+                                                     Stage0 from {peer_cid} (our in-progress \
+                                                     bob exchange takes priority)");
+                                                drop(state_container);
+                                                return Ok(PrimaryProcessorResult::Void);
+                                            }
                                             if our_cid < peer_cid {
                                                 log::info!(target: "citadel",
                                                     "Simultaneous P2P KEX race: dropping \
@@ -860,6 +913,17 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         let kem = return_if_none!(state_container
                                             .peer_kem_states
                                             .get_mut(&peer_cid));
+                                        // Stage2 completes an exchange we answer as bob.
+                                        // If the slot instead holds our alice
+                                        // constructor, the exchange state is
+                                        // inconsistent (a second exchange replaced
+                                        // the bob entry this Stage2 belongs to, #370);
+                                        // finishing with it would build a ratchet the
+                                        // peer cannot match. Drop the Stage2.
+                                        if kem.local_is_initiator {
+                                            log::info!(target: "citadel", "Dual-connect race: Stage2 from {peer_cid} matched no bob exchange of ours; ignored");
+                                            return Ok(PrimaryProcessorResult::Void);
+                                        }
                                         // Create cancellation channel for hole punch operation.
                                         // When disconnect occurs, KEM state is dropped, which drops
                                         // the sender and cancels any in-progress hole punch.
