@@ -59,11 +59,11 @@ impl<R: Ratchet> SignInManagementExt for CitadelClientServerConnection<R> {
             })?;
             key.ask(purpose, request).await
         };
-        let step_up_key = match ClientManagement::step_up_key_request(&challenge) {
+        let step_up_key = match ClientManagement::step_up_key_request(&challenge)? {
             Some(request) => Some(ask(SecurityKeyPurpose::StepUp, request).await?),
             None => None,
         };
-        let new_key = match client.new_key_request(&challenge) {
+        let new_key = match client.new_key_request(&challenge)? {
             Some(request) => Some(ask(SecurityKeyPurpose::Enrol, request).await?.prf),
             None => None,
         };

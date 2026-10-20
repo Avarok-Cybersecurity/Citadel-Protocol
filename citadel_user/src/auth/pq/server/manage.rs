@@ -55,6 +55,12 @@ pub fn begin_management(
         }
         SignInManagementOp::RegenerateRecoveryCodes => {}
         _ if codes != 0 => return Err(malformed("recovery keys for another change")),
+        SignInManagementOp::AddSecurityKey { .. } if settings.security_key_rp_id().is_none() => {
+            return Err(error!(
+                ErrorCode::PqSignInUnavailable,
+                "this server has not enabled security keys"
+            ))
+        }
         _ => {}
     }
     let (step_up, expected) = match scope {
@@ -65,7 +71,7 @@ pub fn begin_management(
                 _ => return Err(malformed("a step-up for a legacy account")),
             }
         }
-        SessionScope::Recovery => (recovery_challenge(record), None),
+        SessionScope::Recovery => (recovery_challenge(settings, record), None),
     };
     let challenge = ManagementChallenge { step_up };
     let pending = PendingManagement {
@@ -78,14 +84,15 @@ pub fn begin_management(
 }
 
 /// A recovery session's step-up challenges nothing, but still tells the client the account's PRF
-/// salt, which it needs to derive a key it is adding.
-fn recovery_challenge(record: &PqAuthRecord) -> LoginChallenge {
+/// salt and the relying party, which it needs to derive a key it is adding.
+fn recovery_challenge(settings: &PqAuthServerSettings, record: &PqAuthRecord) -> LoginChallenge {
     LoginChallenge {
         server_nonce: random_32(),
         body: ChallengeBody::Factors(FactorChallenges {
             oprf_evaluated: None,
             salt_user: record.salt_user,
             prf_eval_salt: record.prf_eval_salt,
+            rp_id: settings.security_key_rp_id().map(str::to_owned),
             ksf: record.ksf,
             challenges: Vec::new(),
         }),

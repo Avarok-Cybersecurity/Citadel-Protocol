@@ -1,6 +1,8 @@
 //! The client's side of sign-in management.
 
-use super::login::{ClientLogin, ClientProof, SecurityKeyAnswer, SecurityKeyRequest};
+use super::login::{
+    relying_party, ClientLogin, ClientProof, SecurityKeyAnswer, SecurityKeyRequest,
+};
 use crate::auth::pq::kem::{EncapsulationKey, FactorKeypair};
 use crate::auth::pq::management_transcript;
 use crate::auth::pq::messages::{
@@ -57,23 +59,29 @@ impl ClientManagement {
     }
 
     /// The touch the step-up needs, if the account's policy includes a key.
-    pub fn step_up_key_request(challenge: &ManagementChallenge) -> Option<SecurityKeyRequest> {
+    pub fn step_up_key_request(
+        challenge: &ManagementChallenge,
+    ) -> Result<Option<SecurityKeyRequest>, AccountError> {
         ClientLogin::security_key_request(&challenge.step_up)
     }
 
     /// `AddSecurityKey`: what to ask the new key for, now that the challenge has given the
-    /// account's PRF salt.
-    pub fn new_key_request(&self, challenge: &ManagementChallenge) -> Option<SecurityKeyRequest> {
+    /// account's PRF salt and relying party.
+    pub fn new_key_request(
+        &self,
+        challenge: &ManagementChallenge,
+    ) -> Result<Option<SecurityKeyRequest>, AccountError> {
         let SignInManagementOp::AddSecurityKey { credential_id, .. } = &self.begin.op else {
-            return None;
+            return Ok(None);
         };
         let ChallengeBody::Factors(factors) = &challenge.step_up.body else {
-            return None;
+            return Ok(None);
         };
-        Some(SecurityKeyRequest {
+        Ok(Some(SecurityKeyRequest {
+            rp_id: relying_party(factors)?,
             credential_ids: vec![credential_id.clone()],
             prf_eval_salt: factors.prf_eval_salt,
-        })
+        }))
     }
 
     pub async fn commit(

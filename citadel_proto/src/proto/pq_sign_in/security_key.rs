@@ -3,9 +3,10 @@
 //! The SDK never talks to an authenticator. When a sign-in, a step-up or an enrolment needs a key,
 //! it sends a [`SecurityKeyChallenge`] down the channel [`security_key_channel`] returned. The
 //! application (the agent relaying to the browser, or a browser client itself) runs
-//! `navigator.credentials.get` with `allowCredentials` set to the request's credential ids and the
-//! PRF extension evaluated at `prf_eval_salt`, and answers with the credential the user touched and
-//! its 32-byte PRF output. The output never leaves the client.
+//! `navigator.credentials.get` with `rpId` set to the request's relying party ID (which the server
+//! names), `allowCredentials` set to its credential ids and the PRF extension evaluated at
+//! `prf_eval_salt`, and answers with the credential the user touched and its 32-byte PRF output.
+//! The output never leaves the client.
 
 use crate::error::NetworkError;
 use citadel_io::tokio::sync::{mpsc, oneshot};
@@ -30,7 +31,7 @@ pub enum SecurityKeyPurpose {
 /// One request for a touch. Answer it once, or drop it to decline.
 pub struct SecurityKeyChallenge {
     pub purpose: SecurityKeyPurpose,
-    /// WebAuthn `allowCredentials`, and the PRF `eval.first` input.
+    /// WebAuthn `rpId` and `allowCredentials`, and the PRF `eval.first` input.
     pub request: SecurityKeyRequest,
     responder: oneshot::Sender<Result<SecurityKeyAnswer, String>>,
 }

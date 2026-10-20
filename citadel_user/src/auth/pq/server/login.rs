@@ -177,6 +177,7 @@ pub fn build_login_challenge(
             oprf_evaluated,
             salt_user,
             prf_eval_salt,
+            rp_id: settings.security_key_rp_id().map(str::to_owned),
             ksf,
             challenges,
         }),

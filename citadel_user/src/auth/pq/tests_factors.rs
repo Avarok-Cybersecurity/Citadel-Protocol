@@ -4,8 +4,11 @@ use super::client::{ClientLogin, SecurityKeyAnswer};
 use super::kem::FactorKeypair;
 use super::record::{NewFactor, PqAuthRecord};
 use super::seed::{security_key_seed, PrfOutput};
-use super::tests::{begin, complete, complete_with_key, is_generic_failure, register};
-use citadel_io::tokio;
+use super::server::{build_login_challenge, AccountAuth};
+use super::tests::{
+    begin, complete, complete_with_key, is_generic_failure, register, settings_without_keys, RP_ID,
+};
+use citadel_io::{tokio, ErrorCode};
 use citadel_types::auth::{FactorKind, SessionScope, SignInPolicy};
 
 const CRED: &[u8] = b"yubikey-credential-id";
@@ -40,7 +43,10 @@ async fn with_key(policy: SignInPolicy) -> PqAuthRecord {
 async fn password_and_key_needs_both() {
     let record = with_key(SignInPolicy::PasswordAndKey).await;
     let both = begin(Some(&record), "alice", Some("correct horse"), None);
-    let request = ClientLogin::security_key_request(&both.challenge).unwrap();
+    let request = ClientLogin::security_key_request(&both.challenge)
+        .unwrap()
+        .unwrap();
+    assert_eq!(request.rp_id, RP_ID);
     assert_eq!(request.credential_ids, vec![CRED.to_vec()]);
     assert_eq!(request.prf_eval_salt, record.prf_eval_salt);
     let verified = complete_with_key(both, Some(touch(7))).await.unwrap();
@@ -76,8 +82,22 @@ async fn key_only_signs_in_without_a_password_and_ignores_one() {
 
     let password = begin(Some(&record), "alice", Some("correct horse"), None);
     assert!(
-        ClientLogin::security_key_request(&password.challenge).is_some(),
+        ClientLogin::security_key_request(&password.challenge)
+            .unwrap()
+            .is_some(),
         "a key-only account challenges its keys"
     );
     assert!(complete(password).await.is_err());
+}
+
+/// The relying party is the server's: a server that has not enabled security keys names none, and
+/// a client cannot guess one.
+#[citadel_io::tokio::test]
+async fn a_key_cannot_be_asked_without_the_servers_relying_party() {
+    let record = with_key(SignInPolicy::KeyOnly).await;
+    let (start, _) = ClientLogin::start("alice", None, None).unwrap();
+    let account = AccountAuth::PostQuantum(&record);
+    let (challenge, _) = build_login_challenge(&settings_without_keys(), account, &start).unwrap();
+    let refused = ClientLogin::security_key_request(&challenge).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::PqSignInUnavailable);
 }

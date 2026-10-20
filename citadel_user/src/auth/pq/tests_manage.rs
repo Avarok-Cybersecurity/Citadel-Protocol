@@ -8,7 +8,7 @@ use super::messages::{ManagementBegin, ServerOutcome};
 use super::record::PqAuthRecord;
 use super::seed::PrfOutput;
 use super::server::{begin_management, Change, CommitStep};
-use super::tests::{password, register, settings, CID};
+use super::tests::{password, register, settings, settings_without_keys, CID};
 use citadel_io::{tokio, ErrorCode};
 use citadel_types::auth::{FactorKind, SessionScope, SignInManagementOp, SignInPolicy};
 
@@ -130,6 +130,23 @@ async fn a_key_is_enrolled_only_with_its_proof() {
         code(&again),
         Some(ErrorCode::PqSignInPolicy),
         "the same key twice"
+    );
+}
+
+#[citadel_io::tokio::test]
+async fn a_server_without_a_relying_party_enrols_no_key() {
+    let (record, _) = register("pw").await;
+    let (begin, _) = ClientManagement::begin("alice", add_key(), Some(&password("pw"))).unwrap();
+    let refused = begin_management(
+        &settings_without_keys(),
+        CID,
+        &record,
+        SessionScope::Full,
+        begin,
+    );
+    assert_eq!(
+        refused.err().map(|err| err.code),
+        Some(ErrorCode::PqSignInUnavailable)
     );
 }
 

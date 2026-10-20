@@ -16,12 +16,23 @@ use citadel_types::auth::FactorKind;
 use citadel_types::crypto::SecBuffer;
 use zeroize::Zeroizing;
 
-/// What the embedding application must ask a security key for: a WebAuthn `get` with these
-/// `allowCredentials` and the PRF extension evaluated at `prf_eval_salt`.
+/// What the embedding application must ask a security key for: a WebAuthn `get` for relying party
+/// `rp_id` with these `allowCredentials` and the PRF extension evaluated at `prf_eval_salt`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SecurityKeyRequest {
+    pub rp_id: String,
     pub credential_ids: Vec<Vec<u8>>,
     pub prf_eval_salt: [u8; 32],
+}
+
+/// The relying party a challenge's security keys are scoped to. Without one, no key can be asked.
+pub(crate) fn relying_party(factors: &FactorChallenges) -> Result<String, AccountError> {
+    factors.rp_id.clone().ok_or_else(|| {
+        error!(
+            ErrorCode::PqSignInUnavailable,
+            "this server has not enabled security keys"
+        )
+    })
 }
 
 /// The application's answer: which credential the user touched, and its PRF output.
@@ -80,9 +91,11 @@ impl ClientLogin {
     }
 
     /// Whether answering `challenge` needs a security key, and what to ask it for.
-    pub fn security_key_request(challenge: &LoginChallenge) -> Option<SecurityKeyRequest> {
+    pub fn security_key_request(
+        challenge: &LoginChallenge,
+    ) -> Result<Option<SecurityKeyRequest>, AccountError> {
         let ChallengeBody::Factors(factors) = &challenge.body else {
-            return None;
+            return Ok(None);
         };
         let credential_ids: Vec<Vec<u8>> = factors
             .challenges
@@ -90,10 +103,14 @@ impl ClientLogin {
             .filter(|c| c.kind == FactorKind::SecurityKey)
             .filter_map(|c| c.credential_id.clone())
             .collect();
-        (!credential_ids.is_empty()).then_some(SecurityKeyRequest {
+        if credential_ids.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(SecurityKeyRequest {
+            rp_id: relying_party(factors)?,
             credential_ids,
             prf_eval_salt: factors.prf_eval_salt,
-        })
+        }))
     }
 
     /// Proves every challenged factor this client holds. Which of them suffice is the server's
