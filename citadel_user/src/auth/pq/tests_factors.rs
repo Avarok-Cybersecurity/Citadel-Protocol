@@ -1,6 +1,6 @@
 //! Security keys and policies, end to end through the client and server functions.
 
-use super::client::{ClientLogin, SecurityKeyAnswer};
+use super::client::{ClientLogin, SecurityKeyAnswer, SecurityKeyCeremony};
 use super::kem::FactorKeypair;
 use super::record::{NewFactor, PqAuthRecord};
 use super::seed::{security_key_seed, PrfOutput};
@@ -47,7 +47,12 @@ async fn password_and_key_needs_both() {
         .unwrap()
         .unwrap();
     assert_eq!(request.rp_id, RP_ID);
-    assert_eq!(request.credential_ids, vec![CRED.to_vec()]);
+    assert_eq!(
+        request.ceremony,
+        SecurityKeyCeremony::Authenticate {
+            credential_ids: vec![CRED.to_vec()]
+        }
+    );
     assert_eq!(request.prf_eval_salt, record.prf_eval_salt);
     let verified = complete_with_key(both, Some(touch(7))).await.unwrap();
     assert_eq!(verified.scope, SessionScope::Full);

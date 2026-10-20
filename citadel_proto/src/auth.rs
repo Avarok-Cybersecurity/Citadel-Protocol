@@ -50,7 +50,7 @@ pub use crate::proto::pq_sign_in::security_key::{
 };
 use citadel_types::crypto::SecBuffer;
 use citadel_types::user::UserIdentifier;
-pub use citadel_user::auth::pq::client::SecurityKeyRequest;
+pub use citadel_user::auth::pq::client::{SecurityKeyCeremony, SecurityKeyRequest};
 use citadel_user::auth::pq::recovery::RecoveryCode;
 use citadel_user::misc::AccountError;
 use serde::{Deserialize, Serialize};

@@ -75,10 +75,9 @@ pub enum SessionScope {
 #[cfg_attr(feature = "typescript", ts(export))]
 pub enum SignInManagementOp {
     ListCredentials,
-    /// Enrol a security key. The client proves it holds the key's ML-KEM decapsulation key, so
-    /// nobody can enrol a key they do not hold.
+    /// Enrol a security key. The client creates the key's credential, then proves it holds the
+    /// key's ML-KEM decapsulation key, so nobody can enrol a key they do not hold.
     AddSecurityKey {
-        credential_id: Vec<u8>,
         label: String,
     },
     RenameCredential {

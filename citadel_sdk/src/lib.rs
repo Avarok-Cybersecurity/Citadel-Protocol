@@ -259,8 +259,8 @@ pub mod prelude {
     pub use crate::responses;
     pub use crate::sign_in::SignInManagementExt;
     pub use citadel_proto::auth::{
-        security_key_channel, SecurityKeyChallenge, SecurityKeyPrf, SecurityKeyPurpose,
-        SecurityKeyRequest, SignInFactors,
+        security_key_channel, SecurityKeyCeremony, SecurityKeyChallenge, SecurityKeyPrf,
+        SecurityKeyPurpose, SecurityKeyRequest, SignInFactors,
     };
     pub use citadel_proto::prelude::*;
     pub use citadel_types::auth::{

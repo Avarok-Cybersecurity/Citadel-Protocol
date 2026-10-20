@@ -8,9 +8,10 @@
 //! # use citadel_sdk::prelude::*;
 //! # async fn f(conn: CitadelClientServerConnection<StackedRatchet>) -> Result<(), NetworkError> {
 //! let (key, mut touches) = security_key_channel();
-//! // Serve `touches` by running WebAuthn `get` with the PRF extension, then answering.
+//! // Serve `touches` by running each request's WebAuthn ceremony with the PRF extension, then
+//! // answering.
 //! let step_up = SignInFactors::password("hunter2").with_security_key(key);
-//! let op = SignInManagementOp::AddSecurityKey { credential_id: vec![1, 2, 3], label: "YubiKey".into() };
+//! let op = SignInManagementOp::AddSecurityKey { label: "YubiKey".into() };
 //! let added = conn.manage_sign_in(op, step_up).await?;
 //! # Ok(()) }
 //! ```
@@ -24,7 +25,7 @@ use futures::StreamExt;
 #[async_trait]
 pub trait SignInManagementExt {
     /// Runs one change. `step_up` holds the factors the account's policy asks for (and, for
-    /// `AddSecurityKey`, the key channel that is asked for the new key's PRF output).
+    /// `AddSecurityKey`, the key channel that is asked to create the new key's credential).
     async fn manage_sign_in(
         &self,
         op: SignInManagementOp,
@@ -64,7 +65,7 @@ impl<R: Ratchet> SignInManagementExt for CitadelClientServerConnection<R> {
             None => None,
         };
         let new_key = match client.new_key_request(&challenge)? {
-            Some(request) => Some(ask(SecurityKeyPurpose::Enrol, request).await?.prf),
+            Some(request) => Some(ask(SecurityKeyPurpose::Enrol, request).await?),
             None => None,
         };
         let (commit, committed) = client.commit(cid, &challenge, step_up_key, new_key).await?;

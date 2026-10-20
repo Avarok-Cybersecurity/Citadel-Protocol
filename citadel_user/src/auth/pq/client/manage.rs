@@ -1,17 +1,18 @@
 //! The client's side of sign-in management.
 
 use super::login::{
-    relying_party, ClientLogin, ClientProof, SecurityKeyAnswer, SecurityKeyRequest,
+    relying_party, ClientLogin, ClientProof, SecurityKeyAnswer, SecurityKeyCeremony,
+    SecurityKeyRequest,
 };
-use crate::auth::pq::kem::{EncapsulationKey, FactorKeypair};
-use crate::auth::pq::management_transcript;
+use crate::auth::pq::kem::FactorKeypair;
 use crate::auth::pq::messages::{
     transcript_bytes, ChallengeBody, EnrolChallenge, EnrolProof, LoginFinish, LoginProof,
-    ManagementBegin, ManagementChallenge, ManagementCommit,
+    ManagementBegin, ManagementChallenge, ManagementCommit, NewSecurityKey,
 };
 use crate::auth::pq::proof::{factor_tag, TranscriptHash, TranscriptPurpose, ENROL_LABEL};
 use crate::auth::pq::recovery::RecoveryCode;
-use crate::auth::pq::seed::{recovery_seed, security_key_seed, PrfOutput};
+use crate::auth::pq::seed::{recovery_seed, security_key_seed};
+use crate::auth::pq::{management_transcript, random_32};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::SignInManagementOp;
@@ -65,13 +66,13 @@ impl ClientManagement {
         ClientLogin::security_key_request(&challenge.step_up)
     }
 
-    /// `AddSecurityKey`: what to ask the new key for, now that the challenge has given the
-    /// account's PRF salt and relying party.
+    /// `AddSecurityKey`: the credential to create, now that the challenge has given the relying
+    /// party, the account's PRF salt and the keys it already has.
     pub fn new_key_request(
         &self,
         challenge: &ManagementChallenge,
     ) -> Result<Option<SecurityKeyRequest>, AccountError> {
-        let SignInManagementOp::AddSecurityKey { credential_id, .. } = &self.begin.op else {
+        let SignInManagementOp::AddSecurityKey { .. } = &self.begin.op else {
             return Ok(None);
         };
         let ChallengeBody::Factors(factors) = &challenge.step_up.body else {
@@ -79,8 +80,13 @@ impl ClientManagement {
         };
         Ok(Some(SecurityKeyRequest {
             rp_id: relying_party(factors)?,
-            credential_ids: vec![credential_id.clone()],
             prf_eval_salt: factors.prf_eval_salt,
+            ceremony: SecurityKeyCeremony::Register {
+                // A random handle: the credential is not discoverable, so nothing looks it up.
+                user_id: random_32().to_vec(),
+                user_name: self.begin.step_up.username.clone(),
+                exclude_credential_ids: challenge.exclude_credentials.clone(),
+            },
         }))
     }
 
@@ -89,23 +95,26 @@ impl ClientManagement {
         cid: u64,
         challenge: &ManagementChallenge,
         step_up_key: Option<SecurityKeyAnswer>,
-        new_key_prf: Option<PrfOutput>,
+        new_key: Option<SecurityKeyAnswer>,
     ) -> Result<(ManagementCommit, ClientCommitted), AccountError> {
-        let new_key = match (&self.begin.op, new_key_prf) {
-            (SignInManagementOp::AddSecurityKey { credential_id, .. }, Some(prf)) => Some(
-                FactorKeypair::derive(&security_key_seed(&prf, credential_id))?,
-            ),
+        let new_key = match (&self.begin.op, new_key) {
+            (SignInManagementOp::AddSecurityKey { .. }, Some(answer)) => {
+                let seed = security_key_seed(&answer.prf, &answer.credential_id);
+                Some((answer.credential_id, FactorKeypair::derive(&seed)?))
+            }
             (SignInManagementOp::AddSecurityKey { .. }, None) => {
-                return Err(error!(
-                    ErrorCode::PqSignInFactorMissing,
-                    "the new key's PRF output"
-                ))
+                return Err(error!(ErrorCode::PqSignInFactorMissing, "the new key"))
             }
             _ => None,
         };
-        let new_key_ek: Option<EncapsulationKey> =
-            new_key.as_ref().map(|kp| kp.encapsulation_key().clone());
-        let transcript = management_transcript(cid, &self.begin, challenge, new_key_ek.as_ref());
+        let new_key_commit = new_key
+            .as_ref()
+            .map(|(credential_id, keypair)| NewSecurityKey {
+                credential_id: credential_id.clone(),
+                ek: keypair.encapsulation_key().clone(),
+            });
+        let transcript =
+            management_transcript(cid, &self.begin, challenge, new_key_commit.as_ref());
         let challenged = match &challenge.step_up.body {
             ChallengeBody::Factors(factors) => !factors.challenges.is_empty(),
             ChallengeBody::Legacy { .. } => true,
@@ -128,11 +137,11 @@ impl ClientManagement {
         };
         let commit = ManagementCommit {
             step_up,
-            new_key_ek,
+            new_key: new_key_commit,
         };
         let committed = ClientCommitted {
             transcript,
-            new_key,
+            new_key: new_key.map(|(_, keypair)| keypair),
             codes: self.codes,
         };
         Ok((commit, committed))
