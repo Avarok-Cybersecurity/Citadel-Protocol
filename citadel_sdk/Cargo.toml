@@ -28,6 +28,7 @@ io-uring = ["citadel_proto/io-uring"]
 std = ["citadel_proto/std"]
 wasm-threads = ["citadel_proto/wasm-threads"]
 google-services = ["citadel_proto/google-services"]
+security-key = ["citadel_proto/security-key"]
 vendored = ["citadel_proto/vendored"]
 
 # for testing only

@@ -48,6 +48,8 @@ pub use crate::proto::pq_sign_in::security_key::{
     security_key_channel, SecurityKeyChallenge, SecurityKeyPrf, SecurityKeyPurpose,
     KEY_PRESENCE_WINDOW,
 };
+#[cfg(all(feature = "security-key", not(target_family = "wasm")))]
+pub use crate::proto::pq_sign_in::security_key::{SecurityKey, SecurityKeyPrompt};
 use citadel_types::crypto::SecBuffer;
 use citadel_types::user::UserIdentifier;
 pub use citadel_user::auth::pq::client::{SecurityKeyCeremony, SecurityKeyRequest};

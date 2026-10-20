@@ -262,6 +262,8 @@ pub mod prelude {
         security_key_channel, SecurityKeyCeremony, SecurityKeyChallenge, SecurityKeyPrf,
         SecurityKeyPurpose, SecurityKeyRequest, SignInFactors,
     };
+    #[cfg(all(feature = "security-key", not(target_family = "wasm")))]
+    pub use citadel_proto::auth::{SecurityKey, SecurityKeyPrompt};
     pub use citadel_proto::prelude::*;
     pub use citadel_types::auth::{
         FactorId, FactorKind, SessionScope, SignInCredential, SignInManagementOp,

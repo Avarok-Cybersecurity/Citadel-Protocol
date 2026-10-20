@@ -39,6 +39,9 @@ localhost-testing = [
 ]
 localhost-testing-assert-no-proxy = ["localhost-testing"]
 google-services = ["citadel_user/google-services"]
+# Security keys plugged into this machine, over USB (see `auth::SecurityKey`). Off by default: on
+# Linux it builds against libudev. No effect on WASM, where the browser runs the key.
+security-key = ["dep:authenticator", "dep:check_elevation"]
 vendored = ["citadel_user/vendored", "citadel_wire/vendored"]
 
 std = [
@@ -92,6 +95,10 @@ citadel_logging = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
+authenticator = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+check_elevation = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }

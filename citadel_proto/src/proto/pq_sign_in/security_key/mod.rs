@@ -1,10 +1,11 @@
 //! How the SDK asks the embedding application for a security key's WebAuthn PRF output.
 //!
-//! The SDK never talks to an authenticator. When a sign-in, a step-up or an enrolment needs a key,
-//! it sends a [`SecurityKeyChallenge`] down the channel [`security_key_channel`] returned. The
-//! application (the agent relaying to the browser, or a browser client itself) runs the request's
-//! WebAuthn ceremony for its relying party ID (which the server names), with the PRF extension
-//! evaluated at `prf_eval_salt`:
+//! The protocol never talks to an authenticator. When a sign-in, a step-up or an enrolment needs a
+//! key, it sends a [`SecurityKeyChallenge`] down the channel [`security_key_channel`] returned.
+//! Whoever serves the channel (the `security-key` feature's `SecurityKey` for keys plugged into
+//! this machine, or the application itself, such as an agent relaying to a browser) runs the
+//! request's WebAuthn ceremony for its relying party ID (which the server names), with the PRF
+//! extension evaluated at `prf_eval_salt`:
 //!
 //! - [`SecurityKeyCeremony::Authenticate`]: `navigator.credentials.get` with `allowCredentials`
 //!   set to the request's credential ids.
@@ -19,6 +20,11 @@ use citadel_io::{error, ErrorCode};
 use citadel_user::auth::pq::client::{SecurityKeyAnswer, SecurityKeyCeremony, SecurityKeyRequest};
 use citadel_user::auth::pq::seed::PrfOutput;
 use std::time::Duration;
+
+#[cfg(all(feature = "security-key", not(target_family = "wasm")))]
+mod native;
+#[cfg(all(feature = "security-key", not(target_family = "wasm")))]
+pub use native::{SecurityKey, SecurityKeyPrompt};
 
 /// The longest the SDK waits for the user to touch a key: the user-presence stage alone.
 pub const KEY_PRESENCE_WINDOW: Duration = Duration::from_secs(60);
