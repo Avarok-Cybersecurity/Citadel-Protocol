@@ -112,6 +112,8 @@ pub(crate) mod wasm_p2p_established;
 #[cfg(target_family = "wasm")]
 pub(crate) mod wasm_p2p_signaling;
 #[cfg(target_family = "wasm")]
+pub(crate) mod wasm_promise;
+#[cfg(target_family = "wasm")]
 pub(crate) mod wasm_rtc;
 #[cfg(target_family = "wasm")]
 pub mod wasm_stream;
