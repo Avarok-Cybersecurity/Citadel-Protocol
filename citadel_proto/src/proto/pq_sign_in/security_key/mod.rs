@@ -40,7 +40,8 @@ mod reason {
 #[cfg(all(feature = "security-key", not(target_family = "wasm")))]
 pub use native::{SecurityKey, SecurityKeyPrompt};
 
-/// The longest the SDK waits for the user to touch a key: the user-presence stage alone.
+/// The longest the SDK waits for one key request, its PIN and touches included (an enrolment
+/// takes two touches). It is the one stage of a login that may outlast the login's deadline.
 pub const KEY_PRESENCE_WINDOW: Duration = Duration::from_secs(60);
 
 /// Why the SDK is asking.

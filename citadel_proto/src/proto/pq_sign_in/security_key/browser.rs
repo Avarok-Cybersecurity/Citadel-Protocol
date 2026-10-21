@@ -26,7 +26,9 @@ const UNSIGNED_CHALLENGE: [u8; 32] = [0u8; 32];
 type Outcome = Result<(Vec<u8>, [u8; 32]), String>;
 
 /// The security keys this browser can reach. The browser asks the user for the PIN and the touch
-/// itself, and requires them: every ceremony asks for user verification.
+/// itself, and requires them: every ceremony asks for user verification. The page must be served
+/// from the server's relying party ID or a subdomain of it, and run in a window, not a worker.
+/// Tested in Chrome and Firefox.
 #[derive(Clone, Default)]
 pub struct SecurityKey;
 

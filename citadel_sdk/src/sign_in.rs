@@ -4,6 +4,11 @@
 //! Every change carries a fresh step-up (the account's factors, proven again, bound to the change)
 //! except in a session signed in with a recovery code, which may only add a key and set the policy.
 //!
+//! Security keys need the server to name its relying party, with
+//! `PqAuthServerSettings::with_security_key_rp_id`. With the `security-key` feature, the client's
+//! keys are served by `SecurityKey::new(prompt).serve()` natively, or `SecurityKey::new().serve()`
+//! in a browser; without it, serve the channel yourself:
+//!
 //! ```no_run
 //! # use citadel_sdk::prelude::*;
 //! # async fn f(conn: CitadelClientServerConnection<StackedRatchet>) -> Result<(), NetworkError> {

@@ -45,7 +45,10 @@ pub trait SecurityKeyPrompt: Send + Sync + 'static {
     fn touch(&self, purpose: SecurityKeyPurpose);
 }
 
-/// The security keys plugged into this machine.
+/// The security keys plugged into this machine. A key needs a FIDO2 PIN and the PRF extension
+/// (`hmac-secret`), and every request asks for the PIN. On Linux the user needs access to the key's
+/// `hidraw` device, which systemd grants to the logged-in user; on Windows the process must be
+/// elevated.
 #[derive(Clone)]
 pub struct SecurityKey {
     prompt: Arc<dyn SecurityKeyPrompt>,

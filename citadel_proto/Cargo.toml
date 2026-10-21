@@ -40,7 +40,8 @@ localhost-testing = [
 localhost-testing-assert-no-proxy = ["localhost-testing"]
 google-services = ["citadel_user/google-services"]
 # Security keys (see `auth::SecurityKey`): over USB natively, where it builds against libudev on
-# Linux, and through the browser's WebAuthn API on WASM. Off by default.
+# Linux, and through the browser's WebAuthn API on WASM. Off by default. Natively it links p256:
+# CTAP2's PIN protocol agrees a key over P-256. Nothing verifies a classical signature.
 security-key = [
     "dep:authenticator",
     "dep:check_elevation",
