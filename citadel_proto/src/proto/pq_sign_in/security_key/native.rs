@@ -2,6 +2,7 @@
 //! CTAP2 client Firefox uses. It runs WebAuthn's PRF extension itself, salt transform included, so
 //! a key gives the same output here as in a browser for the same credential.
 
+use super::reason::{ALREADY_ENROLLED, CANCELLED, NO_PRF};
 use super::{
     security_key_channel, SecurityKeyChallenge, SecurityKeyPrf, SecurityKeyPurpose,
     KEY_PRESENCE_WINDOW,
@@ -28,7 +29,6 @@ use std::sync::{mpsc, Arc};
 /// signs carries nothing.
 const UNSIGNED_CLIENT_DATA: [u8; 32] = [0u8; 32];
 
-const NO_PRF: &str = "This security key does not support the WebAuthn PRF extension (hmac-secret).";
 const NO_USER_VERIFICATION: &str =
     "This security key cannot verify its user with a PIN or biometrics, so it cannot sign in.";
 /// Windows lets only an elevated process reach a security key over USB.
@@ -176,7 +176,10 @@ impl Session {
         self.service
             .register(timeout_ms(), args, status, callback)
             .map_err(describe)?;
-        let made = result.await.map_err(|_| cancelled())?.map_err(describe)?;
+        let made = result
+            .await
+            .map_err(|_| CANCELLED.to_string())?
+            .map_err(describe)?;
         if made.extensions.prf.and_then(|prf| prf.enabled) == Some(false) {
             return Err(NO_PRF.into());
         }
@@ -225,7 +228,10 @@ impl Session {
         self.service
             .sign(timeout_ms(), args, status, callback)
             .map_err(describe)?;
-        let signed = result.await.map_err(|_| cancelled())?.map_err(describe)?;
+        let signed = result
+            .await
+            .map_err(|_| CANCELLED.to_string())?
+            .map_err(describe)?;
         let assertion = signed.assertion;
         if !assertion
             .auth_data
@@ -335,16 +341,10 @@ fn timeout_ms() -> u64 {
     KEY_PRESENCE_WINDOW.as_millis() as u64
 }
 
-fn cancelled() -> String {
-    "Cancelled.".to_string()
-}
-
 /// What the user is told when a key fails.
 fn describe(err: AuthenticatorError) -> String {
     let reason = match err {
-        AuthenticatorError::CredentialExcluded => {
-            "This security key is already enrolled on this account."
-        }
+        AuthenticatorError::CredentialExcluded => ALREADY_ENROLLED,
         AuthenticatorError::PinError(PinError::PinNotSet) => {
             "This security key has no PIN. Set a PIN on it, then try again."
         }
@@ -358,7 +358,7 @@ fn describe(err: AuthenticatorError) -> String {
         AuthenticatorError::PinError(PinError::InvalidUv(_) | PinError::UvBlocked) => {
             "The security key could not verify you."
         }
-        AuthenticatorError::CancelledByUser => return cancelled(),
+        AuthenticatorError::CancelledByUser => CANCELLED,
         AuthenticatorError::U2FToken(U2FTokenError::NotAllowed) => {
             "No security key was used in time."
         }

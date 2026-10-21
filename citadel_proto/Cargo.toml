@@ -39,9 +39,21 @@ localhost-testing = [
 ]
 localhost-testing-assert-no-proxy = ["localhost-testing"]
 google-services = ["citadel_user/google-services"]
-# Security keys plugged into this machine, over USB (see `auth::SecurityKey`). Off by default: on
-# Linux it builds against libudev. No effect on WASM, where the browser runs the key.
-security-key = ["dep:authenticator", "dep:check_elevation"]
+# Security keys (see `auth::SecurityKey`): over USB natively, where it builds against libudev on
+# Linux, and through the browser's WebAuthn API on WASM. Off by default.
+security-key = [
+    "dep:authenticator",
+    "dep:check_elevation",
+    "dep:wasm-bindgen-futures",
+    "web-sys/AbortController",
+    "web-sys/AbortSignal",
+    "web-sys/AuthenticationExtensionsClientOutputs",
+    "web-sys/CredentialCreationOptions",
+    "web-sys/CredentialRequestOptions",
+    "web-sys/CredentialsContainer",
+    "web-sys/Navigator",
+    "web-sys/PublicKeyCredential",
+]
 vendored = ["citadel_user/vendored", "citadel_wire/vendored"]
 
 std = [
@@ -141,6 +153,7 @@ web-sys = { workspace = true, features = [
 ] }
 js-sys = { workspace = true }
 serde_json = { workspace = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

@@ -21,8 +21,22 @@ use citadel_user::auth::pq::client::{SecurityKeyAnswer, SecurityKeyCeremony, Sec
 use citadel_user::auth::pq::seed::PrfOutput;
 use std::time::Duration;
 
+#[cfg(all(feature = "security-key", target_family = "wasm"))]
+mod browser;
 #[cfg(all(feature = "security-key", not(target_family = "wasm")))]
 mod native;
+#[cfg(all(feature = "security-key", target_family = "wasm"))]
+pub use browser::SecurityKey;
+
+/// What both backends tell the user, worded once.
+#[cfg(feature = "security-key")]
+mod reason {
+    pub(super) const NO_PRF: &str =
+        "This security key does not support the WebAuthn PRF extension (hmac-secret).";
+    pub(super) const ALREADY_ENROLLED: &str =
+        "This security key is already enrolled on this account.";
+    pub(super) const CANCELLED: &str = "Cancelled.";
+}
 #[cfg(all(feature = "security-key", not(target_family = "wasm")))]
 pub use native::{SecurityKey, SecurityKeyPrompt};
 
