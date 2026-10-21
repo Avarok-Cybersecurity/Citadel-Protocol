@@ -13,7 +13,7 @@ mod common;
 #[cfg(all(test, feature = "localhost-testing", feature = "security-key"))]
 mod tests {
     use crate::common::pq::*;
-    use citadel_io::tokio;
+    use citadel_io::{tokio, ErrorCode};
     use citadel_sdk::prelude::*;
 
     /// Asks for the PIN and the touches on the terminal running the test.
@@ -82,7 +82,11 @@ mod tests {
             step("Enrol the same key again: it must be refused (touch it)");
             let again = conn.manage_sign_in(add_key(), password().with_security_key(key.serve()));
             let refused = again.await.expect_err("the same key was enrolled twice");
-            println!("refused: {refused}");
+            assert_eq!(refused.code, ErrorCode::PqSignInSecurityKey);
+            assert_eq!(
+                refused.into_string(),
+                "This security key is already enrolled on this account."
+            );
 
             step("Require the password and the key");
             let set = conn.manage_sign_in(policy(SignInPolicy::PasswordAndKey), password());

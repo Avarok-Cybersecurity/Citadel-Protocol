@@ -58,7 +58,7 @@ impl SecurityKeyChallenge {
         let _ = self.responder.send(Ok(answer));
     }
 
-    /// The user cancelled, or the key has no PRF support.
+    /// Declines, saying why in words for the user: the caller's error is `reason` itself.
     pub fn decline(self, reason: impl Into<String>) {
         let _ = self.responder.send(Err(reason.into()));
     }
@@ -110,7 +110,7 @@ impl SecurityKeyPrf {
             .await
             .map_err(|_| missing("a security key: no touch within 60 seconds"))?
             .map_err(|_| missing("a security key: the request was dropped"))?
-            .map_err(|reason| error!(ErrorCode::PqSignInFactorMissing, reason))?;
+            .map_err(|reason| error!(ErrorCode::PqSignInSecurityKey, reason))?;
         let asked_for = match &ceremony {
             SecurityKeyCeremony::Authenticate { credential_ids } => {
                 credential_ids.contains(&answer.credential_id)
@@ -129,5 +129,33 @@ impl SecurityKeyPrf {
             ));
         }
         Ok(answer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use citadel_io::tokio;
+
+    #[citadel_io::tokio::test]
+    async fn a_declined_request_fails_with_the_keys_own_words() {
+        let (prf, mut challenges) = security_key_channel();
+        let reason = "This security key is already enrolled on this account.";
+        drop(tokio::spawn(async move {
+            challenges.recv().await.unwrap().decline(reason);
+        }));
+        let request = SecurityKeyRequest {
+            rp_id: "localhost".into(),
+            prf_eval_salt: [0u8; 32],
+            ceremony: SecurityKeyCeremony::Authenticate {
+                credential_ids: vec![b"credential".to_vec()],
+            },
+        };
+        let declined = prf
+            .ask(SecurityKeyPurpose::Enrol, request)
+            .await
+            .unwrap_err();
+        assert_eq!(declined.code, ErrorCode::PqSignInSecurityKey);
+        assert_eq!(declined.into_string(), reason);
     }
 }
