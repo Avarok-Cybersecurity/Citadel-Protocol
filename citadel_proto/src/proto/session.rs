@@ -30,6 +30,7 @@
 //! - Session keys are automatically rotated based on configurable parameters
 //! - Memory containing sensitive data is securely zeroed when dropped
 
+use crate::proto::traffic::meter::{C2sMeter, StreamMeter};
 use std::sync::atomic::Ordering;
 //use async_std::prelude::*;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -626,11 +627,24 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
             let stopper = inner!(this.stopper_tx).subscribe();
 
+            // The server meters what it relays by class; a client also attributes its relayed
+            // P2P packets to their connections.
+            let relayed_connections =
+                (!this.is_server).then(|| inner_state!(this.state_container).relay_index.clone());
+            let meter = StreamMeter::ClientServer(C2sMeter::new(
+                this.session_manager.traffic(),
+                relayed_connections,
+            ));
+
             // Ensure the tx forwards to the writer
-            let writer_future =
-                Self::outbound_stream(primary_outbound_rx, writer, obfuscator.clone());
+            let writer_future = Self::outbound_stream(
+                primary_outbound_rx,
+                writer,
+                obfuscator.clone(),
+                meter.clone(),
+            );
             let reader_future =
-                Self::execute_inbound_stream(reader, this_inbound, None, obfuscator);
+                Self::execute_inbound_stream(reader, this_inbound, None, obfuscator, meter);
             //let timer_future = Self::execute_timer(this.clone());
             let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
             let stopper_future = Self::stopper(stopper);
@@ -966,7 +980,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    pub async fn outbound_stream<
+    pub(crate) async fn outbound_stream<
         S: citadel_io::tokio::io::AsyncWrite
             + citadel_io::tokio::io::AsyncRead
             + Unpin
@@ -976,6 +990,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         primary_outbound_rx: OutboundPrimaryStreamReceiver,
         mut writer: misc::PrimaryStreamWriter<S>,
         mut header_obfuscator: HeaderObfuscator,
+        meter: StreamMeter,
     ) -> Result<(), NetworkError> {
         let to_net_err = |err: std::io::Error| NetworkError::generic(err.to_string());
 
@@ -1000,6 +1015,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
         let mut rx = primary_outbound_rx.0;
         while let Some(packet) = rx.next().await {
+            meter.sent(&packet);
             writer
                 .write_packet(packet, &header_obfuscator)
                 .await
@@ -1010,6 +1026,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             while burst < OUTBOUND_FLUSH_BURST {
                 match rx.next().now_or_never() {
                     Some(Some(next)) => {
+                        meter.sent(&next);
                         writer
                             .write_packet(next, &header_obfuscator)
                             .await
@@ -1037,7 +1054,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    pub async fn execute_inbound_stream<
+    pub(crate) async fn execute_inbound_stream<
         S: citadel_io::tokio::io::AsyncRead
             + citadel_io::tokio::io::AsyncWrite
             + Unpin
@@ -1048,9 +1065,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         this_main: CitadelSession<R, T>,
         p2p_handle: Option<P2PInboundHandle<R>>,
         header_obfuscator: HeaderObfuscator,
+        meter: StreamMeter,
     ) -> Result<(), NetworkError> {
         let this_main = &this_main;
         let header_obfuscator = &header_obfuscator;
+        let meter = &meter;
         log::trace!(target: "citadel", "HdpSession async inbound-stream subroutine executed");
         let (
             ref remote_peer,
@@ -1271,6 +1290,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 {
                     return Ok(());
                 }
+                meter.received(&packet);
 
                 let session_cid: Option<u64> = session_cid.get();
                 let result = packet_processor::raw_primary_packet::process_raw_packet(

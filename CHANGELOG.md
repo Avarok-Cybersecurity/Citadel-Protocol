@@ -12,6 +12,16 @@
   addresses). Read it from `PeerChannel::path_outcomes()` / `P2pPathCell::last_outcome()`, or from
   the new unsolicited `NodeResult::PeerPathOutcome` event, one per attempt. Measurement only:
   connection establishment is unchanged.
+- **Traffic counters by path and class.** Every peer connection counts the bytes it sends and
+  receives on each path: `PeerChannel::path_bytes()` / `P2pPathCell::bytes()` return a
+  `PathBytesSnapshot` (`direct`, `turn`, `server_relay`, each a `ByteCount { tx, rx }`) covering
+  every route the connection has had. Every node counts its traffic by class:
+  `NodeRemote::traffic()` returns a `NodeTrafficSnapshot` (`direct`, `turn`, `relayed_p2p`,
+  `client_server`, `group_broadcast`). On a server, `relayed_p2p` is the P2P traffic it forwards
+  between its clients, told apart from client-server and group-broadcast traffic by each packet's
+  header only, never its payload. Counters are monotonic atomics; reading them takes no lock.
+  They count Citadel packet bytes (a P2P route's UDP channel datagrams included), not the
+  framing QUIC or TURN add around them; client-server UDP is not counted.
 
 ### Breaking
 

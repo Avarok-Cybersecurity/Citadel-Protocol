@@ -53,6 +53,7 @@ use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSigna
 use crate::proto::remote::Ticket;
 use crate::proto::session::{CitadelSession, SessionAliveTracker};
 use crate::proto::state_container::{P2PDisconnectSignal, RouteEnd, VirtualConnectionType};
+use crate::proto::traffic::meter::{RouteMeter, StreamMeter};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
@@ -270,11 +271,27 @@ pub(crate) mod native_p2p {
         let session_cid_for_dc = session_cid.clone();
         let implcid = session_cid.get().unwrap_or(0);
         let kernel_tx_for_dc = kernel_tx.clone();
-        let cleanup_connection_id = inner_state!(session.state_container)
-            .active_virtual_connections
-            .get(&peer_cid)
-            .map(|vconn| vconn.p2p_connection_id)
-            .unwrap_or(Ticket(0));
+        let (cleanup_connection_id, connection_bytes) = {
+            let state = inner_state!(session.state_container);
+            let vconn = state.active_virtual_connections.get(&peer_cid);
+            let bytes = vconn
+                .and_then(|vconn| vconn.endpoint_container.as_ref())
+                .map(|endpoint| endpoint.p2p_path.byte_counters().clone());
+            (
+                vconn
+                    .map(|vconn| vconn.p2p_connection_id)
+                    .unwrap_or(Ticket(0)),
+                bytes,
+            )
+        };
+        // Without a virtual connection the route is refused below (it has nothing to attach to);
+        // its few packets until then still count toward the node's totals.
+        let route_meter = RouteMeter::new(
+            connection_bytes.unwrap_or_default(),
+            session.session_manager.traffic(),
+            path,
+        );
+        let meter = StreamMeter::Route(route_meter.clone());
         let p2p_handle = P2PInboundHandle::new(
             remote_peer,
             local_bind_addr.port(),
@@ -288,12 +305,14 @@ pub(crate) mod native_p2p {
             p2p_primary_stream_rx,
             sink,
             header_obfuscator.clone(),
+            meter.clone(),
         );
         let reader_future = CitadelSession::execute_inbound_stream(
             stream,
             session.clone(),
             Some(p2p_handle),
             header_obfuscator,
+            meter.clone(),
         );
         let stopper_future = p2p_stopper(stopper_rx);
 
@@ -333,7 +352,7 @@ pub(crate) mod native_p2p {
             T::spawn_udp_socket_loader(
                 sess.clone(),
                 v_conn,
-                UdpSplittableTypes::Quic(udp_conn),
+                UdpSplittableTypes::Quic(udp_conn.metered(route_meter)),
                 hole_punched_addr,
                 ticket,
                 None,

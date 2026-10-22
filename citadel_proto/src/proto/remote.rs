@@ -147,6 +147,7 @@ impl<R: Ratchet> NodeRemote<R> {
         account_manager: AccountManager<R, R>,
         node_type: NodeType,
         local_rebinder: LocalRebinder,
+        traffic: crate::proto::traffic::NodeTraffic,
     ) -> Self {
         // starts at 1. Ticket 0 is for reserved
         Self {
@@ -156,8 +157,15 @@ impl<R: Ratchet> NodeRemote<R> {
                 account_manager,
                 node_type,
                 local_rebinder,
+                traffic,
             }),
         }
+    }
+
+    /// This node's traffic by class (direct and TURN P2P, P2P relayed through the server,
+    /// client-server, group broadcast), across all its sessions. Monotonic.
+    pub fn traffic(&self) -> crate::proto::traffic::NodeTrafficSnapshot {
+        self.inner.traffic.snapshot()
     }
 
     /// Moves every client-role QUIC endpoint this node holds (C2S QUIC, and the dialing side of

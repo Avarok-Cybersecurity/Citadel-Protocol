@@ -191,6 +191,12 @@ impl<R: Ratchet> PeerChannel<R> {
         self.path.subscribe()
     }
 
+    /// The bytes this connection has sent and received on each path (direct, TURN, server
+    /// relay), across every route it has had. Monotonic.
+    pub fn path_bytes(&self) -> crate::proto::traffic::PathBytesSnapshot {
+        self.path.bytes()
+    }
+
     /// Wakes as each background upgrade attempt ends, holding the latest attempt's outcome
     /// (see [`P2pPathCell::outcomes`]).
     pub fn path_outcomes(

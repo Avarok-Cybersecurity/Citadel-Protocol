@@ -74,6 +74,8 @@ pub(crate) mod session_resume_store;
 pub(crate) mod state_container;
 /// For organizing the stage containers
 pub(crate) mod state_subcontainers;
+/// Byte counters by network path and traffic class
+pub mod traffic;
 /// ~!
 pub(crate) mod transfer_stats;
 mod udp_packet_tests;

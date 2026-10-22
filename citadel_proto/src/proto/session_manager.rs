@@ -172,6 +172,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     started: Instant,
     /// The node's client-role QUIC endpoints, shared with its remote's `rebind_local`.
     local_rebinder: LocalRebinder,
+    /// This node's traffic by class, counted by every session's streams.
+    traffic: crate::proto::traffic::NodeTraffic,
 }
 
 /// The reason given to a login refused because the server already holds a session for the account.
@@ -240,6 +242,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             ended_sessions: EndedSessions::default(),
             started: Instant::now(),
             local_rebinder: LocalRebinder::new(),
+            traffic: Default::default(),
         };
 
         Self::from(inner)
@@ -428,6 +431,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// The node's tracker of transports that can move to a new local address.
     pub(crate) fn local_rebinder(&self) -> LocalRebinder {
         inner!(self).local_rebinder.clone()
+    }
+
+    pub(crate) fn traffic(&self) -> crate::proto::traffic::NodeTraffic {
+        inner!(self).traffic.clone()
     }
 
     /// Server side: whether `presented` shows this login to be the own client of a session

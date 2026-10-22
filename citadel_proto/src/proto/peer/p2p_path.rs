@@ -9,6 +9,7 @@ use citadel_io::{error, ErrorCode, NetworkError};
 use citadel_wire::udp_traversal::turn_relay::{TurnPolicy, TurnRelayConfig};
 
 use super::p2p_outcome::PathAttemptOutcome;
+use crate::proto::traffic::{PathBytes, PathBytesSnapshot};
 
 /// The path carrying a P2P connection's traffic.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -75,6 +76,8 @@ struct PathShared {
     rearm: super::p2p_rearm::RearmSlot,
     /// The latest upgrade attempt's outcome, published as each attempt ends.
     outcomes: watch::Sender<Option<PathAttemptOutcome>>,
+    /// Bytes this connection carried on each path, counted by the streams that carry them.
+    bytes: Arc<PathBytes>,
 }
 
 impl P2pPathCell {
@@ -92,6 +95,7 @@ impl P2pPathCell {
             campaign_alive: AtomicBool::new(false),
             rearm: Default::default(),
             outcomes: watch::channel(None).0,
+            bytes: Default::default(),
         }))
     }
 
@@ -126,6 +130,16 @@ impl P2pPathCell {
     /// reader of this receiver cannot miss.
     pub fn outcomes(&self) -> watch::Receiver<Option<PathAttemptOutcome>> {
         self.0.outcomes.subscribe()
+    }
+
+    /// The bytes this connection has sent and received on each path so far, across every route
+    /// it has had. Monotonic.
+    pub fn bytes(&self) -> PathBytesSnapshot {
+        self.0.bytes.snapshot()
+    }
+
+    pub(crate) fn byte_counters(&self) -> &Arc<PathBytes> {
+        &self.0.bytes
     }
 
     pub(crate) fn record_outcome(&self, outcome: PathAttemptOutcome) {

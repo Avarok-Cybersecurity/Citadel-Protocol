@@ -26,12 +26,14 @@ pub mod pair {
 
     /// Runs two peers behind a test server; `peer` gets each side's connection as it arrives.
     pub async fn run_pair(turn: Option<TurnRelayConfig>, udp_mode: UdpMode, peer: Peer) {
-        run_pair_observed(turn, udp_mode, peer, Arc::new(|_, _| {})).await
+        let server = server_info::<StackedRatchet>();
+        run_pair_on(server, turn, udp_mode, peer, Arc::new(|_, _| {})).await
     }
 
-    /// [`run_pair`], with every `NodeResult::PeerPathOutcome` either kernel receives shown to
-    /// `observe` before the kernel handles it.
-    pub async fn run_pair_observed(
+    /// [`run_pair`] behind the given test server, with every `NodeResult::PeerPathOutcome`
+    /// either kernel receives shown to `observe` before the kernel handles it.
+    pub async fn run_pair_on<K: NetKernel<StackedRatchet>>(
+        (server, server_addr): (NodeFuture<'static, K>, std::net::SocketAddr),
         turn: Option<TurnRelayConfig>,
         udp_mode: UdpMode,
         peer: Peer,
@@ -40,7 +42,6 @@ pub mod pair {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
         let finished = Arc::new(AtomicUsize::new(0));
-        let (server, server_addr) = server_info::<StackedRatchet>();
         let uuids = [Uuid::new_v4(), Uuid::new_v4()];
         let kernels = FuturesUnordered::new();
         for me in 0..2 {

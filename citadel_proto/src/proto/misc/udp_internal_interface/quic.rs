@@ -1,6 +1,7 @@
 //! QUIC unreliable-datagram UDP transport (all P2P, and C2S when the primary stream is QUIC).
 
 use super::UdpSplittable;
+use crate::proto::traffic::meter::RouteMeter;
 use bytes::{Bytes, BytesMut};
 use citadel_io::{error, ErrorCode, NetworkError};
 use citadel_wire::exports::Connection;
@@ -28,6 +29,9 @@ pub struct QuicUdpSocketConnector {
     local_addr: SocketAddr,
 }
 
+/// Counts a P2P route's datagrams; `None` on a client-server connection.
+type DatagramMeter = Option<RouteMeter>;
+
 impl QuicUdpSocketConnector {
     /// Largest datagram the peer currently accepts, if datagrams are enabled on this connection.
     pub fn max_datagram_len(&self) -> Option<usize> {
@@ -51,19 +55,34 @@ impl QuicUdpSocketConnector {
         });
 
         Self {
-            sink: QuicUdpSendHalf { sink: conn },
-            stream: QuicUdpRecvHalf { receiver },
+            sink: QuicUdpSendHalf {
+                sink: conn,
+                meter: None,
+            },
+            stream: QuicUdpRecvHalf {
+                receiver,
+                meter: None,
+            },
             local_addr,
         }
+    }
+
+    /// Counts every datagram sent and received on this P2P route.
+    pub(crate) fn metered(mut self, meter: RouteMeter) -> Self {
+        self.sink.meter = Some(meter.clone());
+        self.stream.meter = Some(meter);
+        self
     }
 }
 
 pub(crate) struct QuicUdpSendHalf {
     sink: Connection,
+    meter: DatagramMeter,
 }
 
 pub(crate) struct QuicUdpRecvHalf {
     receiver: ReceiverStream,
+    meter: DatagramMeter,
 }
 
 type ReceiverStream =
@@ -86,7 +105,11 @@ impl Sink<Bytes> for QuicUdpSendHalf {
                 self.sink.max_datagram_size().unwrap_or(0)
             ),
             other => NetworkError::generic(format!("{other:?}")),
-        })
+        })?;
+        if let Some(meter) = &self.meter {
+            meter.sent(len);
+        }
+        Ok(())
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -102,6 +125,10 @@ impl Stream for QuicUdpRecvHalf {
     type Item = Result<(BytesMut, SocketAddr), std::io::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.receiver.as_mut().poll_next(cx)
+        let next = self.receiver.as_mut().poll_next(cx);
+        if let (Poll::Ready(Some(Ok((packet, _)))), Some(meter)) = (&next, &self.meter) {
+            meter.received(packet.len());
+        }
+        next
     }
 }

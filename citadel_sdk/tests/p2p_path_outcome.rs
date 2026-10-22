@@ -13,7 +13,7 @@ mod tests {
     use citadel_io::tokio;
     use citadel_sdk::prelude::*;
     use citadel_sdk::remote_ext::results::PeerConnectSuccess;
-    use citadel_sdk::test_common::wait_for_peers;
+    use citadel_sdk::test_common::{server_info, wait_for_peers};
     use std::sync::{Arc, Mutex};
 
     /// A TURN relay that refuses at once (a TCP port nothing listens on).
@@ -74,7 +74,8 @@ mod tests {
     async fn a_direct_win_reports_its_path_stages_and_time_to_connect() {
         let (seen, observe) = recorder();
         let checked = seen.clone();
-        run_pair_observed(
+        run_pair_on(
+            server_info::<StackedRatchet>(),
             None,
             UdpMode::Disabled,
             Arc::new(move |me, conn: PeerConnectSuccess<StackedRatchet>| {
@@ -116,7 +117,8 @@ mod tests {
     async fn a_refused_relay_reports_why_each_stage_did_not_connect() {
         let (seen, observe) = recorder();
         let checked = seen.clone();
-        run_pair_observed(
+        run_pair_on(
+            server_info::<StackedRatchet>(),
             Some(refusing_relay()),
             UdpMode::Disabled,
             Arc::new(move |me, conn: PeerConnectSuccess<StackedRatchet>| {
