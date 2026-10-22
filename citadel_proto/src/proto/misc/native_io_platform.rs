@@ -41,13 +41,13 @@ use citadel_io::{error, ErrorCode};
 #[allow(private_interfaces)]
 impl PlatformOps for NativeIO {
     fn identify_nat_type(
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
     ) -> impl std::future::Future<Output = std::io::Result<NatType>> + ContextRequirements {
-        async {
+        async move {
             // A node must start without a NAT observation. This node-wide value only gates
             // whether a direct path is attempted; each hole punch identifies afresh and, if
             // that fails, punches with local candidates under `NatType::unidentified`.
-            Ok(NatType::identify(stun_servers).await.unwrap_or_else(|err| {
+            Ok(NatType::identify(&stun_servers).await.unwrap_or_else(|err| {
                 log::warn!(target: "citadel", "Unable to identify NAT type; attempting direct paths as if offline: {err}");
                 NatType::offline()
             }))
@@ -82,7 +82,7 @@ impl PlatformOps for NativeIO {
         ratchet: R,
         security_level: SecurityLevel,
         target_cid: u64,
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
         node_type: RelativeNodeType,
     ) -> impl std::future::Future<Output = Result<Option<UdpSplittableTypes>, NetworkError>>
            + ContextRequirements {
@@ -92,14 +92,9 @@ impl PlatformOps for NativeIO {
                 .map_err(|err| NetworkError::generic(err.to_string()))?;
             log::trace!(target: "citadel", "{node_type:?} created for C2S hole punch");
 
-            let config = generate_hole_punch_crypt_container(
-                ratchet,
-                security_level,
-                target_cid,
-                stun_servers,
-            );
+            let config = generate_hole_punch_crypt_container(ratchet, security_level, target_cid);
 
-            match endpoint.begin_udp_hole_punch(config).await {
+            match endpoint.begin_udp_hole_punch(config, stun_servers).await {
                 Ok(socket) => {
                     log::trace!(target: "citadel", "{node_type:?} finished NAT traversal");
                     let send_addr = socket.addr.send_address;
@@ -142,8 +137,8 @@ impl PlatformOps for NativeIO {
                 endpoint_ratchet,
                 SecurityLevel::Standard,
                 peer_cid,
-                session.stun_servers.clone(),
             );
+            let stun_servers = session.stun_servers.clone();
             let session_cid = session.session_cid.clone();
             let kernel_tx = session.kernel_tx.clone();
             let session_alive = session.alive_tracker();
@@ -158,6 +153,7 @@ impl PlatformOps for NativeIO {
                 sync_instant,
                 app,
                 encrypted_config_container,
+                stun_servers,
                 client_config,
                 udp_mode,
                 session_security_settings,
@@ -225,7 +221,6 @@ fn generate_hole_punch_crypt_container<R: Ratchet>(
     ratchet: R,
     security_level: SecurityLevel,
     target_cid: u64,
-    stun_servers: Option<Vec<String>>,
 ) -> HolePunchConfigContainer {
     use crate::proto::packet_crafter;
 
@@ -242,6 +237,5 @@ fn generate_hole_punch_crypt_container<R: Ratchet>(
         move |packet| {
             packet_crafter::hole_punch::decrypt_packet(&ratchet_cloned, packet, security_level)
         },
-        stun_servers,
     )
 }

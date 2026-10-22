@@ -50,6 +50,11 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
+/// STUN servers for nodes under test: three loopback endpoints nothing answers on. The STUN list
+/// is required configuration; under `localhost-testing` no STUN server is ever contacted.
+pub const LOCALHOST_STUN_SERVERS: [&str; 3] =
+    ["127.0.0.1:3478", "127.0.0.1:3479", "127.0.0.1:3480"];
+
 #[cfg(not(target_family = "wasm"))]
 mod native {
     use super::*;
@@ -83,6 +88,7 @@ mod native {
         let bind_addr = tcp_listener.local_addr().unwrap();
         let builder = builder
             .with_node_type(NodeType::Server(bind_addr))
+            .with_stun_servers(LOCALHOST_STUN_SERVERS)
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),
             ));

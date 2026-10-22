@@ -120,6 +120,8 @@ use citadel_sdk::prelude::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = NodeBuilder::default()
         .with_node_type(NodeType::server("127.0.0.1:25021")?)
+        // Required for every node: there is no built-in STUN list (see "STUN servers" below)
+        .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
         .build(EmptyKernel::default())?;
     
     server.await?;
@@ -156,10 +158,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Execute the application
-    NodeBuilder::default().build(client_kernel)?.await?;
+    NodeBuilder::default()
+        .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+        .build(client_kernel)?
+        .await?;
     Ok(())
 }
 ```
+
+#### 🧭 STUN servers (required)
+Every node, client or server, must be given the STUN servers it learns its NAT mapping from, with
+`NodeBuilder::with_stun_servers`. There is no default list: `build` fails without one. The list must
+name at least three distinct `host:port` endpoints (a DNS name, an IPv4 address or a bracketed IPv6
+address, and a non-zero port; no `stun:` scheme). An operator-supplied comma-separated list parses
+with `"a:3478,b:3478,c:3478".parse::<StunServers>()`. Choose the servers deliberately: every node
+reveals its public address to each of them. Tests under `localhost-testing` contact none, and can use
+`citadel_sdk::test_common::LOCALHOST_STUN_SERVERS`.
 
 ## 🔒 Security Architecture
 

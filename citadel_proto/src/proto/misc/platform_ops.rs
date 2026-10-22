@@ -70,7 +70,7 @@ pub trait PlatformOps: ProtocolIO {
     /// Identify local NAT type via STUN servers.
     /// Default: returns `NatType::offline()` (appropriate for WASM).
     fn identify_nat_type(
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
     ) -> impl Future<Output = io::Result<NatType>> + ContextRequirements {
         async move {
             let _ = stun_servers;
@@ -102,7 +102,7 @@ pub trait PlatformOps: ProtocolIO {
         ratchet: R,
         security_level: SecurityLevel,
         target_cid: u64,
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
         node_type: RelativeNodeType,
     ) -> impl Future<Output = Result<Option<UdpSplittableTypes>, NetworkError>> + ContextRequirements
     {

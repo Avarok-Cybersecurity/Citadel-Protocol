@@ -139,7 +139,10 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
         let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), async move {
             citadel_io::tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),

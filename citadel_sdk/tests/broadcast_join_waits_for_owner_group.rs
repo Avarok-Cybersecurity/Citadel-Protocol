@@ -97,8 +97,14 @@ mod tests {
             },
         );
 
-        let owner = DefaultNodeBuilder::default().build(owner_kernel).unwrap();
-        let joiner = DefaultNodeBuilder::default().build(joiner_kernel).unwrap();
+        let owner = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(owner_kernel)
+            .unwrap();
+        let joiner = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(joiner_kernel)
+            .unwrap();
 
         let clients =
             Box::pin(async move { futures::future::try_join(owner, joiner).await.map(|_| ()) });

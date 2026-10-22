@@ -114,8 +114,14 @@ mod tests {
             )
         };
 
-        let owner = DefaultNodeBuilder::default().build(owner).unwrap();
-        let member = DefaultNodeBuilder::default().build(member).unwrap();
+        let owner = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(owner)
+            .unwrap();
+        let member = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(member)
+            .unwrap();
         run_pair(server, owner, member).await;
         assert!(member_got_after.load(Ordering::SeqCst));
         assert!(owner_got_reply.load(Ordering::SeqCst));

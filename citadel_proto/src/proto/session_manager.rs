@@ -159,7 +159,7 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     clean_shutdown_tracker_tx: UnboundedSender<()>,
     clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
     client_config: T::ClientConfig,
-    stun_servers: Option<Vec<String>>,
+    stun_servers: citadel_wire::stun_servers::StunServers,
     turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
@@ -212,7 +212,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         account_manager: AccountManager<R, R>,
         time_tracker: TimeTracker,
         client_config: T::ClientConfig,
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     ) -> Self {
         let incoming_cxn_count = 0;

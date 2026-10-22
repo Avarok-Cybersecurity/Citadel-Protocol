@@ -8,13 +8,14 @@
 //! use citadel_wire::udp_traversal::hole_punch_config::HolePunchConfig;
 //! use citadel_wire::nat_identification::NatType;
 //! use citadel_wire::error::FirewallError;
+//! use citadel_wire::stun_servers::StunServers;
 //! use citadel_io::tokio::net::UdpSocket;
 //! use std::net::SocketAddr;
 //!
-//! async fn example() -> Result<(), FirewallError> {
+//! async fn example(stun_servers: &StunServers) -> Result<(), FirewallError> {
 //!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 //!     let target_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
-//!     let peer_nat = NatType::identify(None).await?;
+//!     let peer_nat = NatType::identify(stun_servers).await?;
 //!     let config = HolePunchConfig::new(&peer_nat, &[target_addr], &[], vec![socket])?;
 //!     Ok(())
 //! }
@@ -40,11 +41,12 @@
 //! ```rust
 //! use citadel_wire::udp_traversal::hole_punch_config::HolePunchConfig;
 //! use citadel_wire::nat_identification::NatType;
+//! use citadel_wire::stun_servers::StunServers;
 //! use citadel_io::tokio::net::UdpSocket;
 //! use std::net::SocketAddr;
 //!
-//! async fn setup_hole_punch() -> Result<(), anyhow::Error> {
-//!     let peer_nat = NatType::identify(None).await?;
+//! async fn setup_hole_punch(stun_servers: &StunServers) -> Result<(), anyhow::Error> {
+//!     let peer_nat = NatType::identify(stun_servers).await?;
 //!     let peer_addr = "192.168.1.2:8080".parse()?;
 //!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 //!     

@@ -97,6 +97,7 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_backend(BackendType::InMemory)
             .build(client_kernel)
             .unwrap();
@@ -194,6 +195,7 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_backend(BackendType::InMemory)
             .build(client_kernel)
             .unwrap();
@@ -250,6 +252,7 @@ mod tests {
             },
         );
         let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_backend(BackendType::InMemory)
             .build(client_kernel)
             .unwrap();
@@ -295,6 +298,7 @@ mod tests {
             },
         );
         let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_backend(BackendType::InMemory)
             .build(client_kernel)
             .unwrap();

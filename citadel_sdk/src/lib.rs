@@ -120,9 +120,11 @@
 //! use citadel_sdk::prelude::*;
 //! use citadel_sdk::prefabs::server::empty::EmptyKernel;
 //!
-//! // this server will listen on 127.0.0.1:25021, and will use the built-in defaults. When calling 'build', a NetKernel is specified
+//! // this server will listen on 127.0.0.1:25021. STUN servers are required configuration for
+//! // every node: there is no built-in list. When calling 'build', a NetKernel is specified
 //! let server = DefaultNodeBuilder::default()
 //! .with_node_type(NodeType::server("127.0.0.1:25021")?)
+//! .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
 //! .build(EmptyKernel::default())?;
 //!
 //! // await the server to execute
@@ -151,7 +153,9 @@
 //!     Ok(())
 //! });
 //!
-//! let client = DefaultNodeBuilder::default().build(client_kernel)?;
+//! let client = DefaultNodeBuilder::default()
+//!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//!     .build(client_kernel)?;
 //! # async move {
 //! let result = client.await;
 //! # };
@@ -180,6 +184,7 @@
 //! // that auto-accepts inbound file transfer requests
 //! let server = DefaultNodeBuilder::default()
 //! .with_node_type(NodeType::server("127.0.0.1:25021")?)
+//! .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
 //! .build(AcceptFileTransferKernel::default())?;
 //!
 //! // await the server to execute
@@ -207,7 +212,9 @@
 //!     Ok(())
 //! });
 //!
-//! let client = DefaultNodeBuilder::default().build(client_kernel)?;
+//! let client = DefaultNodeBuilder::default()
+//!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//!     .build(client_kernel)?;
 //! # async move {
 //!     let result = client.await;
 //! # };

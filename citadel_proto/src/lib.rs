@@ -563,6 +563,7 @@ pub mod prelude {
     pub use citadel_io::WebSocketEndpoint;
     pub use citadel_wire::hypernode_type::NodeType;
     pub use citadel_wire::quic_rebind::{RebindFailure, RebindReport, Rebound};
+    pub use citadel_wire::stun_servers::{StunServers, StunServersError, MIN_STUN_SERVERS};
 
     // Native-only prelude exports
     #[cfg(not(target_family = "wasm"))]

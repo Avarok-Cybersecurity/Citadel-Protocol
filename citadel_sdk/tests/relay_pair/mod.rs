@@ -54,7 +54,10 @@ pub mod pair {
                     remote.shutdown_kernel().await
                 },
             );
-            let client = DefaultNodeBuilder::default().build(kernel).unwrap();
+            let client = DefaultNodeBuilder::default()
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .build(kernel)
+                .unwrap();
             kernels.push(async move { client.await.map(|_| ()) });
         }
         let clients = Box::pin(async move { kernels.try_collect::<()>().await.map(|_| ()) });

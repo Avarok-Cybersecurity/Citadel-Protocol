@@ -556,6 +556,7 @@ pub(crate) mod native_p2p {
         sync_time: Instant,
         app: NetworkEndpoint,
         encrypted_config_container: HolePunchConfigContainer,
+        stun_servers: citadel_wire::stun_servers::StunServers,
         client_config: T::ClientConfig,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
@@ -583,7 +584,7 @@ pub(crate) mod native_p2p {
             citadel_io::time::sleep_until(sync_time).await;
 
             let hole_punched_socket = app
-                .begin_udp_hole_punch(encrypted_config_container)
+                .begin_udp_hole_punch(encrypted_config_container, stun_servers)
                 .await
                 .map_err(generic_error)?;
             let remote_connect_addr = hole_punched_socket.addr.send_address;

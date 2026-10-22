@@ -293,7 +293,7 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) connect_mode: DualRwLock<Option<ConnectMode>>,
     pub(super) client_config: T::ClientConfig,
     pub(super) hypernode_peer_layer: CitadelNodePeerLayer<R>,
-    pub(super) stun_servers: Option<Vec<String>>,
+    pub(super) stun_servers: citadel_wire::stun_servers::StunServers,
     pub(super) turn_servers: Option<Vec<TurnServerConfig>>,
     pub(super) init_time: Instant,
     pub(super) file_transfer_compatible: DualLateInit<bool>,
@@ -368,7 +368,7 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub hypernode_peer_layer: CitadelNodePeerLayer<R>,
     // this is set only when a local client is attempting to start an outbound session
     pub client_only_settings: Option<ClientOnlySessionInitSettings<R>>,
-    pub stun_servers: Option<Vec<String>>,
+    pub stun_servers: citadel_wire::stun_servers::StunServers,
     pub turn_servers: Option<Vec<TurnServerConfig>>,
     pub init_time: Instant,
     pub session_password: PreSharedKey,
@@ -2664,14 +2664,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
     #[cfg(target_family = "wasm")]
     pub fn p2p_ice_servers(&self) -> Vec<crate::proto::misc::wasm_io::IceServerConfig> {
         let mut servers = Vec::new();
-        if let Some(stun) = &self.stun_servers {
-            for url in stun {
-                servers.push(crate::proto::misc::wasm_io::IceServerConfig {
-                    urls: vec![url.clone()],
-                    username: None,
-                    credential: None,
-                });
-            }
+        // The configured entries are validated `host:port` endpoints; ICE wants STUN URLs.
+        for endpoint in self.stun_servers.iter() {
+            servers.push(crate::proto::misc::wasm_io::IceServerConfig {
+                urls: vec![format!("stun:{endpoint}")],
+                username: None,
+                credential: None,
+            });
         }
         if let Some(turn) = &self.turn_servers {
             for cfg in turn {

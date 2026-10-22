@@ -23,10 +23,15 @@ const ATTEMPT: Duration = Duration::from_secs(4);
 const SKEW: Duration = Duration::from_millis(3400);
 
 async fn punch(endpoint: &netbeam::sync::network_endpoint::NetworkEndpoint) -> Result<(), String> {
-    UdpHolePuncher::new_timeout(endpoint, Default::default(), ATTEMPT)
-        .await
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    UdpHolePuncher::new_timeout(
+        endpoint,
+        Default::default(),
+        crate::stun_servers::unanswered_loopback(),
+        ATTEMPT,
+    )
+    .await
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }
 
 #[tokio::test]

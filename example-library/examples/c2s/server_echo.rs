@@ -37,6 +37,9 @@
 //! sends it back to the client, making it ideal for testing client
 //! connectivity and message handling.
 
+#[path = "../shared/stun.rs"]
+mod stun;
+
 use citadel_sdk::{
     prefabs::server::client_connect_listener::ClientConnectListenerKernel, prelude::*,
 };
@@ -71,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the server
     let node = DefaultNodeBuilder::default()
+        .with_stun_servers(stun::from_env())
         .with_node_type(NodeType::server(server_addr)?)
         .build(kernel)?;
 

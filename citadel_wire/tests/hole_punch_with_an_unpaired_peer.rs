@@ -10,6 +10,7 @@
 
 use citadel_io::tokio;
 use citadel_wire::nat_identification::NatType;
+use citadel_wire::stun_servers::StunServers;
 use citadel_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
 use netbeam::sync::subscription::Subscribable;
@@ -33,7 +34,9 @@ async fn a_peer_on_the_unpaired_protocol_is_refused_without_waiting_on_a_timer()
         std::future::pending::<()>().await
     };
 
-    let punch = UdpHolePuncher::new_timeout(&local, Default::default(), ATTEMPT_TIMEOUT);
+    // Loopback endpoints nothing answers on: under localhost-testing none is contacted.
+    let stun = StunServers::new(["127.0.0.1:3478", "127.0.0.1:3479", "127.0.0.1:3480"]).unwrap();
+    let punch = UdpHolePuncher::new_timeout(&local, Default::default(), stun, ATTEMPT_TIMEOUT);
     let result = tokio::select! {
         result = tokio::time::timeout(HANG_GUARD, punch) => {
             result.expect("the punch kept waiting on a peer that cannot pair its attempts")

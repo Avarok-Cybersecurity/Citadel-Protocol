@@ -28,6 +28,9 @@
 //! 3. Sends a message and waits for the server's echo response
 //! 4. Demonstrates proper connection cleanup on exit
 
+#[path = "../shared/stun.rs"]
+mod stun;
+
 use citadel_sdk::{
     prefabs::client::single_connection::SingleClientServerConnectionKernel, prelude::*,
 };
@@ -90,7 +93,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Build the node
-    let client = DefaultNodeBuilder::default().build(kernel)?;
+    let client = DefaultNodeBuilder::default()
+        .with_stun_servers(stun::from_env())
+        .build(kernel)?;
 
     // Run the node
     client.await?;

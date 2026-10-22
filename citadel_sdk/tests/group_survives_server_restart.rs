@@ -63,6 +63,7 @@ mod tests {
     ) -> NodeFuture<'static, RemoteSlotKernel> {
         let bind_addr = listener.local_addr().unwrap();
         let mut builder = DefaultNodeBuilder::default();
+        let _ = builder.with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS);
         let _ = builder
             .with_node_type(NodeType::Server(bind_addr))
             .with_underlying_protocol(ServerMode::OrderedReliable(
@@ -239,8 +240,14 @@ mod tests {
             )
         };
 
-        let owner = DefaultNodeBuilder::default().build(owner).unwrap();
-        let member = DefaultNodeBuilder::default().build(member).unwrap();
+        let owner = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(owner)
+            .unwrap();
+        let member = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(member)
+            .unwrap();
         run_pair(server, owner, member).await;
         let _ = std::fs::remove_dir_all(&backend_dir);
         assert!(member_got_after.load(Ordering::SeqCst));

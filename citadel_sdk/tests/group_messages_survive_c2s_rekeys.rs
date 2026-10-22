@@ -143,8 +143,14 @@ mod tests {
             )
         };
 
-        let owner = DefaultNodeBuilder::default().build(owner).unwrap();
-        let member = DefaultNodeBuilder::default().build(member).unwrap();
+        let owner = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(owner)
+            .unwrap();
+        let member = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(member)
+            .unwrap();
         let clients = async move { futures::future::try_join(owner, member).await };
         let result = tokio::time::timeout(std::time::Duration::from_secs(900), clients)
             .await

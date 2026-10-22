@@ -89,5 +89,6 @@ pub mod udp_traversal;
 
 pub mod hypernode_type;
 pub(crate) mod standard;
+pub mod stun_servers;
 
 pub use standard::*;

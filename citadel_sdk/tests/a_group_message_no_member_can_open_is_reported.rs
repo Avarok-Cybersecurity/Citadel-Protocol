@@ -204,9 +204,18 @@ mod tests {
 
         run_trio(
             server,
-            DefaultNodeBuilder::default().build(owner).unwrap(),
-            DefaultNodeBuilder::default().build(member_a).unwrap(),
-            DefaultNodeBuilder::default().build(member_c).unwrap(),
+            DefaultNodeBuilder::default()
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .build(owner)
+                .unwrap(),
+            DefaultNodeBuilder::default()
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .build(member_a)
+                .unwrap(),
+            DefaultNodeBuilder::default()
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .build(member_c)
+                .unwrap(),
         )
         .await;
 

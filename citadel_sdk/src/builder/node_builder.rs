@@ -9,7 +9,7 @@
 //! - Multiple backend storage options (In-memory, Filesystem, SQL with enterprise feature)
 //! - Customizable security settings (TLS, certificates)
 //! - Google services integration (optional)
-//! - STUN server configuration for NAT traversal
+//! - STUN servers for NAT traversal: required for every node, with no default list
 //! - Server authentication via pre-shared keys
 //!
 //! # Example
@@ -21,10 +21,12 @@
 //! // Create a basic server node
 //! let builder = DefaultNodeBuilder::default()
 //!     .with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()))
+//!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
 //!     .with_backend(BackendType::InMemory);
 //! ```
 //!
 //! # Important Notes
+//! - Every node requires at least three distinct STUN servers ([`NodeBuilder::with_stun_servers`])
 //! - Server nodes require a valid bind address
 //! - Default backend is filesystem-based when the "filesystem" feature is enabled
 //! - TLS is enabled by default with self-signed certificates
@@ -158,7 +160,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         let server_misc_settings = self.server_misc_settings.take();
         let client_config = self.client_tls_config.take();
         let kernel_executor_settings = self.kernel_executor_settings.take().unwrap_or_default();
-        let stun_servers = self.stun_servers.take();
+        let stun_servers = StunServers::required(self.stun_servers.take())?;
         let turn_servers = self.turn_servers.take();
         let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = self.local_only_server_settings.take();
@@ -332,7 +334,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         }
     }
 
-    /// Specifies custom STUN servers. If left unspecified, will use the defaults (twilio and Google STUN servers)
+    /// The STUN servers this node learns its NAT mapping from: required, for every node type.
+    /// There is no default list; [`Self::build`] refuses a builder without one, and refuses a
+    /// list of fewer than [`MIN_STUN_SERVERS`] distinct `host:port` endpoints (see
+    /// [`StunServers::new`]).
     pub fn with_stun_servers<V: Into<String>, S: Into<Vec<V>>>(&mut self, servers: S) -> &mut Self {
         self.stun_servers = Some(servers.into().into_iter().map(|t| t.into()).collect());
         self
@@ -428,14 +433,6 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
             if svc.google_rtdb.is_some() && svc.google_services_json_path.is_none() {
                 return Err(anyhow::Error::msg(
                     "Google realtime database is enabled, yet, a services path is not provided",
-                ));
-            }
-        }
-
-        if let Some(stun_servers) = self.stun_servers.as_ref() {
-            if stun_servers.len() != 3 {
-                return Err(anyhow::Error::msg(
-                    "There must be exactly 3 specified STUN servers",
                 ));
             }
         }
@@ -558,14 +555,6 @@ mod tests {
             .is_err());
     }
 
-    #[test]
-    fn bad_config2() {
-        assert!(DefaultNodeBuilder::default()
-            .with_stun_servers(["dummy1", "dummy2"])
-            .build(EmptyKernel::default())
-            .is_err());
-    }
-
     #[rstest]
     #[tokio::test]
     #[timeout(std::time::Duration::from_secs(60))]
@@ -590,7 +579,7 @@ mod tests {
             .with_node_type(node_type)
             .with_kernel_executor_settings(kernel_settings.clone())
             .with_insecure_skip_cert_verification()
-            .with_stun_servers(["dummy1", "dummy1", "dummy3"])
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .with_native_certs()
             .await
             .unwrap();
@@ -606,3 +595,7 @@ mod tests {
         drop(builder.build(EmptyKernel::default()).unwrap());
     }
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "node_builder_stun_tests.rs"]
+mod stun_tests;

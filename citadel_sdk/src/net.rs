@@ -13,7 +13,9 @@
 //! use citadel_sdk::net::BrowserConnection;
 //! use futures::StreamExt;
 //!
-//! let conn = BrowserConnection::new(config).await?;
+//! let stun_servers: StunServers =
+//!     "stun1.example.com:3478,stun2.example.com:3478,stun3.example.com:3478".parse()?;
+//! let conn = BrowserConnection::new(config, stun_servers).await?;
 //! let (tx, mut rx) = conn.split();
 //! tx.send_message(SecBuffer::from("hello peer")).await?;
 //! while let Some(msg) = rx.next().await {
@@ -49,14 +51,19 @@ impl<R: Ratchet> BrowserConnection<R> {
     /// Both peers call this with the same room token. One is automatically
     /// assigned the server role and the other the client role via the
     /// signaling service. The returned connection is fully established with
-    /// post-quantum encrypted channels ready for use.
-    pub async fn new(config: ServerlessConfig) -> Result<Self, NetworkError> {
+    /// post-quantum encrypted channels ready for use. `stun_servers` is the node's required STUN
+    /// configuration (see `NodeBuilder::with_stun_servers`).
+    pub async fn new(
+        config: ServerlessConfig,
+        stun_servers: StunServers,
+    ) -> Result<Self, NetworkError> {
         let (conn_tx, conn_rx) = citadel_io::tokio::sync::oneshot::channel();
         let kernel = ServerlessKernel::<R>::new(conn_tx);
 
         let node_future = NodeBuilder::<R, DefaultTransport>::default()
             .with_no_central_server(config)
             .with_backend(BackendType::InMemory)
+            .with_stun_servers(stun_servers)
             .build(kernel)
             .map_err(|err| {
                 citadel_io::error!(citadel_io::ErrorCode::NodeBuildFailed, err.to_string())

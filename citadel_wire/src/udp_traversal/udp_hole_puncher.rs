@@ -31,6 +31,7 @@
 //!
 
 use crate::nat_identification::{NatType, IDENTIFY_TIMEOUT};
+use crate::stun_servers::StunServers;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
@@ -73,19 +74,26 @@ impl<'a> UdpHolePuncher<'a> {
     pub fn new(
         conn: &'a NetworkEndpoint,
         encrypted_config_container: HolePunchConfigContainer,
+        stun_servers: StunServers,
     ) -> Self {
-        Self::new_timeout(conn, encrypted_config_container, DEFAULT_TIMEOUT)
+        Self::new_timeout(
+            conn,
+            encrypted_config_container,
+            stun_servers,
+            DEFAULT_TIMEOUT,
+        )
     }
 
     pub fn new_timeout(
         conn: &'a NetworkEndpoint,
         encrypted_config_container: HolePunchConfigContainer,
+        stun_servers: StunServers,
         timeout: Duration,
     ) -> Self {
         Self {
-            driver: Box::pin(
-                async move { driver(conn, encrypted_config_container, timeout).await },
-            ),
+            driver: Box::pin(async move {
+                driver(conn, encrypted_config_container, &stun_servers, timeout).await
+            }),
         }
     }
 }
@@ -107,6 +115,7 @@ const MAX_RETRIES: usize = 3;
 async fn driver(
     conn: &NetworkEndpoint,
     encrypted_config_container: HolePunchConfigContainer,
+    stun_servers: &StunServers,
     timeout: Duration,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let control = citadel_io::time::timeout(
@@ -129,6 +138,7 @@ async fn driver(
                 attempt,
                 conn.node_type(),
                 encrypted_config_container.clone(),
+                stun_servers,
             );
             let next = match citadel_io::time::timeout(timeout, task).await {
                 Ok(AttemptOutcome::Punched(res)) => {
@@ -177,6 +187,7 @@ async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
     attempt: usize,
     node_type: RelativeNodeType,
     encrypted_config_container: HolePunchConfigContainer,
+    stun_servers: &StunServers,
 ) -> AttemptOutcome {
     let peer = attempts.peer_reached(attempt).await;
     if peer > attempt {
@@ -185,7 +196,7 @@ async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
 
     let punch = async {
         let endpoint = NetworkEndpoint::register(node_type, lane).await?;
-        driver_inner(&endpoint, encrypted_config_container).await
+        driver_inner(&endpoint, encrypted_config_container, stun_servers).await
     };
 
     citadel_io::tokio::select! {
@@ -199,7 +210,8 @@ async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
 
 async fn driver_inner(
     conn: &NetworkEndpoint,
-    mut encrypted_config_container: HolePunchConfigContainer,
+    encrypted_config_container: HolePunchConfigContainer,
+    stun_servers: &StunServers,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     log::trace!(target: "citadel", "[driver] Starting hole puncher ...");
 
@@ -216,15 +228,13 @@ async fn driver_inner(
         }
     };
     let stream = &stream;
-    let stun_servers = encrypted_config_container.take_stun_servers();
 
     // Step 2: NAT type identification
     log::trace!(target: "citadel", "[driver] Step 2: Identifying local NAT type...");
     // A failed identification is not fatal: the peers may still reach each other at their
     // local addresses (same LAN or host, or no reachable STUN server), so the punch proceeds
     // with an honest "unidentified" NAT carrying the real internal IP.
-    let local_nat_type =
-        NatType::identified_or_local(NatType::identify(stun_servers.clone()).await).await;
+    let local_nat_type = NatType::identified_or_local(NatType::identify(stun_servers).await).await;
     log::trace!(target: "citadel", "[driver] Step 2: local NAT type: {local_nat_type:?}");
     let local_nat_type = &local_nat_type;
 
@@ -267,7 +277,7 @@ async fn driver_inner(
     // via STUN, rather than relying solely on the predictive NAT model. This lets traversal
     // succeed for endpoint-independent NATs that randomize the external port. Failure to probe
     // is non-fatal: we simply fall back to the predicted bands.
-    let local_reflexive_addrs = probe_reflexive_addrs(&sockets, stun_servers.as_deref()).await;
+    let local_reflexive_addrs = probe_reflexive_addrs(&sockets, stun_servers).await;
     log::info!(target: "citadel", "[driver] Local reflexive (srflx) addrs: {local_reflexive_addrs:?}");
 
     // Step 4: Exchange address candidates, synchronizing the beginning of the hole punch process
@@ -338,10 +348,10 @@ async fn driver_inner(
 /// a reflexive address (e.g. IPv6, or no STUN server reachable) is simply omitted.
 async fn probe_reflexive_addrs(
     sockets: &[UdpSocket],
-    stun_servers: Option<&[String]>,
+    stun_servers: &StunServers,
 ) -> Vec<SocketAddr> {
     // Under localhost-testing there are no reachable STUN servers; skip probing entirely
-    // (the configured/default servers would be unreachable and just add latency).
+    // (the configured servers would be unreachable and just add latency).
     if cfg!(feature = "localhost-testing") {
         return Vec::new();
     }
@@ -474,9 +484,12 @@ pub fn get_optimal_bind_socket(
 }
 
 pub trait EndpointHolePunchExt {
+    /// Punches a hole to the peer on the other end of this endpoint, learning the local NAT
+    /// and each socket's reflexive address from `stun_servers`.
     fn begin_udp_hole_punch(
         &self,
         encrypted_config_container: HolePunchConfigContainer,
+        stun_servers: StunServers,
     ) -> UdpHolePuncher<'_>;
 }
 
@@ -484,8 +497,9 @@ impl EndpointHolePunchExt for NetworkEndpoint {
     fn begin_udp_hole_punch(
         &self,
         encrypted_config_container: HolePunchConfigContainer,
+        stun_servers: StunServers,
     ) -> UdpHolePuncher<'_> {
-        UdpHolePuncher::new(self, encrypted_config_container)
+        UdpHolePuncher::new(self, encrypted_config_container, stun_servers)
     }
 }
 
@@ -507,13 +521,23 @@ mod tests {
         let (server_stream, client_stream) = create_streams_with_addrs_and_lag(lag).await;
 
         let server = async move {
-            let res = server_stream.begin_udp_hole_punch(Default::default()).await;
+            let res = server_stream
+                .begin_udp_hole_punch(
+                    Default::default(),
+                    crate::stun_servers::unanswered_loopback(),
+                )
+                .await;
             log::trace!(target: "citadel", "Server res: {res:?}");
             res.unwrap()
         };
 
         let client = async move {
-            let res = client_stream.begin_udp_hole_punch(Default::default()).await;
+            let res = client_stream
+                .begin_udp_hole_punch(
+                    Default::default(),
+                    crate::stun_servers::unanswered_loopback(),
+                )
+                .await;
             log::trace!(target: "citadel", "Client res: {res:?}");
             res.unwrap()
         };
@@ -581,13 +605,19 @@ mod tests {
 
         let server = async move {
             server_stream
-                .begin_udp_hole_punch(Default::default())
+                .begin_udp_hole_punch(
+                    Default::default(),
+                    crate::stun_servers::unanswered_loopback(),
+                )
                 .await
                 .map_err(|e| e.to_string())
         };
         let client = async move {
             client_stream
-                .begin_udp_hole_punch(Default::default())
+                .begin_udp_hole_punch(
+                    Default::default(),
+                    crate::stun_servers::unanswered_loopback(),
+                )
                 .await
                 .map_err(|e| e.to_string())
         };
@@ -655,13 +685,19 @@ mod tests {
             let iteration = async move {
                 let server = citadel_io::tokio::task::spawn(async move {
                     server_stream
-                        .begin_udp_hole_punch(Default::default())
+                        .begin_udp_hole_punch(
+                            Default::default(),
+                            crate::stun_servers::unanswered_loopback(),
+                        )
                         .await
                         .map_err(|e| e.to_string())
                 });
                 let client = citadel_io::tokio::task::spawn(async move {
                     client_stream
-                        .begin_udp_hole_punch(Default::default())
+                        .begin_udp_hole_punch(
+                            Default::default(),
+                            crate::stun_servers::unanswered_loopback(),
+                        )
                         .await
                         .map_err(|e| e.to_string())
                 });

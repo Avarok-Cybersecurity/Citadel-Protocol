@@ -159,7 +159,10 @@ mod tests {
                 }
             });
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
         let result = citadel_io::tokio::time::timeout(
             Duration::from_secs(120),
             futures::future::try_select(server, Box::pin(async move { client.await.map(|_| ()) })),
@@ -238,7 +241,10 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
         let result = citadel_io::tokio::time::timeout(
             Duration::from_secs(60),
             futures::future::try_select(server, Box::pin(async move { client.await.map(|_| ()) })),

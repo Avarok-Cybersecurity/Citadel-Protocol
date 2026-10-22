@@ -91,7 +91,10 @@ where
         let _ = tx.lock().unwrap().take().unwrap().send(out);
         Ok(())
     });
-    let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+    let client = DefaultNodeBuilder::default()
+        .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .build(client_kernel)
+        .unwrap();
     // Polled here, not spawned: a node future is not `Send` in every feature set.
     let mut rx = rx;
     tokio::time::timeout(MUST_FINISH_WITHIN, async move {

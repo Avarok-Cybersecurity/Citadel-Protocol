@@ -77,7 +77,10 @@ mod tests {
                 again.shutdown_kernel().await
             },
         );
-        let client = DefaultNodeBuilder::default().build(kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(kernel)
+            .unwrap();
         run_clients(server, async move { client.await.map(|_| ()) }).await;
     }
 
@@ -145,8 +148,14 @@ mod tests {
             )
         };
 
-        let client_a = DefaultNodeBuilder::default().build(kernel_a).unwrap();
-        let client_b = DefaultNodeBuilder::default().build(kernel_b).unwrap();
+        let client_a = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(kernel_a)
+            .unwrap();
+        let client_b = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(kernel_b)
+            .unwrap();
         run_clients(server, async move {
             futures::future::try_join(client_a, client_b)
                 .await

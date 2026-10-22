@@ -77,7 +77,10 @@ mod tests {
             )
         };
 
-        let client = DefaultNodeBuilder::default().build(client).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client)
+            .unwrap();
         let task = async move {
             tokio::select! {
                 res = server => Err(NetworkError::msg(format!("server ended: {:?}", res.map(|_| ())))),
