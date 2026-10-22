@@ -8,6 +8,8 @@ use citadel_io::tokio::sync::watch;
 use citadel_io::{error, ErrorCode, NetworkError};
 use citadel_wire::udp_traversal::turn_relay::{TurnPolicy, TurnRelayConfig};
 
+use super::p2p_outcome::PathAttemptOutcome;
+
 /// The path carrying a P2P connection's traffic.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum P2pPath {
@@ -71,6 +73,8 @@ struct PathShared {
     campaign_alive: AtomicBool,
     /// An upgrade the application asked for (`PeerChannel::upgrade`), for the campaign.
     rearm: super::p2p_rearm::RearmSlot,
+    /// The latest upgrade attempt's outcome, published as each attempt ends.
+    outcomes: watch::Sender<Option<PathAttemptOutcome>>,
 }
 
 impl P2pPathCell {
@@ -87,6 +91,7 @@ impl P2pPathCell {
             status,
             campaign_alive: AtomicBool::new(false),
             rearm: Default::default(),
+            outcomes: watch::channel(None).0,
         }))
     }
 
@@ -108,6 +113,23 @@ impl P2pPathCell {
     /// A receiver that wakes on every path or campaign change.
     pub fn subscribe(&self) -> watch::Receiver<P2pPathStatus> {
         self.0.status.subscribe()
+    }
+
+    /// The outcome of the latest upgrade attempt: which path it attached and why each stage that
+    /// did not connect failed. `None` until the first attempt ends.
+    pub fn last_outcome(&self) -> Option<PathAttemptOutcome> {
+        self.0.outcomes.borrow().clone()
+    }
+
+    /// A receiver that wakes as each upgrade attempt ends, holding the latest outcome. Every
+    /// outcome is also delivered to the kernel as `NodeResult::PeerPathOutcome`, which a slow
+    /// reader of this receiver cannot miss.
+    pub fn outcomes(&self) -> watch::Receiver<Option<PathAttemptOutcome>> {
+        self.0.outcomes.subscribe()
+    }
+
+    pub(crate) fn record_outcome(&self, outcome: PathAttemptOutcome) {
+        self.0.outcomes.send_replace(Some(outcome));
     }
 
     /// Resolves `Ok` with the path once traffic runs over a P2P connection (hole-punched

@@ -191,6 +191,16 @@ impl<R: Ratchet> PeerChannel<R> {
         self.path.subscribe()
     }
 
+    /// Wakes as each background upgrade attempt ends, holding the latest attempt's outcome
+    /// (see [`P2pPathCell::outcomes`]).
+    pub fn path_outcomes(
+        &self,
+    ) -> citadel_io::tokio::sync::watch::Receiver<
+        Option<crate::proto::peer::p2p_outcome::PathAttemptOutcome>,
+    > {
+        self.path.outcomes()
+    }
+
     /// On a [`P2pPath::Turn`] path, whether both peers relay through their own allocation
     /// (relay-to-relay: two TURN servers' egress per packet) rather than one.
     pub fn p2p_relayed_both(&self) -> bool {

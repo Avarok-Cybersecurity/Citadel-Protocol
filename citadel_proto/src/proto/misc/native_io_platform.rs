@@ -30,6 +30,7 @@ use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::ws_ping::WsPinger;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::p2p_conn_handler;
+use crate::proto::peer::p2p_outcome::AttemptReport;
 use crate::proto::peer::p2p_path::P2pPlan;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
@@ -125,13 +126,13 @@ impl PlatformOps for NativeIO {
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         plan: P2pPlan,
-    ) -> impl std::future::Future<Output = bool> + ContextRequirements {
+    ) -> impl std::future::Future<Output = AttemptReport> + ContextRequirements {
         async move {
             let (attempt_direct, relay) = match plan {
                 P2pPlan::DirectOnly => (true, None),
                 P2pPlan::DirectThenRelay(cfg) => (true, Some(cfg)),
                 P2pPlan::RelayOnly(cfg) => (false, Some(cfg)),
-                P2pPlan::ServerOnly => return false,
+                P2pPlan::ServerOnly => return AttemptReport::nothing_attached(vec![]),
             };
             let encrypted_config_container = generate_hole_punch_crypt_container(
                 endpoint_ratchet,
@@ -143,7 +144,7 @@ impl PlatformOps for NativeIO {
             let kernel_tx = session.kernel_tx.clone();
             let session_alive = session.alive_tracker();
             let client_config = session.client_config.clone();
-            match p2p_conn_handler::attempt_simultaneous_hole_punch(
+            p2p_conn_handler::attempt_simultaneous_hole_punch(
                 peer_connection_type,
                 ticket,
                 session,
@@ -162,13 +163,6 @@ impl PlatformOps for NativeIO {
                 relay,
             )
             .await
-            {
-                Ok(attached) => attached,
-                Err(err) => {
-                    log::warn!(target: "citadel", "P2P upgrade attempt failed: {err}");
-                    false
-                }
-            }
         }
     }
 

@@ -859,8 +859,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
+                                    let direct_impossible = should_use_turn(needs_turn);
                                     let plan = plan_p2p(
-                                        should_use_turn(needs_turn),
+                                        direct_impossible,
                                         take_turn_config(session, peer_cid),
                                     );
                                     // The channel is usable over the relay now; the campaign
@@ -881,6 +882,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         session_security_settings,
                                         cancel_rx: hole_punch_cancel_rx,
                                         plan,
+                                        direct_impossible,
                                         guard,
                                     });
 
@@ -1047,8 +1049,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
+                                    let direct_impossible = should_use_turn(needs_turn);
                                     let plan = plan_p2p(
-                                        should_use_turn(needs_turn),
+                                        direct_impossible,
                                         take_turn_config(session, peer_cid),
                                     );
                                     let diff = Duration::from_nanos(i64::abs(
@@ -1074,6 +1077,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         session_security_settings,
                                         cancel_rx: hole_punch_cancel_rx,
                                         plan,
+                                        direct_impossible,
                                         guard,
                                     });
 

@@ -253,6 +253,9 @@ pub enum NodeResult<R: Ratchet> {
     SessionList(SessionList),
     /// How a server liveness probe ended
     ServerProbe(crate::proto::server_probe::ServerProbeResult),
+    /// How one background P2P upgrade attempt ended (which path won, and why the others did
+    /// not). Unsolicited, one per attempt; a kernel that does not measure paths can ignore it.
+    PeerPathOutcome(crate::proto::peer::p2p_outcome::PeerPathOutcome),
     /// For shutdowns
     Shutdown,
 }
@@ -378,7 +381,7 @@ impl<R: Ratchet> NodeResult<R> {
                 session_cid,
                 ..
             }) => Some(CallbackKey::new(*ticket, *session_cid)),
-            NodeResult::Shutdown => None,
+            NodeResult::Shutdown | NodeResult::PeerPathOutcome(_) => None,
             NodeResult::ReKeyResult(ReKeyResult {
                 ticket,
                 session_cid,

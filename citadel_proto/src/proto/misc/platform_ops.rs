@@ -121,7 +121,8 @@ pub trait PlatformOps: ProtocolIO {
 
     /// One attempt to move an established peer connection off the server relay: hole punch,
     /// then TURN when the plan allows, attaching the resulting route to the virtual connection.
-    /// Resolves to whether a P2P route was attached. The application already holds the channel
+    /// Resolves to a report of every stage it ran and the route it attached, if any. The
+    /// application already holds the channel
     /// (it works over the relay from the start); this runs in the background, inside the
     /// connection's campaign (`p2p_campaign`), which cancels it by dropping the future.
     /// `app` is the endpoint both peers registered over the relay, used to coordinate the punch.
@@ -139,7 +140,7 @@ pub trait PlatformOps: ProtocolIO {
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         plan: crate::proto::peer::p2p_path::P2pPlan,
-    ) -> impl Future<Output = bool> + ContextRequirements;
+    ) -> impl Future<Output = crate::proto::peer::p2p_outcome::AttemptReport> + ContextRequirements;
 
     // ── File I/O ──
 

@@ -603,6 +603,9 @@ pub mod prelude {
     pub use crate::proto::peer::group_channel::{
         GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
     };
+    pub use crate::proto::peer::p2p_outcome::{
+        PathAttemptOutcome, PathPlanKind, PathStage, PeerPathOutcome, StageFailure, StageOutcome,
+    };
     pub use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
     pub use crate::proto::peer::p2p_rearm::PathControl;
     pub use crate::proto::peer::peer_layer::PeerResponse;
@@ -617,6 +620,7 @@ pub mod prelude {
     pub use citadel_types::proto::MessageGroupKey;
     pub use citadel_user::backend::utils::{ObjectTransferHandler, ObjectTransferHandlerInner};
     pub use citadel_user::serialization::SyncIO;
+    pub use citadel_wire::nat_class::{IpTranslationClass, NatClass, PortTranslationClass};
     pub use citadel_wire::udp_traversal::turn_relay::{
         TurnPolicy, TurnRelayConfig, TurnServerCredential, TurnTransport, TurnUrl,
     };

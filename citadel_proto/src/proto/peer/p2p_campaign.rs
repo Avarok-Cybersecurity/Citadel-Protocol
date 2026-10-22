@@ -27,8 +27,10 @@
 //! on every retry at its rendezvous (see `p2p_rearm`), so they give up, park and re-arm together.
 //!
 //! The campaign's state is published on the connection's [`P2pPathCell`], which is what
-//! `PeerChannel::ensure_direct` follows.
+//! `PeerChannel::ensure_direct` follows. Every attempt's outcome (see `p2p_outcome`) is published
+//! there too, and sent to the kernel.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use citadel_crypt::ratchets::Ratchet;
@@ -41,6 +43,9 @@ use netbeam::sync::RelativeNodeType;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::NodeResult;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
+use crate::proto::peer::p2p_outcome::{
+    OutcomeContext, PathAttemptOutcome, PeerPathOutcome, StageFailure,
+};
 use crate::proto::peer::p2p_path::{CampaignEndGuard, P2pPlan};
 use crate::proto::peer::p2p_rearm;
 use crate::proto::peer::p2p_retry::{wait_for_fall_back, Retry, RetryEnd, Schedule};
@@ -80,6 +85,8 @@ pub(crate) struct Campaign<R: Ratchet, T: PlatformOps> {
     /// superseded or the session shuts down.
     pub(crate) cancel_rx: oneshot::Receiver<()>,
     pub(crate) plan: P2pPlan,
+    /// Whether both NATs are unpredictable (no hole punch can work), as the plan was made from.
+    pub(crate) direct_impossible: bool,
     pub(crate) guard: CampaignEndGuard,
 }
 
@@ -105,18 +112,46 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         session_security_settings,
         cancel_rx,
         plan,
+        direct_impossible,
         guard,
     } = campaign;
+    let started = Instant::now();
     let cell = guard.cell().clone();
-    let rearmable = match &channel_signal {
-        NodeResult::PeerChannelCreated(created) => {
-            p2p_rearm::peer_parks(created.channel.peer_protocol_version())
-        }
-        _ => false,
+    let (rearmable, connection_id) = match &channel_signal {
+        NodeResult::PeerChannelCreated(created) => (
+            p2p_rearm::peer_parks(created.channel.peer_protocol_version()),
+            created.channel.connection_id(),
+        ),
+        _ => (false, None),
     };
+    let outcomes = OutcomeContext::new(
+        peer_cid,
+        &plan,
+        direct_impossible,
+        session.local_nat_type.class(),
+        peer_nat_info.peer_nat.class(),
+    );
+    let session_cid = session.session_cid.get();
     let weak_session = session.as_weak();
     let kernel_tx = session.kernel_tx.clone();
     drop(session);
+    let attempts = AtomicU32::new(0);
+    let next_attempt = || attempts.fetch_add(1, Ordering::Relaxed) + 1;
+    let publish = |outcome: PathAttemptOutcome| {
+        log::info!(target: "citadel", "P2P attempt {} to peer {peer_cid}: {:?} ({:?})", outcome.attempt, outcome.path, outcome.stages);
+        cell.record_outcome(outcome.clone());
+        let Some(session_cid) = session_cid else {
+            return;
+        };
+        let event = NodeResult::PeerPathOutcome(PeerPathOutcome {
+            session_cid,
+            connection_id,
+            outcome,
+        });
+        if kernel_tx.unbounded_send(event).is_err() {
+            log::trace!(target: "citadel", "Kernel gone before a path outcome for peer {peer_cid} could be delivered");
+        }
+    };
 
     let body = async {
         let release = |signal: NodeResult<R>| {
@@ -143,29 +178,39 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
             Ok(Ok(app)) => app,
             Ok(Err(err)) => {
                 log::warn!(target: "citadel", "Coordination endpoint for peer {peer_cid} failed to register ({err}); staying on the server relay");
+                publish(outcomes.unmet(
+                    next_attempt(),
+                    StageFailure::Signalling,
+                    started.elapsed(),
+                ));
                 return;
             }
             Err(_) => {
                 log::warn!(target: "citadel", "Coordination endpoint for peer {peer_cid} did not register within {REGISTER_TIMEOUT:?}; staying on the server relay");
+                publish(outcomes.unmet(next_attempt(), StageFailure::Timeout, started.elapsed()));
                 return;
             }
         };
         if matches!(plan, P2pPlan::ServerOnly) {
             log::warn!(target: "citadel", "The P2P connection to {peer_cid} requires TURN, and no TURN config was supplied: staying server-relayed");
+            let none = crate::proto::peer::p2p_outcome::AttemptReport::nothing_attached(vec![]);
+            publish(outcomes.outcome(next_attempt(), started.elapsed(), none));
             return;
         }
 
-        let attempt = |sync_instant: Instant, udp_mode: UdpMode| {
+        let attempt = |sync_instant: Instant, udp_mode: UdpMode, coordinating_since: Instant| {
             let session = CitadelSession::upgrade_weak(&weak_session);
             let app = app.clone();
             let plan = plan.clone();
             let peer_nat_info = peer_nat_info.clone();
             let endpoint_ratchet = endpoint_ratchet.clone();
+            let (number, publish, outcomes) = (next_attempt(), &publish, &outcomes);
             async move {
                 let Some(session) = session else {
                     return false;
                 };
-                T::p2p_hole_punch(
+                let coordination = coordinating_since.elapsed();
+                let report = T::p2p_hole_punch(
                     session,
                     peer_connection_type,
                     ticket,
@@ -179,7 +224,10 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
                     session_security_settings,
                     plan,
                 )
-                .await
+                .await;
+                let attached = report.route.is_some();
+                publish(outcomes.outcome(number, coordination, report));
+                attached
             }
         };
 
@@ -192,7 +240,7 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
             udp_mode,
             peer_cid,
         };
-        let mut attached = attempt(sync_instant, udp_mode).await;
+        let mut attached = attempt(sync_instant, udp_mode, started).await;
         let mut schedule = Schedule::fresh(true);
         loop {
             if attached {
@@ -216,6 +264,10 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
             match retry.run(&mut schedule, &attempt).await {
                 RetryEnd::Attached => attached = true,
                 RetryEnd::Exhausted => attached = false,
+                RetryEnd::Unmet { failure, elapsed } => {
+                    publish(outcomes.unmet(next_attempt(), failure, elapsed));
+                    return;
+                }
                 RetryEnd::Ended => return,
             }
         }

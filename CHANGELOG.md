@@ -2,7 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **P2P path outcomes.** Every background upgrade attempt of a peer connection reports a
+  `PathAttemptOutcome`: the attempt number, the plan, the path it attached (`Direct`, `Turn` or
+  `ServerRelay`), and every stage (`Coordination`, `Direct`, `Turn`) with its time and, for each
+  that did not connect, a typed `StageFailure` (e.g. `NatIncompatible`, `NotConfigured`,
+  `PunchFailed`, `AllocationFailed`, `Timeout`), plus the NAT class of both peers (`NatClass`, no
+  addresses). Read it from `PeerChannel::path_outcomes()` / `P2pPathCell::last_outcome()`, or from
+  the new unsolicited `NodeResult::PeerPathOutcome` event, one per attempt. Measurement only:
+  connection establishment is unchanged.
+
 ### Breaking
+
+- `NodeResult` has a new variant, `PeerPathOutcome`; an exhaustive `match` on `NodeResult` needs
+  an arm for it (a wildcard arm already covers it).
+- `PlatformOps::p2p_hole_punch` resolves to an `AttemptReport` instead of `bool`.
 
 - **STUN servers are required configuration.** The built-in list of public STUN servers is gone.
   Every node must call `NodeBuilder::with_stun_servers` with at least three distinct `host:port`

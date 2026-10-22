@@ -66,6 +66,10 @@ pub mod p2p_conn_handler;
 
 pub mod p2p_path;
 
+/// Per-attempt outcomes of the P2P path campaign (which path won, and why the others did not)
+pub mod p2p_outcome;
+pub(crate) mod p2p_outcome_context;
+
 pub(crate) mod direct_journal;
 
 pub(crate) mod direct_route;

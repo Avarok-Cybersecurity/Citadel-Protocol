@@ -49,6 +49,7 @@ use crate::proto::misc::native_connect::{
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use crate::proto::peer::p2p_conn_handler::native_p2p::{handle_p2p_stream, p2p_conn_handler};
+use crate::proto::peer::p2p_outcome::{AtStage, StageError, StageFailure};
 use crate::proto::peer::p2p_path::P2pRoute;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::turn_rendezvous::{
@@ -102,7 +103,7 @@ async fn face_peer_relay(allocation: &TurnAllocation, peer_relayed: SocketAddr) 
 
 /// Connects the two peers through TURN and installs the result as their direct P2P connection
 /// (path [`P2pPath::Turn`](crate::proto::peer::p2p_path::P2pPath::Turn)); the UDP channel is then
-/// fulfilled over it.
+/// fulfilled over it. Returns the route it attached, or the step that failed.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
     app: &NetworkEndpoint,
@@ -115,11 +116,15 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
     udp_mode: UdpMode,
     session_security_settings: SessionSecuritySettings,
     tls: Arc<rustls::ClientConfig>,
-) -> io::Result<()> {
+) -> Result<P2pRoute, StageError> {
+    use StageFailure::{
+        AllocationFailed, AttachFailed, HandshakeFailed, LocalSocket, PeerUnavailable,
+        PermissionFailed, ProbeFailed, SessionGone, Signalling,
+    };
     let local_cid = session_cid
         .get()
-        .ok_or_else(|| generic_error("session CID not loaded"))?;
-    let stream = app.initiate_subscription().await.map_err(generic_error)?;
+        .ok_or_else(|| StageError::new(SessionGone, "session CID not loaded"))?;
+    let stream = app.initiate_subscription().await.at(Signalling)?;
     let hole_punched_like = TargettedSocketAddr::new_invariant;
 
     if local_cid < v_conn.get_target_cid() {
@@ -129,7 +134,7 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
                 let _ = stream
                     .send_serialized(RelaySignal::Unavailable(err.to_string()))
                     .await;
-                return Err(err);
+                return Err(err).at(AllocationFailed);
             }
         };
         let relayed = allocation.relayed_addr();
@@ -137,46 +142,62 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
         citadel_io::thread_rng().fill(&mut nonce);
         stream
             .send_serialized(RelaySignal::Offer { relayed, nonce })
-            .await?;
-        let mut peer_relayed = match recv(&stream).await? {
+            .await
+            .at(Signalling)?;
+        let mut peer_relayed = match recv(&stream).await.at(Signalling)? {
             RelaySignal::DialerReady { candidates } => {
                 let server_seen = peer_nat_info.peer_remote_addr_visible_from_server.ip();
                 let ips =
                     permission_candidates(relayed, candidates.into_iter().chain([server_seen]));
-                install_permissions(&allocation, &ips).await?;
+                install_permissions(&allocation, &ips)
+                    .await
+                    .at(PermissionFailed)?;
                 None
             }
             RelaySignal::DialerRelayed { relayed } => Some(relayed),
-            other => return Err(unexpected("DialerReady or DialerRelayed", other)),
+            other => return Err(unexpected("DialerReady or DialerRelayed", other)).at(Signalling),
         };
         if let Some(peer) = peer_relayed {
-            face_peer_relay(&allocation, peer).await?;
+            face_peer_relay(&allocation, peer)
+                .await
+                .at(PermissionFailed)?;
         }
         stream
             .send_serialized(RelaySignal::PermissionsReady)
-            .await?;
+            .await
+            .at(Signalling)?;
         let dialer = loop {
-            let (probed, signal) = await_probe(&allocation, &nonce, recv(&stream)).await?;
+            let (probed, signal) = await_probe(&allocation, &nonce, recv(&stream))
+                .await
+                .at(ProbeFailed)?;
             match signal {
                 RelaySignal::ProbeAcked => {
-                    break probed.ok_or_else(|| generic_error("ProbeAcked before any probe"))?
+                    break probed.ok_or_else(|| {
+                        StageError::new(ProbeFailed, "ProbeAcked before any probe")
+                    })?
                 }
                 // Its plain-UDP probes failed; it fell back to its own relay.
                 RelaySignal::DialerRelayed { relayed } if peer_relayed.is_none() => {
-                    face_peer_relay(&allocation, relayed).await?;
+                    face_peer_relay(&allocation, relayed)
+                        .await
+                        .at(PermissionFailed)?;
                     peer_relayed = Some(relayed);
                     stream
                         .send_serialized(RelaySignal::PermissionsReady)
-                        .await?;
+                        .await
+                        .at(Signalling)?;
                 }
-                other => return Err(unexpected("ProbeAcked", other)),
+                other => return Err(unexpected("ProbeAcked", other)).at(Signalling),
             }
         };
         let route = P2pRoute::Turn {
             relayed_both: peer_relayed.is_some(),
         };
-        let listener = p2p_listener_from_relay(Arc::new(allocation))?;
-        stream.send_serialized(RelaySignal::ListenerReady).await?;
+        let listener = p2p_listener_from_relay(Arc::new(allocation)).at(LocalSocket)?;
+        stream
+            .send_serialized(RelaySignal::ListenerReady)
+            .await
+            .at(Signalling)?;
         log::info!(target: "citadel", "[TURN] listening on relayed {relayed} for dialer {dialer} ({route:?})");
         p2p_conn_handler(
             listener,
@@ -190,23 +211,30 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
             route,
         )
         .await
-        .map_err(|err| generic_error(err.into_string()))
+        .at(HandshakeFailed)?;
+        Ok(route)
     } else {
-        let (relayed, nonce) = match recv(&stream).await? {
+        let (relayed, nonce) = match recv(&stream).await.at(Signalling)? {
             RelaySignal::Offer { relayed, nonce } => (relayed, nonce),
             RelaySignal::Unavailable(why) => {
-                return Err(generic_error(format!("peer has no relay: {why}")))
+                return Err(StageError::new(
+                    PeerUnavailable,
+                    format!("peer has no relay: {why}"),
+                ))
             }
-            other => return Err(unexpected("Offer", other)),
+            other => return Err(unexpected("Offer", other)).at(Signalling),
         };
-        let socket = UdpSocket::bind(unspecified_like(relayed)).await?;
+        let socket = UdpSocket::bind(unspecified_like(relayed))
+            .await
+            .at(LocalSocket)?;
         let (candidates, udp_works) = dialer_candidates(&socket, relayed, &config).await;
         let mut own_relay = None;
         if udp_works {
             stream
                 .send_serialized(RelaySignal::DialerReady { candidates })
-                .await?;
-            expect_permissions(&stream).await?;
+                .await
+                .at(Signalling)?;
+            expect_permissions(&stream).await.at(Signalling)?;
             let leg = ProbeLeg::Udp(&socket);
             if let Err(err) = probe_until_acked(leg, relayed, &nonce, UDP_PROBE_TIMEOUT).await {
                 log::warn!(target: "citadel", "[TURN] plain UDP to the relay failed ({err}); relaying through our own allocation");
@@ -219,15 +247,20 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
         let (dialer_socket, relayed_both) = match own_relay {
             Some(allocation) => {
                 let leg = ProbeLeg::OwnRelay(&allocation);
-                probe_until_acked(leg, relayed, &nonce, PROBE_TIMEOUT).await?;
+                probe_until_acked(leg, relayed, &nonce, PROBE_TIMEOUT)
+                    .await
+                    .at(ProbeFailed)?;
                 (RelayDialerSocket::OwnRelay(Arc::new(allocation)), true)
             }
             None => (RelayDialerSocket::Udp(socket), false),
         };
-        stream.send_serialized(RelaySignal::ProbeAcked).await?;
-        match recv(&stream).await? {
+        stream
+            .send_serialized(RelaySignal::ProbeAcked)
+            .await
+            .at(Signalling)?;
+        match recv(&stream).await.at(Signalling)? {
             RelaySignal::ListenerReady => {}
-            other => return Err(unexpected("ListenerReady", other)),
+            other => return Err(unexpected("ListenerReady", other)).at(Signalling),
         }
         let p2p_stream = p2p_connect_relayed(
             dialer_socket,
@@ -236,7 +269,8 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
             tls,
             None,
         )
-        .await?;
+        .await
+        .at(HandshakeFailed)?;
         let route = P2pRoute::Turn { relayed_both };
         log::info!(target: "citadel", "[TURN] connected to peer via relayed {relayed} ({route:?})");
         let kernel_tx = session.kernel_tx.clone();
@@ -253,6 +287,8 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
             session_security_settings,
             route,
         )
+        .at(AttachFailed)?;
+        Ok(route)
     }
 }
 
@@ -270,14 +306,21 @@ async fn own_relay_facing<S: ReliableOrderedStreamToTarget>(
     config: &TurnRelayConfig,
     tls: Arc<rustls::ClientConfig>,
     peer_relayed: SocketAddr,
-) -> io::Result<TurnAllocation> {
-    let allocation = allocate_first_usable(config, tls, true).await?;
-    face_peer_relay(&allocation, peer_relayed).await?;
+) -> Result<TurnAllocation, StageError> {
+    let allocation = allocate_first_usable(config, tls, true)
+        .await
+        .at(StageFailure::AllocationFailed)?;
+    face_peer_relay(&allocation, peer_relayed)
+        .await
+        .at(StageFailure::PermissionFailed)?;
     stream
         .send_serialized(RelaySignal::DialerRelayed {
             relayed: allocation.relayed_addr(),
         })
-        .await?;
-    expect_permissions(stream).await?;
+        .await
+        .at(StageFailure::Signalling)?;
+    expect_permissions(stream)
+        .await
+        .at(StageFailure::Signalling)?;
     Ok(allocation)
 }

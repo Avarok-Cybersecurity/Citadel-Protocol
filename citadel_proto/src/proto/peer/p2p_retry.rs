@@ -4,6 +4,7 @@
 use super::p2p_campaign::{
     RECOVERY_ATTEMPTS, RECOVERY_BACKOFF, RECOVERY_BACKOFF_MAX, RENDEZVOUS_TIMEOUT,
 };
+use super::p2p_outcome::StageFailure;
 use super::p2p_path::{P2pPath, P2pPathCell};
 use super::p2p_rearm::{self, RearmSlot};
 use citadel_io::time::{Duration, Instant};
@@ -34,7 +35,12 @@ pub(crate) enum RetryEnd {
     Attached,
     /// Out of retries; the campaign gives up (and parks, with a peer that does).
     Exhausted,
-    /// The connection closed, or the peer did not meet a retry: the campaign ends.
+    /// The peer did not meet a retry: the campaign ends.
+    Unmet {
+        failure: StageFailure,
+        elapsed: Duration,
+    },
+    /// The connection closed: the campaign ends.
     Ended,
 }
 
@@ -51,7 +57,7 @@ pub(crate) struct Retry<'a> {
 impl Retry<'_> {
     pub(crate) async fn run<F, Fut>(&self, schedule: &mut Schedule, attempt: &F) -> RetryEnd
     where
-        F: Fn(Instant, UdpMode) -> Fut,
+        F: Fn(Instant, UdpMode, Instant) -> Fut,
         Fut: Future<Output = bool>,
     {
         let peer_cid = self.peer_cid;
@@ -73,6 +79,7 @@ impl Retry<'_> {
             if self.cell.is_closed() {
                 return RetryEnd::Ended;
             }
+            let coordinating_since = Instant::now();
             let meet = p2p_rearm::rendezvous(
                 self.app,
                 self.rearmable,
@@ -82,9 +89,16 @@ impl Retry<'_> {
             );
             let retry = match citadel_io::time::timeout(RENDEZVOUS_TIMEOUT, meet).await {
                 Ok(Ok(retry)) => retry,
-                _ => {
+                unmet => {
                     log::info!(target: "citadel", "Peer {peer_cid} did not meet the P2P retry; staying on the server relay");
-                    return RetryEnd::Ended;
+                    let failure = match unmet {
+                        Err(_elapsed) => StageFailure::Timeout,
+                        Ok(_) => StageFailure::Signalling,
+                    };
+                    return RetryEnd::Unmet {
+                        failure,
+                        elapsed: coordinating_since.elapsed(),
+                    };
                 }
             };
             if retry.budget == 0 {
@@ -94,7 +108,7 @@ impl Retry<'_> {
             schedule.budget = retry.budget - 1;
             self.cell.resume_upgrading();
             // The UDP channel belonged to the lost route; a retry restores it only when asked.
-            if attempt(Instant::now(), retry.udp_mode).await {
+            if attempt(Instant::now(), retry.udp_mode, coordinating_since).await {
                 log::info!(target: "citadel", "P2P route to peer {peer_cid} restored");
                 return RetryEnd::Attached;
             }
