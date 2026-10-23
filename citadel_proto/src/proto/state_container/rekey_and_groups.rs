@@ -1,8 +1,8 @@
 //! Rekey initiation and group-broadcast handling for [`StateContainerInner`].
 
 use super::includes::*;
-use crate::constants::{protocol_version_at_least, GROUP_RELAY_OPTIONS_SINCE};
 use crate::proto::packet_processor::peer::group_commit_ack;
+use crate::proto::peer::group_relay;
 use citadel_io::{error, ErrorCode};
 use citadel_types::proto::GroupHierarchyMode;
 
@@ -183,14 +183,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 initial_invitees,
                 options,
             } => {
-                if options.needs_relay_options()
-                    && !protocol_version_at_least(
-                        self.adjacent_protocol_version,
-                        GROUP_RELAY_OPTIONS_SINCE,
-                    )
-                {
-                    return Err(error!(ErrorCode::GroupRelayOptionsUnsupported));
-                }
+                group_relay::server_honours_relay_options(options, self.adjacent_protocol_version)?;
                 self.init_owner_cgka(options)?;
                 if matches!(options.hierarchy, GroupHierarchyMode::Flat) {
                     None

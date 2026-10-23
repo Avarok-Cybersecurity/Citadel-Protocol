@@ -7,12 +7,15 @@
 //! the order its handlers pass this lock: a handler that waited longer here (a write lock behind
 //! the readers) would let a later message overtake it.
 
+use crate::constants::{protocol_version_at_least, GROUP_RELAY_OPTIONS_SINCE};
+use crate::error::NetworkError;
 use crate::proto::peer::group_limits::admit;
 use crate::proto::peer::message_group::MessageGroup;
 use crate::proto::peer::peer_layer::CitadelNodePeerLayer;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::time::Instant;
-use citadel_types::proto::{GroupMessageRefusal, MessageGroupKey};
+use citadel_io::{error, ErrorCode};
+use citadel_types::proto::{GroupMessageRefusal, MessageGroupKey, MessageGroupOptions};
 
 /// The members a group broadcast goes to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,5 +74,67 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             now,
         )?;
         Ok(GroupBroadcastTargets::of(group))
+    }
+}
+
+/// Client: whether the server, at `server_version`, can honour the relay options of a group about
+/// to be created with `options`. A server before them would ignore them (mail an ephemeral
+/// group's broadcasts, relay any message), so such a group is refused here, before it exists.
+pub(crate) fn server_honours_relay_options(
+    options: &MessageGroupOptions,
+    server_version: Option<u32>,
+) -> Result<(), NetworkError> {
+    if options.needs_relay_options()
+        && !protocol_version_at_least(server_version, GROUP_RELAY_OPTIONS_SINCE)
+    {
+        return Err(error!(ErrorCode::GroupRelayOptionsUnsupported));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constants::PROTOCOL_VERSION;
+    use citadel_types::proto::GroupMessageLimits;
+    use embedded_semver::Semver;
+
+    fn older() -> Option<u32> {
+        Some(Semver::new(0, 12, 1).to_u32().unwrap())
+    }
+
+    fn refused(options: &MessageGroupOptions, version: Option<u32>) -> Option<ErrorCode> {
+        server_honours_relay_options(options, version)
+            .err()
+            .map(|err| err.code())
+    }
+
+    #[test]
+    fn an_older_server_is_refused_an_ephemeral_or_limited_group() {
+        let ephemeral = MessageGroupOptions {
+            ephemeral: true,
+            ..Default::default()
+        };
+        let limited = MessageGroupOptions {
+            limits: GroupMessageLimits::new(64, 4).ok(),
+            ..Default::default()
+        };
+        for options in [&ephemeral, &limited] {
+            for version in [older(), None] {
+                assert_eq!(
+                    refused(options, version),
+                    Some(ErrorCode::GroupRelayOptionsUnsupported),
+                    "{options:?} at {version:?}"
+                );
+            }
+            assert_eq!(refused(options, Some(*PROTOCOL_VERSION)), None);
+        }
+    }
+
+    #[test]
+    fn an_ordinary_group_is_created_on_any_server() {
+        for version in [older(), None, Some(*PROTOCOL_VERSION)] {
+            assert_eq!(refused(&MessageGroupOptions::default(), version), None);
+        }
     }
 }
