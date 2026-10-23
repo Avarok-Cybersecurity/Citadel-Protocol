@@ -39,6 +39,9 @@
 
 //! This example demonstrates how to set up a peer connection between two peers and use REVFS to store then take a file
 
+#[path = "../shared/stun.rs"]
+mod stun;
+
 use citadel_sdk::{
     prefabs::client::peer_connection::{PeerConnectionKernel, PeerConnectionSetupAggregator},
     prelude::*,
@@ -132,7 +135,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Build the peer
-    let node = DefaultNodeBuilder::default().build(kernel)?;
+    let node = DefaultNodeBuilder::default()
+        .with_stun_servers(stun::from_env())
+        .build(kernel)?;
 
     // Run the peer
     node.await?;

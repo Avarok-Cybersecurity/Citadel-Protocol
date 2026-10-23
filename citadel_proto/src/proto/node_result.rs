@@ -82,6 +82,9 @@ pub struct ConnectSuccess<R: Ratchet> {
     pub channel: Box<PeerChannel<R>>,
     pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
     pub session_security_settings: SessionSecuritySettings,
+    /// The server's path policy: on a client, as the server sent it (`None` from a server below
+    /// [`PATH_POLICY_SINCE`](crate::constants::PATH_POLICY_SINCE)); on the server, its own.
+    pub path_policy: Option<citadel_types::proto::PathPolicy>,
 }
 
 #[derive(Debug)]
@@ -253,6 +256,9 @@ pub enum NodeResult<R: Ratchet> {
     SessionList(SessionList),
     /// How a server liveness probe ended
     ServerProbe(crate::proto::server_probe::ServerProbeResult),
+    /// How one background P2P upgrade attempt ended (which path won, and why the others did
+    /// not). Unsolicited, one per attempt; a kernel that does not measure paths can ignore it.
+    PeerPathOutcome(crate::proto::peer::p2p_outcome::PeerPathOutcome),
     /// For shutdowns
     Shutdown,
 }
@@ -378,7 +384,7 @@ impl<R: Ratchet> NodeResult<R> {
                 session_cid,
                 ..
             }) => Some(CallbackKey::new(*ticket, *session_cid)),
-            NodeResult::Shutdown => None,
+            NodeResult::Shutdown | NodeResult::PeerPathOutcome(_) => None,
             NodeResult::ReKeyResult(ReKeyResult {
                 ticket,
                 session_cid,

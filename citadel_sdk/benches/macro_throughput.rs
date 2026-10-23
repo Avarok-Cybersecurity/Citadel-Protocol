@@ -232,8 +232,12 @@ mod imp {
         });
 
         let server = tokio::task::spawn(server);
-        let client =
-            tokio::task::spawn(DefaultNodeBuilder::default().build(client_kernel).unwrap());
+        let client = tokio::task::spawn(
+            DefaultNodeBuilder::default()
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .build(client_kernel)
+                .unwrap(),
+        );
         let (s, c) = futures::future::join(server, client).await;
         // A JoinError = a real task panic (surface it). The inner NodeFuture Err on clean shutdown
         // is the benign "Queue handler signalled shutdown" teardown signal — ignore it; the report

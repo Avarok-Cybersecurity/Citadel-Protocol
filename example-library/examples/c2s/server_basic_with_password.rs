@@ -35,6 +35,11 @@
 //! direct client-server communication. For bidirectional client-server
 //! communication, use a `ClientConnectListenerKernel` instead.
 
+#[path = "../shared/path_policy.rs"]
+mod path_policy;
+#[path = "../shared/stun.rs"]
+mod stun;
+
 use citadel_sdk::prefabs::server;
 use citadel_sdk::prelude::*;
 use std::env;
@@ -59,6 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // a client attempts to register or connect, they must provide the password.
     // This "password" is effectively a pre-shared key (PSK)
     let node = DefaultNodeBuilder::default()
+        .with_stun_servers(stun::from_env())
+        .with_path_policy(path_policy::every_path_in_order())
         .with_node_type(NodeType::server(server_addr)?)
         .with_server_password(connect_password)
         .build(kernel)?;

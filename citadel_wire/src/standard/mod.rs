@@ -5,6 +5,7 @@
 
 #[cfg(not(target_family = "wasm"))]
 pub mod misc;
+pub mod nat_class;
 pub mod nat_identification;
 #[cfg(not(target_family = "wasm"))]
 pub mod quic;

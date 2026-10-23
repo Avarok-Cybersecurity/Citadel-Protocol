@@ -398,7 +398,10 @@ mod tests {
                 connection.shutdown_kernel().await
             });
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
 
         let joined = futures::future::try_join(server, client);
 
@@ -482,7 +485,10 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
 
         let joined = futures::future::try_join(server, client);
 
@@ -526,7 +532,10 @@ mod tests {
             |_connection| async move { panic!("Client should not have connected") },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
 
         tokio::select! {
             _res0 = server => {
@@ -585,7 +594,10 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
 
         let joined = futures::future::try_join(server, client);
 
@@ -668,7 +680,10 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
 
         let joined = futures::future::try_join(server, client);
 
@@ -723,7 +738,10 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
         let joined = futures::future::try_join(server, client);
 
         let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");

@@ -88,7 +88,10 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
         let result = citadel_io::tokio::select! {
             _ = server => panic!("the server ended first"),
             _ = client => panic!("the client kernel ended before answering"),
@@ -146,7 +149,10 @@ mod tests {
             move |_conn| async move { Ok(()) },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
         let outcome = citadel_io::tokio::time::timeout(MUST_ANSWER_WITHIN, client).await;
         hangup.abort();
 
@@ -196,7 +202,10 @@ mod tests {
             move |_conn| async move { Ok(()) },
         );
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
 
         // Two layered fixes are under test here, and they fail differently.
         //

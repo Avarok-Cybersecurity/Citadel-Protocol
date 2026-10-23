@@ -137,8 +137,14 @@ mod tests {
         });
 
         let clients = futures::future::try_join(
-            DefaultNodeBuilder::default().build(dialer_node).unwrap(),
-            DefaultNodeBuilder::default().build(acceptor_node).unwrap(),
+            DefaultNodeBuilder::default()
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .build(dialer_node)
+                .unwrap(),
+            DefaultNodeBuilder::default()
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .build(acceptor_node)
+                .unwrap(),
         );
         let outcome = tokio::time::timeout(Duration::from_secs(150), async move {
             tokio::select! {

@@ -89,7 +89,10 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default().build(kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(kernel)
+            .unwrap();
         let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), async move {
             citadel_io::tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
@@ -178,8 +181,14 @@ mod tests {
             )
         };
 
-        let client_a = DefaultNodeBuilder::default().build(kernel_a).unwrap();
-        let client_c = DefaultNodeBuilder::default().build(kernel_c).unwrap();
+        let client_a = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(kernel_a)
+            .unwrap();
+        let client_c = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(kernel_c)
+            .unwrap();
         let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), async move {
             citadel_io::tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),

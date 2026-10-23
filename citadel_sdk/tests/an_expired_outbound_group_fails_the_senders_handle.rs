@@ -222,7 +222,10 @@ mod tests {
             }
         });
 
-        let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+        let client = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(client_kernel)
+            .unwrap();
 
         tokio::select! {
             res = client => { res.expect("client node failed"); }

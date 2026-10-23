@@ -104,7 +104,10 @@ fn is_current(admitted: &HashMap<u64, Instant>, cid: u64, incarnation: Instant) 
 // message group byte map key layout:
 // implicated cid = implicated cid -> key = (u128."concurrent" OR u128."pending") -> u64 (peer cid)
 
-const MAILBOX: &str = "mailbox";
+/// The byte map (`(cid, 0, PEER_MAILBOX_MAP, <uuid>)`) where a server holds the signals it mails to
+/// an offline `cid`, each a serialized [`PeerSignal`], until `cid` next connects. Unbounded: nothing
+/// caps how many a member accumulates.
+pub const PEER_MAILBOX_MAP: &str = "mailbox";
 
 #[derive(Clone)]
 pub struct CitadelNodePeerLayer<R: Ratchet> {
@@ -228,7 +231,9 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         };
 
         // drain mailbox, return to user (means there was mail to view)
-        let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
+        let items = pers
+            .remove_byte_map_values_by_key(cid, 0, PEER_MAILBOX_MAP)
+            .await?;
         if !items.is_empty() {
             log::trace!(target: "citadel", "Returning enqueued mailbox items for {cid}");
             Ok(Some(MailboxTransfer::from(
@@ -270,7 +275,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         };
 
         let _ = pers
-            .remove_byte_map_values_by_key(session_cid, 0, MAILBOX)
+            .remove_byte_map_values_by_key(session_cid, 0, PEER_MAILBOX_MAP)
             .await?;
         Ok(())
     }
@@ -292,6 +297,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                     concurrent_peers: HashMap::new(),
                     pending_peers: HashMap::with_capacity(initial_peers.len()),
                     options,
+                    rates: Default::default(),
                 };
                 // insert peers into the pending_peers map to allow/process AcceptMembership signals
                 for peer_cid in initial_peers {
@@ -518,7 +524,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         let sub_key = Uuid::new_v4().to_string();
 
         let _ = pers
-            .store_byte_map_value(target_cid, 0, MAILBOX, &sub_key, serialized)
+            .store_byte_map_value(target_cid, 0, PEER_MAILBOX_MAP, &sub_key, serialized)
             .await?;
         Ok(())
     }
@@ -904,6 +910,11 @@ pub enum PeerSignal {
         /// before it and reads as `None`.
         #[serde(default, deserialize_with = "appended_field")]
         sender_protocol_version: Option<u32>,
+        /// The offers of both peers and the plan the server stamped (see `kex_path`). Appended
+        /// after the version, so an older node ignores it and one from an older node reads as
+        /// `None`; an older server drops it while relaying.
+        #[serde(default, deserialize_with = "appended_field")]
+        path: Option<super::kex_path::KexPath>,
     },
     /// WebRTC signaling relay (SDP offer/answer + ICE candidates).
     /// Used by WASM peers to establish DataChannel P2P connections.
@@ -1010,6 +1021,7 @@ mod tests {
             },
             kex_payload: KeyExchangeProcess::Stage2(7, None, true),
             sender_protocol_version,
+            path: None,
         }
     }
 
@@ -1033,13 +1045,14 @@ mod tests {
     }
 
     /// A node that predates the field sends the same signal without it (an `Option<u32>`
-    /// that is `Some` occupies the last five bytes). It must still parse, as "unknown".
+    /// that is `Some` occupies five bytes, followed by the one byte of an absent path). It must
+    /// still parse, as "unknown".
     #[test]
     fn a_kex_from_an_older_node_reads_as_an_unknown_version() {
         let bytes = kex_stage2(Some(*crate::constants::PROTOCOL_VERSION))
             .serialize_to_vector()
             .unwrap();
-        let legacy = &bytes[..bytes.len() - 5];
+        let legacy = &bytes[..bytes.len() - 6];
         let signal = PeerSignal::deserialize_from_vector(legacy)
             .expect("a Kex from an older node must still parse");
         assert_eq!(sender_version_and_sync_time(signal), (None, 7));
@@ -1049,13 +1062,14 @@ mod tests {
     /// new encoding must be the old one with the field appended.
     #[test]
     fn a_new_kex_is_the_old_encoding_with_the_version_appended() {
+        // Both appended fields absent: one byte each.
         let without = kex_stage2(None).serialize_to_vector().unwrap();
-        let legacy = &without[..without.len() - 1];
+        let legacy = &without[..without.len() - 2];
         let with = kex_stage2(Some(*crate::constants::PROTOCOL_VERSION))
             .serialize_to_vector()
             .unwrap();
         assert!(with.starts_with(legacy));
-        assert_eq!(with.len(), legacy.len() + 5);
+        assert_eq!(with.len(), legacy.len() + 5 + 1);
     }
 
     /// Consuming a `PostConnect` response (the establishment commitment) must atomically purge

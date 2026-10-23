@@ -53,6 +53,7 @@ use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSigna
 use crate::proto::remote::Ticket;
 use crate::proto::session::{CitadelSession, SessionAliveTracker};
 use crate::proto::state_container::{P2PDisconnectSignal, RouteEnd, VirtualConnectionType};
+use crate::proto::traffic::meter::{RouteMeter, StreamMeter};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
@@ -165,9 +166,11 @@ pub(crate) mod native_p2p {
     use super::*;
     use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
     use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
+    use crate::proto::peer::p2p_outcome::{
+        tried, AtStage, AttemptReport, PathStage, StageError, StageFailure,
+    };
     use citadel_wire::exports::tokio_rustls::rustls;
     use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
-    use citadel_wire::udp_traversal::turn_relay::TurnRelayConfig;
     use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 
     #[allow(clippy::too_many_arguments)]
@@ -267,11 +270,27 @@ pub(crate) mod native_p2p {
         let session_cid_for_dc = session_cid.clone();
         let implcid = session_cid.get().unwrap_or(0);
         let kernel_tx_for_dc = kernel_tx.clone();
-        let cleanup_connection_id = inner_state!(session.state_container)
-            .active_virtual_connections
-            .get(&peer_cid)
-            .map(|vconn| vconn.p2p_connection_id)
-            .unwrap_or(Ticket(0));
+        let (cleanup_connection_id, connection_bytes) = {
+            let state = inner_state!(session.state_container);
+            let vconn = state.active_virtual_connections.get(&peer_cid);
+            let bytes = vconn
+                .and_then(|vconn| vconn.endpoint_container.as_ref())
+                .map(|endpoint| endpoint.p2p_path.byte_counters().clone());
+            (
+                vconn
+                    .map(|vconn| vconn.p2p_connection_id)
+                    .unwrap_or(Ticket(0)),
+                bytes,
+            )
+        };
+        // Without a virtual connection the route is refused below (it has nothing to attach to);
+        // its few packets until then still count toward the node's totals.
+        let route_meter = RouteMeter::new(
+            connection_bytes.unwrap_or_default(),
+            session.session_manager.traffic(),
+            path,
+        );
+        let meter = StreamMeter::Route(route_meter.clone());
         let p2p_handle = P2PInboundHandle::new(
             remote_peer,
             local_bind_addr.port(),
@@ -285,12 +304,14 @@ pub(crate) mod native_p2p {
             p2p_primary_stream_rx,
             sink,
             header_obfuscator.clone(),
+            meter.clone(),
         );
         let reader_future = CitadelSession::execute_inbound_stream(
             stream,
             session.clone(),
             Some(p2p_handle),
             header_obfuscator,
+            meter.clone(),
         );
         let stopper_future = p2p_stopper(stopper_rx);
 
@@ -330,7 +351,7 @@ pub(crate) mod native_p2p {
             T::spawn_udp_socket_loader(
                 sess.clone(),
                 v_conn,
-                UdpSplittableTypes::Quic(udp_conn),
+                UdpSplittableTypes::Quic(udp_conn.metered(route_meter)),
                 hole_punched_addr,
                 ticket,
                 None,
@@ -533,15 +554,14 @@ pub(crate) mod native_p2p {
     }
 
     /// One upgrade attempt: hole punch (unless the plan skips it), then TURN when a relay is
-    /// configured and the punch did not succeed. Both sides begin at `sync_time`. Returns whether
-    /// a P2P route was attached. The caller cancels by dropping the future (the campaign does, on
-    /// session shutdown).
+    /// configured and the punch did not succeed. Both sides begin at `sync_time`. Reports each
+    /// stage it ran, with the reason for any that failed, and the route it attached. The caller
+    /// cancels by dropping the future (the campaign does, on session shutdown).
     #[cfg_attr(feature = "localhost-testing", tracing::instrument(
         level = "trace",
         target = "citadel",
         skip_all,
         ret,
-        err,
         fields(session_cid=session_cid.get(), peer_cid=peer_connection_type.get_original_target_cid()
         )
     ))]
@@ -556,17 +576,25 @@ pub(crate) mod native_p2p {
         sync_time: Instant,
         app: NetworkEndpoint,
         encrypted_config_container: HolePunchConfigContainer,
+        stun_servers: citadel_wire::stun_servers::StunServers,
         client_config: T::ClientConfig,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         session_alive: SessionAliveTracker<R, T>,
-        attempt_direct: bool,
-        relay: Option<TurnRelayConfig>,
-    ) -> std::io::Result<bool> {
-        let client_config: Arc<rustls::ClientConfig> = T::client_config_to_any(&client_config)
+        steps: Vec<crate::proto::peer::p2p_plan::TimedStep>,
+    ) -> AttemptReport {
+        let Some(client_config) = T::client_config_to_any(&client_config)
             .and_then(|c| c.downcast::<Arc<rustls::ClientConfig>>().ok())
             .map(|c| *c)
-            .ok_or_else(|| generic_error("P2P hole-punch requires native rustls client config"))?;
+        else {
+            log::warn!(target: "citadel", "P2P hole-punch requires native rustls client config");
+            let unsupported = tried(
+                PathStage::Direct,
+                Err(StageFailure::Unsupported),
+                Duration::ZERO,
+            );
+            return AttemptReport::nothing_attached(vec![unsupported]);
+        };
         let is_initiator = app.is_initiator();
         let kernel_tx = &kernel_tx;
         let v_conn = peer_connection_type.as_virtual_connection();
@@ -578,21 +606,26 @@ pub(crate) mod native_p2p {
 
         let process = async move {
             if !session_alive.alive() {
-                return Err(generic_error("Session no longer alive"));
+                return Err(StageError::new(
+                    StageFailure::SessionGone,
+                    "session no longer alive",
+                ));
             }
             citadel_io::time::sleep_until(sync_time).await;
 
             let hole_punched_socket = app
-                .begin_udp_hole_punch(encrypted_config_container)
+                .begin_udp_hole_punch(encrypted_config_container, stun_servers)
                 .await
-                .map_err(generic_error)?;
+                .at(StageFailure::PunchFailed)?;
             let remote_connect_addr = hole_punched_socket.addr.send_address;
             let addr = hole_punched_socket.addr;
-            let local_addr = hole_punched_socket.local_addr()?;
+            let local_addr = hole_punched_socket
+                .local_addr()
+                .at(StageFailure::LocalSocket)?;
             log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {is_initiator}");
 
             if is_initiator {
-                app.sync().await.map_err(generic_error)?;
+                app.sync().await.at(StageFailure::Signalling)?;
                 log::trace!(target: "citadel", "Initiator: sync complete, non-initiator listener should be ready");
 
                 let socket = hole_punched_socket.into_socket();
@@ -603,7 +636,8 @@ pub(crate) mod native_p2p {
                     client_config,
                     None,
                 )
-                .await?;
+                .await
+                .at(StageFailure::HandshakeFailed)?;
 
                 log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch + QUIC finished successfully for INITIATOR @!~");
                 handle_p2p_stream(
@@ -619,6 +653,7 @@ pub(crate) mod native_p2p {
                     session_security_settings,
                     P2pRoute::Direct,
                 )
+                .at(StageFailure::AttachFailed)
             } else {
                 log::trace!(target: "citadel", "Non-initiator: creating listener before signaling ready");
 
@@ -626,10 +661,11 @@ pub(crate) mod native_p2p {
 
                 let (listener, _) = crate::proto::misc::native_connect::p2p_listener_from_socket(
                     socket, None, local_addr,
-                )?;
+                )
+                .at(StageFailure::LocalSocket)?;
                 log::trace!(target: "citadel", "Non-initiator: listener created (socket reused) on {:?}, signaling ready", local_addr);
 
-                app.sync().await.map_err(generic_error)?;
+                app.sync().await.at(StageFailure::Signalling)?;
 
                 p2p_conn_handler(
                     listener,
@@ -643,70 +679,81 @@ pub(crate) mod native_p2p {
                     P2pRoute::Direct,
                 )
                 .await
-                .map_err(|err| generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {err:?}")))
+                .at(StageFailure::HandshakeFailed)
             }
         };
 
-        const P2P_CONN_TIMEOUT: Duration = Duration::from_secs(30);
-
-        let timed_process = citadel_io::time::timeout(P2P_CONN_TIMEOUT, process);
-
-        let result = if !attempt_direct {
-            log::info!(target: "citadel", "[Hole-punch] skipped: TURN relay-only plan");
-            Ok(Err(generic_error("direct path skipped")))
-        } else {
-            timed_process.await
-        };
-
-        let direct_established = match result {
-            Ok(Ok(())) => {
-                log::trace!(target: "citadel", "[Hole-punch] P2P connection established successfully");
-                true
+        use crate::proto::peer::p2p_plan::PlanStep;
+        let mut direct = Some(process);
+        let mut stages = Vec::with_capacity(steps.len());
+        let mut route = None;
+        if !steps.iter().any(|s| matches!(s.step, PlanStep::Direct)) {
+            log::info!(target: "citadel", "[Hole-punch] skipped: the plan does not try it");
+        }
+        // Each planned path in order, each with its own attempt timeout, until one attaches.
+        for planned in steps {
+            if route.is_some() {
+                break;
             }
-            Ok(Err(err)) => {
-                if attempt_direct {
-                    log::warn!(target: "citadel", "[Hole-punch/Err] {err}");
+            let started = Instant::now();
+            let timeout = planned.timeout;
+            let (stage, result) = match planned.step {
+                PlanStep::Direct => {
+                    let Some(process) = direct.take() else {
+                        continue;
+                    };
+                    let result = match citadel_io::time::timeout(timeout, process).await {
+                        Ok(Ok(())) => {
+                            log::trace!(target: "citadel", "[Hole-punch] P2P connection established successfully");
+                            route = Some(P2pRoute::Direct);
+                            Ok(())
+                        }
+                        Ok(Err(err)) => {
+                            log::warn!(target: "citadel", "[Hole-punch/Err] {err}");
+                            Err(err.failure)
+                        }
+                        Err(_elapsed) => {
+                            log::warn!(target: "citadel", "[Hole-punch/Timeout] P2P connection establishment timed out after {timeout:?}");
+                            Err(StageFailure::Timeout)
+                        }
+                    };
+                    (PathStage::Direct, result)
                 }
-                false
-            }
-            Err(_elapsed) => {
-                log::warn!(target: "citadel", "[Hole-punch/Timeout] P2P connection establishment timed out after {}s", P2P_CONN_TIMEOUT.as_secs());
-                false
-            }
-        };
-
-        let mut relay_established = false;
-        if let (false, Some(relay)) = (direct_established, relay) {
-            let relayed = crate::proto::peer::turn_p2p::establish_relayed_p2p(
-                &relay_app,
-                relay,
-                relay_session,
-                relay_session_cid,
-                &relay_nat_info,
-                v_conn,
-                ticket,
-                udp_mode,
-                session_security_settings,
-                relay_tls,
-            );
-            let outcome =
-                citadel_io::time::timeout(crate::proto::peer::turn_p2p::RELAY_TIMEOUT, relayed)
-                    .await;
-            match outcome {
-                Ok(Ok(())) => {
-                    relay_established = true;
-                    log::info!(target: "citadel", "[TURN] P2P connection established over the relay")
+                PlanStep::Turn(relay) => {
+                    let relayed = crate::proto::peer::turn_p2p::establish_relayed_p2p(
+                        &relay_app,
+                        relay,
+                        relay_session.clone(),
+                        relay_session_cid.clone(),
+                        &relay_nat_info,
+                        v_conn,
+                        ticket,
+                        udp_mode,
+                        session_security_settings,
+                        relay_tls.clone(),
+                    );
+                    let result = match citadel_io::time::timeout(timeout, relayed).await {
+                        Ok(Ok(relayed_route)) => {
+                            route = Some(relayed_route);
+                            log::info!(target: "citadel", "[TURN] P2P connection established over the relay");
+                            Ok(())
+                        }
+                        Ok(Err(err)) => {
+                            log::warn!(target: "citadel", "[TURN/Err] relay unavailable: {err}");
+                            Err(err.failure)
+                        }
+                        Err(_) => {
+                            log::warn!(target: "citadel", "[TURN/Timeout] relay attempt timed out after {timeout:?}");
+                            Err(StageFailure::Timeout)
+                        }
+                    };
+                    (PathStage::Turn, result)
                 }
-                Ok(Err(err)) => {
-                    log::warn!(target: "citadel", "[TURN/Err] relay unavailable, staying server-relayed: {err}")
-                }
-                Err(_) => {
-                    log::warn!(target: "citadel", "[TURN/Timeout] relay attempt timed out, staying server-relayed")
-                }
-            }
+            };
+            stages.push(tried(stage, result, started.elapsed()));
         }
 
-        Ok(direct_established || relay_established)
+        AttemptReport { stages, route }
     }
 }
 

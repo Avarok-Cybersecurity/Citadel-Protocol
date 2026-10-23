@@ -1,12 +1,13 @@
-//! Which network path a P2P connection runs over, and the per-attempt decision of which paths to
-//! try.
+//! Which network path a P2P connection runs over. What each attempt tries is `p2p_plan`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use citadel_io::tokio::sync::watch;
 use citadel_io::{error, ErrorCode, NetworkError};
-use citadel_wire::udp_traversal::turn_relay::{TurnPolicy, TurnRelayConfig};
+
+use super::p2p_outcome::PathAttemptOutcome;
+use crate::proto::traffic::{PathBytes, PathBytesSnapshot};
 
 /// The path carrying a P2P connection's traffic.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -71,6 +72,13 @@ struct PathShared {
     campaign_alive: AtomicBool,
     /// An upgrade the application asked for (`PeerChannel::upgrade`), for the campaign.
     rearm: super::p2p_rearm::RearmSlot,
+    /// The latest upgrade attempt's outcome, published as each attempt ends.
+    outcomes: watch::Sender<Option<PathAttemptOutcome>>,
+    /// Bytes this connection carried on each path, counted by the streams that carry them.
+    bytes: Arc<PathBytes>,
+    /// Which classes of traffic each path may carry, set from the stamped plan before the
+    /// channel reaches the application.
+    gates: watch::Sender<super::class_gates::ClassGates>,
 }
 
 impl P2pPathCell {
@@ -87,6 +95,9 @@ impl P2pPathCell {
             status,
             campaign_alive: AtomicBool::new(false),
             rearm: Default::default(),
+            outcomes: watch::channel(None).0,
+            bytes: Default::default(),
+            gates: watch::Sender::new(super::class_gates::ClassGates::OPEN),
         }))
     }
 
@@ -108,6 +119,61 @@ impl P2pPathCell {
     /// A receiver that wakes on every path or campaign change.
     pub fn subscribe(&self) -> watch::Receiver<P2pPathStatus> {
         self.0.status.subscribe()
+    }
+
+    /// The outcome of the latest upgrade attempt: which path it attached and why each stage that
+    /// did not connect failed. `None` until the first attempt ends.
+    pub fn last_outcome(&self) -> Option<PathAttemptOutcome> {
+        self.0.outcomes.borrow().clone()
+    }
+
+    /// A receiver that wakes as each upgrade attempt ends, holding the latest outcome. Every
+    /// outcome is also delivered to the kernel as `NodeResult::PeerPathOutcome`, which a slow
+    /// reader of this receiver cannot miss.
+    pub fn outcomes(&self) -> watch::Receiver<Option<PathAttemptOutcome>> {
+        self.0.outcomes.subscribe()
+    }
+
+    /// The bytes this connection has sent and received on each path so far, across every route
+    /// it has had. Monotonic.
+    pub fn bytes(&self) -> PathBytesSnapshot {
+        self.0.bytes.snapshot()
+    }
+
+    /// Which classes of traffic each path of this connection may carry.
+    pub fn class_gates(&self) -> super::class_gates::ClassGates {
+        *self.0.gates.borrow()
+    }
+
+    /// Whether the path traffic takes right now may carry `class`.
+    pub fn permits(&self, class: citadel_types::proto::PathClass) -> bool {
+        self.class_gates().permits(self.get(), class)
+    }
+
+    /// `Ok` when the current path may carry `class`, else the typed refusal.
+    pub fn check(&self, class: citadel_types::proto::PathClass) -> Result<(), NetworkError> {
+        let path = self.get();
+        if self.class_gates().permits(path, class) {
+            Ok(())
+        } else {
+            Err(error!(
+                ErrorCode::PathClassDenied,
+                format!("{class:?}"),
+                format!("{path:?}")
+            ))
+        }
+    }
+
+    pub(crate) fn set_gates(&self, gates: super::class_gates::ClassGates) {
+        let _ = self.0.gates.send_replace(gates);
+    }
+
+    pub(crate) fn byte_counters(&self) -> &Arc<PathBytes> {
+        &self.0.bytes
+    }
+
+    pub(crate) fn record_outcome(&self, outcome: PathAttemptOutcome) {
+        self.0.outcomes.send_replace(Some(outcome));
     }
 
     /// Resolves `Ok` with the path once traffic runs over a P2P connection (hole-punched
@@ -244,56 +310,9 @@ impl Drop for CampaignEndGuard {
     }
 }
 
-/// What to try for one P2P attempt, decided identically on both peers from their own TURN config
-/// and the (symmetric) NAT-compatibility verdict.
-#[derive(Clone, Debug)]
-pub(crate) enum P2pPlan {
-    /// Hole punch; nothing to fall back to.
-    DirectOnly,
-    /// Hole punch; on failure, relay through TURN.
-    DirectThenRelay(TurnRelayConfig),
-    /// Skip the hole punch and relay through TURN.
-    RelayOnly(TurnRelayConfig),
-    /// No P2P attempt: the NATs are incompatible and no TURN config was supplied.
-    ServerOnly,
-}
-
-pub(crate) fn plan_p2p(direct_impossible: bool, turn: Option<TurnRelayConfig>) -> P2pPlan {
-    match turn {
-        None if direct_impossible => P2pPlan::ServerOnly,
-        None => P2pPlan::DirectOnly,
-        Some(cfg) if direct_impossible || cfg.policy == TurnPolicy::RelayOnly => {
-            P2pPlan::RelayOnly(cfg)
-        }
-        Some(cfg) => P2pPlan::DirectThenRelay(cfg),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn cfg(policy: TurnPolicy) -> TurnRelayConfig {
-        TurnRelayConfig::new(vec![], policy)
-    }
-
-    #[test]
-    fn plans_follow_policy_and_nat_verdict() {
-        assert!(matches!(plan_p2p(false, None), P2pPlan::DirectOnly));
-        assert!(matches!(plan_p2p(true, None), P2pPlan::ServerOnly));
-        assert!(matches!(
-            plan_p2p(false, Some(cfg(TurnPolicy::Fallback))),
-            P2pPlan::DirectThenRelay(_)
-        ));
-        assert!(matches!(
-            plan_p2p(true, Some(cfg(TurnPolicy::Fallback))),
-            P2pPlan::RelayOnly(_)
-        ));
-        assert!(matches!(
-            plan_p2p(false, Some(cfg(TurnPolicy::RelayOnly))),
-            P2pPlan::RelayOnly(_)
-        ));
-    }
 
     fn poll_once<F: std::future::Future>(fut: std::pin::Pin<&mut F>) -> Option<F::Output> {
         let waker = futures::task::noop_waker();

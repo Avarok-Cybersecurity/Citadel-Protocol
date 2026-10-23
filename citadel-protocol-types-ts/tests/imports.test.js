@@ -30,10 +30,11 @@ describe('Citadel Protocol Types', () => {
     assert.ok(pv.split('.').length === 3, 'protocol version should have 3 parts');
     assert.ok(sv.split('.').length === 3, 'SDK version should have 3 parts');
 
-    // Protocol version should be 0.12.1 based on constants.rs (minor bumped 10 -> 11 for the
+    // Protocol version should be 0.12.2 based on constants.rs (minor bumped 10 -> 11 for the
     // attempt-numbered hole-punch coordination frames, then 11 -> 12 for post-quantum sign-in,
-    // which reset the patch; patch 0 -> 1 for the C2S probe and the re-armable path campaign).
-    assert.strictEqual(pv, '0.12.1', 'protocol version should match expected');
+    // which reset the patch; patch 0 -> 1 for the C2S probe and the re-armable path campaign;
+    // 1 -> 2 for the server's path policy, its stamped per-pair plan, and group relay options).
+    assert.strictEqual(pv, '0.12.2', 'protocol version should match expected');
   });
 });
 

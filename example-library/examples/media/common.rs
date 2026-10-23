@@ -1,6 +1,9 @@
 //! Shared plumbing for the media examples, included via `#[path = "common.rs"] mod common;`.
 #![allow(dead_code)] // shared by four example binaries; each uses a subset
 
+#[path = "../shared/stun.rs"]
+mod stun;
+
 use citadel_sdk::media::*;
 use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
 use citadel_sdk::prelude::*;
@@ -99,7 +102,10 @@ where
             on_peer(conn).await?;
             remote.shutdown_kernel().await
         });
-    DefaultNodeBuilder::default().build(kernel)?.await?;
+    DefaultNodeBuilder::default()
+        .with_stun_servers(stun::from_env())
+        .build(kernel)?
+        .await?;
     Ok(())
 }
 

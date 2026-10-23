@@ -70,7 +70,7 @@ pub trait PlatformOps: ProtocolIO {
     /// Identify local NAT type via STUN servers.
     /// Default: returns `NatType::offline()` (appropriate for WASM).
     fn identify_nat_type(
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
     ) -> impl Future<Output = io::Result<NatType>> + ContextRequirements {
         async move {
             let _ = stun_servers;
@@ -102,7 +102,7 @@ pub trait PlatformOps: ProtocolIO {
         ratchet: R,
         security_level: SecurityLevel,
         target_cid: u64,
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
         node_type: RelativeNodeType,
     ) -> impl Future<Output = Result<Option<UdpSplittableTypes>, NetworkError>> + ContextRequirements
     {
@@ -121,7 +121,8 @@ pub trait PlatformOps: ProtocolIO {
 
     /// One attempt to move an established peer connection off the server relay: hole punch,
     /// then TURN when the plan allows, attaching the resulting route to the virtual connection.
-    /// Resolves to whether a P2P route was attached. The application already holds the channel
+    /// Resolves to a report of every stage it ran and the route it attached, if any. The
+    /// application already holds the channel
     /// (it works over the relay from the start); this runs in the background, inside the
     /// connection's campaign (`p2p_campaign`), which cancels it by dropping the future.
     /// `app` is the endpoint both peers registered over the relay, used to coordinate the punch.
@@ -138,8 +139,8 @@ pub trait PlatformOps: ProtocolIO {
         node_type: RelativeNodeType,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
-        plan: crate::proto::peer::p2p_path::P2pPlan,
-    ) -> impl Future<Output = bool> + ContextRequirements;
+        plan: crate::proto::peer::p2p_plan::P2pPlan,
+    ) -> impl Future<Output = crate::proto::peer::p2p_outcome::AttemptReport> + ContextRequirements;
 
     // ── File I/O ──
 

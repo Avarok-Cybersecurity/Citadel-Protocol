@@ -68,6 +68,7 @@ use crate::proto::packet_processor::includes::{Duration, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::group_commit_gate::Settled;
+use crate::proto::peer::group_relay::GroupBroadcastTargets;
 use crate::proto::peer::peer_layer::{
     CitadelNodePeerLayer, CitadelNodePeerLayerInner, MailboxTransfer, PeerConnectionType,
     PeerResponse, PeerSignal,
@@ -159,7 +160,7 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     clean_shutdown_tracker_tx: UnboundedSender<()>,
     clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
     client_config: T::ClientConfig,
-    stun_servers: Option<Vec<String>>,
+    stun_servers: citadel_wire::stun_servers::StunServers,
     turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
@@ -172,6 +173,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     started: Instant,
     /// The node's client-role QUIC endpoints, shared with its remote's `rebind_local`.
     local_rebinder: LocalRebinder,
+    /// This node's traffic by class, counted by every session's streams.
+    traffic: crate::proto::traffic::NodeTraffic,
 }
 
 /// The reason given to a login refused because the server already holds a session for the account.
@@ -212,7 +215,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         account_manager: AccountManager<R, R>,
         time_tracker: TimeTracker,
         client_config: T::ClientConfig,
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     ) -> Self {
         let incoming_cxn_count = 0;
@@ -240,6 +243,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             ended_sessions: EndedSessions::default(),
             started: Instant::now(),
             local_rebinder: LocalRebinder::new(),
+            traffic: Default::default(),
         };
 
         Self::from(inner)
@@ -428,6 +432,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// The node's tracker of transports that can move to a new local address.
     pub(crate) fn local_rebinder(&self) -> LocalRebinder {
         inner!(self).local_rebinder.clone()
+    }
+
+    pub(crate) fn traffic(&self) -> crate::proto::traffic::NodeTraffic {
+        inner!(self).traffic.clone()
     }
 
     /// Server side: whether `presented` shows this login to be the own client of a session
@@ -1226,6 +1234,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         }
     }
 
+    /// The NAT type session `cid` reported at connect, while it is connected here.
+    pub(crate) fn adjacent_nat_type_of(
+        &self,
+        cid: u64,
+    ) -> Option<citadel_wire::nat_identification::NatType> {
+        let this = inner!(self);
+        this.sessions.get(&cid)?.1.adjacent_nat_type.clone()
+    }
+
     /// Stores (or clears) the TURN config the next P2P attempt with `peer_cid` will use.
     pub fn set_peer_turn_config(
         &self,
@@ -1719,8 +1736,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         }
     }
 
-    /// Broadcasts a message to a target group
-    /// Note: uses mail_if_offline: true. This allows a member to disconnect, but to still receive messages later-on
+    /// Broadcasts a message to a target group. A member offline now is mailed it, so it still
+    /// receives it later, unless the group is ephemeral: then only members online now receive it.
     pub async fn broadcast_signal_to_group(
         &self,
         session_cid: u64,
@@ -1731,27 +1748,49 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         security_level: SecurityLevel,
     ) -> Result<bool, String> {
         let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
+        let targets = peer_layer.group_broadcast_targets(key).await;
+        self.broadcast_signal_to_targets(
+            session_cid,
+            timestamp,
+            ticket,
+            targets,
+            signal,
+            security_level,
+        )
+        .await
+    }
 
-        if let Some(peers_to_broadcast_to) = peer_layer.get_peers_in_message_group(key).await {
-            let broadcastees = peers_to_broadcast_to
-                .iter()
-                .filter(|peer| **peer != session_cid)
-                .map(|r| (*r, true));
-            log::trace!(target: "citadel", "[Server/Group] peers_and_statuses: {broadcastees:?}");
-            let (_success, failed) = self
-                .send_group_broadcast_signal_to(
-                    timestamp,
-                    ticket,
-                    broadcastees,
-                    true,
-                    signal,
-                    security_level,
-                )
-                .await?;
-            Ok(failed.is_empty())
-        } else {
-            Ok(false)
-        }
+    /// Sends `signal` to every target but its sender, `session_cid`. `Ok(false)` without
+    /// targets, or when a target could be neither reached nor mailed.
+    pub async fn broadcast_signal_to_targets(
+        &self,
+        session_cid: u64,
+        timestamp: i64,
+        ticket: Ticket,
+        targets: Option<GroupBroadcastTargets>,
+        signal: GroupBroadcast,
+        security_level: SecurityLevel,
+    ) -> Result<bool, String> {
+        let Some(targets) = targets else {
+            return Ok(false);
+        };
+        let broadcastees = targets
+            .members
+            .iter()
+            .filter(|peer| **peer != session_cid)
+            .map(|r| (*r, true));
+        log::trace!(target: "citadel", "[Server/Group] peers_and_statuses: {broadcastees:?}");
+        let (_success, failed) = self
+            .send_group_broadcast_signal_to(
+                timestamp,
+                ticket,
+                broadcastees,
+                targets.mail_if_offline,
+                signal,
+                security_level,
+            )
+            .await?;
+        Ok(failed.is_empty())
     }
 
     /// sends a signal to the peer using the correct PQC and Drill cryptosystem

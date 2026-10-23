@@ -56,7 +56,11 @@ pub const MINOR_VERSION: u8 = 12;
 // Bumped 0 -> 1: a client may probe its server's liveness at any time (see `SERVER_PROBE_SINCE`),
 // and peers can re-arm a P2P path campaign that gave up (see `PATH_REARM_SINCE`). Additive: each
 // side uses them only with a node at or above it.
-pub const PATCH_VERSION: u8 = 1;
+// Bumped 1 -> 2: servers send their path policy at connect SUCCESS and stamp each peer pair's
+// effective plan into the pair's key exchange (see `PATH_POLICY_SINCE`). Additive: a node below it
+// neither sends nor reads either, and its peers plan their paths as before. In the same patch,
+// servers honour a group's relay options (see `GROUP_RELAY_OPTIONS_SINCE`).
+pub const PATCH_VERSION: u8 = 2;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -95,6 +99,20 @@ pub const SERVER_PROBE_SINCE: (u8, u8, u8) = (0, 12, 1);
 /// endpoint instead of ending, so either peer can re-arm it (`PeerChannel::upgrade`). With a peer
 /// below it, or of unknown version, the campaign ends as before and an upgrade is refused.
 pub const PATH_REARM_SINCE: (u8, u8, u8) = (0, 12, 1);
+
+/// The first protocol version whose server sends its `PathPolicy` in connect SUCCESS, and whose
+/// peers offer their path restrictions in each key exchange and execute the `EffectivePlan` the
+/// server stamps into it. A client below it, or of unknown version, is sent no policy; a key
+/// exchange in which either peer is below it carries no plan, and both peers plan their paths
+/// themselves (`plan_p2p`), exactly as before.
+pub const PATH_POLICY_SINCE: (u8, u8, u8) = (0, 12, 2);
+
+/// The first protocol version whose server honours a group's relay options: it mails an
+/// `ephemeral` group's broadcasts to no offline member, and holds each message to the group's
+/// `limits`, answering a refused one with `GroupBroadcast::MessageRefused` (to a sender at this
+/// version; an older sender gets the `MessageResponse { success: false }` it understands). A
+/// server below it would ignore both options, so a client refuses to create such a group there.
+pub const GROUP_RELAY_OPTIONS_SINCE: (u8, u8, u8) = (0, 12, 2);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

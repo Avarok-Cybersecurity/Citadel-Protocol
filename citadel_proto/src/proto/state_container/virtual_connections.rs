@@ -323,6 +323,10 @@ impl<R: Ratchet> StateContainerInner<R> {
         };
 
         let p2p_path = P2pPathCell::server_relayed();
+        if let VirtualConnectionType::LocalGroupPeer { .. } = virtual_connection_type {
+            self.relay_index
+                .register(target_cid, p2p_path.byte_counters());
+        }
         let (udp_restored, restored_udp) = match virtual_connection_type {
             VirtualConnectionType::LocalGroupPeer { .. } => {
                 let (tx, rx) = unbounded_channel();

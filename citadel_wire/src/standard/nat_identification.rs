@@ -436,21 +436,15 @@ where
 #[cfg(not(target_family = "wasm"))]
 mod native {
     use super::*;
+    use crate::stun_servers::StunServers;
     use citadel_io::tokio::net::UdpSocket;
     use futures::stream::FuturesUnordered;
     use futures::StreamExt;
-    use std::borrow::Cow;
     use std::sync::Arc;
     use std::time::Duration;
     use stun::client::ClientBuilder;
     use stun::message::{Getter, Message, BINDING_REQUEST};
     use stun::xoraddr::XorMappedAddress;
-
-    const STUN_SERVERS: [&str; 3] = [
-        "global.stun.twilio.com:3478",
-        "stun1.l.google.com:19302",
-        "stun4.l.google.com:19302",
-    ];
 
     const V4_BIND_ADDR: &str = "0.0.0.0:0";
     pub const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(3000);
@@ -468,7 +462,7 @@ mod native {
             feature = "localhost-testing",
             tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
         )]
-        pub async fn identify(stun_servers: Option<Vec<String>>) -> Result<Self, FirewallError> {
+        pub async fn identify(stun_servers: &StunServers) -> Result<Self, FirewallError> {
             if cfg!(feature = "localhost-testing") {
                 log::trace!(target: "citadel", "Localhost testing enabled, skipping STUN and using localhost NatType");
                 return Ok(NatType::offline());
@@ -493,7 +487,7 @@ mod native {
         /// Identifies the NAT which the local node is behind
         pub async fn identify_timeout(
             _timeout: Duration,
-            stun_servers: Option<Vec<String>>,
+            stun_servers: &StunServers,
         ) -> Result<Self, FirewallError> {
             match citadel_io::time::timeout(_timeout, get_nat_type(stun_servers)).await {
                 Ok(res) => res
@@ -526,26 +520,14 @@ mod native {
         /// probes unconditionally so it stays unit-testable against a local STUN responder.
         pub async fn get_reflexive_addr(
             socket: &UdpSocket,
-            stun_servers: Option<&[String]>,
+            stun_servers: &StunServers,
         ) -> Option<SocketAddr> {
             // The probe socket is IPv4; an IPv6 socket cannot reach the IPv4 STUN servers.
             if !socket.local_addr().ok()?.is_ipv4() {
                 return None;
             }
 
-            let owned_default;
-            let servers: &[String] = match stun_servers {
-                Some(servers) if !servers.is_empty() => servers,
-                _ => {
-                    owned_default = STUN_SERVERS
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect::<Vec<_>>();
-                    &owned_default
-                }
-            };
-
-            for server in servers {
+            for server in stun_servers.iter() {
                 if let Some(addr) = stun_probe_socket(socket, server).await {
                     return Some(addr);
                 }
@@ -620,13 +602,7 @@ mod native {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    async fn get_nat_type(stun_servers: Option<Vec<String>>) -> Result<NatType, anyhow::Error> {
-        let stun_servers = if let Some(stun_servers) = &stun_servers {
-            Cow::Owned(stun_servers.iter().map(|r| r.as_str()).collect())
-        } else {
-            Cow::Borrowed(&STUN_SERVERS as &[&str])
-        };
-
+    async fn get_nat_type(stun_servers: &StunServers) -> Result<NatType, anyhow::Error> {
         let nat_type = async move {
             let mut msg = Message::new();
             msg.build(&[
@@ -770,7 +746,14 @@ mod tests {
     #[tokio::test]
     async fn test_identify() {
         citadel_logging::setup_log();
-        let nat_type = NatType::identify(None).await.unwrap();
+        // A network test by nature: it classifies this host's NAT against public servers.
+        let servers = crate::stun_servers::StunServers::new([
+            "global.stun.twilio.com:3478",
+            "stun1.l.google.com:19302",
+            "stun4.l.google.com:19302",
+        ])
+        .unwrap();
+        let nat_type = NatType::identify(&servers).await.unwrap();
         let traversal_type = nat_type.traversal_type_required();
         log::trace!(target: "citadel", "NAT Type: {nat_type:?} | Reaching this node will require: {traversal_type:?} NAT traversal | Hypothetical connect scenario");
     }
@@ -858,7 +841,14 @@ mod tests {
         });
 
         let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let observed = NatType::get_reflexive_addr(&client, Some(&[server_addr.to_string()])).await;
+        // The responder first: the probe stops at the first server that answers.
+        let servers = crate::stun_servers::StunServers::new([
+            server_addr.to_string(),
+            "127.0.0.1:3479".to_string(),
+            "127.0.0.1:3480".to_string(),
+        ])
+        .unwrap();
+        let observed = NatType::get_reflexive_addr(&client, &servers).await;
         server_task.await.unwrap();
 
         assert_eq!(
@@ -877,7 +867,7 @@ mod tests {
             .await
             .unwrap();
         let observed =
-            NatType::get_reflexive_addr(&socket, Some(&["127.0.0.1:3478".to_string()])).await;
+            NatType::get_reflexive_addr(&socket, &crate::stun_servers::unanswered_loopback()).await;
         assert_eq!(observed, None);
     }
 

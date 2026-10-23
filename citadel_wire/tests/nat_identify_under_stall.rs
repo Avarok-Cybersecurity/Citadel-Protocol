@@ -27,6 +27,7 @@ use std::time::Duration;
 
 use citadel_io::tokio;
 use citadel_wire::nat_identification::{IpTranslation, NatType, IDENTIFY_TIMEOUT};
+use citadel_wire::stun_servers::StunServers;
 use stun::message::{Message, BINDING_SUCCESS};
 use stun::xoraddr::XorMappedAddress;
 
@@ -74,7 +75,7 @@ fn spawn_stun_responder(seen: Arc<AtomicUsize>, released: Arc<AtomicBool>) -> So
 /// `stall` once all three requests have reached the responders. With `answer_after_stall`
 /// the responders answer only once the stall ends; otherwise they answer immediately.
 async fn identify_with_stall<F>(
-    identify: impl FnOnce(Vec<String>) -> F,
+    identify: impl FnOnce(StunServers) -> F,
     stall: Duration,
     answer_after_stall: bool,
 ) -> Result<NatType, citadel_wire::error::FirewallError>
@@ -86,6 +87,7 @@ where
     let servers = (0..3)
         .map(|_| spawn_stun_responder(seen.clone(), released.clone()).to_string())
         .collect::<Vec<_>>();
+    let servers = StunServers::new(servers).expect("three distinct local responders");
 
     let stall_injector = async {
         while seen.load(Ordering::SeqCst) < 3 {
@@ -107,7 +109,7 @@ where
 #[tokio::test]
 async fn a_stall_past_the_identify_deadline_is_not_reported_as_offline() {
     let stall = IDENTIFY_TIMEOUT + Duration::from_millis(500);
-    let identify = |servers| NatType::identify(Some(servers));
+    let identify = |servers: StunServers| async move { NatType::identify(&servers).await };
     match identify_with_stall(identify, stall, true).await {
         Err(_) => {}
         // An Ok is acceptable only if it is the true classification.
@@ -134,7 +136,9 @@ async fn a_stall_past_the_ip_info_window_does_not_replace_the_internal_ip_with_l
     let stall = Duration::from_millis(2500);
     assert!(stall < IDENTIFY_TIMEOUT);
 
-    let identify = |servers| NatType::identify_timeout(IDENTIFY_TIMEOUT, Some(servers));
+    let identify = |servers: StunServers| async move {
+        NatType::identify_timeout(IDENTIFY_TIMEOUT, &servers).await
+    };
     let nat = identify_with_stall(identify, stall, false)
         .await
         .expect("STUN answered before IDENTIFY_TIMEOUT, so identification must succeed");

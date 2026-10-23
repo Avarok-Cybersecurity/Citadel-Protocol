@@ -168,8 +168,14 @@ mod tests {
             Ok::<_, NetworkError>(())
         };
 
-        let owner = DefaultNodeBuilder::default().build(owner).unwrap();
-        let member = DefaultNodeBuilder::default().build(member).unwrap();
+        let owner = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(owner)
+            .unwrap();
+        let member = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .build(member)
+            .unwrap();
         let all = async move {
             futures::future::try_join3(owner, member, restarter)
                 .await

@@ -114,12 +114,15 @@ async fn test_internal_service_http() {
     );
 
     let client = DefaultNodeBuilder::default()
+        .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
         .with_node_type(NodeType::Peer)
         .build(client_kernel)
         .unwrap();
 
     let server = DefaultNodeBuilder::default()
+        .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
         .with_node_type(NodeType::Server(server_bind_addr))
+        .with_path_policy(crate::test_common::localhost_path_policy())
         .with_underlying_protocol(ServerMode::OrderedReliable(
             NativeOrderedReliableConfig::from_tokio_listener(server_listener).unwrap(),
         ))

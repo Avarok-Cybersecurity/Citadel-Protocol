@@ -21,12 +21,27 @@ pub mod pair {
         dyn Fn(usize, PeerConnectSuccess<StackedRatchet>) -> BoxFuture<'static, ()> + Send + Sync,
     >;
 
+    /// Sees each path outcome a peer's kernel is sent, with the peer's index.
+    pub type PathObserver = Arc<dyn Fn(usize, PeerPathOutcome) + Send + Sync>;
+
     /// Runs two peers behind a test server; `peer` gets each side's connection as it arrives.
     pub async fn run_pair(turn: Option<TurnRelayConfig>, udp_mode: UdpMode, peer: Peer) {
+        let server = server_info::<StackedRatchet>();
+        run_pair_on(server, turn, udp_mode, peer, Arc::new(|_, _| {})).await
+    }
+
+    /// [`run_pair`] behind the given test server, with every `NodeResult::PeerPathOutcome`
+    /// either kernel receives shown to `observe` before the kernel handles it.
+    pub async fn run_pair_on<K: NetKernel<StackedRatchet>>(
+        (server, server_addr): (NodeFuture<'static, K>, std::net::SocketAddr),
+        turn: Option<TurnRelayConfig>,
+        udp_mode: UdpMode,
+        peer: Peer,
+        observe: PathObserver,
+    ) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
         let finished = Arc::new(AtomicUsize::new(0));
-        let (server, server_addr) = server_info::<StackedRatchet>();
         let uuids = [Uuid::new_v4(), Uuid::new_v4()];
         let kernels = FuturesUnordered::new();
         for me in 0..2 {
@@ -43,7 +58,7 @@ pub mod pair {
                     .unwrap();
             let peer = peer.clone();
             let finished = finished.clone();
-            let kernel = PeerConnectionKernel::new(
+            let inner = PeerConnectionKernel::new(
                 settings,
                 setup.add(),
                 move |mut results, remote| async move {
@@ -54,7 +69,15 @@ pub mod pair {
                     remote.shutdown_kernel().await
                 },
             );
-            let client = DefaultNodeBuilder::default().build(kernel).unwrap();
+            let kernel = Observed {
+                inner,
+                me,
+                observe: observe.clone(),
+            };
+            let client = DefaultNodeBuilder::default()
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .build(kernel)
+                .unwrap();
             kernels.push(async move { client.await.map(|_| ()) });
         }
         let clients = Box::pin(async move { kernels.try_collect::<()>().await.map(|_| ()) });
@@ -66,6 +89,38 @@ pub mod pair {
         .await;
         assert!(result.expect("test timed out").is_ok());
         assert_eq!(finished.load(Ordering::SeqCst), 2);
+    }
+
+    /// A kernel that shows its path outcomes to an observer and hands everything to `inner`.
+    struct Observed<K> {
+        inner: K,
+        me: usize,
+        observe: PathObserver,
+    }
+
+    #[async_trait]
+    impl<K: NetKernel<StackedRatchet>> NetKernel<StackedRatchet> for Observed<K> {
+        fn load_remote(&mut self, remote: NodeRemote<StackedRatchet>) -> Result<(), NetworkError> {
+            self.inner.load_remote(remote)
+        }
+
+        async fn on_start(&self) -> Result<(), NetworkError> {
+            self.inner.on_start().await
+        }
+
+        async fn on_node_event_received(
+            &self,
+            message: NodeResult<StackedRatchet>,
+        ) -> Result<(), NetworkError> {
+            if let NodeResult::PeerPathOutcome(outcome) = &message {
+                (self.observe)(self.me, outcome.clone());
+            }
+            self.inner.on_node_event_received(message).await
+        }
+
+        async fn on_stop(&mut self) -> Result<(), NetworkError> {
+            self.inner.on_stop().await
+        }
     }
 
     pub fn data(seq: u32) -> Vec<u8> {

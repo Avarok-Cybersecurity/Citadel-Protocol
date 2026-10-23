@@ -31,8 +31,12 @@
 //! - `StackedRatchet`: Cryptographic operations
 //! - `StateContainer`: State management
 
+use crate::proto::peer::class_gates::ClassGates;
+use crate::proto::peer::kex_path::{self, KexPath};
 use crate::proto::peer::p2p_campaign;
-use crate::proto::peer::p2p_path::{plan_p2p, CampaignEndGuard};
+use crate::proto::peer::p2p_path::CampaignEndGuard;
+use crate::proto::peer::p2p_plan::execution_plan;
+use citadel_types::proto::PairFeasibility;
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
@@ -385,6 +389,15 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         // apart from a bob constructor stored for the
                                         // same peer.
                                         peer_kem_state_container.local_is_initiator = true;
+                                        let stage0_path = KexPath {
+                                            initiator: Some(kex_path::local_offer(
+                                                state_container
+                                                    .peer_turn_configs
+                                                    .get(original_session_cid),
+                                            )),
+                                            ..Default::default()
+                                        };
+                                        peer_kem_state_container.path = stage0_path.clone();
 
                                         // A second exchange must not replace an
                                         // in-progress one. The slot may hold a bob
@@ -439,6 +452,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             sender_protocol_version: Some(
                                                 *crate::constants::PROTOCOL_VERSION,
                                             ),
+                                            path: Some(stage0_path),
                                         };
 
                                         let stage0_peer_kem =
@@ -485,6 +499,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             peer_conn_type: conn,
                             kex_payload: kep,
                             sender_protocol_version: peer_protocol_version,
+                            path: kex_path_in,
                         } => {
                             return match kep {
                                 KeyExchangeProcess::Stage0(
@@ -584,6 +599,14 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         .get_backend_type()
                                         .stores_streamed_objects();
 
+                                    // Echo Alice's path offer back beside ours, for the server.
+                                    let stage1_path = KexPath {
+                                        initiator: kex_path_in.as_ref().and_then(|p| p.initiator),
+                                        responder: Some(kex_path::local_offer(
+                                            state_container.peer_turn_configs.get(&peer_cid),
+                                        )),
+                                        plan: None,
+                                    };
                                     // Echo back the p2p_connection_id from Stage0
                                     let signal = PeerSignal::Kex {
                                         peer_conn_type: conn.reverse(),
@@ -596,6 +619,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         sender_protocol_version: Some(
                                             *crate::constants::PROTOCOL_VERSION,
                                         ),
+                                        path: Some(stage1_path.clone()),
                                     };
 
                                     let mut state_container_kem = PeerKemStateContainer::new(
@@ -605,6 +629,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     );
                                     state_container_kem.constructor = Some(bob_constructor);
                                     state_container_kem.p2p_connection_id = *p2p_connection_id;
+                                    state_container_kem.path = stage1_path;
                                     state_container
                                         .peer_kem_states
                                         .insert(peer_cid, state_container_kem);
@@ -767,6 +792,14 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             oneshot::channel();
                                         kem_state.local_is_initiator = true;
                                         kem_state.hole_punch_cancel_tx = Some(hole_punch_cancel_tx);
+                                        // Our own offer from Stage0, and Bob's echoed back.
+                                        let stage2_path = KexPath {
+                                            initiator: kem_state.path.initiator,
+                                            responder: kex_path_in
+                                                .as_ref()
+                                                .and_then(|p| p.responder),
+                                            plan: None,
+                                        };
                                         state_container.peer_kem_states.insert(peer_cid, kem_state);
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
 
@@ -784,6 +817,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             sender_protocol_version: Some(
                                                 *crate::constants::PROTOCOL_VERSION,
                                             ),
+                                            path: Some(stage2_path),
                                         };
 
                                         let endpoint_security_level =
@@ -859,8 +893,17 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
-                                    let plan = plan_p2p(
-                                        should_use_turn(needs_turn),
+                                    let direct_impossible = should_use_turn(needs_turn);
+                                    let stamped = kex_path::stamped_plan(
+                                        kex_path_in.as_ref(),
+                                        *peer_protocol_version,
+                                    );
+                                    guard
+                                        .cell()
+                                        .set_gates(ClassGates::from_stamped(stamped.as_ref()));
+                                    let plan = execution_plan(
+                                        stamped.as_ref(),
+                                        direct_impossible,
                                         take_turn_config(session, peer_cid),
                                     );
                                     // The channel is usable over the relay now; the campaign
@@ -881,6 +924,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         session_security_settings,
                                         cancel_rx: hole_punch_cancel_rx,
                                         plan,
+                                        direct_impossible,
                                         guard,
                                     });
 
@@ -1047,8 +1091,17 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
-                                    let plan = plan_p2p(
-                                        should_use_turn(needs_turn),
+                                    let direct_impossible = should_use_turn(needs_turn);
+                                    let stamped = kex_path::stamped_plan(
+                                        kex_path_in.as_ref(),
+                                        *peer_protocol_version,
+                                    );
+                                    guard
+                                        .cell()
+                                        .set_gates(ClassGates::from_stamped(stamped.as_ref()));
+                                    let plan = execution_plan(
+                                        stamped.as_ref(),
+                                        direct_impossible,
                                         take_turn_config(session, peer_cid),
                                     );
                                     let diff = Duration::from_nanos(i64::abs(
@@ -1074,6 +1127,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         session_security_settings,
                                         cancel_rx: hole_punch_cancel_rx,
                                         plan,
+                                        direct_impossible,
                                         guard,
                                     });
 
@@ -1105,13 +1159,17 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             ..
                         } => {
                             let peer_cid = conn.get_original_session_cid();
-                            let (has_outgoing, connected) = {
+                            let (has_outgoing, connected, exchanging) = {
                                 let state_container = inner_state!(session.state_container);
                                 (
                                     state_container
                                         .outgoing_peer_connect_attempts
                                         .contains_key(&peer_cid),
                                     state_container.has_live_peer_connection(peer_cid),
+                                    state_container
+                                        .peer_kem_states
+                                        .get(&peer_cid)
+                                        .is_some_and(|kem| kem.constructor.is_some()),
                                 )
                             };
 
@@ -1120,6 +1178,17 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 // here would replace its KEM state (and UDP offer) below; the
                                 // live connection already won, so neither dial goes ahead.
                                 log::info!(target: "citadel", "Dual-connect race: {session_cid} ignoring PostConnect from {peer_cid}, already connected");
+                                return Ok(PrimaryProcessorResult::Void);
+                            }
+
+                            if has_outgoing && exchanging {
+                                // Our dial was accepted and its exchange is under way (or we
+                                // are answering the peer's). Auto-accepting would empty that
+                                // exchange's slot below, and the peer, already in it, drops
+                                // the second exchange this accept starts (first exchange
+                                // wins): neither would finish. The exchange in progress
+                                // connects the pair and answers the peer's dial too.
+                                log::info!(target: "citadel", "Dual-connect race: {session_cid} ignoring PostConnect from {peer_cid}; a key exchange with it is in progress");
                                 return Ok(PrimaryProcessorResult::Void);
                             }
 
@@ -1267,6 +1336,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             peer_conn_type: conn,
             kex_payload: mut kep,
             sender_protocol_version,
+            path,
         } => {
             // before just routing the signals, we also need to add socket information into intercepted stage1 and stage2 signals
             // to allow for STUN-like NAT traversal
@@ -1283,6 +1353,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             )
             .get_domain();
 
+            let sender_nat = peer_nat.clone();
             let peer_nat_info = PeerNatInfo {
                 peer_remote_addr_visible_from_server,
                 peer_nat,
@@ -1298,12 +1369,22 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                 _ => {}
             }
 
+            let target_cid = conn.get_original_target_cid();
+            let path = kex_path::stamp(session.path_policy.as_ref(), path, || {
+                let target_nat = session.session_manager.adjacent_nat_type_of(target_cid)?;
+                Some(PairFeasibility {
+                    direct: !should_use_turn(!sender_nat.stun_compatible(&target_nat)),
+                    forwarder: None,
+                })
+            });
+
             // since this is the server, we just need to route this to the target_cid
             let sess_mgr = inner!(session.session_manager);
             let signal_to = PeerSignal::Kex {
                 peer_conn_type: conn,
                 kex_payload: kep,
                 sender_protocol_version,
+                path,
             };
             if sess_ratchet.get_cid() == conn.get_original_target_cid() {
                 log::error!(target: "citadel", "Error (equivalent CIDs)");

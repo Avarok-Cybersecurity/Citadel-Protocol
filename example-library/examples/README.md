@@ -6,9 +6,12 @@
 
 The simplest way to get started is:
 
-1. Open a terminal and set the server address:
+1. Open a terminal and set the server address, and the STUN servers every node uses (they are
+   required configuration: three or more distinct comma-separated `host:port` endpoints, with no
+   built-in default):
 ```bash
 export CITADEL_SERVER_ADDR="127.0.0.1:25000"
+export CITADEL_STUN_SERVERS="stun1.example.com:3478,stun2.example.com:3478,stun3.example.com:3478"
 ```
 
 2. Start a basic server:

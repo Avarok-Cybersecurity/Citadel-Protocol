@@ -9,7 +9,9 @@ use crate::remote_ext::results::PeerConnectSuccess;
 use citadel_io::time::{timeout, Instant};
 use citadel_io::tokio::sync::oneshot::Receiver;
 use citadel_io::ErrorCode;
-use citadel_proto::prelude::{NetworkError, OutboundUdpSender, PeerChannelRecvHalf, Ratchet};
+use citadel_proto::prelude::{
+    NetworkError, OutboundUdpSender, PathClass, PeerChannelRecvHalf, Ratchet,
+};
 
 /// A media session bound to one connection. Build with
 /// [`MediaEndpoint::from_peer_connection`] or [`MediaEndpoint::from_c2s`],
@@ -52,6 +54,9 @@ impl MediaEndpoint {
     /// already fallen back. Bound the call yourself if the peer may never
     /// build; dropping the future drops the channel, which the peer then
     /// sees as closed.
+    ///
+    /// Refused with `ErrorCode::PathClassDenied` when, once the transport is agreed, the
+    /// connection's path may not carry media: the server's path policy keeps media off it.
     ///
     /// A peer whose protocol version predates transport offers
     /// ([`citadel_proto::constants::MEDIA_TRANSPORT_OFFER_SINCE`], or unknown because the peer or the
@@ -97,6 +102,12 @@ impl MediaEndpoint {
         cfg.validate()?;
         let start = Instant::now();
         let peer_protocol_version = channel.peer_protocol_version();
+        // Media may ride only a path the server's policy gives it: on a server relay that carries
+        // no media this refuses the call (PathClassDenied) instead of relaying it. Checked before
+        // anything is sent, so each side is refused on its own gates. Checked after the transport
+        // offers, the side refused first dropped its channel (a disconnect) while its own offer
+        // could still be queued, and the other side failed with MediaTransportClosed instead.
+        channel.p2p_path_cell().check(PathClass::Media)?;
         let (reliable_tx, reliable_rx) = channel.split();
         let mut control_sink = ReliableSink::spawn(reliable_tx);
         let mut control_src: BoxedSource = Box::pin(reliable_rx);

@@ -30,7 +30,8 @@ use crate::proto::misc::net::GenericNetworkStream;
 use crate::proto::misc::ws_ping::WsPinger;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::p2p_conn_handler;
-use crate::proto::peer::p2p_path::P2pPlan;
+use crate::proto::peer::p2p_outcome::AttemptReport;
+use crate::proto::peer::p2p_plan::P2pPlan;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
@@ -41,13 +42,13 @@ use citadel_io::{error, ErrorCode};
 #[allow(private_interfaces)]
 impl PlatformOps for NativeIO {
     fn identify_nat_type(
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
     ) -> impl std::future::Future<Output = std::io::Result<NatType>> + ContextRequirements {
-        async {
+        async move {
             // A node must start without a NAT observation. This node-wide value only gates
             // whether a direct path is attempted; each hole punch identifies afresh and, if
             // that fails, punches with local candidates under `NatType::unidentified`.
-            Ok(NatType::identify(stun_servers).await.unwrap_or_else(|err| {
+            Ok(NatType::identify(&stun_servers).await.unwrap_or_else(|err| {
                 log::warn!(target: "citadel", "Unable to identify NAT type; attempting direct paths as if offline: {err}");
                 NatType::offline()
             }))
@@ -82,7 +83,7 @@ impl PlatformOps for NativeIO {
         ratchet: R,
         security_level: SecurityLevel,
         target_cid: u64,
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
         node_type: RelativeNodeType,
     ) -> impl std::future::Future<Output = Result<Option<UdpSplittableTypes>, NetworkError>>
            + ContextRequirements {
@@ -92,14 +93,9 @@ impl PlatformOps for NativeIO {
                 .map_err(|err| NetworkError::generic(err.to_string()))?;
             log::trace!(target: "citadel", "{node_type:?} created for C2S hole punch");
 
-            let config = generate_hole_punch_crypt_container(
-                ratchet,
-                security_level,
-                target_cid,
-                stun_servers,
-            );
+            let config = generate_hole_punch_crypt_container(ratchet, security_level, target_cid);
 
-            match endpoint.begin_udp_hole_punch(config).await {
+            match endpoint.begin_udp_hole_punch(config, stun_servers).await {
                 Ok(socket) => {
                     log::trace!(target: "citadel", "{node_type:?} finished NAT traversal");
                     let send_addr = socket.addr.send_address;
@@ -130,25 +126,22 @@ impl PlatformOps for NativeIO {
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         plan: P2pPlan,
-    ) -> impl std::future::Future<Output = bool> + ContextRequirements {
+    ) -> impl std::future::Future<Output = AttemptReport> + ContextRequirements {
         async move {
-            let (attempt_direct, relay) = match plan {
-                P2pPlan::DirectOnly => (true, None),
-                P2pPlan::DirectThenRelay(cfg) => (true, Some(cfg)),
-                P2pPlan::RelayOnly(cfg) => (false, Some(cfg)),
-                P2pPlan::ServerOnly => return false,
-            };
+            if plan.is_server_only() {
+                return AttemptReport::nothing_attached(vec![]);
+            }
             let encrypted_config_container = generate_hole_punch_crypt_container(
                 endpoint_ratchet,
                 SecurityLevel::Standard,
                 peer_cid,
-                session.stun_servers.clone(),
             );
+            let stun_servers = session.stun_servers.clone();
             let session_cid = session.session_cid.clone();
             let kernel_tx = session.kernel_tx.clone();
             let session_alive = session.alive_tracker();
             let client_config = session.client_config.clone();
-            match p2p_conn_handler::attempt_simultaneous_hole_punch(
+            p2p_conn_handler::attempt_simultaneous_hole_punch(
                 peer_connection_type,
                 ticket,
                 session,
@@ -158,21 +151,14 @@ impl PlatformOps for NativeIO {
                 sync_instant,
                 app,
                 encrypted_config_container,
+                stun_servers,
                 client_config,
                 udp_mode,
                 session_security_settings,
                 session_alive,
-                attempt_direct,
-                relay,
+                plan.steps,
             )
             .await
-            {
-                Ok(attached) => attached,
-                Err(err) => {
-                    log::warn!(target: "citadel", "P2P upgrade attempt failed: {err}");
-                    false
-                }
-            }
         }
     }
 
@@ -225,7 +211,6 @@ fn generate_hole_punch_crypt_container<R: Ratchet>(
     ratchet: R,
     security_level: SecurityLevel,
     target_cid: u64,
-    stun_servers: Option<Vec<String>>,
 ) -> HolePunchConfigContainer {
     use crate::proto::packet_crafter;
 
@@ -242,6 +227,5 @@ fn generate_hole_punch_crypt_container<R: Ratchet>(
         move |packet| {
             packet_crafter::hole_punch::decrypt_packet(&ratchet_cloned, packet, security_level)
         },
-        stun_servers,
     )
 }

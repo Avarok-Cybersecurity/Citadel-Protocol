@@ -508,7 +508,10 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+            let client = DefaultNodeBuilder::default()
+                .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .build(client_kernel)
+                .unwrap();
 
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
@@ -631,7 +634,10 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+            let client = DefaultNodeBuilder::default()
+                .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .build(client_kernel)
+                .unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
 
@@ -759,7 +765,10 @@ mod tests {
                     ))
                 },
             );
-            let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+            let client = DefaultNodeBuilder::default()
+                .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .build(client_kernel)
+                .unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
 
