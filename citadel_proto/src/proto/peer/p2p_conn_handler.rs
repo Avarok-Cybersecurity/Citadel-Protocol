@@ -171,7 +171,6 @@ pub(crate) mod native_p2p {
     };
     use citadel_wire::exports::tokio_rustls::rustls;
     use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
-    use citadel_wire::udp_traversal::turn_relay::TurnRelayConfig;
     use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 
     #[allow(clippy::too_many_arguments)]
@@ -582,8 +581,7 @@ pub(crate) mod native_p2p {
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         session_alive: SessionAliveTracker<R, T>,
-        attempt_direct: bool,
-        relay: Option<TurnRelayConfig>,
+        steps: Vec<crate::proto::peer::p2p_plan::TimedStep>,
     ) -> AttemptReport {
         let Some(client_config) = T::client_config_to_any(&client_config)
             .and_then(|c| c.downcast::<Arc<rustls::ClientConfig>>().ok())
@@ -685,65 +683,74 @@ pub(crate) mod native_p2p {
             }
         };
 
-        const P2P_CONN_TIMEOUT: Duration = Duration::from_secs(30);
-
-        let mut stages = Vec::with_capacity(2);
+        use crate::proto::peer::p2p_plan::PlanStep;
+        let mut direct = Some(process);
+        let mut stages = Vec::with_capacity(steps.len());
         let mut route = None;
-        if attempt_direct {
-            let started = Instant::now();
-            let result = match citadel_io::time::timeout(P2P_CONN_TIMEOUT, process).await {
-                Ok(Ok(())) => {
-                    log::trace!(target: "citadel", "[Hole-punch] P2P connection established successfully");
-                    route = Some(P2pRoute::Direct);
-                    Ok(())
-                }
-                Ok(Err(err)) => {
-                    log::warn!(target: "citadel", "[Hole-punch/Err] {err}");
-                    Err(err.failure)
-                }
-                Err(_elapsed) => {
-                    log::warn!(target: "citadel", "[Hole-punch/Timeout] P2P connection establishment timed out after {}s", P2P_CONN_TIMEOUT.as_secs());
-                    Err(StageFailure::Timeout)
-                }
-            };
-            stages.push(tried(PathStage::Direct, result, started.elapsed()));
-        } else {
-            log::info!(target: "citadel", "[Hole-punch] skipped: TURN relay-only plan");
+        if !steps.iter().any(|s| matches!(s.step, PlanStep::Direct)) {
+            log::info!(target: "citadel", "[Hole-punch] skipped: the plan does not try it");
         }
-
-        if let (None, Some(relay)) = (route, relay) {
+        // Each planned path in order, each with its own attempt timeout, until one attaches.
+        for planned in steps {
+            if route.is_some() {
+                break;
+            }
             let started = Instant::now();
-            let relayed = crate::proto::peer::turn_p2p::establish_relayed_p2p(
-                &relay_app,
-                relay,
-                relay_session,
-                relay_session_cid,
-                &relay_nat_info,
-                v_conn,
-                ticket,
-                udp_mode,
-                session_security_settings,
-                relay_tls,
-            );
-            let outcome =
-                citadel_io::time::timeout(crate::proto::peer::turn_p2p::RELAY_TIMEOUT, relayed)
-                    .await;
-            let result = match outcome {
-                Ok(Ok(relayed_route)) => {
-                    route = Some(relayed_route);
-                    log::info!(target: "citadel", "[TURN] P2P connection established over the relay");
-                    Ok(())
+            let timeout = planned.timeout;
+            let (stage, result) = match planned.step {
+                PlanStep::Direct => {
+                    let Some(process) = direct.take() else {
+                        continue;
+                    };
+                    let result = match citadel_io::time::timeout(timeout, process).await {
+                        Ok(Ok(())) => {
+                            log::trace!(target: "citadel", "[Hole-punch] P2P connection established successfully");
+                            route = Some(P2pRoute::Direct);
+                            Ok(())
+                        }
+                        Ok(Err(err)) => {
+                            log::warn!(target: "citadel", "[Hole-punch/Err] {err}");
+                            Err(err.failure)
+                        }
+                        Err(_elapsed) => {
+                            log::warn!(target: "citadel", "[Hole-punch/Timeout] P2P connection establishment timed out after {timeout:?}");
+                            Err(StageFailure::Timeout)
+                        }
+                    };
+                    (PathStage::Direct, result)
                 }
-                Ok(Err(err)) => {
-                    log::warn!(target: "citadel", "[TURN/Err] relay unavailable, staying server-relayed: {err}");
-                    Err(err.failure)
-                }
-                Err(_) => {
-                    log::warn!(target: "citadel", "[TURN/Timeout] relay attempt timed out, staying server-relayed");
-                    Err(StageFailure::Timeout)
+                PlanStep::Turn(relay) => {
+                    let relayed = crate::proto::peer::turn_p2p::establish_relayed_p2p(
+                        &relay_app,
+                        relay,
+                        relay_session.clone(),
+                        relay_session_cid.clone(),
+                        &relay_nat_info,
+                        v_conn,
+                        ticket,
+                        udp_mode,
+                        session_security_settings,
+                        relay_tls.clone(),
+                    );
+                    let result = match citadel_io::time::timeout(timeout, relayed).await {
+                        Ok(Ok(relayed_route)) => {
+                            route = Some(relayed_route);
+                            log::info!(target: "citadel", "[TURN] P2P connection established over the relay");
+                            Ok(())
+                        }
+                        Ok(Err(err)) => {
+                            log::warn!(target: "citadel", "[TURN/Err] relay unavailable: {err}");
+                            Err(err.failure)
+                        }
+                        Err(_) => {
+                            log::warn!(target: "citadel", "[TURN/Timeout] relay attempt timed out after {timeout:?}");
+                            Err(StageFailure::Timeout)
+                        }
+                    };
+                    (PathStage::Turn, result)
                 }
             };
-            stages.push(tried(PathStage::Turn, result, started.elapsed()));
+            stages.push(tried(stage, result, started.elapsed()));
         }
 
         AttemptReport { stages, route }

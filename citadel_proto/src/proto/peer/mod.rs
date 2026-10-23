@@ -64,7 +64,9 @@ pub mod message_group;
 
 pub mod p2p_conn_handler;
 
+pub mod kex_path;
 pub mod p2p_path;
+pub(crate) mod p2p_plan;
 
 /// Per-attempt outcomes of the P2P path campaign (which path won, and why the others did not)
 pub mod p2p_outcome;

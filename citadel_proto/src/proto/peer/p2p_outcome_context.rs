@@ -8,7 +8,8 @@ use citadel_wire::nat_class::NatClass;
 use super::p2p_outcome::{
     AttemptReport, PathAttemptOutcome, PathPlanKind, PathStage, StageFailure, StageOutcome,
 };
-use super::p2p_path::{P2pPath, P2pPlan, P2pRoute};
+use super::p2p_path::{P2pPath, P2pRoute};
+use super::p2p_plan::P2pPlan;
 
 /// Everything about a connection's attempts that does not change between them.
 #[derive(Clone)]
@@ -99,27 +100,22 @@ pub(crate) fn tried(
 /// The plan's kind, and the stages it does not try with the reason for each.
 fn plan_stages(plan: &P2pPlan, direct_impossible: bool) -> (PathPlanKind, Vec<StageOutcome>) {
     let skipped = |stage, why| tried(stage, Err(why), Duration::ZERO);
-    let direct_skip = if direct_impossible {
-        StageFailure::NatIncompatible
-    } else {
-        StageFailure::SkippedByPolicy
-    };
-    match plan {
-        P2pPlan::DirectOnly => (
-            PathPlanKind::DirectOnly,
-            vec![skipped(PathStage::Turn, StageFailure::NotConfigured)],
-        ),
-        P2pPlan::DirectThenRelay(_) => (PathPlanKind::DirectThenTurn, vec![]),
-        P2pPlan::RelayOnly(_) => (
-            PathPlanKind::TurnOnly,
-            vec![skipped(PathStage::Direct, direct_skip)],
-        ),
-        P2pPlan::ServerOnly => (
-            PathPlanKind::ServerOnly,
-            vec![
-                skipped(PathStage::Direct, StageFailure::NatIncompatible),
-                skipped(PathStage::Turn, StageFailure::NotConfigured),
-            ],
-        ),
+    let mut not_tried = Vec::new();
+    if !plan.tries(PathStage::Direct) {
+        let why = if direct_impossible {
+            StageFailure::NatIncompatible
+        } else {
+            StageFailure::SkippedByPolicy
+        };
+        not_tried.push(skipped(PathStage::Direct, why));
     }
+    if !plan.tries(PathStage::Turn) {
+        let why = if plan.turn_configured {
+            StageFailure::SkippedByPolicy
+        } else {
+            StageFailure::NotConfigured
+        };
+        not_tried.push(skipped(PathStage::Turn, why));
+    }
+    (plan.kind(), not_tried)
 }

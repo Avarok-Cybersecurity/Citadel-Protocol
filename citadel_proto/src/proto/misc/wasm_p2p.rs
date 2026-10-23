@@ -35,7 +35,7 @@ impl super::platform_ops::PlatformOps for WasmIO {
         node_type: netbeam::sync::RelativeNodeType,
         udp_mode: citadel_types::proto::UdpMode,
         session_security_settings: citadel_types::proto::SessionSecuritySettings,
-        plan: crate::proto::peer::p2p_path::P2pPlan,
+        plan: crate::proto::peer::p2p_plan::P2pPlan,
     ) -> impl std::future::Future<Output = crate::proto::peer::p2p_outcome::AttemptReport>
            + crate::macros::ContextRequirements {
         use crate::proto::peer::p2p_outcome::{tried, AttemptReport, PathStage, StageFailure};

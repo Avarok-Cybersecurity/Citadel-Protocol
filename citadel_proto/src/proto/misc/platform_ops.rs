@@ -139,7 +139,7 @@ pub trait PlatformOps: ProtocolIO {
         node_type: RelativeNodeType,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
-        plan: crate::proto::peer::p2p_path::P2pPlan,
+        plan: crate::proto::peer::p2p_plan::P2pPlan,
     ) -> impl Future<Output = crate::proto::peer::p2p_outcome::AttemptReport> + ContextRequirements;
 
     // ── File I/O ──

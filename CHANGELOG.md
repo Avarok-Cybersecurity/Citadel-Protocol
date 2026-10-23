@@ -33,6 +33,15 @@
   `effective_plan(policy, a, b, PairFeasibility)` narrows a policy to one peer pair from both
   peers' `PathOffer`s (`PathRestrictions`, TURN readiness), NAT feasibility and forwarder
   availability, symmetrically, into an `EffectivePlan`.
+- **Servers stamp each peer pair's path plan; both peers execute it.** Each peer key exchange
+  carries both peers' `PathOffer`s (a `TurnPolicy::RelayOnly` TURN config refuses Direct and
+  PeerRelay; holding any TURN config is TURN readiness), and the server relaying it stamps the
+  pair's `EffectivePlan`: its policy narrowed by both offers and by the pair's NAT compatibility.
+  Both peers then try the planned paths in policy order, each for its rule's `attempt_timeout`,
+  instead of the fixed 30 s per stage; retries and hysteresis are unchanged. A pair with either
+  peer, or the server, below `PATH_POLICY_SINCE` gets no plan and plans exactly as before. The
+  stamped `forwarder` is always `None` until PeerRelay exists. `PathPlanKind` gains
+  `TurnThenDirect`, for a policy that puts TURN first.
 
 ### Breaking
 

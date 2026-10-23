@@ -1,12 +1,10 @@
-//! Which network path a P2P connection runs over, and the per-attempt decision of which paths to
-//! try.
+//! Which network path a P2P connection runs over. What each attempt tries is `p2p_plan`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use citadel_io::tokio::sync::watch;
 use citadel_io::{error, ErrorCode, NetworkError};
-use citadel_wire::udp_traversal::turn_relay::{TurnPolicy, TurnRelayConfig};
 
 use super::p2p_outcome::PathAttemptOutcome;
 use crate::proto::traffic::{PathBytes, PathBytesSnapshot};
@@ -280,56 +278,9 @@ impl Drop for CampaignEndGuard {
     }
 }
 
-/// What to try for one P2P attempt, decided identically on both peers from their own TURN config
-/// and the (symmetric) NAT-compatibility verdict.
-#[derive(Clone, Debug)]
-pub(crate) enum P2pPlan {
-    /// Hole punch; nothing to fall back to.
-    DirectOnly,
-    /// Hole punch; on failure, relay through TURN.
-    DirectThenRelay(TurnRelayConfig),
-    /// Skip the hole punch and relay through TURN.
-    RelayOnly(TurnRelayConfig),
-    /// No P2P attempt: the NATs are incompatible and no TURN config was supplied.
-    ServerOnly,
-}
-
-pub(crate) fn plan_p2p(direct_impossible: bool, turn: Option<TurnRelayConfig>) -> P2pPlan {
-    match turn {
-        None if direct_impossible => P2pPlan::ServerOnly,
-        None => P2pPlan::DirectOnly,
-        Some(cfg) if direct_impossible || cfg.policy == TurnPolicy::RelayOnly => {
-            P2pPlan::RelayOnly(cfg)
-        }
-        Some(cfg) => P2pPlan::DirectThenRelay(cfg),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn cfg(policy: TurnPolicy) -> TurnRelayConfig {
-        TurnRelayConfig::new(vec![], policy)
-    }
-
-    #[test]
-    fn plans_follow_policy_and_nat_verdict() {
-        assert!(matches!(plan_p2p(false, None), P2pPlan::DirectOnly));
-        assert!(matches!(plan_p2p(true, None), P2pPlan::ServerOnly));
-        assert!(matches!(
-            plan_p2p(false, Some(cfg(TurnPolicy::Fallback))),
-            P2pPlan::DirectThenRelay(_)
-        ));
-        assert!(matches!(
-            plan_p2p(true, Some(cfg(TurnPolicy::Fallback))),
-            P2pPlan::RelayOnly(_)
-        ));
-        assert!(matches!(
-            plan_p2p(false, Some(cfg(TurnPolicy::RelayOnly))),
-            P2pPlan::RelayOnly(_)
-        ));
-    }
 
     fn poll_once<F: std::future::Future>(fut: std::pin::Pin<&mut F>) -> Option<F::Output> {
         let waker = futures::task::noop_waker();

@@ -1233,6 +1233,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         }
     }
 
+    /// The NAT type session `cid` reported at connect, while it is connected here.
+    pub(crate) fn adjacent_nat_type_of(
+        &self,
+        cid: u64,
+    ) -> Option<citadel_wire::nat_identification::NatType> {
+        let this = inner!(self);
+        this.sessions.get(&cid)?.1.adjacent_nat_type.clone()
+    }
+
     /// Stores (or clears) the TURN config the next P2P attempt with `peer_cid` will use.
     pub fn set_peer_turn_config(
         &self,

@@ -31,7 +31,7 @@ use crate::proto::misc::ws_ping::WsPinger;
 use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::proto::peer::p2p_conn_handler;
 use crate::proto::peer::p2p_outcome::AttemptReport;
-use crate::proto::peer::p2p_path::P2pPlan;
+use crate::proto::peer::p2p_plan::P2pPlan;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
@@ -128,12 +128,9 @@ impl PlatformOps for NativeIO {
         plan: P2pPlan,
     ) -> impl std::future::Future<Output = AttemptReport> + ContextRequirements {
         async move {
-            let (attempt_direct, relay) = match plan {
-                P2pPlan::DirectOnly => (true, None),
-                P2pPlan::DirectThenRelay(cfg) => (true, Some(cfg)),
-                P2pPlan::RelayOnly(cfg) => (false, Some(cfg)),
-                P2pPlan::ServerOnly => return AttemptReport::nothing_attached(vec![]),
-            };
+            if plan.is_server_only() {
+                return AttemptReport::nothing_attached(vec![]);
+            }
             let encrypted_config_container = generate_hole_punch_crypt_container(
                 endpoint_ratchet,
                 SecurityLevel::Standard,
@@ -159,8 +156,7 @@ impl PlatformOps for NativeIO {
                 udp_mode,
                 session_security_settings,
                 session_alive,
-                attempt_direct,
-                relay,
+                plan.steps,
             )
             .await
         }

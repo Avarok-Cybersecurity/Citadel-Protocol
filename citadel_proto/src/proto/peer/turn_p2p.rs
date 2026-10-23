@@ -27,7 +27,6 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::time::Duration;
 
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::net::UdpSocket;
@@ -61,9 +60,6 @@ use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use crate::proto::state_container::VirtualConnectionType;
 use citadel_wire::udp_traversal::turn_relay::TurnAllocation;
-
-/// Upper bound on one relay attempt (allocation, signalling, probing and the QUIC handshake).
-pub(crate) const RELAY_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Serialize, Deserialize, Debug)]
 enum RelaySignal {

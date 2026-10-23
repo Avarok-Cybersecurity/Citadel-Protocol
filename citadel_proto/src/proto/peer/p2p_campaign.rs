@@ -46,7 +46,8 @@ use crate::proto::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStre
 use crate::proto::peer::p2p_outcome::{
     OutcomeContext, PathAttemptOutcome, PeerPathOutcome, StageFailure,
 };
-use crate::proto::peer::p2p_path::{CampaignEndGuard, P2pPlan};
+use crate::proto::peer::p2p_path::CampaignEndGuard;
+use crate::proto::peer::p2p_plan::P2pPlan;
 use crate::proto::peer::p2p_rearm;
 use crate::proto::peer::p2p_retry::{wait_for_fall_back, Retry, RetryEnd, Schedule};
 use crate::proto::peer::peer_crypt::PeerNatInfo;
@@ -191,8 +192,8 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
                 return;
             }
         };
-        if matches!(plan, P2pPlan::ServerOnly) {
-            log::warn!(target: "citadel", "The P2P connection to {peer_cid} requires TURN, and no TURN config was supplied: staying server-relayed");
+        if plan.is_server_only() {
+            log::warn!(target: "citadel", "The P2P connection to {peer_cid} has no path to try (the NATs are incompatible and no TURN config was supplied, or the server's path policy allows none): staying server-relayed");
             let none = crate::proto::peer::p2p_outcome::AttemptReport::nothing_attached(vec![]);
             publish(outcomes.outcome(next_attempt(), started.elapsed(), none));
             return;

@@ -78,6 +78,8 @@ pub enum PathPlanKind {
     DirectThenTurn,
     TurnOnly,
     ServerOnly,
+    /// A server's path policy put TURN before the hole punch.
+    TurnThenDirect,
 }
 
 /// One upgrade attempt of a P2P connection's background campaign.

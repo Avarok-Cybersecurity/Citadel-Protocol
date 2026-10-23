@@ -1,5 +1,6 @@
 use super::*;
-use crate::proto::peer::p2p_path::{P2pPath, P2pPlan, P2pRoute};
+use crate::proto::peer::p2p_path::{P2pPath, P2pRoute};
+use crate::proto::peer::p2p_plan::{plan_p2p, P2pPlan};
 use citadel_wire::nat_identification::NatType;
 use citadel_wire::udp_traversal::turn_relay::{TurnPolicy, TurnRelayConfig};
 use std::time::Duration;
@@ -14,11 +15,7 @@ fn context(plan: &P2pPlan, direct_impossible: bool) -> OutcomeContext {
 }
 
 fn turn(policy: TurnPolicy) -> P2pPlan {
-    let cfg = TurnRelayConfig::new(vec![], policy);
-    match policy {
-        TurnPolicy::RelayOnly => P2pPlan::RelayOnly(cfg),
-        _ => P2pPlan::DirectThenRelay(cfg),
-    }
+    plan_p2p(false, Some(TurnRelayConfig::new(vec![], policy)))
 }
 
 fn stage(stage: PathStage, result: Result<(), StageFailure>, elapsed: Duration) -> StageOutcome {
@@ -27,7 +24,7 @@ fn stage(stage: PathStage, result: Result<(), StageFailure>, elapsed: Duration) 
 
 #[test]
 fn a_direct_win_reports_the_path_and_its_time_to_connect() {
-    let ctx = context(&P2pPlan::DirectOnly, false);
+    let ctx = context(&plan_p2p(false, None), false);
     let report = AttemptReport {
         stages: vec![stage(PathStage::Direct, Ok(()), ms(700))],
         route: Some(P2pRoute::Direct),
@@ -100,7 +97,7 @@ fn a_relay_only_plan_says_why_the_punch_was_not_tried() {
 
 #[test]
 fn a_server_only_plan_reports_both_reasons_without_an_attempt() {
-    let ctx = context(&P2pPlan::ServerOnly, true);
+    let ctx = context(&plan_p2p(true, None), true);
     let outcome = ctx.outcome(1, ms(40), AttemptReport::nothing_attached(vec![]));
     assert_eq!(outcome.plan, PathPlanKind::ServerOnly);
     assert_eq!(outcome.path, P2pPath::ServerRelay);
@@ -116,7 +113,7 @@ fn a_server_only_plan_reports_both_reasons_without_an_attempt() {
 
 #[test]
 fn peers_that_do_not_meet_report_only_the_coordination_failure() {
-    let ctx = context(&P2pPlan::DirectOnly, false);
+    let ctx = context(&plan_p2p(false, None), false);
     let outcome = ctx.unmet(4, StageFailure::Timeout, ms(30_000));
     assert_eq!(outcome.attempt, 4);
     assert_eq!(outcome.path, P2pPath::ServerRelay);
@@ -143,7 +140,7 @@ fn a_published_outcome_reaches_every_reader_of_the_cell() {
     let cell = crate::proto::peer::p2p_path::P2pPathCell::server_relayed();
     let mut changes = cell.outcomes();
     assert!(cell.last_outcome().is_none());
-    let ctx = context(&P2pPlan::DirectOnly, false);
+    let ctx = context(&plan_p2p(false, None), false);
     let report = AttemptReport::nothing_attached(vec![stage(
         PathStage::Direct,
         Err(StageFailure::PunchFailed),
