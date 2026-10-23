@@ -102,7 +102,12 @@ impl MediaEndpoint {
         cfg.validate()?;
         let start = Instant::now();
         let peer_protocol_version = channel.peer_protocol_version();
-        let path = channel.p2p_path_cell();
+        // Media may ride only a path the server's policy gives it: on a server relay that carries
+        // no media this refuses the call (PathClassDenied) instead of relaying it. Checked before
+        // anything is sent, so each side is refused on its own gates. Checked after the transport
+        // offers, the side refused first dropped its channel (a disconnect) while its own offer
+        // could still be queued, and the other side failed with MediaTransportClosed instead.
+        channel.p2p_path_cell().check(PathClass::Media)?;
         let (reliable_tx, reliable_rx) = channel.split();
         let mut control_sink = ReliableSink::spawn(reliable_tx);
         let mut control_src: BoxedSource = Box::pin(reliable_rx);
@@ -127,9 +132,6 @@ impl MediaEndpoint {
             &mut control_src,
         )
         .await?;
-        // Media may ride only a path the server's policy gives it: on a server relay that
-        // carries no media this refuses the call (PathClassDenied) instead of relaying it.
-        path.check(PathClass::Media)?;
 
         match local_udp.filter(|_| peer_udp) {
             Some((udp_tx, udp_rx)) => Self::assemble(

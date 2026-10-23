@@ -126,6 +126,41 @@ mod tests {
         .await;
     }
 
+    /// A refused call must not depend on the peer. Each side used to negotiate the transport
+    /// first and check the gate after, so the side refused first dropped its channel while its
+    /// offer could still be queued, and the other side then failed with `MediaTransportClosed`
+    /// instead of the refusal. Peer 0 here is that first side, gone before peer 1 calls.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_call_is_refused_even_after_the_peer_has_gone() {
+        let relay = PathClasses::of(&[PathClass::Control, PathClass::Msg, PathClass::File]);
+        let (gone_tx, gone_rx) = tokio::sync::watch::channel(false);
+        let gone_tx = Arc::new(gone_tx);
+        run_pair_on(
+            server(policy(relay)),
+            None,
+            UdpMode::Enabled,
+            Arc::new(move |me, conn: PeerConnectSuccess<StackedRatchet>| {
+                let (gone_tx, mut gone_rx) = (gone_tx.clone(), gone_rx.clone());
+                Box::pin(async move {
+                    if me == 0 {
+                        drop(conn);
+                        let _ = gone_tx.send(true);
+                    } else {
+                        let _ = gone_rx.wait_for(|gone| *gone).await;
+                        let mut cfg = test_media_config();
+                        cfg.udp_wait = Duration::from_millis(200);
+                        let refused = MediaEndpoint::from_peer_connection(conn, cfg).await;
+                        let err = refused.expect_err("media must not ride this relay");
+                        assert_eq!(err.code(), ErrorCode::PathClassDenied, "{err}");
+                    }
+                    wait_for_peers().await;
+                })
+            }),
+            Arc::new(|_, _| {}),
+        )
+        .await;
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn the_classes_a_relay_carries_still_flow() {
         let relay = PathClasses::of(&[PathClass::Control, PathClass::Msg, PathClass::File]);
