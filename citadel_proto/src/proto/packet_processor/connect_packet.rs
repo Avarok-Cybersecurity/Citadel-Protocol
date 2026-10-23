@@ -280,6 +280,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                             Some(issued_resume_token),
                                         ),
                                         None,
+                                        crate::proto::path_policy::exchanged_with(
+                                            Some(adjacent_protocol_version),
+                                            session.path_policy.clone(),
+                                        ),
                                     );
 
                                 session.session_cid.set(Some(cid));
@@ -298,6 +302,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                     channel: channel.into(),
                                     udp_rx_opt: udp_channel_rx,
                                     session_security_settings,
+                                    path_policy: session.path_policy.clone(),
                                 });
                                 // Store the signal (post-await), using a short-lived lock
                                 inner_mut_state!(session.state_container)
@@ -505,6 +510,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 channel: channel.into(),
                                 udp_rx_opt: udp_channel_rx,
                                 session_security_settings,
+                                path_policy: crate::proto::path_policy::exchanged_with(
+                                    Some(adjacent_protocol_version),
+                                    payload.path_policy,
+                                ),
                             }))?;
                             // A recovery session leaves the account's local peer list alone: the
                             // server sends it none.

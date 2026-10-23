@@ -296,6 +296,9 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) hypernode_peer_layer: CitadelNodePeerLayer<R>,
     pub(super) stun_servers: citadel_wire::stun_servers::StunServers,
     pub(super) turn_servers: Option<Vec<TurnServerConfig>>,
+    /// Server side: this server's path policy (see `proto::path_policy`). `None` on a client,
+    /// and on a server built without one.
+    pub(super) path_policy: Option<citadel_types::proto::PathPolicy>,
     pub(super) init_time: Instant,
     pub(super) file_transfer_compatible: DualLateInit<bool>,
     pub(super) session_password: PreSharedKey,
@@ -394,6 +397,11 @@ pub struct ServerOnlySessionInitSettings {
     // Only useful for the header obfuscator settings
     pub declared_header_obfuscation_setting: HeaderObfuscatorSettings,
     pub declared_pre_shared_key: Option<PreSharedKey>,
+    /// The server's path precedence (see [`PathPolicy`](citadel_types::proto::PathPolicy)),
+    /// sent to each client at connect and stamped into peer key exchanges. `None` only on a node
+    /// built without one, such as the server role of a serverless pair, whose peers then plan
+    /// their paths themselves.
+    pub path_policy: Option<citadel_types::proto::PathPolicy>,
 }
 
 /// TURN server configuration for NAT traversal relay.
@@ -507,6 +515,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
         let turn_servers = session_init_params.turn_servers;
+        let path_policy = session_init_params
+            .server_only_session_init_settings
+            .as_ref()
+            .and_then(|settings| settings.path_policy.clone());
         let init_time = session_init_params.init_time;
         let session_password = session_init_params.session_password;
         // Use disconnect_tracker passed in through params to avoid needing to lock
@@ -559,6 +571,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             client_config,
             stun_servers,
             turn_servers,
+            path_policy,
             init_time,
             file_transfer_compatible: DualLateInit::default(),
             drop_listener: DualRwLock::from(None),

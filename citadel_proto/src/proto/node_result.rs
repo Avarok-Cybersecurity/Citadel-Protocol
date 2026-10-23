@@ -82,6 +82,9 @@ pub struct ConnectSuccess<R: Ratchet> {
     pub channel: Box<PeerChannel<R>>,
     pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
     pub session_security_settings: SessionSecuritySettings,
+    /// The server's path policy: on a client, as the server sent it (`None` from a server below
+    /// [`PATH_POLICY_SINCE`](crate::constants::PATH_POLICY_SINCE)); on the server, its own.
+    pub path_policy: Option<citadel_types::proto::PathPolicy>,
 }
 
 #[derive(Debug)]

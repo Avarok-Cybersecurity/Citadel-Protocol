@@ -553,6 +553,12 @@ pub(crate) mod do_connect {
         #[serde(deserialize_with = "ok_or_default")]
         #[serde(default)]
         pub admission_challenge: Option<AdmissionChallenge>,
+        /// The server's path policy (see `proto::path_policy`), sent only to a client at
+        /// `PATH_POLICY_SINCE` or later. Absent from an older server's packet, so it defaults; an
+        /// older client ignores it. A policy that fails validation on read also defaults.
+        #[serde(deserialize_with = "ok_or_default")]
+        #[serde(default)]
+        pub path_policy: Option<citadel_types::proto::PathPolicy>,
     }
 
     pub(crate) use citadel_user::wire_compat::ok_or_default;
@@ -571,6 +577,7 @@ pub(crate) mod do_connect {
         ticket: Ticket,
         resume_token: Option<ResumeToken>,
         admission_challenge: Option<AdmissionChallenge>,
+        path_policy: Option<citadel_types::proto::PathPolicy>,
     ) -> BytesMut {
         let payload = DoConnectFinalStatusPacket {
             mailbox,
@@ -579,6 +586,7 @@ pub(crate) mod do_connect {
             post_login_object,
             resume_token,
             admission_challenge,
+            path_policy,
         };
 
         let cmd_aux = if success {

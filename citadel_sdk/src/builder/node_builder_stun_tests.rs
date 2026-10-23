@@ -8,6 +8,9 @@ use crate::prelude::{NodeType, StunServersError};
 fn refusal(node_type: NodeType, stun: Option<&[&str]>) -> String {
     let mut builder = DefaultNodeBuilder::default();
     let _ = builder.with_node_type(node_type);
+    if node_type.is_server() {
+        let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
+    }
     if let Some(stun) = stun {
         let _ = builder.with_stun_servers(stun.to_vec());
     }
@@ -74,6 +77,9 @@ fn a_builder_with_three_distinct_stun_servers_builds() {
         let _ = builder
             .with_node_type(node_type)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS);
+        if node_type.is_server() {
+            let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
+        }
         drop(builder.build(EmptyKernel::default()).unwrap());
     }
 }

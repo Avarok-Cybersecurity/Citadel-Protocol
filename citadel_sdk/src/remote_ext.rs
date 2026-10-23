@@ -181,6 +181,10 @@ pub struct CitadelClientServerConnection<R: Ratchet> {
     pub services: ServicesObject,
     pub cid: u64,
     pub session_security_settings: SessionSecuritySettings,
+    /// The server's path policy: which paths this session's peer connections may use, in which
+    /// order, for which traffic. `None` from a server that predates sending one
+    /// ([`PATH_POLICY_SINCE`](citadel_proto::constants::PATH_POLICY_SINCE)).
+    pub path_policy: Option<PathPolicy>,
 }
 
 impl<R: Ratchet> CitadelClientServerConnection<R> {
@@ -483,6 +487,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 channel,
                 udp_rx_opt: udp_channel_rx,
                 session_security_settings,
+                path_policy,
             }) => Ok(CitadelClientServerConnection {
                 remote: ClientServerRemote::new(
                     v_conn_type,
@@ -496,6 +501,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 services,
                 cid,
                 session_security_settings,
+                path_policy,
             }),
             NodeResult::ConnectFail(ConnectFail {
                 error_message: err, ..

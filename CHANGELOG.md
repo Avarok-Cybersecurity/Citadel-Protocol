@@ -39,6 +39,16 @@
 - `NodeResult` has a new variant, `PeerPathOutcome`; an exhaustive `match` on `NodeResult` needs
   an arm for it (a wildcard arm already covers it).
 - `PlatformOps::p2p_hole_punch` resolves to an `AttemptReport` instead of `bool`.
+- **A server requires a path policy.** `NodeBuilder::with_path_policy(PathPolicy)` is required
+  for `NodeType::Server`; `build` fails with `ErrorCode::NodePathPolicyMissing` without it, and with
+  `NodePathPolicyNotServer` when a peer sets one. There is no default policy. The server sends its
+  policy to each client in connect SUCCESS (clients and servers at `PATH_POLICY_SINCE` = 0.12.2;
+  `PATCH_VERSION` is now 2): it arrives as `ConnectSuccess::path_policy` and
+  `CitadelClientServerConnection::path_policy` (`None` from an older server). Migration: build each
+  server with an explicit policy, for example every `PathKind` in `PathKind::ALL` order, enabled,
+  30 s attempts, `PathClasses::ALL`. `ServerOnlySessionInitSettings` gains `path_policy`, and
+  `ConnectSuccess` / `CitadelClientServerConnection` gain `path_policy` (struct literals and
+  exhaustive patterns need it).
 
 - **STUN servers are required configuration.** The built-in list of public STUN servers is gone.
   Every node must call `NodeBuilder::with_stun_servers` with at least three distinct `host:port`

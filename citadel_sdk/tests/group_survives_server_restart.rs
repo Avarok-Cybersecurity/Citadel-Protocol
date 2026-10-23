@@ -66,6 +66,7 @@ mod tests {
         let _ = builder.with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS);
         let _ = builder
             .with_node_type(NodeType::Server(bind_addr))
+            .with_path_policy(citadel_sdk::test_common::localhost_path_policy())
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(listener).unwrap(),
             ))

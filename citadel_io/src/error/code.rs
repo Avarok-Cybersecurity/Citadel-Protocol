@@ -1195,4 +1195,15 @@ pub enum ErrorCode {
     /// (a browser node, whose transports the browser owns).
     #[form = "This node cannot rebind its transports to a new local address"]
     RebindLocalUnsupported = 380,
+
+    // --- citadel_proto / citadel_sdk: path policy and class gating ---
+    /// A server node was built without a path policy; there is no default one.
+    #[form = "A server node requires a path policy (NodeBuilder::with_path_policy); there is no default"]
+    NodePathPolicyMissing = 390,
+    /// A path policy was given to a node that is not a server.
+    #[form = "A path policy is a server setting; this node is not a server"]
+    NodePathPolicyNotServer = 391,
+    /// The connection's current path may not carry this class of traffic (class, path).
+    #[form = "The connection's current path may not carry {} traffic ({})"]
+    PathClassDenied = 392,
 }

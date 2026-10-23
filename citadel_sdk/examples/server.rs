@@ -40,6 +40,7 @@ async fn main() {
             SocketAddr::from_str(addr.as_str()).unwrap(),
         ))
         .with_stun_servers([stun0, stun1, stun2])
+        .with_path_policy(every_path_in_order())
         .build(server)
         .unwrap()
         .await
@@ -56,4 +57,19 @@ fn get_env(key: &'static str) -> String {
     } else {
         panic!("Expected the env_var {key} set")
     }
+}
+
+/// The NAT lab's server policy: every path, in the default precedence, for every class.
+fn every_path_in_order() -> PathPolicy {
+    let rules = PathKind::ALL
+        .into_iter()
+        .map(|kind| PathRule {
+            kind,
+            enabled: true,
+            attempt_timeout: std::time::Duration::from_secs(30),
+            cost_weight: 1,
+            classes: PathClasses::ALL,
+        })
+        .collect();
+    PathPolicy::new(rules, PathClasses::NONE).expect("a valid path policy")
 }

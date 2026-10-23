@@ -37,6 +37,8 @@
 //! sends it back to the client, making it ideal for testing client
 //! connectivity and message handling.
 
+#[path = "../shared/path_policy.rs"]
+mod path_policy;
 #[path = "../shared/stun.rs"]
 mod stun;
 
@@ -75,6 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build the server
     let node = DefaultNodeBuilder::default()
         .with_stun_servers(stun::from_env())
+        .with_path_policy(path_policy::every_path_in_order())
         .with_node_type(NodeType::server(server_addr)?)
         .build(kernel)?;
 

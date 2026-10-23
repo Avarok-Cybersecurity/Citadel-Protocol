@@ -55,6 +55,24 @@ use std::time::Duration;
 pub const LOCALHOST_STUN_SERVERS: [&str; 3] =
     ["127.0.0.1:3478", "127.0.0.1:3479", "127.0.0.1:3480"];
 
+/// The path policy of servers under test: the owner's order (Direct, PeerRelay, Turn,
+/// ServerRelay), every path enabled for every class. A server requires a policy and there is no
+/// default; this one keeps the attempt timeouts the campaign used before policies existed (30 s
+/// per path), so tests written against that schedule still hold.
+pub fn localhost_path_policy() -> PathPolicy {
+    let rules = PathKind::ALL
+        .into_iter()
+        .map(|kind| PathRule {
+            kind,
+            enabled: true,
+            attempt_timeout: Duration::from_secs(30),
+            cost_weight: 1,
+            classes: PathClasses::ALL,
+        })
+        .collect();
+    PathPolicy::new(rules, PathClasses::NONE).expect("the test policy is valid")
+}
+
 #[cfg(not(target_family = "wasm"))]
 mod native {
     use super::*;
@@ -89,6 +107,7 @@ mod native {
         let builder = builder
             .with_node_type(NodeType::Server(bind_addr))
             .with_stun_servers(LOCALHOST_STUN_SERVERS)
+            .with_path_policy(localhost_path_policy())
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),
             ));

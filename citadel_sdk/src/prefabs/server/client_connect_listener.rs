@@ -99,6 +99,7 @@ where
                 channel,
                 udp_rx_opt: udp_channel_rx,
                 session_security_settings,
+                path_policy,
             }) => {
                 let client_server_remote = ClientServerRemote::new(
                     conn_type,
@@ -114,6 +115,7 @@ where
                     services,
                     cid,
                     session_security_settings,
+                    path_policy,
                 })
                 .await
             }

@@ -169,6 +169,7 @@ fn success_interoperates_with_an_older_node_both_ways() {
         message: b"welcome",
         resume_token: Some(issued),
         admission_challenge: None,
+        path_policy: None,
     };
     let bytes = current.serialize_to_vector().unwrap();
     let round_trip = DoConnectFinalStatusPacket::deserialize_from_vector(&bytes).unwrap();
