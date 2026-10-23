@@ -54,6 +54,12 @@ pub mod group_commit_gate;
 
 /// The server's group registry, persisted through the account backend
 pub mod group_persistence;
+pub(crate) mod group_persistence_shape;
+
+/// Server-side caps on a group's message size and rate
+pub(crate) mod group_limits;
+/// Whom the server relays a group broadcast to, and whether a message is within its caps
+pub mod group_relay;
 
 /// Loading the group registry at server start, and keeping its durable copy in step
 pub mod group_restart;

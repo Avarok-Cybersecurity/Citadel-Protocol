@@ -10,6 +10,7 @@ use strum::VariantNames;
 use ts_rs::TS;
 use uuid::Uuid;
 
+mod group_limits;
 mod path_plan;
 #[cfg(test)]
 mod path_plan_tests;
@@ -17,6 +18,7 @@ mod path_policy;
 mod path_policy_error;
 #[cfg(test)]
 mod path_policy_tests;
+pub use group_limits::{GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal};
 pub use path_plan::{
     effective_plan, EffectivePlan, PairFeasibility, PathOffer, PathRestrictions, PlannedPath,
 };
@@ -273,6 +275,25 @@ pub struct MessageGroupOptions {
     #[cfg_attr(feature = "typescript", ts(skip))]
     #[serde(default)]
     pub hierarchy: GroupHierarchyMode,
+    /// Whether the server relays this group's broadcasts only to members online at the time: an
+    /// offline member is never mailed them. For traffic that is stale by the time anyone reads it
+    /// (presence, heartbeats). `false` mails them, as groups always have. Appended: a node that
+    /// predates it neither sends nor reads it.
+    #[cfg_attr(feature = "typescript", ts(skip))]
+    #[serde(default, deserialize_with = "crate::wire_compat::ok_or_default")]
+    pub ephemeral: bool,
+    /// The caps the server holds each message to, or `None` for none (as groups always had).
+    #[cfg_attr(feature = "typescript", ts(skip))]
+    #[serde(default, deserialize_with = "crate::wire_compat::ok_or_default")]
+    pub limits: Option<GroupMessageLimits>,
+}
+
+impl MessageGroupOptions {
+    /// Whether these options ask the server for anything a server before group relay options
+    /// cannot do. Such a server would ignore them, so a client refuses to create the group there.
+    pub fn needs_relay_options(&self) -> bool {
+        self.ephemeral || self.limits.is_some()
+    }
 }
 
 impl Default for MessageGroupOptions {
@@ -281,6 +302,8 @@ impl Default for MessageGroupOptions {
             group_type: GroupType::Private,
             id: Uuid::new_v4().as_u128(),
             hierarchy: GroupHierarchyMode::default(),
+            ephemeral: false,
+            limits: None,
         }
     }
 }

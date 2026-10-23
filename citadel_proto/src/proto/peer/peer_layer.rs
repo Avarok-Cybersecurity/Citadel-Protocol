@@ -104,7 +104,10 @@ fn is_current(admitted: &HashMap<u64, Instant>, cid: u64, incarnation: Instant) 
 // message group byte map key layout:
 // implicated cid = implicated cid -> key = (u128."concurrent" OR u128."pending") -> u64 (peer cid)
 
-const MAILBOX: &str = "mailbox";
+/// The byte map (`(cid, 0, PEER_MAILBOX_MAP, <uuid>)`) where a server holds the signals it mails to
+/// an offline `cid`, each a serialized [`PeerSignal`], until `cid` next connects. Unbounded: nothing
+/// caps how many a member accumulates.
+pub const PEER_MAILBOX_MAP: &str = "mailbox";
 
 #[derive(Clone)]
 pub struct CitadelNodePeerLayer<R: Ratchet> {
@@ -228,7 +231,9 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         };
 
         // drain mailbox, return to user (means there was mail to view)
-        let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
+        let items = pers
+            .remove_byte_map_values_by_key(cid, 0, PEER_MAILBOX_MAP)
+            .await?;
         if !items.is_empty() {
             log::trace!(target: "citadel", "Returning enqueued mailbox items for {cid}");
             Ok(Some(MailboxTransfer::from(
@@ -270,7 +275,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         };
 
         let _ = pers
-            .remove_byte_map_values_by_key(session_cid, 0, MAILBOX)
+            .remove_byte_map_values_by_key(session_cid, 0, PEER_MAILBOX_MAP)
             .await?;
         Ok(())
     }
@@ -292,6 +297,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                     concurrent_peers: HashMap::new(),
                     pending_peers: HashMap::with_capacity(initial_peers.len()),
                     options,
+                    rates: Default::default(),
                 };
                 // insert peers into the pending_peers map to allow/process AcceptMembership signals
                 for peer_cid in initial_peers {
@@ -518,7 +524,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         let sub_key = Uuid::new_v4().to_string();
 
         let _ = pers
-            .store_byte_map_value(target_cid, 0, MAILBOX, &sub_key, serialized)
+            .store_byte_map_value(target_cid, 0, PEER_MAILBOX_MAP, &sub_key, serialized)
             .await?;
         Ok(())
     }

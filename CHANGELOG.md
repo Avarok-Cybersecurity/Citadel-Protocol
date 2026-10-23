@@ -49,6 +49,20 @@
   peer, and a `MediaEndpoint` (so a policy that keeps media off the server relay refuses the call
   instead of relaying it). Key exchange and signalling always ride the server relay. Without a
   stamped plan every class rides every path, as before.
+- **Ephemeral groups and per-group message limits.** `MessageGroupOptions` gains `ephemeral`
+  and `limits`, both off by default (groups behave exactly as before). The server of an
+  `ephemeral` group relays its broadcasts (messages, member changes) only to members online at
+  the time and mails none to an offline member. A group created with
+  `limits: Some(GroupMessageLimits::new(max_message_bytes, max_messages_per_second)?)` has each
+  message held to them by its server: one whose relayed ciphertext exceeds the size cap, or past
+  its sender's rate in a one-second window, reaches nobody, and its sender's group channel
+  receives `GroupBroadcast::MessageRefused { key, refusal }` with a typed `GroupMessageRefusal`
+  (`TooLarge { bytes, max_bytes }`, `RateLimited { max_per_second }`). A sender below
+  `GROUP_RELAY_OPTIONS_SINCE` (0.12.2) gets `MessageResponse { success: false }` instead. A client
+  refuses to create a group with either option on a server below that version
+  (`ErrorCode::GroupRelayOptionsUnsupported`), which would ignore them. Both options are stored in
+  the group registry, which still reads rows written before them. The server's mailbox byte map
+  is now public as `PEER_MAILBOX_MAP`; it remains unbounded.
 
 ### Breaking
 
@@ -65,6 +79,9 @@
   30 s attempts, `PathClasses::ALL`. `ServerOnlySessionInitSettings` gains `path_policy`, and
   `ConnectSuccess` / `CitadelClientServerConnection` gain `path_policy` (struct literals and
   exhaustive patterns need it).
+- `MessageGroupOptions` gains `ephemeral: bool` and `limits: Option<GroupMessageLimits>`; a struct
+  literal needs both (or `..Default::default()`). `GroupBroadcast` gains `MessageRefused`; an
+  exhaustive `match` needs an arm for it.
 
 - **STUN servers are required configuration.** The built-in list of public STUN servers is gone.
   Every node must call `NodeBuilder::with_stun_servers` with at least three distinct `host:port`

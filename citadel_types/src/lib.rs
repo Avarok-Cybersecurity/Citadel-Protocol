@@ -81,3 +81,6 @@ pub mod user;
 
 /// General utility functions and helpers.
 pub mod utils;
+
+/// Reading a message an older or newer node wrote.
+pub mod wire_compat;

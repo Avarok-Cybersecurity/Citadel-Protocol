@@ -31,7 +31,7 @@
 //! - `MemberState`: Member status tracking
 
 use super::super::includes::*;
-use super::{group_commit_ack, group_commit_relay};
+use super::{group_commit_ack, group_commit_relay, group_message_relay};
 use crate::error::NetworkError;
 use crate::functional::*;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -45,7 +45,8 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::{
-    GroupHierarchyMode, GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
+    GroupHierarchyMode, GroupMemberAlterMode, GroupMessageRefusal, MemberState, MessageGroupKey,
+    MessageGroupOptions,
 };
 use citadel_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
@@ -333,6 +334,15 @@ pub enum GroupBroadcast {
         /// The epoch of the settled Commit
         epoch: u64,
     },
+    /// Server → sender: the server refused to relay the sender's message to `key`, which reached
+    /// nobody, because it broke one of the group's limits. Sent only to a sender at
+    /// `GROUP_RELAY_OPTIONS_SINCE` or later; an older one gets `MessageResponse { success: false }`.
+    MessageRefused {
+        /// Group key
+        key: MessageGroupKey,
+        /// The limit the message broke
+        refusal: GroupMessageRefusal,
+    },
 }
 
 /// Why a session that has not received its Welcome drops a group message.
@@ -608,24 +618,16 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
         } => {
             if session.is_server {
                 log::trace!(target: "citadel", "[Group/Server] Received message {message:?}");
-                // The message will need to be broadcasted to every member in the group
-                let success = session
-                    .session_manager
-                    .broadcast_signal_to_group(
-                        session_cid,
-                        timestamp,
-                        ticket,
-                        key,
-                        GroupBroadcast::Message {
-                            sender: username,
-                            key,
-                            message,
-                        },
-                        security_level,
-                    )
-                    .await
-                    .unwrap_or(false);
-                let resp = GroupBroadcast::MessageResponse { key, success };
+                let inbound = group_message_relay::InboundGroupMessage {
+                    session_cid,
+                    sender: username,
+                    key,
+                    message,
+                    ticket,
+                    timestamp,
+                    security_level,
+                };
+                let resp = group_message_relay::relay(session, inbound).await;
                 let packet = packet_crafter::peer_cmd::craft_group_message_packet(
                     sess_ratchet,
                     &resp,
@@ -695,6 +697,19 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
             Some(key),
             GroupBroadcast::MessageResponse { key, success },
         ),
+
+        GroupBroadcast::MessageRefused { key, refusal } => {
+            if session.is_server {
+                log::warn!(target: "citadel", "Ignoring a MessageRefused for {key:?}: only a server sends one");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            forward_signal(
+                session,
+                ticket,
+                Some(key),
+                GroupBroadcast::MessageRefused { key, refusal },
+            )
+        }
 
         GroupBroadcast::AcceptMembership { target, key } => {
             let success = session

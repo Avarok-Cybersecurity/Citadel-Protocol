@@ -35,8 +35,13 @@ const HOLD_SINCE: &str = "since_ns";
 /// Byte-map entries are addressed by `(cid, peer_cid)`; registry rows belong to the owner alone.
 const NO_PEER: u64 = 0;
 
-/// What the backend holds for one group.
+/// What the backend holds for one group. Stored in the layout of
+/// [`group_persistence_shape`](super::group_persistence_shape), which reads rows of every age.
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(
+    into = "super::group_persistence_shape::StoredGroup",
+    from = "super::group_persistence_shape::StoredGroup"
+)]
 pub struct PersistedGroup {
     pub options: MessageGroupOptions,
     pub members: Vec<u64>,
@@ -72,6 +77,7 @@ impl PersistedGroup {
             concurrent_peers: peers(self.members),
             pending_peers: peers(self.pending),
             options: self.options,
+            rates: Default::default(),
         }
     }
 }
@@ -211,6 +217,8 @@ mod tests {
                 group_type: GroupType::Private,
                 id: 7,
                 hierarchy,
+                ephemeral: false,
+                limits: None,
             },
             members: vec![1, 2],
             pending: vec![3],

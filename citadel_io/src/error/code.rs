@@ -1206,4 +1206,9 @@ pub enum ErrorCode {
     /// The connection's current path may not carry this class of traffic (class, path).
     #[form = "The connection's current path may not carry {} traffic ({})"]
     PathClassDenied = 392,
+
+    // --- citadel_proto: group relay options ---
+    /// A group asked for relay options (ephemeral delivery, message limits) its server predates.
+    #[form = "The server predates group relay options (ephemeral delivery, message limits) and would ignore them; the group was not created"]
+    GroupRelayOptionsUnsupported = 393,
 }

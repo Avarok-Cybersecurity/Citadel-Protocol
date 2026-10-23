@@ -611,7 +611,7 @@ pub mod prelude {
     pub use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
     pub use crate::proto::peer::p2p_rearm::PathControl;
     pub use crate::proto::peer::peer_layer::PeerResponse;
-    pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
+    pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, PEER_MAILBOX_MAP};
     pub use crate::proto::remote::Ticket;
     pub use crate::proto::server_probe::{ServerProbeOutcome, ServerProbeResult};
     pub use crate::proto::state_container::VirtualTargetType;
@@ -655,6 +655,9 @@ pub mod prelude {
     pub use citadel_types::proto::TransferType;
     pub use citadel_types::proto::UdpMode;
     pub use citadel_types::proto::VirtualObjectMetadata;
+    pub use citadel_types::proto::{
+        GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal,
+    };
     pub use citadel_types::user::UserIdentifier;
     pub use citadel_user::backend::PersistenceHandler;
     pub use citadel_user::misc::{prepare_virtual_path, validate_virtual_path, CNACMetadata};
