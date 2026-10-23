@@ -116,6 +116,7 @@ impl<R: Ratchet> PeerChannel<R> {
             channel_id,
             connection_id: disconnect_token.map(|token| token.connection_id),
             security_level,
+            path: path.clone(),
         };
 
         let recv_half = PeerChannelRecvHalf {
@@ -213,6 +214,12 @@ impl<R: Ratchet> PeerChannel<R> {
         self.path.relayed_both()
     }
 
+    /// Whether this connection's current path may carry `class` (always, without a plan the
+    /// server stamped).
+    pub fn path_permits(&self, class: citadel_types::proto::PathClass) -> bool {
+        self.path.permits(class)
+    }
+
     /// A handle that keeps reporting the path after [`Self::split`].
     pub fn p2p_path_cell(&self) -> P2pPathCell {
         self.path.clone()
@@ -258,6 +265,8 @@ pub struct PeerChannelSendHalf<R: Ratchet> {
     channel_id: Ticket,
     connection_id: Option<Ticket>,
     security_level: SecurityLevel,
+    /// Gates each message by the class gates of the path it would take.
+    path: P2pPathCell,
 }
 
 impl<R: Ratchet> Debug for PeerChannelSendHalf<R> {
@@ -271,8 +280,10 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
         self.security_level = security_level;
     }
 
-    /// Sends a message through the channel
+    /// Sends a message through the channel. Refused with `ErrorCode::PathClassDenied` when the
+    /// connection's current path may not carry messages (see [`P2pPathCell::permits`]).
     pub async fn send<T: Into<SecBuffer>>(&mut self, message: T) -> Result<(), NetworkError> {
+        self.path.check(citadel_types::proto::PathClass::Msg)?;
         let request = UserMessage {
             ticket: self.channel_id,
             packet: message.into(),

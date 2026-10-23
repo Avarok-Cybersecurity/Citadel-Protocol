@@ -42,6 +42,13 @@
   peer, or the server, below `PATH_POLICY_SINCE` gets no plan and plans exactly as before. The
   stamped `forwarder` is always `None` until PeerRelay exists. `PathPlanKind` gains
   `TurnThenDirect`, for a policy that puts TURN first.
+- **Class gating.** A connection with a stamped plan carries on each path only the classes the
+  plan gives it (`ClassGates`, read with `P2pPathCell::class_gates()` / `permits(class)` and
+  `PeerChannel::path_permits(class)`). Refused with `ErrorCode::PathClassDenied` where the current
+  path may not carry the class: a message (`PeerChannelSendHalf::send`), a file transfer to the
+  peer, and a `MediaEndpoint` (so a policy that keeps media off the server relay refuses the call
+  instead of relaying it). Key exchange and signalling always ride the server relay. Without a
+  stamped plan every class rides every path, as before.
 
 ### Breaking
 

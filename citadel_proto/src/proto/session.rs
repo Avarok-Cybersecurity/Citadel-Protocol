@@ -1780,6 +1780,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                     let endpoint_container = state_container.get_endpoint_container(target_cid)?;
 
+                    endpoint_container
+                        .p2p_path
+                        .check(citadel_types::proto::PathClass::File)?;
                     if !endpoint_container.file_transfer_compatible {
                         return Err(error!(ErrorCode::FileTransferP2pDisabled));
                     }

@@ -76,6 +76,9 @@ struct PathShared {
     outcomes: watch::Sender<Option<PathAttemptOutcome>>,
     /// Bytes this connection carried on each path, counted by the streams that carry them.
     bytes: Arc<PathBytes>,
+    /// Which classes of traffic each path may carry, set from the stamped plan before the
+    /// channel reaches the application.
+    gates: citadel_io::RwLock<super::class_gates::ClassGates>,
 }
 
 impl P2pPathCell {
@@ -94,6 +97,7 @@ impl P2pPathCell {
             rearm: Default::default(),
             outcomes: watch::channel(None).0,
             bytes: Default::default(),
+            gates: citadel_io::RwLock::new(super::class_gates::ClassGates::OPEN),
         }))
     }
 
@@ -134,6 +138,34 @@ impl P2pPathCell {
     /// it has had. Monotonic.
     pub fn bytes(&self) -> PathBytesSnapshot {
         self.0.bytes.snapshot()
+    }
+
+    /// Which classes of traffic each path of this connection may carry.
+    pub fn class_gates(&self) -> super::class_gates::ClassGates {
+        *self.0.gates.read()
+    }
+
+    /// Whether the path traffic takes right now may carry `class`.
+    pub fn permits(&self, class: citadel_types::proto::PathClass) -> bool {
+        self.class_gates().permits(self.get(), class)
+    }
+
+    /// `Ok` when the current path may carry `class`, else the typed refusal.
+    pub fn check(&self, class: citadel_types::proto::PathClass) -> Result<(), NetworkError> {
+        let path = self.get();
+        if self.class_gates().permits(path, class) {
+            Ok(())
+        } else {
+            Err(error!(
+                ErrorCode::PathClassDenied,
+                format!("{class:?}"),
+                format!("{path:?}")
+            ))
+        }
+    }
+
+    pub(crate) fn set_gates(&self, gates: super::class_gates::ClassGates) {
+        *self.0.gates.write() = gates;
     }
 
     pub(crate) fn byte_counters(&self) -> &Arc<PathBytes> {

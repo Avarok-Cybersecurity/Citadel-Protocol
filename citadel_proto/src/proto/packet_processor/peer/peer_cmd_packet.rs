@@ -31,6 +31,7 @@
 //! - `StackedRatchet`: Cryptographic operations
 //! - `StateContainer`: State management
 
+use crate::proto::peer::class_gates::ClassGates;
 use crate::proto::peer::kex_path::{self, KexPath};
 use crate::proto::peer::p2p_campaign;
 use crate::proto::peer::p2p_path::CampaignEndGuard;
@@ -897,6 +898,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         kex_path_in.as_ref(),
                                         *peer_protocol_version,
                                     );
+                                    guard
+                                        .cell()
+                                        .set_gates(ClassGates::from_stamped(stamped.as_ref()));
                                     let plan = execution_plan(
                                         stamped.as_ref(),
                                         direct_impossible,
@@ -1092,6 +1096,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         kex_path_in.as_ref(),
                                         *peer_protocol_version,
                                     );
+                                    guard
+                                        .cell()
+                                        .set_gates(ClassGates::from_stamped(stamped.as_ref()));
                                     let plan = execution_plan(
                                         stamped.as_ref(),
                                         direct_impossible,

@@ -600,9 +600,11 @@ pub mod prelude {
     pub use crate::proto::outbound_sender::OutboundUdpSender;
     pub use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
     pub use crate::proto::peer::channel::*;
+    pub use crate::proto::peer::class_gates::ClassGates;
     pub use crate::proto::peer::group_channel::{
         GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
     };
+    pub use crate::proto::peer::kex_path::KexPath;
     pub use crate::proto::peer::p2p_outcome::{
         PathAttemptOutcome, PathPlanKind, PathStage, PeerPathOutcome, StageFailure, StageOutcome,
     };
