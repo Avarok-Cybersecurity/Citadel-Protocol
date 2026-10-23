@@ -21,40 +21,14 @@ use web_sys::{
 };
 
 use super::wasm_io::IceServerConfig;
+use super::wasm_promise::settle;
 use crate::proto::peer::peer_crypt::IceCandidateData;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-/// Await a JS `Promise` via callback+oneshot (avoids wasm_bindgen_futures).
+/// Await a JS `Promise`, its rejection as an `io::Error`.
 async fn await_js_promise(promise: js_sys::Promise) -> io::Result<JsValue> {
-    let (tx, rx) = oneshot::channel::<Result<JsValue, JsValue>>();
-    let tx = Arc::new(std::sync::Mutex::new(Some(tx)));
-
-    let tx_ok = tx.clone();
-    let on_resolve = Closure::once(move |val: JsValue| {
-        if let Some(tx) = tx_ok.lock().unwrap().take() {
-            let _ = tx.send(Ok(val));
-        }
-    });
-
-    let tx_err = tx.clone();
-    let on_reject = Closure::once(move |val: JsValue| {
-        if let Some(tx) = tx_err.lock().unwrap().take() {
-            let _ = tx.send(Err(val));
-        }
-    });
-
-    let _ = promise.then2(&on_resolve, &on_reject);
-
-    // Keep closures alive until promise resolves
-    let result = rx
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "JS promise channel dropped"))?;
-
-    drop(on_resolve);
-    drop(on_reject);
-
-    result.map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))
+    settle(promise).await.map_err(js_err)
 }
 
 fn js_err(e: JsValue) -> io::Error {

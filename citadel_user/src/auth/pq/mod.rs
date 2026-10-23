@@ -45,9 +45,9 @@ mod tests_manage;
 #[cfg(test)]
 mod tests_record;
 
-use kem::EncapsulationKey;
 use messages::{
     transcript_bytes, LoginChallenge, LoginStart, ManagementBegin, ManagementChallenge,
+    NewSecurityKey,
 };
 use proof::{TranscriptHash, TranscriptPurpose};
 
@@ -71,7 +71,7 @@ pub fn management_transcript(
     cid: u64,
     begin: &ManagementBegin,
     challenge: &ManagementChallenge,
-    new_key_ek: Option<&EncapsulationKey>,
+    new_key: Option<&NewSecurityKey>,
 ) -> TranscriptHash {
     TranscriptHash::new(
         TranscriptPurpose::StepUp,
@@ -79,7 +79,7 @@ pub fn management_transcript(
         &[
             &transcript_bytes(begin),
             &transcript_bytes(challenge),
-            &transcript_bytes(&new_key_ek),
+            &transcript_bytes(&new_key),
         ],
     )
 }

@@ -25,6 +25,7 @@
 //! - `redis`: Enables the use of Redis for the backend
 //! - `sql`: Enables the use of sql for the backend
 //! - `webrtc`: enables *limited* interoperability with webrtc via the [`UdpChannel`] (see: `UdpChannel::into_webrtc_compat`, available with the feature enabled)
+//! - `security-key`: security keys for post-quantum sign-in, over USB natively and through WebAuthn in a browser (see [`sign_in`])
 //!
 //!
 //! # Post-quantum key encapsulation mechanisms
@@ -281,9 +282,13 @@ pub mod prelude {
     pub use crate::remote_ext::*;
     pub use crate::responses;
     pub use crate::sign_in::SignInManagementExt;
+    #[cfg(feature = "security-key")]
+    pub use citadel_proto::auth::SecurityKey;
+    #[cfg(all(feature = "security-key", not(target_family = "wasm")))]
+    pub use citadel_proto::auth::SecurityKeyPrompt;
     pub use citadel_proto::auth::{
-        security_key_channel, SecurityKeyChallenge, SecurityKeyPrf, SecurityKeyPurpose,
-        SecurityKeyRequest, SignInFactors,
+        security_key_channel, SecurityKeyCeremony, SecurityKeyChallenge, SecurityKeyPrf,
+        SecurityKeyPurpose, SecurityKeyRequest, SignInFactors,
     };
     pub use citadel_proto::prelude::*;
     pub use citadel_types::auth::{
