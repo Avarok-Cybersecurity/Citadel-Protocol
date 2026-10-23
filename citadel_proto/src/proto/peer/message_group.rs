@@ -29,6 +29,7 @@ This module implements the group messaging framework for the Citadel Protocol, p
 
 */
 
+use crate::proto::peer::group_limits::GroupRateLedger;
 use citadel_types::proto::MessageGroupOptions;
 use std::collections::HashMap;
 
@@ -54,6 +55,9 @@ pub struct MessageGroup {
     pub(crate) concurrent_peers: HashMap<u64, MessageGroupPeer>,
     pub(crate) pending_peers: HashMap<u64, MessageGroupPeer>,
     pub(crate) options: MessageGroupOptions,
+    /// Each sender's rate against `options.limits`; runtime only, never persisted. A sync lock,
+    /// so a message is admitted under the registry's read lock (see `group_relay`).
+    pub(crate) rates: citadel_io::Mutex<GroupRateLedger>,
 }
 
 /// TODO: Attributed data (e.g., permissions)

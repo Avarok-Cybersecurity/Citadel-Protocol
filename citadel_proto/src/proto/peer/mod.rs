@@ -54,6 +54,12 @@ pub mod group_commit_gate;
 
 /// The server's group registry, persisted through the account backend
 pub mod group_persistence;
+pub(crate) mod group_persistence_shape;
+
+/// Server-side caps on a group's message size and rate
+pub(crate) mod group_limits;
+/// Whom the server relays a group broadcast to, and whether a message is within its caps
+pub mod group_relay;
 
 /// Loading the group registry at server start, and keeping its durable copy in step
 pub mod group_restart;
@@ -64,7 +70,14 @@ pub mod message_group;
 
 pub mod p2p_conn_handler;
 
+pub mod class_gates;
+pub mod kex_path;
 pub mod p2p_path;
+pub(crate) mod p2p_plan;
+
+/// Per-attempt outcomes of the P2P path campaign (which path won, and why the others did not)
+pub mod p2p_outcome;
+pub(crate) mod p2p_outcome_context;
 
 pub(crate) mod direct_journal;
 

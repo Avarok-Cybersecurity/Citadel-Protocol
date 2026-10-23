@@ -141,6 +141,7 @@ where
     Fut: std::future::Future<Output = Result<(), NetworkError>> + Send + 'static,
 {
     let client = DefaultNodeBuilder::default()
+        .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
         .build(GroupTestKernel::new(client))
         .unwrap();
     tokio::select! {

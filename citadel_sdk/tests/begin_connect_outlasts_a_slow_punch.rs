@@ -181,7 +181,10 @@ mod tests {
                         connection.shutdown_kernel().await
                     },
                 );
-                let client = DefaultNodeBuilder::default().build(client_kernel).unwrap();
+                let client = DefaultNodeBuilder::default()
+                    .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                    .build(client_kernel)
+                    .unwrap();
                 tokio::time::timeout(HANG_GUARD, client)
                     .await
                     .expect("client hung")

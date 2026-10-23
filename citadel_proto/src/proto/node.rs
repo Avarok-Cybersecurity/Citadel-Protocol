@@ -101,7 +101,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
         underlying_proto: ServerMode<T>,
         client_config: Option<T::ClientConfig>,
-        stun_servers: Option<Vec<String>>,
+        stun_servers: citadel_wire::stun_servers::StunServers,
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
         websocket_listener: Option<citadel_io::WebSocketListen>,
@@ -208,6 +208,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             account_manager,
             node_type,
             read.session_manager.local_rebinder(),
+            read.session_manager.traffic(),
         );
         let tt = read
             .session_manager
@@ -754,4 +755,5 @@ pub(crate) struct CitadelNodeRemoteInner<R: Ratchet> {
     pub node_type: NodeType,
     pub account_manager: AccountManager<R, R>,
     pub local_rebinder: LocalRebinder,
+    pub traffic: crate::proto::traffic::NodeTraffic,
 }

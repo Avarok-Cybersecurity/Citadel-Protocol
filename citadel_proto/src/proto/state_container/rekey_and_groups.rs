@@ -2,6 +2,7 @@
 
 use super::includes::*;
 use crate::proto::packet_processor::peer::group_commit_ack;
+use crate::proto::peer::group_relay;
 use citadel_io::{error, ErrorCode};
 use citadel_types::proto::GroupHierarchyMode;
 
@@ -182,6 +183,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 initial_invitees,
                 options,
             } => {
+                group_relay::server_honours_relay_options(options, self.adjacent_protocol_version)?;
                 self.init_owner_cgka(options)?;
                 if matches!(options.hierarchy, GroupHierarchyMode::Flat) {
                     None

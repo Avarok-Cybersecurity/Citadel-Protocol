@@ -108,7 +108,10 @@ pub async fn citadel(p: Params) -> ArmResult {
             }
         });
         clients.push(tokio::task::spawn(
-            DefaultNodeBuilder::default().build(kernel).unwrap(),
+            DefaultNodeBuilder::default()
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .build(kernel)
+                .unwrap(),
         ));
     }
     ready.wait().await;

@@ -2,7 +2,8 @@
 //! a WebRTC DataChannel pair, then exercise the UDP subsystem (unordered DataChannel) end-to-end:
 //! a raw datagram echo plus a `citadel_sdk::media` stream.
 //!
-//! Requires a running `wasm_test_server` on `ws://127.0.0.1:25522`.
+//! Requires a running `wasm_test_server` on `ws://127.0.0.1:25522`, which also answers the
+//! STUN servers the clients' ICE agents are given (`BROWSER_STUN_SERVERS`).
 //! Run via: `cargo make test-wasm-p2p-docker` (Docker) or manually start the server.
 //!
 //! Uses `wasm-pack test --headless --chrome` to execute in a real browser
@@ -136,6 +137,7 @@ async fn test_wasm_p2p_connect() {
         });
 
     let client_a = DefaultNodeBuilder::default()
+        .with_stun_servers(citadel_sdk::test_common::BROWSER_STUN_SERVERS)
         .with_node_type(NodeType::Peer)
         .build(kernel_a)
         .expect("build client A");
@@ -207,6 +209,7 @@ async fn test_wasm_p2p_connect() {
         });
 
     let client_b = DefaultNodeBuilder::default()
+        .with_stun_servers(citadel_sdk::test_common::BROWSER_STUN_SERVERS)
         .with_node_type(NodeType::Peer)
         .build(kernel_b)
         .expect("build client B");

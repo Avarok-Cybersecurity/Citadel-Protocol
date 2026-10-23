@@ -56,6 +56,7 @@ pub(crate) mod packet;
 pub(crate) mod packet_crafter;
 /// Contains the library for processing inbound packet types. all #[inline]'d
 pub(crate) mod packet_processor;
+pub(crate) mod path_policy;
 pub(crate) mod peer;
 pub(crate) mod pq_sign_in;
 pub mod remote;
@@ -74,6 +75,8 @@ pub(crate) mod session_resume_store;
 pub(crate) mod state_container;
 /// For organizing the stage containers
 pub(crate) mod state_subcontainers;
+/// Byte counters by network path and traffic class
+pub mod traffic;
 /// ~!
 pub(crate) mod transfer_stats;
 mod udp_packet_tests;

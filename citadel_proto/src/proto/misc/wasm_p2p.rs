@@ -35,11 +35,25 @@ impl super::platform_ops::PlatformOps for WasmIO {
         node_type: netbeam::sync::RelativeNodeType,
         udp_mode: citadel_types::proto::UdpMode,
         session_security_settings: citadel_types::proto::SessionSecuritySettings,
-        plan: crate::proto::peer::p2p_path::P2pPlan,
-    ) -> impl std::future::Future<Output = bool> + crate::macros::ContextRequirements {
+        plan: crate::proto::peer::p2p_plan::P2pPlan,
+    ) -> impl std::future::Future<Output = crate::proto::peer::p2p_outcome::AttemptReport>
+           + crate::macros::ContextRequirements {
+        use crate::proto::peer::p2p_outcome::{tried, AttemptReport, PathStage, StageFailure};
+        use crate::proto::peer::p2p_path::P2pRoute;
         use crate::proto::peer::peer_layer::PeerSignal;
 
         SendFuture(async move {
+            let started = citadel_io::time::Instant::now();
+            // The DataChannel is the direct stage here, whether the browser's ICE agent punched
+            // a hole or relayed through one of its TURN servers.
+            let direct = |result: Result<(), StageFailure>| {
+                let route = result.is_ok().then_some(P2pRoute::Direct);
+                let stage = tried(PathStage::Direct, result, started.elapsed());
+                AttemptReport {
+                    stages: vec![stage],
+                    route,
+                }
+            };
             // The browser's ICE agent owns relaying (its TURN servers come from the node's
             // `with_turn_servers`); the native TURN plan does not apply here. The ICE exchange
             // rides its own signaling, so the registered endpoint is not needed either.
@@ -103,15 +117,15 @@ impl super::platform_ops::PlatformOps for WasmIO {
                     is_initiator,
                     session_security_settings,
                 ) {
-                    Ok(()) => true,
+                    Ok(()) => direct(Ok(())),
                     Err(err) => {
                         log::warn!(target: "citadel", "WebRTC DataChannel could not be attached: {err}; staying on the relay");
-                        false
+                        direct(Err(StageFailure::AttachFailed))
                     }
                 },
                 Err(err) => {
                     log::warn!(target: "citadel", "WebRTC hole punch failed: {err}; staying on the relay");
-                    false
+                    direct(Err(StageFailure::PunchFailed))
                 }
             }
         })

@@ -30,6 +30,7 @@
 //! - Session keys are automatically rotated based on configurable parameters
 //! - Memory containing sensitive data is securely zeroed when dropped
 
+use crate::proto::traffic::meter::{C2sMeter, StreamMeter};
 use std::sync::atomic::Ordering;
 //use async_std::prelude::*;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -293,8 +294,11 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) connect_mode: DualRwLock<Option<ConnectMode>>,
     pub(super) client_config: T::ClientConfig,
     pub(super) hypernode_peer_layer: CitadelNodePeerLayer<R>,
-    pub(super) stun_servers: Option<Vec<String>>,
+    pub(super) stun_servers: citadel_wire::stun_servers::StunServers,
     pub(super) turn_servers: Option<Vec<TurnServerConfig>>,
+    /// Server side: this server's path policy (see `proto::path_policy`). `None` on a client,
+    /// and on a server built without one.
+    pub(super) path_policy: Option<citadel_types::proto::PathPolicy>,
     pub(super) init_time: Instant,
     pub(super) file_transfer_compatible: DualLateInit<bool>,
     pub(super) session_password: PreSharedKey,
@@ -368,7 +372,7 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub hypernode_peer_layer: CitadelNodePeerLayer<R>,
     // this is set only when a local client is attempting to start an outbound session
     pub client_only_settings: Option<ClientOnlySessionInitSettings<R>>,
-    pub stun_servers: Option<Vec<String>>,
+    pub stun_servers: citadel_wire::stun_servers::StunServers,
     pub turn_servers: Option<Vec<TurnServerConfig>>,
     pub init_time: Instant,
     pub session_password: PreSharedKey,
@@ -393,6 +397,11 @@ pub struct ServerOnlySessionInitSettings {
     // Only useful for the header obfuscator settings
     pub declared_header_obfuscation_setting: HeaderObfuscatorSettings,
     pub declared_pre_shared_key: Option<PreSharedKey>,
+    /// The server's path precedence (see [`PathPolicy`](citadel_types::proto::PathPolicy)),
+    /// sent to each client at connect and stamped into peer key exchanges. `None` only on a node
+    /// built without one, such as the server role of a serverless pair, whose peers then plan
+    /// their paths themselves.
+    pub path_policy: Option<citadel_types::proto::PathPolicy>,
 }
 
 /// TURN server configuration for NAT traversal relay.
@@ -506,6 +515,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
         let turn_servers = session_init_params.turn_servers;
+        let path_policy = session_init_params
+            .server_only_session_init_settings
+            .as_ref()
+            .and_then(|settings| settings.path_policy.clone());
         let init_time = session_init_params.init_time;
         let session_password = session_init_params.session_password;
         // Use disconnect_tracker passed in through params to avoid needing to lock
@@ -558,6 +571,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             client_config,
             stun_servers,
             turn_servers,
+            path_policy,
             init_time,
             file_transfer_compatible: DualLateInit::default(),
             drop_listener: DualRwLock::from(None),
@@ -626,11 +640,24 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
             let stopper = inner!(this.stopper_tx).subscribe();
 
+            // The server meters what it relays by class; a client also attributes its relayed
+            // P2P packets to their connections.
+            let relayed_connections =
+                (!this.is_server).then(|| inner_state!(this.state_container).relay_index.clone());
+            let meter = StreamMeter::ClientServer(C2sMeter::new(
+                this.session_manager.traffic(),
+                relayed_connections,
+            ));
+
             // Ensure the tx forwards to the writer
-            let writer_future =
-                Self::outbound_stream(primary_outbound_rx, writer, obfuscator.clone());
+            let writer_future = Self::outbound_stream(
+                primary_outbound_rx,
+                writer,
+                obfuscator.clone(),
+                meter.clone(),
+            );
             let reader_future =
-                Self::execute_inbound_stream(reader, this_inbound, None, obfuscator);
+                Self::execute_inbound_stream(reader, this_inbound, None, obfuscator, meter);
             //let timer_future = Self::execute_timer(this.clone());
             let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
             let stopper_future = Self::stopper(stopper);
@@ -966,7 +993,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    pub async fn outbound_stream<
+    pub(crate) async fn outbound_stream<
         S: citadel_io::tokio::io::AsyncWrite
             + citadel_io::tokio::io::AsyncRead
             + Unpin
@@ -976,6 +1003,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         primary_outbound_rx: OutboundPrimaryStreamReceiver,
         mut writer: misc::PrimaryStreamWriter<S>,
         mut header_obfuscator: HeaderObfuscator,
+        meter: StreamMeter,
     ) -> Result<(), NetworkError> {
         let to_net_err = |err: std::io::Error| NetworkError::generic(err.to_string());
 
@@ -1000,6 +1028,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
         let mut rx = primary_outbound_rx.0;
         while let Some(packet) = rx.next().await {
+            meter.sent(&packet);
             writer
                 .write_packet(packet, &header_obfuscator)
                 .await
@@ -1010,6 +1039,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             while burst < OUTBOUND_FLUSH_BURST {
                 match rx.next().now_or_never() {
                     Some(Some(next)) => {
+                        meter.sent(&next);
                         writer
                             .write_packet(next, &header_obfuscator)
                             .await
@@ -1037,7 +1067,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    pub async fn execute_inbound_stream<
+    pub(crate) async fn execute_inbound_stream<
         S: citadel_io::tokio::io::AsyncRead
             + citadel_io::tokio::io::AsyncWrite
             + Unpin
@@ -1048,9 +1078,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         this_main: CitadelSession<R, T>,
         p2p_handle: Option<P2PInboundHandle<R>>,
         header_obfuscator: HeaderObfuscator,
+        meter: StreamMeter,
     ) -> Result<(), NetworkError> {
         let this_main = &this_main;
         let header_obfuscator = &header_obfuscator;
+        let meter = &meter;
         log::trace!(target: "citadel", "HdpSession async inbound-stream subroutine executed");
         let (
             ref remote_peer,
@@ -1271,6 +1303,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 {
                     return Ok(());
                 }
+                meter.received(&packet);
 
                 let session_cid: Option<u64> = session_cid.get();
                 let result = packet_processor::raw_primary_packet::process_raw_packet(
@@ -1747,6 +1780,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                     let endpoint_container = state_container.get_endpoint_container(target_cid)?;
 
+                    endpoint_container
+                        .p2p_path
+                        .check(citadel_types::proto::PathClass::File)?;
                     if !endpoint_container.file_transfer_compatible {
                         return Err(error!(ErrorCode::FileTransferP2pDisabled));
                     }
@@ -2664,14 +2700,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
     #[cfg(target_family = "wasm")]
     pub fn p2p_ice_servers(&self) -> Vec<crate::proto::misc::wasm_io::IceServerConfig> {
         let mut servers = Vec::new();
-        if let Some(stun) = &self.stun_servers {
-            for url in stun {
-                servers.push(crate::proto::misc::wasm_io::IceServerConfig {
-                    urls: vec![url.clone()],
-                    username: None,
-                    credential: None,
-                });
-            }
+        // The configured entries are validated `host:port` endpoints; ICE wants STUN URLs.
+        for endpoint in self.stun_servers.iter() {
+            servers.push(crate::proto::misc::wasm_io::IceServerConfig {
+                urls: vec![format!("stun:{endpoint}")],
+                username: None,
+                credential: None,
+            });
         }
         if let Some(turn) = &self.turn_servers {
             for cfg in turn {

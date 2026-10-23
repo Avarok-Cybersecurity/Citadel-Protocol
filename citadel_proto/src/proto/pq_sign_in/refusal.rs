@@ -38,6 +38,7 @@ pub(crate) fn failure<R: Ratchet, T: PlatformOps>(
         ticket,
         None,
         admission_challenge,
+        None,
     )
 }
 

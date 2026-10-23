@@ -72,16 +72,31 @@ pub(super) fn on_datachannel_established<
         peer_cid,
         p2p_connection_id,
     );
+    // The DataChannel is this connection's direct path (whatever the browser's ICE agent chose).
+    let connection_bytes = inner_state!(session.state_container)
+        .active_virtual_connections
+        .get(&peer_cid)
+        .and_then(|vconn| vconn.endpoint_container.as_ref())
+        .map(|endpoint| endpoint.p2p_path.byte_counters().clone());
+    let meter = crate::proto::traffic::meter::StreamMeter::Route(
+        crate::proto::traffic::meter::RouteMeter::new(
+            connection_bytes.unwrap_or_default(),
+            session.session_manager.traffic(),
+            crate::proto::peer::p2p_path::P2pRoute::Direct,
+        ),
+    );
     let writer = crate::proto::session::CitadelSession::<R, T>::outbound_stream(
         p2p_rx,
         sink,
         header_obfuscator.clone(),
+        meter.clone(),
     );
     let reader = crate::proto::session::CitadelSession::execute_inbound_stream(
         source,
         session.clone(),
         Some(p2p_handle),
         header_obfuscator,
+        meter,
     );
 
     let sess = session.clone();

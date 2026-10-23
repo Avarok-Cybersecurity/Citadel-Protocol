@@ -235,6 +235,8 @@ pub struct StateContainerInner<R: Ratchet> {
     /// The protocol version of the node at the other end of the C2S link (the server, on a
     /// client; the client, on a server), from its connect packet. `None` until connected.
     pub(crate) adjacent_protocol_version: Option<u32>,
+    /// The counters of this session's P2P connections, for metering what the server relays.
+    pub(crate) relay_index: crate::proto::traffic::relay_index::RelayIndex,
     is_server: bool,
 }
 
@@ -614,6 +616,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             outbound_files: HashMap::new(),
             session_passwords: HashMap::new(),
             adjacent_protocol_version: None,
+            relay_index: crate::proto::traffic::relay_index::RelayIndex::new(),
             triggered_rekeys: Arc::new(Mutex::new(HashMap::new())),
         };
         inner.into()

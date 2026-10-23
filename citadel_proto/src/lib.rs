@@ -563,6 +563,7 @@ pub mod prelude {
     pub use citadel_io::WebSocketEndpoint;
     pub use citadel_wire::hypernode_type::NodeType;
     pub use citadel_wire::quic_rebind::{RebindFailure, RebindReport, Rebound};
+    pub use citadel_wire::stun_servers::{StunServers, StunServersError, MIN_STUN_SERVERS};
 
     // Native-only prelude exports
     #[cfg(not(target_family = "wasm"))]
@@ -599,23 +600,34 @@ pub mod prelude {
     pub use crate::proto::outbound_sender::OutboundUdpSender;
     pub use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
     pub use crate::proto::peer::channel::*;
+    pub use crate::proto::peer::class_gates::ClassGates;
     pub use crate::proto::peer::group_channel::{
         GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
+    };
+    pub use crate::proto::peer::kex_path::KexPath;
+    pub use crate::proto::peer::p2p_outcome::{
+        PathAttemptOutcome, PathPlanKind, PathStage, PeerPathOutcome, StageFailure, StageOutcome,
     };
     pub use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
     pub use crate::proto::peer::p2p_rearm::PathControl;
     pub use crate::proto::peer::peer_layer::PeerResponse;
-    pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
+    pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, PEER_MAILBOX_MAP};
     pub use crate::proto::remote::Ticket;
     pub use crate::proto::server_probe::{ServerProbeOutcome, ServerProbeResult};
     pub use crate::proto::state_container::VirtualTargetType;
+    pub use crate::proto::traffic::{ByteCount, NodeTrafficSnapshot, PathBytesSnapshot};
     pub use citadel_io::ServerMode;
     pub use citadel_types::crypto::SecrecyMode;
     pub use citadel_types::proto::ClientConnectionType;
     pub use citadel_types::proto::ConnectMode;
     pub use citadel_types::proto::MessageGroupKey;
+    pub use citadel_types::proto::{
+        EffectivePlan, PathClass, PathClasses, PathKind, PathOffer, PathPolicy, PathPolicyError,
+        PathRestrictions, PathRule, PlannedPath, MAX_ATTEMPT_TIMEOUT, MIN_ATTEMPT_TIMEOUT,
+    };
     pub use citadel_user::backend::utils::{ObjectTransferHandler, ObjectTransferHandlerInner};
     pub use citadel_user::serialization::SyncIO;
+    pub use citadel_wire::nat_class::{IpTranslationClass, NatClass, PortTranslationClass};
     pub use citadel_wire::udp_traversal::turn_relay::{
         TurnPolicy, TurnRelayConfig, TurnServerCredential, TurnTransport, TurnUrl,
     };
@@ -643,6 +655,9 @@ pub mod prelude {
     pub use citadel_types::proto::TransferType;
     pub use citadel_types::proto::UdpMode;
     pub use citadel_types::proto::VirtualObjectMetadata;
+    pub use citadel_types::proto::{
+        GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal,
+    };
     pub use citadel_types::user::UserIdentifier;
     pub use citadel_user::backend::PersistenceHandler;
     pub use citadel_user::misc::{prepare_virtual_path, validate_virtual_path, CNACMetadata};

@@ -396,9 +396,11 @@ mod tests {
         );
 
         let client_a = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .build(client_a_kernel)
             .unwrap();
         let client_b = DefaultNodeBuilder::default()
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .build(client_b_kernel)
             .unwrap();
 

@@ -170,7 +170,15 @@ async fn a_failed_punch_is_reported_without_a_backtrace() {
         }
     };
 
-    let punch = UdpHolePuncher::new_timeout(&local, Default::default(), Duration::from_secs(20));
+    // Loopback endpoints nothing answers on: under localhost-testing none is contacted.
+    let stun = citadel_wire::stun_servers::StunServers::new([
+        "127.0.0.1:3478",
+        "127.0.0.1:3479",
+        "127.0.0.1:3480",
+    ])
+    .unwrap();
+    let punch =
+        UdpHolePuncher::new_timeout(&local, Default::default(), stun, Duration::from_secs(20));
     let result = tokio::select! {
         result = tokio::time::timeout(Duration::from_secs(60), punch) => {
             result.expect("the punch neither succeeded nor failed")

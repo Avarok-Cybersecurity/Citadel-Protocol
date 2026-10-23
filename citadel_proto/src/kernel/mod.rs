@@ -79,7 +79,7 @@ pub struct KernelExecutorArguments<K, R: Ratchet, T: PlatformOps> {
     pub underlying_proto: ServerMode<T>,
     pub client_config: Option<T::ClientConfig>,
     pub kernel_executor_settings: KernelExecutorSettings,
-    pub stun_servers: Option<Vec<String>>,
+    pub stun_servers: citadel_wire::stun_servers::StunServers,
     pub turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
     pub websocket_listener: Option<citadel_io::WebSocketListen>,

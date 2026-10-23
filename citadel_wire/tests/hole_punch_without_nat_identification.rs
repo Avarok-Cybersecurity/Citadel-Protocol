@@ -15,28 +15,31 @@
 
 use citadel_io::tokio;
 use citadel_wire::nat_identification::NatType;
+use citadel_wire::stun_servers::StunServers;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use netbeam::sync::test_utils::create_streams_with_addrs_and_lag;
 
 /// Three bound sockets that swallow every request. Kept alive by the caller so that the
 /// requests are neither answered nor refused.
-fn silent_stun_servers() -> (Vec<std::net::UdpSocket>, Vec<String>) {
+fn silent_stun_servers() -> (Vec<std::net::UdpSocket>, StunServers) {
     let sockets = (0..3)
         .map(|_| std::net::UdpSocket::bind("127.0.0.1:0").unwrap())
         .collect::<Vec<_>>();
     let addrs = sockets
         .iter()
         .map(|s| s.local_addr().unwrap().to_string())
-        .collect();
-    (sockets, addrs)
+        .collect::<Vec<_>>();
+    (
+        sockets,
+        StunServers::new(addrs).expect("three distinct local sockets"),
+    )
 }
 
-fn container(stun_servers: Vec<String>) -> HolePunchConfigContainer {
+fn container() -> HolePunchConfigContainer {
     HolePunchConfigContainer::new(
         |plaintext| plaintext.into(),
         |ciphertext| Some(ciphertext.into()),
-        Some(stun_servers),
     )
 }
 
@@ -46,7 +49,7 @@ async fn a_failed_nat_identification_still_punches_using_local_candidates() {
     let (_silent, servers) = silent_stun_servers();
 
     assert!(
-        NatType::identify(Some(servers.clone())).await.is_err(),
+        NatType::identify(&servers).await.is_err(),
         "precondition: with no STUN server answering, identification must fail"
     );
 
@@ -54,13 +57,13 @@ async fn a_failed_nat_identification_still_punches_using_local_candidates() {
     let (server_servers, client_servers) = (servers.clone(), servers);
     let server = tokio::task::spawn(async move {
         server_stream
-            .begin_udp_hole_punch(container(server_servers))
+            .begin_udp_hole_punch(container(), server_servers)
             .await
             .map_err(|e| e.to_string())
     });
     let client = tokio::task::spawn(async move {
         client_stream
-            .begin_udp_hole_punch(container(client_servers))
+            .begin_udp_hole_punch(container(), client_servers)
             .await
             .map_err(|e| e.to_string())
     });

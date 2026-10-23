@@ -34,6 +34,9 @@
 //! 3. Performs password-based authentication
 //! 4. Maintains secure session after authentication
 
+#[path = "../shared/stun.rs"]
+mod stun;
+
 use citadel_sdk::{
     prefabs::client::single_connection::SingleClientServerConnectionKernel, prelude::*,
 };
@@ -75,7 +78,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     // Build the node
-    let client = DefaultNodeBuilder::default().build(kernel)?;
+    let client = DefaultNodeBuilder::default()
+        .with_stun_servers(stun::from_env())
+        .build(kernel)?;
 
     // Run the node
     client.await?;
