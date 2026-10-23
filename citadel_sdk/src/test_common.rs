@@ -55,6 +55,14 @@ use std::time::Duration;
 pub const LOCALHOST_STUN_SERVERS: [&str; 3] =
     ["127.0.0.1:3478", "127.0.0.1:3479", "127.0.0.1:3480"];
 
+/// STUN servers for browser nodes under test, answered by the `wasm_test_server` example. A
+/// browser hands its node's STUN servers to its ICE agent whatever the build's features, and an
+/// unanswered server holds ICE gathering (which completes before the offer is sent) for the
+/// agent's whole STUN timeout, about 40 s a side; so a browser test must be given servers that
+/// answer.
+pub const BROWSER_STUN_SERVERS: [&str; 3] =
+    ["127.0.0.1:25530", "127.0.0.1:25531", "127.0.0.1:25532"];
+
 /// The path policy of servers under test: the owner's order (Direct, PeerRelay, Turn,
 /// ServerRelay), every path enabled for every class. A server requires a policy and there is no
 /// default; this one keeps the attempt timeouts the campaign used before policies existed (30 s
