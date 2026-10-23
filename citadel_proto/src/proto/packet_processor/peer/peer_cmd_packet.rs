@@ -1159,13 +1159,17 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             ..
                         } => {
                             let peer_cid = conn.get_original_session_cid();
-                            let (has_outgoing, connected) = {
+                            let (has_outgoing, connected, exchanging) = {
                                 let state_container = inner_state!(session.state_container);
                                 (
                                     state_container
                                         .outgoing_peer_connect_attempts
                                         .contains_key(&peer_cid),
                                     state_container.has_live_peer_connection(peer_cid),
+                                    state_container
+                                        .peer_kem_states
+                                        .get(&peer_cid)
+                                        .is_some_and(|kem| kem.constructor.is_some()),
                                 )
                             };
 
@@ -1174,6 +1178,17 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 // here would replace its KEM state (and UDP offer) below; the
                                 // live connection already won, so neither dial goes ahead.
                                 log::info!(target: "citadel", "Dual-connect race: {session_cid} ignoring PostConnect from {peer_cid}, already connected");
+                                return Ok(PrimaryProcessorResult::Void);
+                            }
+
+                            if has_outgoing && exchanging {
+                                // Our dial was accepted and its exchange is under way (or we
+                                // are answering the peer's). Auto-accepting would empty that
+                                // exchange's slot below, and the peer, already in it, drops
+                                // the second exchange this accept starts (first exchange
+                                // wins): neither would finish. The exchange in progress
+                                // connects the pair and answers the peer's dial too.
+                                log::info!(target: "citadel", "Dual-connect race: {session_cid} ignoring PostConnect from {peer_cid}; a key exchange with it is in progress");
                                 return Ok(PrimaryProcessorResult::Void);
                             }
 
