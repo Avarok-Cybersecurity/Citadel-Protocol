@@ -740,6 +740,25 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                     log::warn!(target: "citadel", "Unable to broadcast member acceptance to group {key}");
                 }
                 log::trace!(target: "citadel", "Successfully upgraded {target} for {key:?}");
+                // The owner accepted someone else's join request: the answer below reaches only
+                // the owner, and the joiner publishes its KeyPackage on this answer, as an
+                // invitee does on its own. Without it the joiner is a member the server relays to
+                // that never receives its Welcome.
+                if target != session_cid {
+                    let relayed = session.session_manager.route_packet_to(target, |peer_hr| {
+                        packet_crafter::peer_cmd::craft_group_message_packet(
+                            peer_hr,
+                            &GroupBroadcast::AcceptMembershipResponse { key, success },
+                            ticket,
+                            C2S_IDENTITY_CID,
+                            timestamp,
+                            security_level,
+                        )
+                    });
+                    if let Err(err) = relayed {
+                        log::error!(target: "citadel", "Failed to tell joiner {target} it was accepted into {key:?}: {err:?}. It will not receive its Welcome.");
+                    }
+                }
             }
 
             // tell the user who accepted the membership
