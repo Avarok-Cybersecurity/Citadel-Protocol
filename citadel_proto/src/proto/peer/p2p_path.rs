@@ -78,7 +78,7 @@ struct PathShared {
     bytes: Arc<PathBytes>,
     /// Which classes of traffic each path may carry, set from the stamped plan before the
     /// channel reaches the application.
-    gates: citadel_io::RwLock<super::class_gates::ClassGates>,
+    gates: watch::Sender<super::class_gates::ClassGates>,
 }
 
 impl P2pPathCell {
@@ -97,7 +97,7 @@ impl P2pPathCell {
             rearm: Default::default(),
             outcomes: watch::channel(None).0,
             bytes: Default::default(),
-            gates: citadel_io::RwLock::new(super::class_gates::ClassGates::OPEN),
+            gates: watch::Sender::new(super::class_gates::ClassGates::OPEN),
         }))
     }
 
@@ -142,7 +142,7 @@ impl P2pPathCell {
 
     /// Which classes of traffic each path of this connection may carry.
     pub fn class_gates(&self) -> super::class_gates::ClassGates {
-        *self.0.gates.read()
+        *self.0.gates.borrow()
     }
 
     /// Whether the path traffic takes right now may carry `class`.
@@ -165,7 +165,7 @@ impl P2pPathCell {
     }
 
     pub(crate) fn set_gates(&self, gates: super::class_gates::ClassGates) {
-        *self.0.gates.write() = gates;
+        let _ = self.0.gates.send_replace(gates);
     }
 
     pub(crate) fn byte_counters(&self) -> &Arc<PathBytes> {
