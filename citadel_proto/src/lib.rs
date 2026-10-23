@@ -619,6 +619,10 @@ pub mod prelude {
     pub use citadel_types::proto::ClientConnectionType;
     pub use citadel_types::proto::ConnectMode;
     pub use citadel_types::proto::MessageGroupKey;
+    pub use citadel_types::proto::{
+        EffectivePlan, PathClass, PathClasses, PathKind, PathOffer, PathPolicy, PathPolicyError,
+        PathRestrictions, PathRule, PlannedPath, MAX_ATTEMPT_TIMEOUT, MIN_ATTEMPT_TIMEOUT,
+    };
     pub use citadel_user::backend::utils::{ObjectTransferHandler, ObjectTransferHandlerInner};
     pub use citadel_user::serialization::SyncIO;
     pub use citadel_wire::nat_class::{IpTranslationClass, NatClass, PortTranslationClass};

@@ -10,6 +10,21 @@ use strum::VariantNames;
 use ts_rs::TS;
 use uuid::Uuid;
 
+mod path_plan;
+#[cfg(test)]
+mod path_plan_tests;
+mod path_policy;
+mod path_policy_error;
+#[cfg(test)]
+mod path_policy_tests;
+pub use path_plan::{
+    effective_plan, EffectivePlan, PairFeasibility, PathOffer, PathRestrictions, PlannedPath,
+};
+pub use path_policy::{
+    PathClass, PathClasses, PathKind, PathPolicy, PathPolicyError, PathRule, MAX_ATTEMPT_TIMEOUT,
+    MIN_ATTEMPT_TIMEOUT,
+};
+
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]

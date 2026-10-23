@@ -22,6 +22,17 @@
   header only, never its payload. Counters are monotonic atomics; reading them takes no lock.
   They count Citadel packet bytes (a P2P route's UDP channel datagrams included), not the
   framing QUIC or TURN add around them; client-server UDP is not counted.
+- **Path policies** (`citadel_types::proto`, re-exported from both preludes). A `PathPolicy` is a
+  server's path precedence: exactly one `PathRule { kind, enabled, attempt_timeout, cost_weight,
+  classes }` per `PathKind` (`Direct`, `PeerRelay`, `Turn`, `ServerRelay`), in order, plus the
+  `PathClasses` (`Control`, `Msg`, `File`, `Media`) no path may carry. `PathPolicy::new(rules,
+  denied)` refuses, with a typed `PathPolicyError`, a policy that misses or repeats a kind, sets an
+  attempt timeout outside 1–60 s, leaves the server relay disabled or without `Control`, enables a
+  rule after the server relay, leaves a class with no enabled path without denying it, or denies a
+  class a path still carries. There is no `Default`. A policy read off the wire is validated again.
+  `effective_plan(policy, a, b, PairFeasibility)` narrows a policy to one peer pair from both
+  peers' `PathOffer`s (`PathRestrictions`, TURN readiness), NAT feasibility and forwarder
+  availability, symmetrically, into an `EffectivePlan`.
 
 ### Breaking
 
