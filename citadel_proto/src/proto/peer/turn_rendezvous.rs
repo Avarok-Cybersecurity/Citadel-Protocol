@@ -77,7 +77,7 @@ pub(super) fn permission_candidates(
 }
 
 /// One CreatePermission per candidate: a server may refuse some addresses (Cloudflare answers 403
-/// for private and loopback peers, RFC 8656 §9.1), and one refusal must not void the rest.
+/// for private and loopback peers, RFC 8656 §10.2), and one refusal must not void the rest.
 pub(super) async fn install_permissions(
     allocation: &TurnAllocation,
     ips: &[IpAddr],
