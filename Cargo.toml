@@ -56,6 +56,7 @@ citadel_io_macros = { path = "./citadel_io_macros", version = "0.14.0" }
 citadel_treekem = { path = "./citadel_treekem", default-features = false, version = "0.14.0" }
 citadel_types = { path = "./citadel_types", default-features = false, version = "0.14.0" }
 citadel_media = { path = "./citadel_media", default-features = false, version = "0.14.0" }
+citadel_negotiation = { path = "./citadel_negotiation", version = "0.14.0" }
 netbeam = { path = "./netbeam", default-features = false, version = "0.14.0" }
 firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.14.0" }
 async_ip = { path = "./async_ip", default-features = false, version = "0.14.0" }

@@ -1,6 +1,7 @@
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::misc::CryptError;
 use bytes::BytesMut;
+use citadel_negotiation::settings::KeyProfile;
 use citadel_pqcrypto::bytes_in_place::EzBuffer;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_pqcrypto::PostQuantumContainer;
@@ -12,6 +13,8 @@ use std::fmt::Debug;
 
 /// Organizes the different types of entropy_banks that can be used. Currently, there is only one: The Standard Drill
 pub mod entropy_bank;
+/// Key epochs: a negotiated key profile carried by one steered ratchet round
+pub mod key_epoch;
 pub mod mono;
 /// `RatchetManager` provides a robust, sync-safe method to rekey across networks between two nodes
 pub mod ratchet_manager;
@@ -123,6 +126,25 @@ pub trait Ratchet:
     fn next_alice_constructor(&self) -> Option<Self::Constructor> {
         Self::Constructor::new_alice(
             self.get_next_constructor_opts(),
+            self.get_cid(),
+            self.version().wrapping_add(1),
+        )
+    }
+
+    /// The next constructor options for a negotiated key profile: the current layers continue
+    /// their chains, a raise adds layers derived from the meta-chain, a lower truncates
+    /// ([`key_epoch::opts_for_profile`]). Both ends compute the same options.
+    fn next_constructor_opts_for(
+        &self,
+        profile: &KeyProfile,
+    ) -> Result<Vec<ConstructorOpts>, CryptError> {
+        key_epoch::opts_for_profile(self.get_next_constructor_opts(), profile)
+    }
+
+    /// The next Alice constructor for a steered round that builds `profile`.
+    fn next_alice_constructor_for(&self, profile: &KeyProfile) -> Option<Self::Constructor> {
+        Self::Constructor::new_alice(
+            self.next_constructor_opts_for(profile).ok()?,
             self.get_cid(),
             self.version().wrapping_add(1),
         )
