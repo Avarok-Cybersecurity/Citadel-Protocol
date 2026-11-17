@@ -76,6 +76,24 @@ impl EntropyBank {
         base
     }
 
+    /// Checks that a public nonce received from the counterpart has the length
+    /// [`Self::generate_public_nonce`] gives `enx_algorithm`, the length every cipher reads from it.
+    pub fn check_public_nonce(
+        enx_algorithm: EncryptionAlgorithm,
+        nonce: &[u8],
+    ) -> Result<(), CryptError> {
+        let required = enx_algorithm.nonce_len();
+        if nonce.len() == required {
+            Ok(())
+        } else {
+            Err(citadel_io::error!(
+                citadel_io::ErrorCode::NonceLengthMismatch,
+                nonce.len(),
+                required
+            ))
+        }
+    }
+
     #[inline]
     // the nonce_version should come from either the transient counter, or,
     // the appended u32 at the end of each packet
@@ -334,6 +352,7 @@ pub struct EntropyBank {
     pub(crate) version: u32,
     pub(crate) cid: u64,
     pub(crate) entropy: Zeroizing<[u8; BYTES_PER_STORE]>,
+    #[serde(deserialize_with = "crate::ratchets::scramble_mappings::deserialize")]
     pub(crate) scramble_mappings: Zeroizing<Vec<(u16, u16)>>,
     pub(crate) transient_counter: TransientNonceCounter,
 }
