@@ -152,9 +152,11 @@ mod group_hierarchy_outbound;
 mod inbound_transfer;
 mod monitoring;
 mod outbound_transfer;
+pub(crate) mod peer_keys;
 mod rekey_and_groups;
 pub(crate) mod relay_route;
 mod transfer_error;
+mod vconn_end;
 pub(crate) mod virtual_connections;
 pub(crate) use virtual_connections::RouteEnd;
 
@@ -193,10 +195,9 @@ pub struct StateContainerInner<R: Ratchet> {
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection<R>>,
-    /// Ratchets extracted from P2P vconns before removal, allowing in-flight
-    /// packets to be decrypted after the stream dies. Cleared when a new
-    /// connection for the same peer is created or at session shutdown.
-    pub(super) stale_p2p_ratchets: HashMap<u64, R>,
+    /// Session passwords, and the ratchets of ended P2P connections kept for packets still in
+    /// flight; both are given back when a connection ends (see `end_virtual_connection`).
+    pub(super) peer_keys: peer_keys::PeerKeys<R>,
     pub(crate) keep_alive_timeout_ns: i64,
     pub(crate) state: DualCell<SessionState>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
@@ -233,7 +234,6 @@ pub struct StateContainerInner<R: Ratchet> {
     /// duplicate check in `initiate_rekey` unable to fire at all: a `Ticket` is
     /// unique per request, so `insert` never returned `Some`.
     triggered_rekeys: Arc<Mutex<HashMap<u64, Ticket>>>,
-    session_passwords: HashMap<u64, PreSharedKey>,
     /// The protocol version of the node at the other end of the C2S link (the server, on a
     /// client; the client, on a server), from its connect packet. `None` until connected.
     pub(crate) adjacent_protocol_version: Option<u32>,
@@ -571,7 +571,7 @@ impl GroupReceiverContainer {
 impl<R: Ratchet> StateContainerInner<R> {
     /// Creates a new container
     #[allow(clippy::too_many_arguments)]
-    pub fn create(
+    pub(crate) fn create(
         kernel_tx: UnboundedSender<NodeResult<R>>,
         hdp_server_remote: NodeRemote<R>,
         keep_alive_timeout_ns: i64,
@@ -582,6 +582,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         is_server: bool,
         transfer_stats: TransferStats,
         udp_mode: UdpMode,
+        ledger: crate::proto::session_ledger::SessionLedger,
     ) -> StateContainer<R> {
         let inner = Self {
             outgoing_peer_connect_attempts: Default::default(),
@@ -608,7 +609,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             udp_primary_outbound_tx: None,
             deregister_state: Default::default(),
             active_virtual_connections: Default::default(),
-            stale_p2p_ratchets: Default::default(),
+            peer_keys: peer_keys::PeerKeys::new(ledger),
             network_stats: Default::default(),
             kernel_tx,
             register_state: packet_flags::cmd::aux::do_register::STAGE0.into(),
@@ -619,7 +620,6 @@ impl<R: Ratchet> StateContainerInner<R> {
             peer_kem_states: HashMap::new(),
             inbound_files: DashMap::new(),
             outbound_files: HashMap::new(),
-            session_passwords: HashMap::new(),
             adjacent_protocol_version: None,
             relay_index: crate::proto::traffic::relay_index::RelayIndex::new(),
             triggered_rekeys: Arc::new(Mutex::new(HashMap::new())),
@@ -629,16 +629,10 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     // Note: c2s connection passwords are also stored as "session_password" in the [`CitadelSession`]
     pub fn store_session_password(&mut self, peer_cid: u64, session_password: PreSharedKey) {
-        self.session_passwords.insert(peer_cid, session_password);
+        self.peer_keys.store_password(peer_cid, session_password);
     }
 
     pub fn get_session_password(&self, peer_cid: u64) -> Option<&PreSharedKey> {
-        self.session_passwords.get(&peer_cid)
-    }
-
-    // TODO: use this in period cleanup tasks
-    #[allow(dead_code)]
-    pub fn remove_session_password(&mut self, peer_cid: u64) {
-        self.session_passwords.remove(&peer_cid);
+        self.peer_keys.password(peer_cid)
     }
 }

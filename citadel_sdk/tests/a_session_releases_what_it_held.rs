@@ -86,6 +86,8 @@ mod tests {
         let empty = SessionFootprint {
             sessions: 0,
             disconnect_records: 0,
+            session_passwords: 0,
+            stale_p2p_ratchets: 0,
         };
         let settled = || {
             client.session_footprint() == empty

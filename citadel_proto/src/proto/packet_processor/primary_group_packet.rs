@@ -514,8 +514,8 @@ pub(super) fn get_orientation_safe_ratchet<R: Ratchet>(
             //log::trace!(target: "citadel", "[Peer StackedRatchet] v{} from vconn w/ {}", header_entropy_bank_vers, original_session_cid);
             vconn.get_endpoint_ratchet(Some(header_entropy_bank_vers))
         } else if let Some(stale_ratchet) = state_container
-            .stale_p2p_ratchets
-            .get(&original_session_cid)
+            .peer_keys
+            .stale_ratchet(original_session_cid)
         {
             // P2P stream ended but in-flight packets still need decryption.
             // Only use the stale ratchet if its version matches the packet's.

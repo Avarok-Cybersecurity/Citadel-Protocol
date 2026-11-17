@@ -55,6 +55,7 @@ async fn state_container() -> StateContainer<R> {
         false,
         TransferStats::new(0, 0),
         UdpMode::Disabled,
+        Default::default(),
     )
 }
 
