@@ -2297,12 +2297,21 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     // Stopper fired: drain any remaining queued messages and notify kernel of rejections
                     res = stopper_rx.recv() => {
                         if res.is_ok() {
-                            // Drain all pending requests without awaiting
+                            // Closed first, so nothing lands after the drain and goes unanswered:
+                            // a later send fails, and its channel reports it undelivered.
+                            rx_session_requests.close();
                             while let Ok(request) = rx_session_requests.try_recv() {
-                                if let SessionRequest::SendMessage(rm) = request {
-                                    if let Some((ticket, payload)) = extract_ticket_and_payload(&rm) {
-                                        reject_pending_message(to_kernel_tx, ticket, Some(&payload));
+                                match request {
+                                    SessionRequest::SendMessage(rm) => {
+                                        if let Some((ticket, payload)) = extract_ticket_and_payload(&rm) {
+                                            reject_pending_message(to_kernel_tx, ticket, Some(&payload));
+                                        }
                                     }
+                                    SessionRequest::Group(Group {
+                                        broadcast: GroupBroadcast::Message { key, .. },
+                                        ..
+                                    }) => inner_state!(this.state_container).report_group_message_not_delivered(key),
+                                    SessionRequest::Group(_) => {}
                                 }
                             }
                         }
