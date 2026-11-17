@@ -50,6 +50,27 @@ fn the_stream_ending_does_not_claim_the_disconnect_ticket() {
     );
 }
 
+/// The same defect, one arm over: a stream that ends in an I/O ERROR (not a clean EOF) is
+/// reported by `handle_session_terminating_error`, which passed `Some(kernel_ticket)` too. On
+/// Windows a peer that closes after sending FINAL surfaces as WSAECONNABORTED (os error 10053)
+/// before FINAL is read, so this arm signalled first, on the kernel ticket, and the caller's
+/// `disconnect()` waited out its 30 s (`two_urls_behind_one_address_connect_concurrently`,
+/// "the subscription carried 0 other event(s)"). Only the FINAL handler names a ticket; it
+/// holds the one the peer echoed back. Nothing else may claim the kernel's.
+#[test]
+fn no_abrupt_end_claims_the_kernel_ticket() {
+    let code = session_source();
+    let flattened: String = code.split_whitespace().collect();
+    assert!(
+        !flattened.contains("send_session_dc_signal(Some(session.kernel_ticket.get())")
+            && !flattened.contains("send_session_dc_signal(Some(self.kernel_ticket.get())")
+            && !flattened.contains("send_session_dc_signal(Some(this_close.kernel_ticket.get())"),
+        "a session-ending path passes Some(kernel_ticket) to send_session_dc_signal. That takes \
+         the (Some(explicit), _) branch, skips pending_c2s_disconnect_ticket, and answers an \
+         application's disconnect() on a ticket nobody holds.",
+    );
+}
+
 #[test]
 fn the_pending_ticket_fallback_still_exists_for_it_to_reach() {
     // The arm above is only correct while the fallback is there to catch it.

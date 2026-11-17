@@ -1247,13 +1247,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     // C2S disconnect — route through tracker-gated path only.
                     // send_session_dc_signal checks try_c2s_disconnect() and includes
                     // a proper DisconnectToken, preventing duplicate signals.
+                    //
+                    // `None` for the same reason as `execute`'s error arm: an I/O error
+                    // between `disconnect()` sending STAGE0 and FINAL being read (on
+                    // Windows, the server's close after FINAL arrives as os error 10053)
+                    // must resolve the caller's pending ticket, not the kernel's.
                     log::warn!(target: "citadel", "[DC_SIGNAL:handle_session_terminating_error] C2S terminating | session_cid: {} | reason: {} | strong_count: {} | is_provisional: {}",
                         session_cid, err_string.as_str(), session.strong_count(), session.is_provisional());
-                    session.send_session_dc_signal(
-                        Some(session.kernel_ticket.get()),
-                        false,
-                        err_string.as_str(),
-                    );
+                    session.send_session_dc_signal(None, false, err_string.as_str());
                 }
 
                 SessionShutdownReason::Error(NetworkError::generic(err_string))
