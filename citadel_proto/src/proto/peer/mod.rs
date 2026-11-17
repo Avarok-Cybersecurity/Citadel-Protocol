@@ -33,6 +33,7 @@ This module is the root of the peer-to-peer networking implementation in the Cit
 
 */
 
+pub(crate) mod mailbox;
 /// For managing the state of peer-related activities
 pub mod peer_layer;
 

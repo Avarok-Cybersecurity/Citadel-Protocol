@@ -104,9 +104,10 @@ fn is_current(admitted: &HashMap<u64, Instant>, cid: u64, incarnation: Instant) 
 // message group byte map key layout:
 // implicated cid = implicated cid -> key = (u128."concurrent" OR u128."pending") -> u64 (peer cid)
 
-/// The byte map (`(cid, 0, PEER_MAILBOX_MAP, <uuid>)`) where a server holds the signals it mails to
-/// an offline `cid`, each a serialized [`PeerSignal`], until `cid` next connects. Unbounded: nothing
-/// caps how many a member accumulates.
+/// The byte map (`(cid, 0, PEER_MAILBOX_MAP, <key>)`) where a server holds the signals it mails to
+/// an offline `cid`, each a serialized [`PeerSignal`], until `cid` next connects. A peer-routed
+/// signal's key names its sender and is bounded per sender (see `mailbox`); a group broadcast's
+/// key is a bare uuid.
 pub const PEER_MAILBOX_MAP: &str = "mailbox";
 
 #[derive(Clone)]

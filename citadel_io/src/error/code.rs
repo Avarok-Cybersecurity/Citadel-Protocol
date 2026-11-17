@@ -1237,4 +1237,11 @@ pub enum ErrorCode {
     /// (peer cid, limit).
     #[form = "Peer {} already has {} groups open; this group was not accepted"]
     InboundGroupLimitReached = 430,
+    /// A connect request named a peer that is offline; connect requests are not held (peer cid).
+    #[form = "Peer {} is offline; a connect request is not held for an offline peer"]
+    PeerConnectTargetOffline = 431,
+    /// A sender already holds the most signals it may in an offline peer's mailbox
+    /// (sender cid, limit, peer cid).
+    #[form = "{} already holds {} signals for offline peer {}; this one was not held"]
+    MailboxSenderAtCap = 432,
 }
