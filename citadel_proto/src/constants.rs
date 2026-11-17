@@ -60,7 +60,10 @@ pub const MINOR_VERSION: u8 = 12;
 // effective plan into the pair's key exchange (see `PATH_POLICY_SINCE`). Additive: a node below it
 // neither sends nor reads either, and its peers plan their paths as before. In the same patch,
 // servers honour a group's relay options (see `GROUP_RELAY_OPTIONS_SINCE`).
-pub const PATCH_VERSION: u8 = 2;
+// Bumped 2 -> 3: the coordination endpoints pair subscriptions by an exchanged id within a named
+// topic, and time a synchronized start by a relative delay (see `EXCHANGED_SUBSCRIPTIONS_SINCE`).
+// A node below it is spoken to with the count-paired wire, as before.
+pub const PATCH_VERSION: u8 = 3;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -113,6 +116,11 @@ pub const PATH_POLICY_SINCE: (u8, u8, u8) = (0, 12, 2);
 /// version; an older sender gets the `MessageResponse { success: false }` it understands). A
 /// server below it would ignore both options, so a client refuses to create such a group there.
 pub const GROUP_RELAY_OPTIONS_SINCE: (u8, u8, u8) = (0, 12, 2);
+
+/// The first protocol version whose hole-punch and P2P coordination endpoints speak
+/// `netbeam::sync::wire::WireRevision::Exchanged`. Both ends pick the revision from the other's
+/// version, so a pair with either below it, or of unknown version, speaks the count-paired wire.
+pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

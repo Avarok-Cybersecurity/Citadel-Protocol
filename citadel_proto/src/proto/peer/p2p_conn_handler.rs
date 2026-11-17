@@ -171,7 +171,7 @@ pub(crate) mod native_p2p {
     };
     use citadel_wire::exports::tokio_rustls::rustls;
     use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
-    use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
+    use citadel_wire::udp_traversal::udp_hole_puncher::{EndpointHolePunchExt, PunchBudget};
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn p2p_conn_handler<R: Ratchet, T: PlatformOps>(
@@ -604,7 +604,7 @@ pub(crate) mod native_p2p {
         let relay_nat_info = peer_nat_info.clone();
         let relay_tls = client_config.clone();
 
-        let process = async move {
+        let process = move |punch_budget: PunchBudget| async move {
             if !session_alive.alive() {
                 return Err(StageError::new(
                     StageFailure::SessionGone,
@@ -614,9 +614,10 @@ pub(crate) mod native_p2p {
             citadel_io::time::sleep_until(sync_time).await;
 
             let hole_punched_socket = app
-                .begin_udp_hole_punch(encrypted_config_container, stun_servers)
+                .begin_udp_hole_punch(encrypted_config_container, stun_servers, punch_budget)
                 .await
                 .at(StageFailure::PunchFailed)?;
+            let direct_ready = app.on(crate::proto::peer::coordination::DIRECT_READY);
             let remote_connect_addr = hole_punched_socket.addr.send_address;
             let addr = hole_punched_socket.addr;
             let local_addr = hole_punched_socket
@@ -625,7 +626,7 @@ pub(crate) mod native_p2p {
             log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {is_initiator}");
 
             if is_initiator {
-                app.sync().await.at(StageFailure::Signalling)?;
+                direct_ready.sync().await.at(StageFailure::Signalling)?;
                 log::trace!(target: "citadel", "Initiator: sync complete, non-initiator listener should be ready");
 
                 let socket = hole_punched_socket.into_socket();
@@ -665,7 +666,7 @@ pub(crate) mod native_p2p {
                 .at(StageFailure::LocalSocket)?;
                 log::trace!(target: "citadel", "Non-initiator: listener created (socket reused) on {:?}, signaling ready", local_addr);
 
-                app.sync().await.at(StageFailure::Signalling)?;
+                direct_ready.sync().await.at(StageFailure::Signalling)?;
 
                 p2p_conn_handler(
                     listener,
@@ -684,7 +685,11 @@ pub(crate) mod native_p2p {
         };
 
         use crate::proto::peer::p2p_plan::PlanStep;
-        let mut direct = Some(process);
+        // The punch's attempts are cut from the Direct stage's own timeout, the same on both ends.
+        let mut direct = steps
+            .iter()
+            .find(|s| matches!(s.step, PlanStep::Direct))
+            .map(|s| process(PunchBudget::within_stage(s.timeout)));
         let mut stages = Vec::with_capacity(steps.len());
         let mut route = None;
         if !steps.iter().any(|s| matches!(s.step, PlanStep::Direct)) {

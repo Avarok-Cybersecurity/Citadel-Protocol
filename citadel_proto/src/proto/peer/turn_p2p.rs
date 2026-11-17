@@ -120,7 +120,8 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
     let local_cid = session_cid
         .get()
         .ok_or_else(|| StageError::new(SessionGone, "session CID not loaded"))?;
-    let stream = app.initiate_subscription().await.at(Signalling)?;
+    let signalling = app.on(crate::proto::peer::coordination::TURN_SIGNALLING);
+    let stream = signalling.initiate_subscription().await.at(Signalling)?;
     let hole_punched_like = TargettedSocketAddr::new_invariant;
 
     if local_cid < v_conn.get_target_cid() {

@@ -9,7 +9,7 @@
 //! can ever succeed, however many remain, and a partial overlap can let one
 //! side finish while the other times out.
 
-use super::{UdpHolePuncher, MAX_RETRIES};
+use super::{PunchBudget, UdpHolePuncher, MAX_RETRIES};
 use citadel_io::tokio;
 use netbeam::sync::test_utils::create_streams_with_addrs_and_lag;
 use std::time::Duration;
@@ -23,11 +23,11 @@ const ATTEMPT: Duration = Duration::from_secs(4);
 const SKEW: Duration = Duration::from_millis(3400);
 
 async fn punch(endpoint: &netbeam::sync::network_endpoint::NetworkEndpoint) -> Result<(), String> {
-    UdpHolePuncher::new_timeout(
+    UdpHolePuncher::new(
         endpoint,
         Default::default(),
         crate::stun_servers::unanswered_loopback(),
-        ATTEMPT,
+        PunchBudget::per_attempt(ATTEMPT),
     )
     .await
     .map(|_| ())

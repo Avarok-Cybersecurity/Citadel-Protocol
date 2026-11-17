@@ -9,7 +9,9 @@
 
 use bytes::Bytes;
 use citadel_io::tokio;
-use citadel_wire::udp_traversal::udp_hole_puncher::{UdpHolePuncher, PAIRED_ATTEMPTS_HELLO};
+use citadel_wire::udp_traversal::udp_hole_puncher::{
+    PunchBudget, UdpHolePuncher, HOLE_PUNCH_CONTROL, PAIRED_ATTEMPTS_HELLO,
+};
 use futures::Future;
 use netbeam::reliable_conn::{
     ConnAddr, ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt,
@@ -132,7 +134,13 @@ async fn a_failed_punch_is_reported_without_a_backtrace() {
     // Joins each attempt the local side announces, and answers its NAT type
     // with garbage, so every attempt fails with an error.
     let peer = async {
-        let control = Arc::new(remote.initiate_subscription().await.unwrap());
+        let control = Arc::new(
+            remote
+                .on(HOLE_PUNCH_CONTROL)
+                .initiate_subscription()
+                .await
+                .unwrap(),
+        );
         let addrs = (remote.local_addr().unwrap(), remote.peer_addr().unwrap());
         let next = Arc::new(tokio::sync::watch::channel(None).0);
         control.send_to_peer(PAIRED_ATTEMPTS_HELLO).await.unwrap();
@@ -153,9 +161,10 @@ async fn a_failed_punch_is_reported_without_a_backtrace() {
                 next: next.clone(),
                 addrs,
             };
-            let endpoint = NetworkEndpoint::register(remote.node_type(), lane)
-                .await
-                .unwrap();
+            let endpoint =
+                NetworkEndpoint::register(remote.node_type(), lane, remote.wire_revision())
+                    .await
+                    .unwrap();
             let stream = endpoint.initiate_subscription().await.unwrap();
             let _local_nat_type = stream.recv().await.unwrap();
             stream.send_to_peer(b"not a NatType").await.unwrap();
@@ -177,8 +186,12 @@ async fn a_failed_punch_is_reported_without_a_backtrace() {
         "127.0.0.1:3480",
     ])
     .unwrap();
-    let punch =
-        UdpHolePuncher::new_timeout(&local, Default::default(), stun, Duration::from_secs(20));
+    let punch = UdpHolePuncher::new(
+        &local,
+        Default::default(),
+        stun,
+        PunchBudget::per_attempt(Duration::from_secs(20)),
+    );
     let result = tokio::select! {
         result = tokio::time::timeout(Duration::from_secs(60), punch) => {
             result.expect("the punch neither succeeded nor failed")

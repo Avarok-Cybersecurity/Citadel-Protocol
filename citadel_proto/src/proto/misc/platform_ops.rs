@@ -94,7 +94,8 @@ pub trait PlatformOps: ProtocolIO {
 
     // ── Hole punching ──
 
-    /// Perform C2S UDP hole punch via `NetworkEndpoint` + encrypted hole punch.
+    /// Perform C2S UDP hole punch via `NetworkEndpoint` + encrypted hole punch, over an endpoint
+    /// speaking `wire` (see `coordination::coordination_wire`).
     /// Returns the resulting UDP interface, or `None` if unavailable.
     /// Default: returns `Ok(None)` (hole punching not available).
     fn c2s_hole_punch<R: Ratchet>(
@@ -104,6 +105,7 @@ pub trait PlatformOps: ProtocolIO {
         target_cid: u64,
         stun_servers: citadel_wire::stun_servers::StunServers,
         node_type: RelativeNodeType,
+        wire: netbeam::sync::wire::WireRevision,
     ) -> impl Future<Output = Result<Option<UdpSplittableTypes>, NetworkError>> + ContextRequirements
     {
         async move {
@@ -114,6 +116,7 @@ pub trait PlatformOps: ProtocolIO {
                 target_cid,
                 stun_servers,
                 node_type,
+                wire,
             );
             Ok(None)
         }
