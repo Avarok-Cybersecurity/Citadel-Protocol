@@ -62,6 +62,7 @@ use crate::proto::packet_processor::primary_group_packet::{
 use crate::proto::peer::hole_punch_compat_sink_stream::{
     CompatStreamKey, ReliableOrderedCompatStream,
 };
+use crate::proto::peer::p2p_seal_binding::{exchange_psks, P2pSealContext};
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
     CitadelNodePeerLayerInner, ClientConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
@@ -571,13 +572,24 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         }
                                     }
 
-                                    let session_password =
-                                        state_container.get_session_password(peer_cid).cloned();
-                                    if session_password.is_none() {
-                                        log::error!(target: "citadel", "The session password locally is set to None. This is a development issue, please report");
-                                    }
-
-                                    let session_password = session_password.unwrap_or_default();
+                                    // This node stores a session password for a peer only
+                                    // when it asks to connect or accepts the peer's request, so
+                                    // without one there is no request this exchange answers.
+                                    let Some(session_password) =
+                                        state_container.get_session_password(peer_cid).cloned()
+                                    else {
+                                        log::warn!(target: "citadel", "Refusing a key exchange from {peer_cid}: no connection request with it");
+                                        return Ok(PrimaryProcessorResult::Void);
+                                    };
+                                    let psks = exchange_psks(
+                                        &session_password,
+                                        P2pSealContext {
+                                            initiator: peer_cid,
+                                            responder: conn.get_original_target_cid(),
+                                            connection: *p2p_connection_id,
+                                        },
+                                        *peer_protocol_version,
+                                    );
 
                                     let mut bob_constructor = return_if_none!(
                                         <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
@@ -587,7 +599,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 session_security_settings.security_level,
                                             ),
                                             transfer_deser,
-                                            session_password.as_ref(),
+                                            &psks,
                                         )
                                     );
                                     let transfer = return_if_none!(bob_constructor.stage0_bob());
@@ -700,10 +712,18 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             "bad deser"
                                         );
 
-                                        if let Err(err) = alice_constructor.stage1_alice(
-                                            deser,
-                                            kem_state.session_password.as_ref(),
-                                        ) {
+                                        let psks = exchange_psks(
+                                            &kem_state.session_password,
+                                            P2pSealContext {
+                                                initiator: this_cid,
+                                                responder: peer_cid,
+                                                connection: kem_state.p2p_connection_id,
+                                            },
+                                            *peer_protocol_version,
+                                        );
+                                        if let Err(err) =
+                                            alice_constructor.stage1_alice(deser, &psks)
+                                        {
                                             log::warn!(target: "citadel", "Failed to complete key exchange for {session_cid} | Wrong session passwords? Err: {err:?}");
                                             send_dc_signal_peer(
                                                 session,
