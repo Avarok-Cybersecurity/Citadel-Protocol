@@ -1244,4 +1244,7 @@ pub enum ErrorCode {
     /// (sender cid, limit, peer cid).
     #[form = "{} already holds {} signals for offline peer {}; this one was not held"]
     MailboxSenderAtCap = 432,
+    /// A session already has the most routed requests awaiting an answer it may have (cid, limit).
+    #[form = "Session {} already has {} requests awaiting an answer; this one was not routed"]
+    PendingRequestsAtCap = 433,
 }

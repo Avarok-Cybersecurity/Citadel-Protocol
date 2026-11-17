@@ -1923,6 +1923,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         if session_cid == target_cid {
             return Err("Target CID cannot be equal to the implicated CID".to_string());
         }
+        peer_layer
+            .admit_posting(session_cid)
+            .map_err(|err| err.into_string())?;
 
         let (account_manager, peer_sess) = {
             let this = inner!(self);

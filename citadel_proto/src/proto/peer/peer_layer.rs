@@ -123,6 +123,11 @@ pub const SIMULTANEOUS_DEREGISTER_WINDOW: Duration = Duration::from_secs(30);
 /// most, so the oldest beyond this has long since settled.
 pub const MAX_CROSSED_TICKET_MAPPINGS_PER_SESSION: usize = 64;
 
+/// The most routed requests one session may have awaiting an answer at once. An invitation
+/// waits up to an hour; an application inviting or dialling more peers than this at once is
+/// asking the server to hold its requests faster than peers answer them.
+pub const MAX_PENDING_POSTINGS_PER_SESSION: usize = 256;
+
 #[derive(Clone)]
 pub struct CitadelNodePeerLayer<R: Ratchet> {
     pub(crate) inner: std::sync::Arc<citadel_io::tokio::sync::RwLock<CitadelNodePeerLayerInner<R>>>,
@@ -639,6 +644,24 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
             } => Some(*session_security_settings),
             _ => None,
         }
+    }
+
+    /// Whether `session_cid` may route one more request that awaits an answer: it holds fewer
+    /// than [`MAX_PENDING_POSTINGS_PER_SESSION`].
+    pub fn admit_posting(&self, session_cid: u64) -> Result<(), NetworkError> {
+        let held = self
+            .inner
+            .read()
+            .observed_postings
+            .get(&session_cid)
+            .map_or(0, HashMap::len);
+        if held >= MAX_PENDING_POSTINGS_PER_SESSION {
+            return Err(error!(
+                ErrorCode::PendingRequestsAtCap,
+                session_cid, MAX_PENDING_POSTINGS_PER_SESSION
+            ));
+        }
+        Ok(())
     }
 
     /// Posts `session_cid`'s deregistration (`peer_conn_type`), done, for the other side's

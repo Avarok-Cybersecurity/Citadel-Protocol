@@ -104,3 +104,28 @@ async fn a_sessions_crossed_dial_mappings_are_bounded_and_end_with_it() {
         .simultaneous_ticket_mappings
         .contains_key(&ALICE));
 }
+
+#[tokio::test]
+async fn a_session_cannot_have_more_requests_pending_than_the_cap() {
+    let layer = layer().await;
+    let inner = layer.inner.write().await;
+    let mut admitted = 0;
+    for n in 0..1_000u128 {
+        if inner.admit_posting(ALICE).is_ok() {
+            inner
+                .post_deregistration(
+                    ALICE,
+                    Ticket(n),
+                    PeerConnectionType::LocalGroupPeer {
+                        session_cid: ALICE,
+                        peer_cid: BOB,
+                    },
+                )
+                .await;
+            admitted += 1;
+        }
+    }
+    assert_eq!(admitted, MAX_PENDING_POSTINGS_PER_SESSION);
+    // The cap is per session.
+    assert!(inner.admit_posting(BOB).is_ok());
+}
