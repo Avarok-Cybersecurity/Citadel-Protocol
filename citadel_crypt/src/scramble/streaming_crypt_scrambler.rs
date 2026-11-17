@@ -237,7 +237,10 @@ pub fn scramble_encrypt_source<
     let total_groups = Integer::div_ceil(&object_len, &max_bytes_per_group);
 
     log::trace!(target: "citadel", "Will parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, object_len, (object_len as f32)/(1024f32*1024f32), total_groups);
-    let reader = BufReader::with_capacity(std::cmp::min(object_len, max_bytes_per_group), source);
+    let reader = Arc::new(Mutex::new(BufReader::with_capacity(
+        std::cmp::min(object_len, max_bytes_per_group),
+        source,
+    )));
 
     let buffer = Arc::new(Mutex::new(vec![
         0u8;
@@ -289,13 +292,20 @@ async fn stopper(stop: Receiver<()>) -> Result<(), CryptError> {
         .map_err(|err| CryptError::encrypt(err.to_string()))
 }
 
-async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet>(
+/// Forwards each group to the sender. A group that fails to read or scramble ends the transfer
+/// with that error, which the caller forwards, so a failed transfer is never reported as complete.
+async fn file_streamer<
+    F: HeaderInscriberFn,
+    R: Read + Send + 'static,
+    const N: usize,
+    Ra: Ratchet,
+>(
     group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>,
     mut file_scrambler: AsyncCryptScrambler<F, R, N, Ra>,
 ) -> Result<(), CryptError> {
     while let Some(val) = file_scrambler.next().await {
         group_sender
-            .send(Ok(val))
+            .send(Ok(val?))
             .await
             .map_err(|err| CryptError::encrypt(err.to_string()))?;
     }
@@ -305,7 +315,8 @@ async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratche
 
 #[allow(dead_code)]
 struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> {
-    reader: BufReader<R>,
+    /// Read on the scrambling task, not the async one, so a slow source never blocks the runtime.
+    reader: Arc<Mutex<BufReader<R>>>,
     ratchet: Ra,
     static_aux_ratchet: Ra,
     security_level: SecurityLevel,
@@ -347,23 +358,35 @@ fn scramble_off_task<const N: usize>(
     }
 }
 
-impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScrambler<F, R, N, Ra> {
+impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet>
+    AsyncCryptScrambler<F, R, N, Ra>
+{
     fn poll_task(
         groups_rendered: &mut usize,
         read_cursor: &mut usize,
         poll_amt: usize,
         cur_task: &mut Option<GroupTask<N>>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<GroupSenderDevice<N>>> {
-        let res = futures::ready!(cur_task.as_mut().unwrap().as_mut().poll(cx));
-        if let Ok(Ok(sender)) = res {
-            *groups_rendered += 1;
-            *read_cursor += poll_amt;
-            *cur_task = None;
-            Poll::Ready(Some(sender))
-        } else {
-            log::error!(target: "citadel", "Unable to par_scramble_encrypt group");
-            Poll::Ready(None)
+    ) -> Poll<Option<Result<GroupSenderDevice<N>, CryptError>>> {
+        let Some(task) = cur_task.as_mut() else {
+            return Poll::Ready(None);
+        };
+        let res = futures::ready!(task.as_mut().poll(cx));
+        *cur_task = None;
+        match res {
+            Ok(Ok(sender)) => {
+                *groups_rendered += 1;
+                *read_cursor += poll_amt;
+                Poll::Ready(Some(Ok(sender)))
+            }
+            Ok(Err(err)) => {
+                log::error!(target: "citadel", "Unable to read or scramble group: {err}");
+                Poll::Ready(Some(Err(err)))
+            }
+            Err(join_err) => Poll::Ready(Some(Err(citadel_io::error!(
+                citadel_io::ErrorCode::GroupScrambleFailed,
+                join_err
+            )))),
         }
     }
 }
@@ -373,11 +396,13 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> Unpin
 {
 }
 
-impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScrambler<F, R, N, Ra> {
+impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet>
+    AsyncCryptScrambler<F, R, N, Ra>
+{
     fn poll_scramble_next_group(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<GroupSenderDevice<N>>> {
+    ) -> Poll<Option<Result<GroupSenderDevice<N>, CryptError>>> {
         let Self {
             ratchet,
             static_aux_ratchet,
@@ -406,43 +431,41 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScram
         if *read_cursor != *file_len {
             let remaining = *file_len - *read_cursor;
             let poll_len = std::cmp::min(remaining, *max_bytes_per_group);
-            let mut lock = buffer.lock();
-            let bytes = &mut lock[..poll_len];
-            if reader.read_exact(bytes).is_ok() {
-                let group_id_input = *group_id + (*groups_rendered as u64);
-                drop(lock);
-                let header_inscriber = header_inscriber.clone();
-                let buffer = buffer.clone();
-                let security_level = *security_level;
-                let ratchet = ratchet.clone();
-                let static_aux_ratchet = static_aux_ratchet.clone();
-                let header_size_bytes = *header_size_bytes;
-                let target_cid = *target_cid;
-                let object_id = *object_id;
-                let transfer_type = transfer_type.clone();
+            let group_id_input = *group_id + (*groups_rendered as u64);
+            let reader = reader.clone();
+            let header_inscriber = header_inscriber.clone();
+            let buffer = buffer.clone();
+            let security_level = *security_level;
+            let ratchet = ratchet.clone();
+            let static_aux_ratchet = static_aux_ratchet.clone();
+            let header_size_bytes = *header_size_bytes;
+            let target_cid = *target_cid;
+            let object_id = *object_id;
+            let transfer_type = transfer_type.clone();
 
-                let task = scramble_off_task(move || {
-                    par_scramble_encrypt_group(
-                        &buffer.lock()[..poll_len],
-                        security_level,
-                        &ratchet,
-                        &static_aux_ratchet,
-                        header_size_bytes,
-                        target_cid,
-                        object_id,
-                        group_id_input,
-                        transfer_type,
-                        |a, b, c, d, e| (header_inscriber)(a, b, c, d, e),
-                    )
-                });
+            let task = scramble_off_task(move || {
+                let mut buffer = buffer.lock();
+                let bytes = &mut buffer[..poll_len];
+                reader.lock().read_exact(bytes).map_err(|err| {
+                    citadel_io::error!(citadel_io::ErrorCode::ObjectSourceReadFailed, err)
+                })?;
+                par_scramble_encrypt_group(
+                    bytes,
+                    security_level,
+                    &ratchet,
+                    &static_aux_ratchet,
+                    header_size_bytes,
+                    target_cid,
+                    object_id,
+                    group_id_input,
+                    transfer_type,
+                    |a, b, c, d, e| (header_inscriber)(a, b, c, d, e),
+                )
+            });
 
-                *cur_task = Some(task);
-                *poll_amt = poll_len;
-                Self::poll_task(groups_rendered, read_cursor, *poll_amt, cur_task, cx)
-            } else {
-                log::error!(target: "citadel", "Error polling exact amt {poll_len}");
-                Poll::Ready(None)
-            }
+            *cur_task = Some(task);
+            *poll_amt = poll_len;
+            Self::poll_task(groups_rendered, read_cursor, *poll_amt, cur_task, cx)
         } else {
             log::trace!(target: "citadel", "Done rendering all groups!");
             Poll::Ready(None)
@@ -450,10 +473,10 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> AsyncCryptScram
     }
 }
 
-impl<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ratchet> Stream
+impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet> Stream
     for AsyncCryptScrambler<F, R, N, Ra>
 {
-    type Item = GroupSenderDevice<N>;
+    type Item = Result<GroupSenderDevice<N>, CryptError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.poll_scramble_next_group(cx)
