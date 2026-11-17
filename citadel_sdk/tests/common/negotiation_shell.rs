@@ -50,7 +50,11 @@ pub struct Shell {
     pub applies: Arc<AtomicUsize>,
     pub drops: Arc<AtomicUsize>,
     pub unopened: Arc<AtomicUsize>,
+    /// Key rounds the peer refused: a round it held for a later step is never one.
+    pub refusals: Arc<AtomicUsize>,
     pub floors: watch::Receiver<Option<Epoch>>,
+    /// How many of the peer's steered rounds the negotiator answered `Wait`.
+    pub held: watch::Receiver<usize>,
 }
 
 impl Shell {
@@ -70,7 +74,8 @@ impl Shell {
         let neg = Arc::new(Mutex::new(Negotiator::new(config).expect("valid config")));
         let port = Arc::new(KeyEpochPort::new(handle.clone(), &policy()));
         let stepped = Arc::new(Notify::new());
-        let mut rounds = port.install_gate(Arc::new(Admit(neg.clone())), stepped.clone());
+        let (held_tx, held) = watch::channel(0);
+        let mut rounds = port.install_gate(Arc::new(Admit(neg.clone(), held_tx)), stepped.clone());
         let (tx, mut rx) = channel.split();
         let tx: Send = Arc::new(tokio::sync::Mutex::new(tx));
         let (inputs, mut input_rx) = unbounded_channel();
@@ -78,7 +83,7 @@ impl Shell {
         let (app_tx, app) = unbounded_channel();
         let (release, mut released) = watch::channel(true);
         let (floors_tx, floors) = watch::channel(None);
-        let (applies, drops, unopened) = Default::default();
+        let (applies, drops, unopened, refusals) = Default::default();
         let shell = Shell {
             inputs: inputs.clone(),
             events,
@@ -89,7 +94,9 @@ impl Shell {
             applies,
             drops,
             unopened,
+            refusals,
             floors,
+            held,
         };
 
         let (round_inputs, round_port) = (inputs.clone(), port.clone());
@@ -130,7 +137,11 @@ impl Shell {
             }
         });
 
-        let (applies, drops) = (shell.applies.clone(), shell.drops.clone());
+        let (applies, drops, refusals) = (
+            shell.applies.clone(),
+            shell.drops.clone(),
+            shell.refusals.clone(),
+        );
         let conn = handle.connection_id();
         let start = Instant::now();
         spawn(async move {
@@ -139,7 +150,12 @@ impl Shell {
                 let input = match input {
                     ShellInput::Request(value) => Input::Request(value),
                     ShellInput::Frame(envelope) => Input::Recv(envelope),
-                    ShellInput::Outcome(epoch, outcome) => Input::KeyOutcome { epoch, outcome },
+                    ShellInput::Outcome(epoch, outcome) => {
+                        if matches!(outcome, KeyExchangeOutcome::Refused(_)) {
+                            refusals.fetch_add(1, Ordering::SeqCst);
+                        }
+                        Input::KeyOutcome { epoch, outcome }
+                    }
                     ShellInput::Tick => Input::Tick,
                 };
                 let (commands, wake) = {

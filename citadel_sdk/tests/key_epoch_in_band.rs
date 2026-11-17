@@ -72,7 +72,7 @@ mod tests {
             channel_from(Some(dial), &mut events).await
         };
         let connection = channel.connection_id();
-        let (hook, crossing_rekey) = match scenario {
+        let (hook, mut crossing_rekey) = match scenario {
             Scenario::Crossing if !leads => {
                 let (hook, done) = crossing_hook(target.clone());
                 (Some(hook), Some(done))
@@ -112,9 +112,23 @@ mod tests {
             Scenario::Crossing => {
                 send_numbered(&shell, tag, 0, 50).await;
                 if !leads {
+                    // The Accept is held back, so the Leader's steered round can reach this side
+                    // before it has seen the Accept: the gate must hold that round for the
+                    // later step, not refuse it.
+                    shell.hold_inbound();
                     shell.request(profile(SecurityLevel::Extreme));
                 }
                 send_numbered(&shell, tag, 50, 50).await;
+                if let Some(done) = crossing_rekey.take() {
+                    // Released once the Leader's round is held here, or once the plain rekey
+                    // won the crossing and resolved (its round then supersedes the Leader's).
+                    let mut held = shell.held.clone();
+                    tokio::select! {
+                        res = held.wait_for(|n| *n > 0) => { res.expect("the shell is running"); }
+                        res = done => { res.expect("the plain rekey resolves"); }
+                    }
+                    shell.release_inbound();
+                }
                 SecurityLevel::Extreme
             }
         };
@@ -135,10 +149,6 @@ mod tests {
             }
             Scenario::Crossing => {
                 receive_numbered(&mut shell, peer_tag, 100).await;
-                if let Some(done) = crossing_rekey {
-                    let version = tokio::time::timeout(DEADLINE, done).await.unwrap().unwrap();
-                    assert!(version.is_some(), "the plain rekey crossing the round ran");
-                }
                 100
             }
         };

@@ -107,6 +107,11 @@ pub fn assert_stayed_in_band(
     events: &mut Events,
     seen: &[NegotiationState<KeyProfile>],
 ) {
+    assert_eq!(
+        shell.refusals.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "{me}'s peer refused no key round"
+    );
     let negotiated = shell.handle.negotiated().expect("a profile");
     assert_eq!(
         negotiated.level().value(),

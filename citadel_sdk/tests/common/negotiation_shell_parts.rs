@@ -18,11 +18,19 @@ pub fn policy() -> NegotiationPolicy {
     }
 }
 
-pub struct Admit(pub Arc<Mutex<Negotiator<KeyProfile>>>);
+/// The negotiator's answer to the gate; `held` counts the rounds it answered `Wait`.
+pub struct Admit(
+    pub Arc<Mutex<Negotiator<KeyProfile>>>,
+    pub tokio::sync::watch::Sender<usize>,
+);
 
 impl RoundAdmitter for Admit {
     fn admit_key_round(&self, epoch: Epoch, profile: &KeyProfile) -> RoundAdmission {
-        self.0.lock().unwrap().admit_key_round(epoch, profile)
+        let admission = self.0.lock().unwrap().admit_key_round(epoch, profile);
+        if admission == RoundAdmission::Wait {
+            self.1.send_modify(|held| *held += 1);
+        }
+        admission
     }
 }
 
