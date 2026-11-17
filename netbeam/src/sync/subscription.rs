@@ -42,6 +42,8 @@ use crate::reliable_conn::ReliableOrderedStreamToTarget;
 use crate::sync::network_application::{
     PostActionChannel, PostActionSync, PreActionChannel, PreActionSync,
 };
+use crate::sync::pairing::Pairing;
+use crate::sync::wire::{Topic, WireRevision};
 use crate::sync::RelativeNodeType;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -59,19 +61,22 @@ pub trait SubscriptionBiStream: Send + Sync {
     fn receiver(&self) -> &Mutex<UnboundedReceiver<Vec<u8>>>;
     fn id(&self) -> Self::ID;
     fn node_type(&self) -> RelativeNodeType;
+    fn wire_revision(&self) -> WireRevision;
 }
 
 #[async_trait]
 pub trait SubscriptionBiStreamExt: SubscriptionBiStream {
     /// Creates a new multiplexed level capable of obtaining more subscribers.
-    /// Uses Self as a reliable ordered connection, while using NewId to identify the substreams in the created next level
+    /// Uses Self as a reliable ordered connection, while using NewId to identify the substreams in the created next level.
+    /// The new level speaks the same [`WireRevision`] as this one.
     async fn multiplex<NewID: MultiplexedConnKey + 'static>(
         self,
     ) -> Result<MultiplexedConn<NewID>, anyhow::Error>
     where
         Self: Sized + 'static,
     {
-        MultiplexedConn::register(self.node_type(), self).await
+        let wire = self.wire_revision();
+        MultiplexedConn::register(self.node_type(), self, wire).await
     }
 }
 
@@ -94,8 +99,16 @@ pub trait Subscribable: Send + Sync + Sized {
     async fn recv_post_close_signal_from_stream(&self, id: Self::ID) -> Result<(), anyhow::Error>;
     async fn send_post_close_signal(&self, id: Self::ID) -> Result<(), anyhow::Error>;
     async fn send_pre_open_signal(&self, id: Self::ID) -> Result<(), anyhow::Error>;
+    async fn send_open(&self, topic: Topic, id: Self::ID) -> Result<(), anyhow::Error>;
+    async fn send_open_ack(&self, id: Self::ID) -> Result<(), anyhow::Error>;
 
     fn node_type(&self) -> RelativeNodeType;
+    fn wire_revision(&self) -> WireRevision;
+    /// The topic [`Self::initiate_subscription`] opens on.
+    fn topic(&self) -> Topic;
+    fn pairing(&self) -> &Pairing<Self::ID>;
+    /// Whether the transport has ended, so nothing more can arrive from the peer.
+    fn transport_closed(&self) -> bool;
 
     fn initiate_subscription(&self) -> PreActionSync<'_, Self, Self::UnderlyingConn> {
         PreActionSync::new(self)
@@ -151,16 +164,35 @@ pub(crate) fn close_sequence_for_multiplexed_bistream<
         log::trace!(target: "citadel", "DROPPED id = {id:?}");
     }
 
-    // the runtime may not exist while dropping
-    if let Ok(rt) = citadel_io::tokio::runtime::Handle::try_current() {
-        rt.spawn(async move {
-            if let Err(err) = PostActionSync::new(&ptr, id).await {
-                log::warn!(target: "citadel", "[MetaActionSync/close] error: {:?}", err.to_string())
-            }
+    // With the transport gone the peer can take no part in the close, so there is nothing to
+    // wait for; the runtime may also not exist while dropping.
+    let runtime = citadel_io::tokio::runtime::Handle::try_current();
+    match runtime {
+        Ok(rt) if !ptr.transport_closed() => {
+            rt.spawn(async move {
+                if let Err(err) = PostActionSync::new(&ptr, id).await {
+                    // A transport that ended mid-close is ordinary teardown, not a fault.
+                    if ended_with_the_transport(&ptr, &err) {
+                        log::trace!(target: "citadel", "[MetaActionSync/close] {id:?} ended with the transport: {err}")
+                    } else {
+                        log::warn!(target: "citadel", "[MetaActionSync/close] error: {:?}", err.to_string())
+                    }
+                }
 
-            close(id, &ptr)
-        });
-    } else {
-        close(id, &ptr);
+                close(id, &ptr)
+            });
+        }
+        _ => close(id, &ptr),
     }
+}
+
+/// Whether a close failed only because the transport ended: its half could not be sent, or the
+/// peer's half can no longer arrive (the signal is dropped only when the transport ends, see
+/// `PostActionChannel::close_all`). Either may be seen before the reader marks the transport closed.
+fn ended_with_the_transport<S: Subscribable>(ptr: &S, err: &anyhow::Error) -> bool {
+    ptr.transport_closed()
+        || err.downcast_ref::<std::io::Error>().is_some()
+        || err
+            .downcast_ref::<citadel_io::tokio::sync::oneshot::error::RecvError>()
+            .is_some()
 }

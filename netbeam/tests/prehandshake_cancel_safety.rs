@@ -22,10 +22,14 @@ use netbeam::multiplex::OwnedMultiplexedSubscription;
 use netbeam::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use netbeam::sync::network_application::NetworkApplication;
 use netbeam::sync::subscription::{Subscribable, SubscriptionBiStream};
+use netbeam::sync::wire::WireRevision;
 use netbeam::sync::RelativeNodeType;
 use std::time::Duration;
 
 const PRE_RESERVED: usize = 32;
+/// These properties belong to the count-paired wire's PreCreate handshake, which a peer on that
+/// wire still runs; the exchanged wire has no pre-reserved ids and its own tests.
+const WIRE: WireRevision = WireRevision::CountPaired;
 const DEADLOCK_PROBE: Duration = Duration::from_secs(3600);
 
 struct MemPipe {
@@ -76,8 +80,8 @@ async fn connected_pair_past_prereserved() -> (
 ) {
     let (a, b) = mem_pipe_pair();
     let (receiver, initiator) = citadel_io::tokio::join!(
-        NetworkApplication::register(RelativeNodeType::Receiver, a),
-        NetworkApplication::register(RelativeNodeType::Initiator, b)
+        NetworkApplication::register(RelativeNodeType::Receiver, a, WIRE),
+        NetworkApplication::register(RelativeNodeType::Initiator, b, WIRE)
     );
     let (receiver, initiator) = (receiver.unwrap(), initiator.unwrap());
     let mut r_reserved = Vec::new();
