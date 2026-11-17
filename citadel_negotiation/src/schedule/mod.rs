@@ -29,6 +29,8 @@ pub struct World<S: Setting> {
     pub steps: usize,
     /// Every value either side put in a `Propose`.
     pub sent: Vec<S>,
+    /// Who triggered a key round, for which epoch: only the Leader may (D2).
+    pub triggered: Vec<(Side, Epoch)>,
 }
 
 impl<S: Setting> World<S> {
@@ -54,6 +56,7 @@ impl<S: Setting> World<S> {
             dropped: false,
             steps: 0,
             sent: Vec::new(),
+            triggered: Vec::new(),
         }
     }
 
@@ -198,11 +201,14 @@ impl<S: Setting> World<S> {
                 });
             }
             Command::Send(_) => {}
-            Command::ApplyKeyEpoch { epoch, value } => self.rounds.push(Round {
-                leader: side,
-                epoch,
-                value,
-            }),
+            Command::ApplyKeyEpoch { epoch, value } => {
+                self.triggered.push((side, epoch));
+                self.rounds.push(Round {
+                    leader: side,
+                    epoch,
+                    value,
+                });
+            }
             Command::ApplyLocal { epoch, .. } => self.local.push((side, epoch)),
             Command::RaiseFloor { epoch } => self.party_mut(side).floors.push(epoch),
             Command::Drop { reason, next } => {

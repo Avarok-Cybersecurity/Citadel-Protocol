@@ -43,7 +43,8 @@ impl<S: Setting> World<S> {
     ///
     /// * Either the connection was dropped deliberately, or both sides are idle at the same
     ///   epoch and value.
-    /// * Each side applied each epoch at most once, in order.
+    /// * Each side applied each epoch at most once, in order, and only one side ever triggered
+    ///   the key round of an epoch.
     /// * With `raise_only` (an ordered setting whose minimum follows the agreed value):
     ///   no side's value ever went down (P1), the final value is the merge of the initial value
     ///   and every proposal either side sent (nothing proposed was lost), and a fallback never
@@ -79,6 +80,13 @@ impl<S: Setting> World<S> {
                     }
                 }
             }
+        }
+        if let Some((_, epoch)) = self
+            .triggered
+            .iter()
+            .find(|(side, epoch)| self.triggered.contains(&(side.other(), *epoch)))
+        {
+            return Err(format!("both sides triggered a key round for {epoch:?}"));
         }
         if self.dropped {
             return Ok(());
