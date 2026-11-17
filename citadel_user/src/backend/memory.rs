@@ -155,7 +155,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
             .ok_or(AccountError::account_client_non_exists(cid0))?;
         let cnac1 = read
             .get(&cid1)
-            .ok_or(AccountError::account_client_non_exists(cid0))?;
+            .ok_or(AccountError::account_client_non_exists(cid1))?;
         cnac0.register_hyperlan_p2p_as_server(cnac1)
     }
 
@@ -181,7 +181,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
             .ok_or(AccountError::account_client_non_exists(cid0))?;
         let cnac1 = read
             .get(&cid1)
-            .ok_or(AccountError::account_client_non_exists(cid0))?;
+            .ok_or(AccountError::account_client_non_exists(cid1))?;
 
         cnac0.deregister_hyperlan_p2p_as_server(cnac1)
     }

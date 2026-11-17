@@ -1215,4 +1215,9 @@ pub enum ErrorCode {
     /// A group asked for relay options (ephemeral delivery, message limits) its server predates.
     #[form = "The server predates group relay options (ephemeral delivery, message limits) and would ignore them; the group was not created"]
     GroupRelayOptionsUnsupported = 393,
+
+    // --- citadel_user: the account layer ---
+    /// An account was asked to record itself as its own peer (cid).
+    #[form = "An account cannot be registered as its own peer (cid {})"]
+    PeerRegisterSelf = 460,
 }
