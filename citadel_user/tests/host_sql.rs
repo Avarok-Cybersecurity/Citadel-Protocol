@@ -197,6 +197,38 @@ async fn deleting_an_account_removes_its_pairs_and_byte_map() {
 }
 
 #[tokio::test]
+async fn values_stored_about_a_deleted_account_are_dropped() {
+    let host = SqliteHost::handle();
+    let backend = connected(&host).await;
+    let (gone, stays) = (7u64, 8u64);
+    seed_account(&host, gone, "gone").await;
+    seed_account(&host, stays, "stays").await;
+    backend.register_p2p_as_server(gone, stays).await.unwrap();
+    for peer in [gone, 0] {
+        let _ = backend
+            .store_byte_map_value(stays, peer, "k", "s", b"v".to_vec())
+            .await
+            .unwrap();
+    }
+
+    backend.delete_cnac_by_cid(gone).await.unwrap();
+
+    assert_eq!(
+        backend
+            .get_byte_map_value(stays, gone, "k", "s")
+            .await
+            .unwrap(),
+        None,
+        "a value stored about the deleted account survived it"
+    );
+    assert!(backend
+        .get_byte_map_value(stays, 0, "k", "s")
+        .await
+        .unwrap()
+        .is_some());
+}
+
+#[tokio::test]
 async fn pairing_with_an_unknown_account_is_refused_and_writes_nothing() {
     let host = SqliteHost::handle();
     let backend = connected(&host).await;

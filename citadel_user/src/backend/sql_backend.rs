@@ -191,12 +191,17 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         // The following commands below allow us to remove entries and automatically remove corresponding values
         let cmd4 = match self.variant {
             SqlVariant::MySQL => {
-                let _ = conn
-                    .execute("DROP TRIGGER IF EXISTS post_cid_delete")
-                    .await
-                    .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
+                for trigger in ["post_cid_delete", "post_cid_delete_bytemap"] {
+                    let _ = conn
+                        .execute(&*format!("DROP TRIGGER IF EXISTS {trigger}"))
+                        .await
+                        .map_err(|e| {
+                            citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string())
+                        })?;
+                }
 
-                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid"
+                // One single-statement trigger per table, so no body needs BEGIN ... END.
+                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; CREATE TRIGGER post_cid_delete_bytemap AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM bytemap WHERE bytemap.cid = old.cid OR bytemap.peer_cid = old.cid"
             }
 
             SqlVariant::Sqlite => {
@@ -205,7 +210,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                     .await
                     .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
-                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; END"
+                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; DELETE FROM bytemap WHERE bytemap.cid = old.cid OR bytemap.peer_cid = old.cid; END"
             }
 
             SqlVariant::Postgre => {
@@ -218,7 +223,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                     .await
                     .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
-                let create_function = "CREATE OR REPLACE FUNCTION post_cid_delete() RETURNS TRIGGER LANGUAGE PLPGSQL AS $$ BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; RETURN NULL; END; $$";
+                let create_function = "CREATE OR REPLACE FUNCTION post_cid_delete() RETURNS TRIGGER LANGUAGE PLPGSQL AS $$ BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; DELETE FROM bytemap WHERE bytemap.cid = old.cid OR bytemap.peer_cid = old.cid; RETURN NULL; END; $$";
                 let _ = conn
                     .execute(create_function)
                     .await
@@ -227,8 +232,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                 "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW EXECUTE PROCEDURE post_cid_delete()"
             }
         };
-
-        // TODO: Create trigger for byte_map
 
         let joined: String = [cmd, cmd2, cmd3, cmd4.to_string()].join(";");
         let _result = conn
