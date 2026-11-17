@@ -659,7 +659,7 @@ mod native {
 
         let ip_info_future = async move {
             match citadel_io::time::timeout(
-                Duration::from_millis(2000),
+                async_ip::EXTERNAL_IP_LOOKUP_TIMEOUT,
                 async_ip::get_all_multi_concurrent(None),
             )
             .await
