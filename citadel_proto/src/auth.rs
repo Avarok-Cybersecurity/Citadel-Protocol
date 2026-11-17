@@ -44,13 +44,17 @@
 //! - `proto::validation`: Authentication validation
 //!
 
+#[cfg(feature = "security-key")]
+pub use crate::proto::pq_sign_in::security_key::SecurityKey;
+#[cfg(all(feature = "security-key", not(target_family = "wasm")))]
+pub use crate::proto::pq_sign_in::security_key::SecurityKeyPrompt;
 pub use crate::proto::pq_sign_in::security_key::{
     security_key_channel, SecurityKeyChallenge, SecurityKeyPrf, SecurityKeyPurpose,
     KEY_PRESENCE_WINDOW,
 };
 use citadel_types::crypto::SecBuffer;
 use citadel_types::user::UserIdentifier;
-pub use citadel_user::auth::pq::client::SecurityKeyRequest;
+pub use citadel_user::auth::pq::client::{SecurityKeyCeremony, SecurityKeyRequest};
 use citadel_user::auth::pq::recovery::RecoveryCode;
 use citadel_user::misc::AccountError;
 use serde::{Deserialize, Serialize};

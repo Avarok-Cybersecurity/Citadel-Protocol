@@ -16,9 +16,17 @@ use citadel_types::auth::SessionScope;
 use citadel_types::crypto::SecBuffer;
 
 pub(crate) const CID: u64 = 0x0C1D_ADE1;
+pub(crate) const RP_ID: &str = "example.com";
+
+/// A server without security keys.
+pub(crate) fn settings_without_keys() -> PqAuthServerSettings {
+    PqAuthServerSettings::new(OprfSeed::from_bytes([42u8; 32]), KsfParams::FLOOR).unwrap()
+}
 
 pub(crate) fn settings() -> PqAuthServerSettings {
-    PqAuthServerSettings::new(OprfSeed::from_bytes([42u8; 32]), KsfParams::FLOOR).unwrap()
+    settings_without_keys()
+        .with_security_key_rp_id(RP_ID)
+        .unwrap()
 }
 
 pub(crate) fn password(text: &str) -> SecBuffer {

@@ -22,7 +22,9 @@ pub type Slot = Arc<Mutex<Option<NodeRemote<StackedRatchet>>>>;
 pub fn pq_settings() -> ServerMiscSettings {
     ServerMiscSettings {
         pq_sign_in: Some(
-            PqAuthServerSettings::new(OprfSeed::generate(), KsfParams::FLOOR).unwrap(),
+            PqAuthServerSettings::new(OprfSeed::generate(), KsfParams::FLOOR)
+                .and_then(|settings| settings.with_security_key_rp_id("localhost"))
+                .unwrap(),
         ),
         ..Default::default()
     }

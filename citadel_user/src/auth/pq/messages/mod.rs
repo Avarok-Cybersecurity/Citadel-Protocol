@@ -15,7 +15,7 @@ pub use login::{
 };
 pub use manage::{
     EnrolChallenge, EnrolProof, ManagementBegin, ManagementChallenge, ManagementCommit,
-    ManagementDone, ManagementMessage, ServerOutcome,
+    ManagementDone, ManagementMessage, NewSecurityKey, ServerOutcome,
 };
 pub use register::{RegFinish, RegReply, RegStart, RegStartReply};
 

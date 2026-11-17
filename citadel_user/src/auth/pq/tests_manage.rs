@@ -1,14 +1,14 @@
 //! Management end to end through the client and server functions: a step-up bound to its change,
 //! a proof of possession for a new key, and the recovery session's limits.
 
-use super::client::ClientManagement;
+use super::client::{ClientManagement, SecurityKeyAnswer, SecurityKeyCeremony};
 use super::kem::{FactorKeypair, FactorSeed, SEED_LEN};
 use super::management_transcript;
-use super::messages::{ManagementBegin, ServerOutcome};
+use super::messages::{ManagementBegin, NewSecurityKey, ServerOutcome};
 use super::record::PqAuthRecord;
 use super::seed::PrfOutput;
 use super::server::{begin_management, Change, CommitStep};
-use super::tests::{password, register, settings, CID};
+use super::tests::{password, register, settings, settings_without_keys, CID, RP_ID};
 use citadel_io::{tokio, ErrorCode};
 use citadel_types::auth::{FactorKind, SessionScope, SignInManagementOp, SignInPolicy};
 
@@ -16,8 +16,15 @@ const CRED: &[u8] = b"new-key";
 
 fn add_key() -> SignInManagementOp {
     SignInManagementOp::AddSecurityKey {
-        credential_id: CRED.to_vec(),
         label: "YubiKey".into(),
+    }
+}
+
+/// The new key's credential, `CRED`, with PRF output `[prf; 32]`.
+fn created(prf: u8) -> SecurityKeyAnswer {
+    SecurityKeyAnswer {
+        credential_id: CRED.to_vec(),
+        prf: PrfOutput::new([prf; 32]),
     }
 }
 
@@ -32,7 +39,7 @@ async fn change(
     let pw = step_up.map(password);
     let (begin, client) = ClientManagement::begin("alice", op, pw.as_ref())?;
     let (challenge, pending) = begin_management(&settings(), CID, record, scope, begin)?;
-    let new_key = prf.map(|n| PrfOutput::new([n; 32]));
+    let new_key = prf.map(created);
     let (commit, committed) = client.commit(CID, &challenge, None, new_key).await?;
     let change = match pending.commit(&commit)? {
         CommitStep::Ready(change) => change,
@@ -95,7 +102,7 @@ async fn a_key_is_enrolled_only_with_its_proof() {
     let (challenge, pending) =
         begin_management(&settings(), CID, &record, SessionScope::Full, begin).unwrap();
     let (commit, committed) = client
-        .commit(CID, &challenge, None, Some(PrfOutput::new([5; 32])))
+        .commit(CID, &challenge, None, Some(created(5)))
         .await
         .unwrap();
     let CommitStep::Enrol(enrol, pending) = pending.commit(&commit).unwrap() else {
@@ -134,6 +141,23 @@ async fn a_key_is_enrolled_only_with_its_proof() {
 }
 
 #[citadel_io::tokio::test]
+async fn a_server_without_a_relying_party_enrols_no_key() {
+    let (record, _) = register("pw").await;
+    let (begin, _) = ClientManagement::begin("alice", add_key(), Some(&password("pw"))).unwrap();
+    let refused = begin_management(
+        &settings_without_keys(),
+        CID,
+        &record,
+        SessionScope::Full,
+        begin,
+    );
+    assert_eq!(
+        refused.err().map(|err| err.code),
+        Some(ErrorCode::PqSignInUnavailable)
+    );
+}
+
+#[citadel_io::tokio::test]
 async fn a_step_up_is_bound_to_its_change_and_to_the_key_being_added() {
     let (record, _) = register("pw").await;
     let list = SignInManagementOp::ListCredentials;
@@ -147,8 +171,46 @@ async fn a_step_up_is_bound_to_its_change_and_to_the_key_being_added() {
     let base = management_transcript(CID, &begin, &challenge, None);
     assert_ne!(base, management_transcript(CID, &remove, &challenge, None));
     let kp = FactorKeypair::derive(&FactorSeed::new([2; SEED_LEN])).unwrap();
-    let with_key = management_transcript(CID, &begin, &challenge, Some(kp.encapsulation_key()));
+    let key = |credential_id: &[u8]| NewSecurityKey {
+        credential_id: credential_id.to_vec(),
+        ek: kp.encapsulation_key().clone(),
+    };
+    let with_key = management_transcript(CID, &begin, &challenge, Some(&key(CRED)));
     assert_ne!(base, with_key);
+    let other_credential = management_transcript(CID, &begin, &challenge, Some(&key(b"other")));
+    assert_ne!(with_key, other_credential);
+}
+
+/// Adding a key creates its credential under the server's relying party, on an authenticator that
+/// holds none of the account's keys.
+#[citadel_io::tokio::test]
+async fn a_new_key_is_created_for_the_relying_party_away_from_the_accounts_keys() {
+    let (mut record, _) = register("pw").await;
+    let first = change(
+        &mut record,
+        SessionScope::Full,
+        add_key(),
+        Some("pw"),
+        Some(5),
+    );
+    assert!(matches!(first.await.unwrap(), ServerOutcome::Added { .. }));
+    let (begin, client) =
+        ClientManagement::begin("alice", add_key(), Some(&password("pw"))).unwrap();
+    let (challenge, _) =
+        begin_management(&settings(), CID, &record, SessionScope::Full, begin).unwrap();
+    let request = client.new_key_request(&challenge).unwrap().unwrap();
+    assert_eq!(request.rp_id, RP_ID);
+    assert_eq!(request.prf_eval_salt, record.prf_eval_salt);
+    let SecurityKeyCeremony::Register {
+        user_name,
+        exclude_credential_ids,
+        ..
+    } = request.ceremony
+    else {
+        panic!("adding a key must create a credential")
+    };
+    assert_eq!(user_name, "alice");
+    assert_eq!(exclude_credential_ids, vec![CRED.to_vec()]);
 }
 
 #[citadel_io::tokio::test]

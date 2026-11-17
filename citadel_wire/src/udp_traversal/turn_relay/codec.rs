@@ -29,7 +29,7 @@ pub const CHANNEL_DATA_HEADER_LEN: usize = 4;
 /// RFC 8656 §12: the channel-number range a client may bind.
 pub(crate) const CHANNEL_MIN: u16 = 0x4000;
 pub(crate) const CHANNEL_MAX: u16 = 0x4FFF;
-/// RFC 8656 §14.7: REQUESTED-TRANSPORT protocol number for UDP.
+/// RFC 8656 §18.8: REQUESTED-TRANSPORT protocol number for UDP.
 const PROTO_UDP: u8 = 17;
 const STUN_HEADER_LEN: usize = 20;
 

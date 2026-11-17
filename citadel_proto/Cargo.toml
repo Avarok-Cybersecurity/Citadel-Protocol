@@ -39,6 +39,22 @@ localhost-testing = [
 ]
 localhost-testing-assert-no-proxy = ["localhost-testing"]
 google-services = ["citadel_user/google-services"]
+# Security keys (see `auth::SecurityKey`): over USB natively, where it builds against libudev on
+# Linux, and through the browser's WebAuthn API on WASM. Off by default. Natively it links p256:
+# CTAP2's PIN protocol agrees a key over P-256. Nothing verifies a classical signature.
+security-key = [
+    "dep:authenticator",
+    "dep:check_elevation",
+    "dep:wasm-bindgen-futures",
+    "web-sys/AbortController",
+    "web-sys/AbortSignal",
+    "web-sys/AuthenticationExtensionsClientOutputs",
+    "web-sys/CredentialCreationOptions",
+    "web-sys/CredentialRequestOptions",
+    "web-sys/CredentialsContainer",
+    "web-sys/Navigator",
+    "web-sys/PublicKeyCredential",
+]
 vendored = ["citadel_user/vendored", "citadel_wire/vendored"]
 
 std = [
@@ -92,6 +108,10 @@ citadel_logging = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake"] }
+authenticator = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+check_elevation = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
@@ -134,6 +154,7 @@ web-sys = { workspace = true, features = [
 ] }
 js-sys = { workspace = true }
 serde_json = { workspace = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }

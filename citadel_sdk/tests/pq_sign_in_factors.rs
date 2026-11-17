@@ -40,7 +40,6 @@ mod tests {
 
     fn add_key() -> SignInManagementOp {
         SignInManagementOp::AddSecurityKey {
-            credential_id: CRED.to_vec(),
             label: "YubiKey".into(),
         }
     }

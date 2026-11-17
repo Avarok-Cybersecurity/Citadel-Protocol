@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// The step-up is a login challenge bound to the operation, so a proof made for one change cannot
 /// authorize another. A key being added is proven separately, after the step-up, because the
-/// client can only derive it once the challenge has told it the account's PRF salt.
+/// client can only create it once the challenge has told it the relying party and PRF salt.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ManagementMessage {
     Begin(ManagementBegin),
@@ -34,14 +34,24 @@ pub struct ManagementBegin {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ManagementChallenge {
     pub step_up: LoginChallenge,
+    /// `AddSecurityKey`: the credential ids of the account's keys. The new credential is not
+    /// created on an authenticator that holds one of them, so no key is enrolled twice.
+    pub exclude_credentials: Vec<Vec<u8>>,
 }
 
-/// C→S. The step-up tags are bound to `Begin`, `Challenge` and `new_key_ek` together.
+/// C→S. The step-up tags are bound to `Begin`, `Challenge` and `new_key` together.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ManagementCommit {
     pub step_up: LoginFinish,
-    /// `AddSecurityKey`: the new key's encapsulation key.
-    pub new_key_ek: Option<EncapsulationKey>,
+    /// `AddSecurityKey`: the key the client created.
+    pub new_key: Option<NewSecurityKey>,
+}
+
+/// A security key being added: its WebAuthn credential id and its factor's encapsulation key.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct NewSecurityKey {
+    pub credential_id: Vec<u8>,
+    pub ek: EncapsulationKey,
 }
 
 /// S→C, for `AddSecurityKey`: an encapsulation to the new key.
