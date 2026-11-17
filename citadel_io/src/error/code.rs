@@ -1174,6 +1174,10 @@ pub enum ErrorCode {
     /// The server requires an admission check, and the client is too old to send one.
     #[form = "This workspace needs a newer app to sign in; update your app"]
     PqSignInAdmissionNeedsUpdate = 352,
+    /// The security key, or whoever serves the key channel, declined; the message says why, in
+    /// words for the user.
+    #[form = "{}"]
+    PqSignInSecurityKey = 353,
 
     // --- citadel_proto: connection supervision (liveness probe, path re-arm) ---
     /// A server probe's session ended before the probe was answered or timed out.

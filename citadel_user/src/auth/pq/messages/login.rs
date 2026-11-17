@@ -49,6 +49,9 @@ pub struct FactorChallenges {
     pub oprf_evaluated: Option<Vec<u8>>,
     pub salt_user: [u8; 32],
     pub prf_eval_salt: [u8; 32],
+    /// The WebAuthn relying party ID the server's security keys are scoped to. `None` when the
+    /// server has not enabled security keys.
+    pub rp_id: Option<String>,
     pub ksf: KsfParams,
     pub challenges: Vec<FactorChallenge>,
 }

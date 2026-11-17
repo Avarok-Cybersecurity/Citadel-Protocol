@@ -368,6 +368,67 @@ jobs:
       - name: UDP stress tests with io_uring
         run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,io-uring -E 'test(stress_test_c2s_messaging) | test(stress_test_p2p_messaging)'
 
+  security_key:
+    # The opt-in security-key backends, which no other job builds. The native one compiles on each
+    # OS, so its platform code (Windows elevation, Linux udev) is checked, and its tests run our key
+    # channel and cancellation logic; none needs a key. The browser one is checked in wasm_check.
+    name: Security key backend (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Setup dependencies
+        id: deps
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 2, wait 15s)
+        if: steps.deps.outcome == 'failure'
+        run: sleep 15
+      - name: Setup dependencies (retry 2)
+        if: steps.deps.outcome == 'failure'
+        id: deps-retry-2
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 3, wait 30s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        run: sleep 30
+      - name: Setup dependencies (retry 3)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
+        id: deps-retry-3
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 4, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 4)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
+        id: deps-retry-4
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+        continue-on-error: true
+      - name: Retry deps (attempt 5, wait 60s)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        run: sleep 60
+      - name: Setup dependencies (retry 5)
+        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
+        id: deps-retry-5
+        uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - name: Install libudev
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update -y && sudo apt-get install -y libudev-dev
+      - uses: taiki-e/install-action@nextest
+      - name: Security key tests
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: cargo nextest run --package citadel_proto --features=security-key -E 'test(security_key)'
+      - name: Security key tests (windows only)
+        if: startsWith(matrix.os, 'windows')
+        run: cargo nextest run --package citadel_proto --features=security-key,vendored -E 'test(security_key)'
+      - name: Build the hardware test
+        if: startsWith(matrix.os, 'ubuntu')
+        run: cargo check --package citadel_sdk --features=localhost-testing,security-key --test pq_sign_in_security_key
+
   citadel_sdk_release:
     # One leg per nextest pass, in parallel. Both passes in one job (each compiling its own
     # test binaries, then running) took 1h17m51s on #359 against an 80-minute budget, and
@@ -540,6 +601,8 @@ jobs:
         run: ci/no-classical-signatures.sh
       - name: Check citadel_media for wasm32
         run: cargo check --package citadel_media --target wasm32-unknown-unknown
+      - name: Check the browser security-key backend
+        run: cargo check --package citadel_sdk --target wasm32-unknown-unknown --no-default-features --features security-key --test wasm_security_key
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:

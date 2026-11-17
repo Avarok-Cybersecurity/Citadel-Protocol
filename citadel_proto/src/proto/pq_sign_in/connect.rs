@@ -138,7 +138,7 @@ fn issue_challenge<R: Ratchet, T: PlatformOps>(
         Some(settings) => {
             let (challenge, expectation) =
                 build_login_challenge(settings, account.as_account_auth(), start)?;
-            if ClientLogin::security_key_request(&challenge).is_some() {
+            if matches!(ClientLogin::security_key_request(&challenge), Ok(Some(_))) {
                 super::presence::open(session);
             }
             let pending = match expectation {
@@ -192,7 +192,11 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
         Err(err) => return fail_login(session, cid, err.into_string()),
     };
     let transcript = login_transcript(cid, &start, &challenge);
-    let key = match ClientLogin::security_key_request(&challenge) {
+    let request = match ClientLogin::security_key_request(&challenge) {
+        Ok(request) => request,
+        Err(err) => return fail_login(session, cid, err.into_string()),
+    };
+    let key = match request {
         Some(request) => match security_key {
             Some(security_key) => {
                 super::presence::open(session);

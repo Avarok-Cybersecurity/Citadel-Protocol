@@ -5,4 +5,4 @@ import type { SignInPolicy } from "./SignInPolicy";
  * A change to an account's sign-in factors. Each one needs a fresh proof of the account's
  * factors (a step-up), except the two a recovery session may make.
  */
-export type SignInManagementOp = "ListCredentials" | { "AddSecurityKey": { credential_id: Array<number>, label: string, } } | { "RenameCredential": { id: number, label: string, } } | { "RemoveCredential": { id: number, } } | { "SetSignInPolicy": { policy: SignInPolicy, } } | "RegenerateRecoveryCodes";
+export type SignInManagementOp = "ListCredentials" | { "AddSecurityKey": { label: string, } } | { "RenameCredential": { id: number, label: string, } } | { "RemoveCredential": { id: number, } } | { "SetSignInPolicy": { policy: SignInPolicy, } } | "RegenerateRecoveryCodes";

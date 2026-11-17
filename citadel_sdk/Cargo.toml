@@ -28,6 +28,7 @@ io-uring = ["citadel_proto/io-uring"]
 std = ["citadel_proto/std"]
 wasm-threads = ["citadel_proto/wasm-threads"]
 google-services = ["citadel_proto/google-services"]
+security-key = ["citadel_proto/security-key"]
 vendored = ["citadel_proto/vendored"]
 
 # for testing only
@@ -98,6 +99,9 @@ sha256 = { workspace = true }
 # The host_sql RE-VFS test's server storage (tests/host_sql_revfs.rs), the in-memory SQLite host
 # citadel_user's backend suite uses. 0.32 shares libsqlite3-sys with sqlx, as it does there.
 rusqlite = { version = "0.32", features = ["bundled"] }
+# The security-key hardware test (tests/pq_sign_in_security_key.rs) reads the key's PIN from the
+# terminal.
+rpassword = "7"
 async-trait = { workspace = true }
 # hole_punch_outlives_the_ratchet_window rekeys past the toolset's window (MAX_RATCHETS_IN_MEMORY).
 citadel_crypt = { workspace = true }
