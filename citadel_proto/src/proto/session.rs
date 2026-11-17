@@ -2033,7 +2033,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             };
 
                             let kernel_tx2 = kernel_tx.clone();
-                            this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
+                            this.queue_handle.insert_ordinary(target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                             // Read the expiry decision while only holding the DashMap `Ref`, then let
                             // it drop before mutating other collections — the `Ref` holds a shard
                             // read-borrow to end-of-scope (unlike the old `&V`, freed at last use).
