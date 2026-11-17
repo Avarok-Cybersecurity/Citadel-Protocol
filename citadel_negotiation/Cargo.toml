@@ -1,0 +1,29 @@
+[package]
+name = "citadel_negotiation"
+version = "0.14.0"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+description = "A pure, glare-safe negotiator for in-session settings between two Citadel peers"
+edition = "2021"
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography", "network-programming"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+citadel_types = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+bincode = { workspace = true }
+sha3 = { workspace = true }
+
+[dev-dependencies]
+citadel_negotiation = { path = ".", features = ["harness"] }
+proptest = { version = "1.5", default-features = false, features = ["std"] }
+
+[features]
+# The deterministic two-party scheduler (`schedule`). Tests and downstream lanes' tests only;
+# no production build enables it.
+harness = []
+
+[lints.rust]
+unsafe_code = "forbid"
