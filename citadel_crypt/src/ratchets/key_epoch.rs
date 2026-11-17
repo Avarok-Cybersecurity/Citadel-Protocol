@@ -5,7 +5,7 @@
 //! current layers continue their chains, a raise appends layers whose chains are derived from the
 //! current ratchet's meta-chain under a domain-separation tag, and a lower truncates. The round's
 //! `AliceToBob` names the epoch and profile, and the receiving side builds it only if its own
-//! negotiator agreed to exactly that ([`EpochRoundGate`]). Design: `NEGOTIATION-LAYER.md` §5.
+//! negotiator agreed to exactly that ([`EpochRoundGate`](crate::ratchets::key_epoch::EpochRoundGate)). Design: `NEGOTIATION-LAYER.md` §5.
 
 use crate::misc::CryptError;
 use citadel_io::tokio::sync::watch;
