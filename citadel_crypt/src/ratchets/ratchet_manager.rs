@@ -387,6 +387,19 @@ where
         attached_payload: Option<P>,
         wait_for_completion: bool,
     ) -> Result<Option<P>, CryptError> {
+        let mut attached_payload = attached_payload;
+        self.trigger_rekey_retaining_payload(&mut attached_payload, wait_for_completion)
+            .await
+    }
+
+    /// [`Self::trigger_rekey_with_payload`], except that a payload the call could not send stays
+    /// in `attached_payload` when it fails, so the caller keeps it. It leaves only by riding the
+    /// round's first frame or by coming back in `Ok(Some(_))`.
+    pub async fn trigger_rekey_retaining_payload(
+        &self,
+        attached_payload: &mut Option<P>,
+        wait_for_completion: bool,
+    ) -> Result<Option<P>, CryptError> {
         self.trigger_round(attached_payload, wait_for_completion, None)
             .await
             .map(|triggered| triggered.unsent)
@@ -400,7 +413,11 @@ where
         let _priority = self.epochs.claim_priority();
         loop {
             let mut round_ends = self.epochs.subscribe();
-            if let Some(from) = self.trigger_round(None, false, Some(tag)).await?.sent_from {
+            if let Some(from) = self
+                .trigger_round(&mut None, false, Some(tag))
+                .await?
+                .sent_from
+            {
                 return Ok(from);
             }
             round_ends
@@ -412,7 +429,7 @@ where
 
     async fn trigger_round(
         &self,
-        attached_payload: Option<P>,
+        attached_payload: &mut Option<P>,
         wait_for_completion: bool,
         epoch: Option<KeyEpochTag>,
     ) -> Result<Triggered<P>, CryptError> {
@@ -440,7 +457,7 @@ where
         if epoch.is_none() && self.epochs.has_priority() {
             // A steered round is waiting to start: a plain rekey would only contend with it. The
             // payload goes out without a rekey; the steered round's end notifies the messenger.
-            return Ok(Triggered::unsent(attached_payload));
+            return Ok(Triggered::unsent(attached_payload.take()));
         }
 
         // Snapshot the current version BEFORE doing any work
@@ -486,7 +503,7 @@ where
                 // any notification as "retry now": a None sent from this line woke it
                 // straight back into this same early return, a busy loop for as long as
                 // the rekey stayed pending.
-                return Ok(Triggered::unsent(attached_payload));
+                return Ok(Triggered::unsent(attached_payload.take()));
             }
         }
 
@@ -505,7 +522,7 @@ where
             if !wait_for_completion {
                 // No notification: the ongoing rekey sends one when it concludes. See the
                 // "rekey already pending" return above.
-                return Ok(Triggered::unsent(attached_payload));
+                return Ok(Triggered::unsent(attached_payload.take()));
             }
 
             // If wait_for_completion=true, register a listener and wait for the ongoing rekey to finish
@@ -595,7 +612,7 @@ where
                     // be waiting on on_rekey_finish_listener.recv() while messages are queued,
                     // causing deadlock. Send None to indicate "check queue" rather than success.
                     let _ = self.rekey_done_notifier_tx.send(None);
-                    return Ok(Triggered::unsent(attached_payload));
+                    return Ok(Triggered::unsent(attached_payload.take()));
                 }
 
                 let source_ratchet = self.session_crypto_state.claim_next_constructor_source();
@@ -742,7 +759,7 @@ where
                         payload,
                         earliest_ratchet_version,
                         latest_ratchet_version,
-                        attached_payload,
+                        attached_payload: attached_payload.take(),
                         metadata,
                     },
                     Some(epoch) => RatchetMessage::EpochAliceToBob {
@@ -852,7 +869,7 @@ where
                 // Without this, the background task waits forever on recv() while
                 // messages sit in the queue, causing a deadlock in Perfect mode.
                 let _ = self.rekey_done_notifier_tx.send(None);
-                return Ok(Triggered::unsent(attached_payload));
+                return Ok(Triggered::unsent(attached_payload.take()));
             }
         } // end 'rekey_attempt loop
     }
@@ -2559,3 +2576,7 @@ mod cancel_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "ratchet_manager_epoch_tests.rs"]
 mod epoch_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "ratchet_manager_retain_tests.rs"]
+mod retain_tests;
