@@ -350,16 +350,32 @@ impl Future for AsyncArgon {
     }
 }
 
+// One profile for every build: parameters stored with an account outlive the binary that chose
+// them, so a debug-built node must not mint weaker hashes than a release one. A node that wants
+// cheaper hashing (a test node) passes its settings explicitly.
 const DEFAULT_LANES: u32 = 8;
 pub const DEFAULT_HASH_LENGTH: u32 = 32;
-#[cfg(not(debug_assertions))]
 pub(crate) const DEFAULT_MEM_COST: u32 = 1024 * 64;
-#[cfg(debug_assertions)]
-pub(crate) const DEFAULT_MEM_COST: u32 = 1024;
-#[cfg(not(debug_assertions))]
 const DEFAULT_TIME_COST: u32 = 10;
-#[cfg(debug_assertions)]
-const DEFAULT_TIME_COST: u32 = 1;
+
+/// The weakest Argon2id parameters a stored password hash should keep: OWASP's minimum
+/// (19 MiB, 2 passes, 1 lane). A login that verifies against a weaker stored hash replaces it.
+pub const ARGON_FLOOR_MEM_COST: u32 = 19 * 1024;
+/// See [`ARGON_FLOOR_MEM_COST`].
+pub const ARGON_FLOOR_TIME_COST: u32 = 2;
+/// See [`ARGON_FLOOR_MEM_COST`].
+pub const ARGON_FLOOR_LANES: u32 = 1;
+
+impl ArgonSettings {
+    /// Whether these parameters are at least [`ARGON_FLOOR_MEM_COST`], [`ARGON_FLOOR_TIME_COST`]
+    /// and [`ARGON_FLOOR_LANES`], and produce a hash of at least [`DEFAULT_HASH_LENGTH`] bytes.
+    pub fn meets_floor(&self) -> bool {
+        self.mem_cost >= ARGON_FLOOR_MEM_COST
+            && self.time_cost >= ARGON_FLOOR_TIME_COST
+            && self.lanes >= ARGON_FLOOR_LANES
+            && self.hash_length >= DEFAULT_HASH_LENGTH
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ArgonDefaultServerSettings {
