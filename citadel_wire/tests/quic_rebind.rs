@@ -134,3 +134,42 @@ async fn an_endpoint_whose_connections_closed_is_not_rebound() {
         "{report:?}"
     );
 }
+
+/// How many scheduler turns the endpoint's tasks get to finish after its last handle is
+/// dropped. Each needs one or two; none waits on time or the network.
+const TURNS_TO_RELEASE: usize = 100;
+
+/// The set must not be what keeps a closed endpoint's socket bound: once the connection has
+/// closed and every other handle is gone, the port is free without any read of the set.
+#[tokio::test]
+async fn a_closed_endpoint_releases_its_socket_without_another_read() {
+    let server = echo_server().await;
+    let client = QuicClient::new_no_verify(UdpSocket::bind("127.0.0.1:0").await.unwrap()).unwrap();
+    let client_addr = client.endpoint.local_addr().unwrap();
+    let (conn, sink, stream) = client
+        .connect_biconn(server.addr, citadel_wire::quic::SELF_SIGNED_DOMAIN)
+        .await
+        .unwrap();
+    let live = LiveQuicEndpoints::new();
+    live.track(client.endpoint.clone());
+
+    conn.close(0u32.into(), b"done");
+    tokio::time::timeout(STEP, client.endpoint.wait_idle())
+        .await
+        .unwrap();
+    drop((conn, sink, stream, client));
+
+    let mut released = false;
+    for _ in 0..TURNS_TO_RELEASE {
+        tokio::task::yield_now().await;
+        if std::net::UdpSocket::bind(client_addr).is_ok() {
+            released = true;
+            break;
+        }
+    }
+    assert!(
+        released,
+        "{client_addr} is still bound by the tracked endpoint"
+    );
+    drop(live);
+}
