@@ -110,6 +110,11 @@ fn is_current(admitted: &HashMap<u64, Instant>, cid: u64, incarnation: Instant) 
 /// key is a bare uuid.
 pub const PEER_MAILBOX_MAP: &str = "mailbox";
 
+/// How long a deregistration's posting waits for the other side's crossing one. Two
+/// deregistrations cross only while both are in flight to the server; one arriving later finds
+/// the pair already gone and is answered as such.
+pub const SIMULTANEOUS_DEREGISTER_WINDOW: Duration = Duration::from_secs(30);
+
 #[derive(Clone)]
 pub struct CitadelNodePeerLayer<R: Ratchet> {
     pub(crate) inner: std::sync::Arc<citadel_io::tokio::sync::RwLock<CitadelNodePeerLayerInner<R>>>,
@@ -625,13 +630,35 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         }
     }
 
-    pub fn check_simultaneous_deregister(
+    /// Posts `session_cid`'s deregistration (`peer_conn_type`), done, for the other side's
+    /// crossing one to find within [`SIMULTANEOUS_DEREGISTER_WINDOW`].
+    pub async fn post_deregistration(
+        &self,
+        session_cid: u64,
+        ticket: Ticket,
+        peer_conn_type: PeerConnectionType,
+    ) {
+        self.insert_tracked_posting(
+            session_cid,
+            SIMULTANEOUS_DEREGISTER_WINDOW,
+            ticket,
+            PeerSignal::DeregistrationSuccess { peer_conn_type },
+            |_| {},
+        )
+        .await
+    }
+
+    /// Takes `peer_cid`'s pending deregistration of `session_cid`, if one is posted: the two
+    /// requests crossed, and the first already removed the pair. A posting matches once, and
+    /// only for [`SIMULTANEOUS_DEREGISTER_WINDOW`] after it was made, so a later registration
+    /// of the same pair is never mistaken for one already removed.
+    pub fn take_simultaneous_deregister(
         &mut self,
         session_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
         log::trace!(target: "citadel", "Checking simultaneous deregister between {session_cid} and {peer_cid}");
-        self.check_simultaneous_event(peer_cid, |posting| {
+        let ticket = self.check_simultaneous_event(peer_cid, |posting| {
             if let PeerSignal::DeregistrationSuccess {
                 peer_conn_type: peer,
             } = &posting.signal
@@ -641,7 +668,9 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
             } else {
                 false
             }
-        })
+        })?;
+        let _ = self.remove_tracked_posting_inner(peer_cid, ticket);
+        Some(ticket)
     }
 
     fn check_simultaneous_event(
@@ -1208,3 +1237,7 @@ mod tests {
 #[cfg(test)]
 #[path = "peer_layer_incarnation_tests.rs"]
 mod incarnation_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "peer_layer_deregister_tests.rs"]
+mod deregister_tests;
