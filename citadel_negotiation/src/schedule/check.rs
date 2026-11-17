@@ -41,7 +41,8 @@ impl<S: Setting> World<S> {
 
     /// The invariants at rest (§9.1).
     ///
-    /// * Either the connection was dropped deliberately, or both sides are idle at the same
+    /// * Either the connection was dropped deliberately (and, unless a frame was lost or a deadline
+    ///   forced early, only because a handshake was required), or both sides are idle at the same
     ///   epoch and value.
     /// * Each side applied each epoch at most once, in order, and only one side ever triggered
     ///   the key round of an epoch.
@@ -89,7 +90,7 @@ impl<S: Setting> World<S> {
             return Err(format!("both sides triggered a key round for {epoch:?}"));
         }
         if self.dropped {
-            return Ok(());
+            return self.check_fallback_was_needed();
         }
         if !self.a.neg.is_idle() || !self.b.neg.is_idle() {
             return Err("at rest, not dropped, and a side is not idle".into());
@@ -108,6 +109,27 @@ impl<S: Setting> World<S> {
                 return Err(format!(
                     "settled at {got:?}, but the proposals merge to {expected:?}"
                 ));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<S: Setting> World<S> {
+    /// Liveness: with nothing lost and no deadline forced early, a change agreed in band is
+    /// applied in band. The only fallback such a schedule may take is a required handshake.
+    fn check_fallback_was_needed(&self) -> Result<(), String> {
+        if self.disturbed {
+            return Ok(());
+        }
+        for side in [Side::A, Side::B] {
+            for (reason, _) in &self.party(side).drops {
+                if !matches!(
+                    reason,
+                    crate::frame::RenegotiationReason::HandshakeRequired(_)
+                ) {
+                    return Err(format!("{side:?} fell back ({reason:?}) with nothing lost"));
+                }
             }
         }
         Ok(())

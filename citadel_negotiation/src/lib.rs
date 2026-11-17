@@ -20,7 +20,7 @@ pub mod settings;
 #[cfg(any(test, feature = "harness"))]
 pub mod schedule;
 
-pub use crate::core::{ConfigError, Negotiator, NegotiatorConfig, REORDER_WINDOW};
+pub use crate::core::{ConfigError, Negotiator, NegotiatorConfig, RoundAdmission, REORDER_WINDOW};
 pub use frame::{
     ApplyEvidence, CapabilityBits, Envelope, Frame, Hello, PeerSupport, RejectReason,
     RenegotiationReason,

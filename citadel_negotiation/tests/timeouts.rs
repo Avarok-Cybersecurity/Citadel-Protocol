@@ -43,6 +43,7 @@ fn timeouts_and_deadlines_applying() {
     w.apply(Action::Request(Side::A, Tier(1)));
     w.apply(Action::Deliver(0));
     w.local.retain(|(side, _)| *side != Side::B); // B's local apply never finishes
+    w.disturbed = true;
     w.run_to_quiescence(100).expect("quiescent");
     w.check(true).expect("invariants");
     assert!(w.dropped);

@@ -6,6 +6,9 @@
 mod apply;
 mod inbound;
 mod local;
+mod query;
+
+pub use query::RoundAdmission;
 
 use crate::frame::{ApplyEvidence, Envelope, Frame, PeerSupport, RenegotiationReason};
 use crate::ids::{Cid, Epoch, Millis, Role};
@@ -105,49 +108,6 @@ impl<S: Setting> Negotiator<S> {
             ahead: BTreeMap::new(),
             phase: Phase::Idle,
         })
-    }
-
-    /// The agreed epoch and value.
-    pub fn current(&self) -> (Epoch, &S) {
-        (self.epoch, &self.value)
-    }
-
-    /// The epoch and value being applied, if any. The SDK's Bob-side check compares an incoming
-    /// key round's profile against this before building (§5.1).
-    pub fn applying(&self) -> Option<(Epoch, &S)> {
-        match &self.phase {
-            Phase::Applying { agreed, .. } | Phase::Confirming { agreed, .. } => {
-                self.epoch.next().map(|next| (next, agreed))
-            }
-            _ => None,
-        }
-    }
-
-    /// When the shell must feed `Input::Tick`; `None` when nothing is waiting on time.
-    pub fn next_wake(&self) -> Option<Millis> {
-        match &self.phase {
-            Phase::Proposing { deadline, .. }
-            | Phase::Applying { deadline, .. }
-            | Phase::Confirming { deadline, .. } => Some(*deadline),
-            Phase::Idle | Phase::Closed => None,
-        }
-    }
-
-    pub fn role(&self) -> Role {
-        self.role
-    }
-
-    /// The lowest epoch the peer may still send message frames under.
-    pub fn floor(&self) -> Epoch {
-        self.floor
-    }
-
-    pub fn is_idle(&self) -> bool {
-        self.phase == Phase::Idle
-    }
-
-    pub fn is_closed(&self) -> bool {
-        self.phase == Phase::Closed
     }
 
     pub fn step(&mut self, now: Millis, input: Input<S>) -> Vec<Command<S>> {

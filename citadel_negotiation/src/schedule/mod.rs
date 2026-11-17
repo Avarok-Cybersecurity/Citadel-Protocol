@@ -6,6 +6,7 @@
 //! random: a schedule is a list of [`Action`]s, so every failure replays exactly.
 
 mod check;
+mod rounds;
 mod types;
 
 pub use types::{Action, InFlight, Party, Round, Side};
@@ -23,6 +24,8 @@ pub struct World<S: Setting> {
     pub initial: S,
     pub net: Vec<InFlight>,
     pub rounds: Vec<Round<S>>,
+    /// Rounds that reached a Loser before the frame that makes it agree.
+    pub held: Vec<Round<S>>,
     pub local: Vec<(Side, Epoch)>,
     pub version: u32,
     pub dropped: bool,
@@ -31,6 +34,10 @@ pub struct World<S: Setting> {
     pub sent: Vec<S>,
     /// Who triggered a key round, for which epoch: only the Leader may (D2).
     pub triggered: Vec<(Side, Epoch)>,
+    /// A frame was lost, a plain rekey superseded a round, or a deadline was forced while work
+    /// was still in flight. Only then may
+    /// a schedule end in a fallback that is not a required handshake.
+    pub disturbed: bool,
 }
 
 impl<S: Setting> World<S> {
@@ -51,12 +58,14 @@ impl<S: Setting> World<S> {
             initial,
             net: Vec::new(),
             rounds: Vec::new(),
+            held: Vec::new(),
             local: Vec::new(),
             version: 0,
             dropped: false,
             steps: 0,
             sent: Vec::new(),
             triggered: Vec::new(),
+            disturbed: false,
         }
     }
 
@@ -100,6 +109,9 @@ impl<S: Setting> World<S> {
             Action::Request(side, value) => self.step(side, Input::Request(value)),
             Action::Cancel(side) => self.step(side, Input::Cancel),
             Action::Tick(side) => {
+                let in_flight =
+                    !(self.net.is_empty() && self.rounds.is_empty() && self.local.is_empty());
+                self.disturbed |= in_flight && self.party(side).neg.next_wake().is_some();
                 let party = self.party_mut(side);
                 if let Some(wake) = party.neg.next_wake() {
                     party.now = party.now.max(wake);
@@ -117,6 +129,7 @@ impl<S: Setting> World<S> {
             }
             Action::Lose(i) if i < self.net.len() => {
                 self.net.remove(i);
+                self.disturbed = true;
             }
             Action::RoundArrives(i) if i < self.rounds.len() => self.round_arrives(i),
             Action::LocalDone(i) if i < self.local.len() => {
@@ -132,6 +145,7 @@ impl<S: Setting> World<S> {
             Action::PlainRekey if !self.rounds.is_empty() => {
                 let round = self.rounds.remove(0);
                 self.version += 1;
+                self.disturbed = true; // bounded by max_apply_attempts, not by liveness
                 let outcome = KeyExchangeOutcome::Superseded {
                     version: self.version,
                 };
@@ -147,36 +161,6 @@ impl<S: Setting> World<S> {
         }
     }
 
-    /// The Leader's round reaches the Loser, who builds only the profile it agreed to (§5.1).
-    fn round_arrives(&mut self, i: usize) {
-        let round = self.rounds.remove(i);
-        let loser = round.leader.other();
-        let agreed = self.party(loser).neg.applying() == Some((round.epoch, &round.value));
-        if !agreed {
-            let outcome = KeyExchangeOutcome::Refused("profile not agreed".into());
-            return self.step(
-                round.leader,
-                Input::KeyOutcome {
-                    epoch: round.epoch,
-                    outcome,
-                },
-            );
-        }
-        self.version += 1;
-        let outcome = KeyExchangeOutcome::Applied {
-            version: self.version,
-        };
-        for side in [round.leader, loser] {
-            self.step(
-                side,
-                Input::KeyOutcome {
-                    epoch: round.epoch,
-                    outcome: outcome.clone(),
-                },
-            );
-        }
-    }
-
     pub fn step(&mut self, side: Side, input: Input<S>) {
         let party = self.party_mut(side);
         let commands = party.neg.step(party.now, input);
@@ -184,6 +168,13 @@ impl<S: Setting> World<S> {
         party.history.push(value);
         for command in commands {
             self.handle(side, command);
+        }
+        let (ready, held): (Vec<_>, Vec<_>) = std::mem::take(&mut self.held)
+            .into_iter()
+            .partition(|r| r.leader.other() == side);
+        self.held = held;
+        for round in ready {
+            self.offer_round(round);
         }
     }
 
@@ -215,6 +206,7 @@ impl<S: Setting> World<S> {
                 self.party_mut(side).drops.push((reason, next));
                 self.dropped = true;
                 self.rounds.clear();
+                self.held.clear();
                 self.local.clear();
             }
             Command::Report(event) => {
