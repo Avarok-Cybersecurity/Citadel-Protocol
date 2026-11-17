@@ -10,14 +10,10 @@ use citadel_proto::prelude::{
 use futures::{SinkExt, Stream};
 use std::pin::Pin;
 
-/// Which path media fragments take.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MediaTransportKind {
-    /// Fragments over the session UDP channel (lossy, unordered).
-    Unreliable,
-    /// Fragments over the ordered-reliable channel (UDP unavailable).
-    Reliable,
-}
+/// Which path media fragments take: the session UDP channel (`Unreliable`: lossy, unordered) or
+/// the ordered-reliable channel (`Reliable`). One definition, the negotiation crate's, so the
+/// value media agrees on in band is the value the endpoint runs on.
+pub use citadel_negotiation::settings::MediaTransportKind;
 
 /// Synchronous, never-blocking datagram sink. Mirrors
 /// `OutboundUdpSender::unbounded_send`: a failure is terminal for that datagram.

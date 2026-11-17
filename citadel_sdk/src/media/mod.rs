@@ -22,6 +22,7 @@ mod config;
 mod endpoint;
 mod eos;
 pub mod error;
+mod in_band;
 mod negotiation;
 mod receiver;
 mod sender;
@@ -34,6 +35,7 @@ pub use config::{
     MediaTransportConfig, RECOMMENDED_FRAGMENT_PAYLOAD, RECOMMENDED_UDP_PAYLOAD_BUDGET,
 };
 pub use endpoint::{MediaEndpoint, MediaEndpointParts};
+pub use in_band::MediaAgreement;
 pub use receiver::{MediaEvent, MediaReceiver};
 pub use sender::MediaSender;
 pub use transport::{MediaDatagramSink, MediaDatagramSource, MediaTransportKind, ReliableSink};

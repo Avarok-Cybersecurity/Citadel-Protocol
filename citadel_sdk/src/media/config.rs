@@ -1,6 +1,7 @@
 use super::error::MediaResultExt;
 use citadel_io::time::Duration;
 use citadel_media::{MediaConfig, FRAGMENT_HEADER_LEN};
+use citadel_negotiation::NegotiationPolicy;
 use citadel_proto::prelude::NetworkError;
 
 /// Recommended upper bound on the plaintext bytes handed to the UDP channel per
@@ -33,11 +34,20 @@ pub struct MediaTransportConfig {
     /// How long to wait for the session's UDP channel before falling back to
     /// the ordered-reliable channel.
     pub udp_wait: Duration,
+    /// Deadlines for agreeing on the transport in band with a peer that negotiates it (see
+    /// [`MediaAgreement::InBand`](super::MediaAgreement::InBand)).
+    pub negotiation: NegotiationPolicy,
 }
 
 impl MediaTransportConfig {
     pub fn validate(&self) -> Result<(), NetworkError> {
         self.media.validate().net()?;
+        self.negotiation.validate().map_err(|err| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::MediaConfigInvalid,
+                format!("negotiation policy: {err:?}")
+            )
+        })?;
         if self.send_queue_frames == 0 {
             return Err(citadel_io::error!(
                 citadel_io::ErrorCode::MediaConfigInvalid,

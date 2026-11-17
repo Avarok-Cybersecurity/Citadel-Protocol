@@ -1,8 +1,10 @@
-//! Both ends of a media session must agree on the transport. Each side picks
-//! UDP or the reliable fallback from its own `udp_wait` timer; when one side's
-//! UDP channel is delivered after that side's timer expired (a stall on that
-//! side only), the sides must still end up on the same transport and media
-//! must flow in both directions.
+//! Both ends of a media session must agree on the transport. Each side knows
+//! only whether its own UDP channel arrived within its own `udp_wait` timer;
+//! when one side's UDP channel is delivered after that side's timer expired (a
+//! stall on that side only), the sides must still end up on the same transport
+//! and media must flow in both directions. Between two peers that negotiate
+//! media in band, the transport is agreed over the connection's negotiation
+//! lane (`MediaAgreement::InBand`), not guessed, and without a reconnect.
 #![cfg(not(target_family = "wasm"))]
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -15,7 +17,7 @@ mod tests {
     use citadel_io::tokio;
     use citadel_sdk::citadel_media::descriptor::MediaTrackDescriptor;
     use citadel_sdk::citadel_media::frame::{FrameFlags, TrackId, TrackKind};
-    use citadel_sdk::media::{MediaEndpoint, MediaEvent, MediaTransportKind};
+    use citadel_sdk::media::{MediaAgreement, MediaEndpoint, MediaEvent, MediaTransportKind};
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use citadel_sdk::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use citadel_sdk::prelude::*;
@@ -52,6 +54,7 @@ mod tests {
     #[derive(Debug, Default, Clone)]
     struct Outcome {
         kind: Option<MediaTransportKind>,
+        agreement: Option<MediaAgreement>,
         send_errors: Vec<String>,
         received: Vec<Bytes>,
         ended_by: Option<String>,
@@ -63,7 +66,7 @@ mod tests {
     #[rstest]
     #[timeout(Duration::from_secs(150))]
     #[tokio::test(flavor = "multi_thread")]
-    async fn late_udp_on_one_side_still_agrees_and_flows_both_ways() {
+    async fn media_transport_agrees_in_band() {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
         let outcomes: &Mutex<[Outcome; 2]> = &Mutex::new(Default::default());
@@ -129,6 +132,7 @@ mod tests {
                         forwarder.await.unwrap();
                     }
                     outcomes.lock().unwrap()[idx].kind = Some(endpoint.kind());
+                    outcomes.lock().unwrap()[idx].agreement = endpoint.agreement();
                     let (mut tx, mut rx) = endpoint.split();
                     wait_for_peers().await;
 
@@ -200,8 +204,9 @@ mod tests {
             .enumerate()
             .map(|(i, s)| {
                 format!(
-                    "side {i}: kind={:?} frames_received={}/{FRAMES} ended_by={:?} send_errors={:?}",
+                    "side {i}: kind={:?} agreement={:?} frames_received={}/{FRAMES} ended_by={:?} send_errors={:?}",
                     s.kind,
+                    s.agreement,
                     s.received.len(),
                     s.ended_by,
                     s.send_errors
@@ -212,6 +217,11 @@ mod tests {
         assert_eq!(
             o[0].kind, o[1].kind,
             "both ends must use the same media transport: {o_summary}"
+        );
+        assert!(
+            matches!(o[0].agreement, Some(MediaAgreement::InBand { .. }))
+                && o[0].agreement == o[1].agreement,
+            "both ends agreed in band, on the same epoch: {o_summary}"
         );
         for (receiver, sender) in [(0usize, 1usize), (1, 0)] {
             let expected: Vec<Bytes> = (0..FRAMES).map(|i| payload(sender, i)).collect();
