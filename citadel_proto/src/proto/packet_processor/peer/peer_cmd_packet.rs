@@ -46,7 +46,7 @@ use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerS
 use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
-use citadel_types::proto::UdpMode;
+use citadel_types::proto::{stronger_offer, UdpMode};
 use citadel_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
@@ -1159,12 +1159,13 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             ..
                         } => {
                             let peer_cid = conn.get_original_session_cid();
-                            let (has_outgoing, connected, exchanging) = {
+                            let (our_offer, connected, exchanging) = {
                                 let state_container = inner_state!(session.state_container);
                                 (
                                     state_container
                                         .outgoing_peer_connect_attempts
-                                        .contains_key(&peer_cid),
+                                        .get(&peer_cid)
+                                        .map(|dial| dial.session_security_settings),
                                     state_container.has_live_peer_connection(peer_cid),
                                     state_container
                                         .peer_kem_states
@@ -1173,6 +1174,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 )
                             };
 
+                            let has_outgoing = our_offer.is_some();
                             if has_outgoing && connected {
                                 // Both sides dialled again over a live connection. Accepting
                                 // here would replace its KEM state (and UDP offer) below; the
@@ -1192,12 +1194,16 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 return Ok(PrimaryProcessorResult::Void);
                             }
 
-                            if has_outgoing {
+                            if let Some(our_offer) = our_offer {
                                 // Both sides are trying to connect to each other.
                                 // Use CID-based tiebreaker: lower CID auto-accepts.
                                 let we_are_lower = session_cid < peer_cid;
                                 if we_are_lower {
                                     log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} auto-accepting incoming PostConnect from {peer_cid}");
+                                    // Nobody was asked to accept: both dialled. The link
+                                    // takes the stronger of the two offers.
+                                    let endpoint_security_settings =
+                                        &stronger_offer(*endpoint_security_settings, our_offer);
 
                                     // Store peer KEM state for the incoming connection
                                     let mut state_container =
@@ -1711,6 +1717,17 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                         {
                             log::trace!(target: "citadel", "Simultaneous connect detected! Simulating session_cid={session_cid} sent an accept_connect to target={target_cid}");
                             log::trace!(target: "citadel", "Simultaneous connect: first_ticket: {ticket_new} | sender expected ticket: {ticket}");
+                            // Neither agent was asked to accept: both dialled. The link takes
+                            // the stronger offer, not whichever was processed second.
+                            let first_offer = peer_layer
+                                .pending_connect_offer(target_cid, ticket_new)
+                                .ok_or_else(|| {
+                                    NetworkError::msg(format!(
+                                        "Simultaneous connect matched posting {ticket_new} of {target_cid}, which holds no PostConnect offer"
+                                    ))
+                                })?;
+                            let merged_settings =
+                                stronger_offer(first_offer, endpoint_security_level);
                             peer_layer.insert_mapped_ticket(session_cid, ticket_new, ticket);
                             // NOTE: Packet will rebound to sender, then, sender will locally send
                             // packet to the peer who first attempted a connect request
@@ -1720,7 +1737,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                     peer_conn_type,
                                     ticket_new,
                                     PeerResponse::Accept(None),
-                                    endpoint_security_level,
+                                    merged_settings,
                                     udp_enabled,
                                     session_cid,
                                     target_cid,

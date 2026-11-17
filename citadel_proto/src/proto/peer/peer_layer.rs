@@ -607,6 +607,23 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         })
     }
 
+    /// The security settings `peer_cid` offered in its pending `PostConnect` posting `ticket`,
+    /// the one [`Self::check_simultaneous_connect`] matched.
+    pub fn pending_connect_offer(
+        &self,
+        peer_cid: u64,
+        ticket: Ticket,
+    ) -> Option<SessionSecuritySettings> {
+        let this = self.inner.read();
+        match &this.observed_postings.get(&peer_cid)?.get(&ticket)?.signal {
+            PeerSignal::PostConnect {
+                session_security_settings,
+                ..
+            } => Some(*session_security_settings),
+            _ => None,
+        }
+    }
+
     pub fn check_simultaneous_deregister(
         &mut self,
         session_cid: u64,

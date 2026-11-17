@@ -339,7 +339,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             target_cid,
             virtual_connection_type,
             channel_ticket,
-            default_security_settings.security_level,
+            default_security_settings,
             is_active.clone(),
             protocol_messenger,
             disconnect_token,
