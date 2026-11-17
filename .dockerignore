@@ -4,4 +4,3 @@ target
 mobile
 .idea/
 ./deny.toml
-./wasi-sysroot
