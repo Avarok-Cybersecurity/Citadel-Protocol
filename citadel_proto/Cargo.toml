@@ -142,6 +142,10 @@ tracing = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 
+# Paused clock for expiry tests (minute-scale deadlines, run in milliseconds).
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
 [lib]
 doctest = false
 

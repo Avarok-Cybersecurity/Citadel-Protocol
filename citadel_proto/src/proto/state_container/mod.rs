@@ -149,11 +149,14 @@ define_outer_struct_wrapper!(StateContainer, StateContainerInner, <R: Ratchet>, 
 mod channels;
 mod completed_groups;
 mod group_hierarchy_outbound;
+pub(crate) mod inbound_group_bounds;
 mod inbound_transfer;
 mod monitoring;
 mod outbound_transfer;
 mod rekey_and_groups;
 pub(crate) mod relay_route;
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) mod test_support;
 mod transfer_error;
 pub(crate) mod virtual_connections;
 pub(crate) use virtual_connections::RouteEnd;
@@ -527,7 +530,6 @@ impl<R: Ratchet> OutboundTransmitterContainer<R> {
 #[allow(dead_code)]
 pub(crate) struct GroupReceiverContainer {
     pub(crate) receiver: GroupReceiver,
-    pub(crate) has_begun: bool,
     virtual_target: VirtualTargetType,
     ticket: Ticket,
     // Waves in this window are accepted
@@ -552,7 +554,6 @@ impl GroupReceiverContainer {
         ticket: Ticket,
     ) -> Self {
         Self {
-            has_begun: false,
             object_id,
             security_level,
             virtual_target,

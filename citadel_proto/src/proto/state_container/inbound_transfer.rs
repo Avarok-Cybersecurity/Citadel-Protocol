@@ -1,6 +1,7 @@
 //! Inbound group/file reception for [`StateContainerInner`]: group-header and
 //! file-header intake plus per-wave payload reassembly.
 
+use super::inbound_group_bounds::MAX_INBOUND_GROUPS_PER_PEER;
 use super::includes::*;
 use citadel_io::{error, Dbg, ErrorCode};
 
@@ -19,7 +20,14 @@ impl<R: Ratchet> StateContainerInner<R> {
         let group_id = header.group.get();
         let ticket = header.context_info.get();
         // below, the target_cid in the key is where the packet came from. If it is a client, or a hyperlan conn, the implicated cid stays the same
-        let inbound_group_key = GroupKey::new(header.session_cid.get(), group_id, object_id);
+        let peer_cid = header.session_cid.get();
+        if self.inbound_groups_open_for(peer_cid) >= MAX_INBOUND_GROUPS_PER_PEER {
+            return Err(error!(
+                ErrorCode::InboundGroupLimitReached,
+                peer_cid, MAX_INBOUND_GROUPS_PER_PEER
+            ));
+        }
+        let inbound_group_key = GroupKey::new(peer_cid, group_id, object_id);
         if let dashmap::mapref::entry::Entry::Vacant(e) =
             self.inbound_groups.entry(inbound_group_key)
         {

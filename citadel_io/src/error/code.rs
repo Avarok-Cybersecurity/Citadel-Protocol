@@ -1231,4 +1231,10 @@ pub enum ErrorCode {
     /// neither asked to connect to the peer nor accepted the peer's request (peer cid).
     #[form = "No connection request with peer {}; its connection was not created"]
     StateVconnNoSessionPassword = 410,
+
+    // --- citadel_proto: bounded peer inputs ---
+    /// A peer announced a group while it already had the most groups it may hold open here
+    /// (peer cid, limit).
+    #[form = "Peer {} already has {} groups open; this group was not accepted"]
+    InboundGroupLimitReached = 430,
 }
