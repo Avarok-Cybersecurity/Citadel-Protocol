@@ -8,7 +8,8 @@
 use crate::crypto::Secret;
 
 /// The secrets derived for one epoch.
-#[derive(Clone)]
+/// Wiped on drop: every field is key material.
+#[derive(Clone, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 pub struct EpochSecrets {
     /// Root of the epoch's key material (kept for derivation/debug; not used directly to encrypt).
     pub epoch_secret: Secret,

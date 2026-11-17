@@ -6,13 +6,12 @@
 //! exactly one of those ciphertexts — for the node where its own subtree meets the committer's path — and
 //! then KDF-ratchets the recovered secret up to the same root secret.
 
-use crate::crypto::{self, Secret};
+use crate::crypto::{self, Secret, SecretMap};
 use crate::tree::math::*;
 use crate::tree::node::Node;
 use crate::tree::ratchet_tree::RatchetTree;
 use citadel_types::errors::Error;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// An ML-KEM-sealed path secret (KEM ciphertext + AEAD ciphertext).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,21 +45,21 @@ pub fn generate_update_path(
     tree: &mut RatchetTree,
     leaf_index: LeafIndex,
     leaf_secret: Secret,
-) -> Result<(UpdatePath, Secret, HashMap<NodeIndex, Secret>), Error> {
+) -> Result<(UpdatePath, Secret, SecretMap), Error> {
     let n = tree.num_leaves();
-    let dp = direct_path(leaf_index, n);
-    let cp = copath(leaf_index, n);
+    let dp = direct_path(leaf_index, n)?;
+    let cp = copath(leaf_index, n)?;
     let leaf_node_idx = leaf_to_node(leaf_index);
 
     // Our retained secrets: leaf (uses leaf_secret) + each direct-path node (chained).
-    let mut own_secrets: HashMap<NodeIndex, Secret> = HashMap::new();
+    let mut own_secrets = SecretMap::default();
     own_secrets.insert(leaf_node_idx, leaf_secret);
 
     // Fresh leaf keypair → update our leaf node's public key.
     let (leaf_pk, _leaf_sk) = crypto::node_keypair_from_path_secret(&leaf_secret)?;
-    if let Node::Leaf(mut l) = tree.get(leaf_node_idx).clone() {
+    if let Node::Leaf(mut l) = tree.get(leaf_node_idx)?.clone() {
         l.kem_public = leaf_pk.clone();
-        tree.set(leaf_node_idx, Node::Leaf(l));
+        tree.set(leaf_node_idx, Node::Leaf(l))?;
     } else {
         return Err(Error::generic("treekem: committer leaf slot is not a leaf"));
     }
@@ -80,8 +79,7 @@ pub fn generate_update_path(
 
     // For each direct-path node: new keypair, update tree, seal its path secret to the copath resolution.
     let mut update_nodes = Vec::with_capacity(dp.len());
-    for (idx, &node_x) in dp.iter().enumerate() {
-        let ps = path_secrets[idx];
+    for ((&node_x, &ps), &cp_node) in dp.iter().zip(path_secrets.iter()).zip(cp.iter()) {
         own_secrets.insert(node_x, ps);
         let (node_pk, _node_sk) = crypto::node_keypair_from_path_secret(&ps)?;
         tree.set(
@@ -91,13 +89,13 @@ pub fn generate_update_path(
                 parent_hash: [0u8; 32],
                 unmerged_leaves: Vec::new(),
             },
-        );
+        )?;
         // The copath sibling is disjoint from the direct path, so its resolution is unaffected by our edits.
-        let recipients = tree.resolution(cp[idx]);
+        let recipients = tree.resolution(cp_node)?;
         let mut encrypted = Vec::with_capacity(recipients.len());
         for r in recipients {
             let pk = tree
-                .get(r)
+                .get(r)?
                 .kem_public()
                 .ok_or_else(|| Error::generic("treekem: resolution node has no KEM public key"))?;
             let (kem_ct, aead_ct) = crypto::hpke_seal(pk, &ps)?;
@@ -123,37 +121,37 @@ pub fn generate_update_path(
 pub fn apply_update_path(
     tree: &mut RatchetTree,
     update: &UpdatePath,
-    own_secrets: &HashMap<NodeIndex, Secret>,
-) -> Result<(Secret, HashMap<NodeIndex, Secret>), Error> {
+    own_secrets: &SecretMap,
+) -> Result<(Secret, SecretMap), Error> {
     let n = tree.num_leaves();
     let committer = update.leaf_index;
-    let dp = direct_path(committer, n);
-    let cp = copath(committer, n);
+    let dp = direct_path(committer, n)?;
+    let cp = copath(committer, n)?;
     if dp.len() != update.nodes.len() {
         return Err(Error::generic("treekem: update path length mismatch"));
     }
 
     // 1. Install the committer's new leaf + direct-path public keys.
-    if let Node::Leaf(mut l) = tree.get(leaf_to_node(committer)).clone() {
+    if let Node::Leaf(mut l) = tree.get(leaf_to_node(committer))?.clone() {
         l.kem_public = update.leaf_kem_public.clone();
-        tree.set(leaf_to_node(committer), Node::Leaf(l));
+        tree.set(leaf_to_node(committer), Node::Leaf(l))?;
     } else {
         return Err(Error::generic("treekem: committer leaf slot is not a leaf"));
     }
-    for (idx, &node_x) in dp.iter().enumerate() {
+    for (&node_x, node) in dp.iter().zip(update.nodes.iter()) {
         tree.set(
             node_x,
             Node::Parent {
-                kem_public: update.nodes[idx].kem_public.clone(),
+                kem_public: node.kem_public.clone(),
                 parent_hash: [0u8; 32],
                 unmerged_leaves: Vec::new(),
             },
-        );
+        )?;
     }
 
     // 2. Find the lowest copath node whose resolution contains a node we hold a secret for, and open it.
     for (d, &cp_node) in cp.iter().enumerate() {
-        let recipients = tree.resolution(cp_node);
+        let recipients = tree.resolution(cp_node)?;
         for (ri, &r) in recipients.iter().enumerate() {
             let Some(ps_known) = own_secrets.get(&r) else {
                 continue;
@@ -174,10 +172,14 @@ pub fn apply_update_path(
             ps.copy_from_slice(&ps_bytes);
 
             // 3. Ratchet the recovered secret from dp[d] up to the root.
-            let mut learned: HashMap<NodeIndex, Secret> = HashMap::new();
+            let mut learned = SecretMap::default();
+            // dp and cp have the same length, so dp[d] exists; ratchet from it up to the root.
             let mut cur = ps;
-            learned.insert(dp[d], cur);
-            for &node_x in dp.iter().skip(d + 1) {
+            let mut path_above = dp.iter().skip(d);
+            if let Some(&opened) = path_above.next() {
+                learned.insert(opened, cur);
+            }
+            for &node_x in path_above {
                 cur = crypto::derive_path_secret(&cur);
                 learned.insert(node_x, cur);
             }

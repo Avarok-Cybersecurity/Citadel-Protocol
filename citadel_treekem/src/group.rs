@@ -6,7 +6,7 @@
 
 use crate::application::AppCiphertext;
 use crate::commit::{Commit, Proposal};
-use crate::crypto::{self, Secret};
+use crate::crypto::{self, Secret, SecretMap};
 use crate::keys::KeyPackage;
 use crate::path::{apply_update_path, generate_update_path, HpkeCiphertext};
 use crate::schedule::EpochSecrets;
@@ -15,7 +15,8 @@ use crate::tree::node::LeafNode;
 use crate::tree::ratchet_tree::RatchetTree;
 use crate::welcome::{GroupInfo, Welcome};
 use citadel_types::errors::Error;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+use zeroize::Zeroize;
 
 /// How many earlier epochs stay readable. A member only seals at an old epoch while Add commits
 /// are still in flight to it, so this bounds how many joins may be in flight at once; older epoch
@@ -30,7 +31,7 @@ pub struct GroupState {
     /// This member's leaf index.
     pub own_leaf: LeafIndex,
     /// Path secrets this member holds: its leaf node + the nodes on its own direct path it has learned.
-    own_secrets: HashMap<NodeIndex, Secret>,
+    own_secrets: SecretMap,
     /// The current epoch counter.
     pub epoch: u64,
     /// The current epoch's derived secrets.
@@ -57,7 +58,7 @@ impl GroupState {
     ) -> Self {
         let transcript_hash = [0u8; 32];
         let secrets = EpochSecrets::genesis(genesis_root_secret, &transcript_hash);
-        let mut own_secrets = HashMap::new();
+        let mut own_secrets = SecretMap::default();
         own_secrets.insert(leaf_to_node(own_leaf), own_leaf_secret);
         Self {
             tree,
@@ -87,8 +88,10 @@ impl GroupState {
     /// Re-key this member's direct path with a fresh leaf secret (no membership change), advancing the
     /// epoch. Returns the `Commit` to broadcast.
     pub fn commit_update(&mut self, fresh_leaf_secret: Secret) -> Result<Commit, Error> {
+        let mut tree = self.tree.clone();
         let (path, root_secret, own_secrets) =
-            generate_update_path(&mut self.tree, self.own_leaf, fresh_leaf_secret)?;
+            generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
+        self.tree = tree;
         self.own_secrets = own_secrets;
         let commit = Commit {
             proposals: Vec::new(),
@@ -105,33 +108,36 @@ impl GroupState {
     /// ended took its leaf secret with it and is joining again — that stale leaf is removed in the same
     /// commit (`Remove` then `Add`), so there is one epoch change, one ordering for every member, and no
     /// second leaf that `leaf_of_cid` could seal to instead of the live one.
+    ///
+    /// Everything that can fail, including sealing to the joiner's key, runs on a copy of the tree
+    /// before this member's state changes, so a refused key package leaves the group as it was.
     pub fn add_member(
         &mut self,
         key_package: &KeyPackage,
         fresh_leaf_secret: Secret,
     ) -> Result<(Commit, Welcome), Error> {
+        let mut tree = self.tree.clone();
         let mut proposals = Vec::with_capacity(2);
-        if let Some(stale) = self.tree.leaf_index_of_cid(key_package.leaf.cid) {
+        if let Some(stale) = tree.leaf_index_of_cid(key_package.leaf.cid) {
             if stale == self.own_leaf {
                 return Err(Error::generic(
                     "treekem: the committer cannot re-add itself",
                 ));
             }
-            self.tree.remove_leaf(stale);
+            tree.remove_leaf(stale)?;
             proposals.push(Proposal::Remove { leaf_index: stale });
         }
-        let joiner_index = self.tree.add_leaf(key_package.leaf.clone());
+        let joiner_index = tree.add_leaf(key_package.leaf.clone())?;
         // Capture the previous epoch's init secret BEFORE advancing — the joiner needs it for the schedule.
         let prev_init = self.secrets.init_secret;
 
         let (path, root_secret, own_secrets) =
-            generate_update_path(&mut self.tree, self.own_leaf, fresh_leaf_secret)?;
-        self.own_secrets.clone_from(&own_secrets);
+            generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
 
         // The joiner ratchets up from the lowest node where its path meets the committer's re-keyed path.
-        let n = self.tree.num_leaves();
-        let committer_path = direct_path(self.own_leaf, n);
-        let joiner_path: HashSet<NodeIndex> = direct_path(joiner_index, n).into_iter().collect();
+        let n = tree.num_leaves();
+        let committer_path = direct_path(self.own_leaf, n)?;
+        let joiner_path: HashSet<NodeIndex> = direct_path(joiner_index, n)?.into_iter().collect();
         let lca = committer_path
             .into_iter()
             .find(|node| joiner_path.contains(node))
@@ -140,18 +146,20 @@ impl GroupState {
             .get(&lca)
             .ok_or_else(|| Error::generic("treekem: committer is missing the LCA path secret"))?;
 
-        proposals.push(Proposal::Add {
-            key_package: key_package.clone(),
-            leaf_index: joiner_index,
-        });
-        let commit = Commit { proposals, path };
-        self.advance_epoch(&root_secret, &commit);
-
         // Seal `lca_secret || prev_init` to the joiner's leaf KEM key.
         let mut payload = Vec::with_capacity(64);
         payload.extend_from_slice(&lca_secret);
         payload.extend_from_slice(&prev_init);
         let (kem_ct, aead_ct) = crypto::hpke_seal(&key_package.leaf.kem_public, &payload)?;
+
+        proposals.push(Proposal::Add {
+            key_package: key_package.clone(),
+            leaf_index: joiner_index,
+        });
+        let commit = Commit { proposals, path };
+        self.tree = tree;
+        self.own_secrets = own_secrets;
+        self.advance_epoch(&root_secret, &commit);
 
         let welcome = Welcome {
             group_info: GroupInfo {
@@ -173,9 +181,11 @@ impl GroupState {
         leaf_index: LeafIndex,
         fresh_leaf_secret: Secret,
     ) -> Result<Commit, Error> {
-        self.tree.remove_leaf(leaf_index);
+        let mut tree = self.tree.clone();
+        tree.remove_leaf(leaf_index)?;
         let (path, root_secret, own_secrets) =
-            generate_update_path(&mut self.tree, self.own_leaf, fresh_leaf_secret)?;
+            generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
+        self.tree = tree;
         self.own_secrets = own_secrets;
         let commit = Commit {
             proposals: vec![Proposal::Remove { leaf_index }],
@@ -187,19 +197,23 @@ impl GroupState {
 
     /// Apply another member's `Commit`: apply its membership proposals, then its path re-key, advancing
     /// into the same new epoch.
+    ///
+    /// The commit is applied to a copy of the tree, which replaces this member's tree only once every
+    /// proposal and the path have applied, so a commit that is refused leaves the state untouched.
     pub fn process_commit(&mut self, commit: &Commit) -> Result<(), Error> {
+        let mut tree = self.tree.clone();
         for proposal in &commit.proposals {
             match proposal {
                 Proposal::Add {
                     key_package,
                     leaf_index,
-                } => self.tree.add_leaf_at(*leaf_index, key_package.leaf.clone()),
-                Proposal::Remove { leaf_index } => self.tree.remove_leaf(*leaf_index),
+                } => tree.add_leaf_at(*leaf_index, key_package.leaf.clone())?,
+                Proposal::Remove { leaf_index } => tree.remove_leaf(*leaf_index)?,
             }
         }
-        let (root_secret, learned) =
-            apply_update_path(&mut self.tree, &commit.path, &self.own_secrets)?;
-        for (node, secret) in learned {
+        let (root_secret, learned) = apply_update_path(&mut tree, &commit.path, &self.own_secrets)?;
+        self.tree = tree;
+        for (&node, &secret) in learned.iter() {
             self.own_secrets.insert(node, secret);
         }
         self.advance_epoch(&root_secret, commit);
@@ -221,18 +235,19 @@ impl GroupState {
         prev_init.copy_from_slice(&payload[32..64]);
 
         let tree = welcome.group_info.tree.clone();
+        tree.validate()?;
         let n = tree.num_leaves();
-        let dp = direct_path(leaf_index, n);
+        let dp = direct_path(leaf_index, n)?;
         let lca_pos = dp
             .iter()
             .position(|&node| node == welcome.lca_node)
             .ok_or_else(|| Error::generic("treekem: LCA not on the joiner's direct path"))?;
 
-        let mut own_secrets: HashMap<NodeIndex, Secret> = HashMap::new();
+        let mut own_secrets = SecretMap::default();
         own_secrets.insert(leaf_to_node(leaf_index), own_leaf_secret);
         let mut cur = lca_secret;
         own_secrets.insert(welcome.lca_node, cur);
-        for &node in &dp[lca_pos + 1..] {
+        for &node in dp.iter().skip(lca_pos + 1) {
             cur = crypto::derive_path_secret(&cur);
             own_secrets.insert(node, cur);
         }
@@ -296,18 +311,33 @@ impl GroupState {
                 .all(|proposal| matches!(proposal, Proposal::Add { .. }));
         if adds_only {
             if self.readable_past_epochs.len() == MAX_READABLE_PAST_EPOCHS {
-                self.readable_past_epochs.remove(0);
+                self.readable_past_epochs.remove(0).1.zeroize();
             }
             self.readable_past_epochs
                 .push((self.epoch, self.secrets.encryption_secret));
         } else {
-            self.readable_past_epochs.clear();
+            self.forget_past_epochs();
         }
         self.transcript_hash = next_transcript(&self.transcript_hash, commit);
         let prev_init = self.secrets.init_secret;
         self.secrets = EpochSecrets::derive(root_secret, &prev_init, &self.transcript_hash);
         self.epoch += 1;
         self.send_generation = 0;
+    }
+}
+
+impl GroupState {
+    fn forget_past_epochs(&mut self) {
+        for (_, secret) in self.readable_past_epochs.iter_mut() {
+            secret.zeroize();
+        }
+        self.readable_past_epochs.clear();
+    }
+}
+
+impl Drop for GroupState {
+    fn drop(&mut self) {
+        self.forget_past_epochs();
     }
 }
 
@@ -488,7 +518,7 @@ mod tests {
         assert_eq!(c.encryption_secret(), a.encryption_secret());
         assert_eq!(b2.encryption_secret(), a.encryption_secret());
         let leaves_for_b = (0..a.tree.num_leaves())
-            .filter(|&i| matches!(a.tree.get(leaf_to_node(i)), crate::tree::node::Node::Leaf(l) if l.cid == 2))
+            .filter(|&i| matches!(a.tree.get(leaf_to_node(i)), Ok(crate::tree::node::Node::Leaf(l)) if l.cid == 2))
             .count();
         assert_eq!(leaves_for_b, 1, "a cid must hold exactly one leaf");
         assert_eq!(
