@@ -1,7 +1,8 @@
-//! Two deregistrations of the same pair that cross are answered as one; a deregistration's
-//! posting matches once and lives only for its window, so it never stands in for a later
-//! deregistration of a pair registered again since. Time is tokio's paused clock, which the
-//! posting's delay queue reads.
+//! What the peer layer holds for a session is bounded and ends with it. Two deregistrations of
+//! the same pair that cross are answered as one; a deregistration's posting matches once and
+//! lives only for its window, so it never stands in for a later deregistration of a pair
+//! registered again since. A session's crossed-dial ticket mappings are capped and dropped at
+//! its shutdown. Time is tokio's paused clock, which the posting's delay queue reads.
 
 use super::*;
 use citadel_crypt::ratchets::stacked::StackedRatchet;
@@ -71,4 +72,35 @@ async fn a_deregistration_posting_lapses_after_its_window() {
         _ = tokio::time::sleep(SIMULTANEOUS_DEREGISTER_WINDOW + Duration::from_secs(1)) => {}
     }
     assert_eq!(bob_crosses(&layer).await, None);
+}
+
+#[tokio::test]
+async fn a_sessions_crossed_dial_mappings_are_bounded_and_end_with_it() {
+    let layer = layer().await;
+    let at = Instant::now();
+    layer.admit(ALICE, at);
+    {
+        let mut inner = layer.inner.write().await;
+        for n in 0..1_000u128 {
+            inner.insert_mapped_ticket(ALICE, Ticket(n), Ticket(n + 1_000_000));
+        }
+        assert_eq!(
+            inner.simultaneous_ticket_mappings[&ALICE].len(),
+            MAX_CROSSED_TICKET_MAPPINGS_PER_SESSION
+        );
+        // The newest are kept, and each is taken once.
+        assert_eq!(
+            inner.take_mapped_ticket(ALICE, Ticket(999)),
+            Some(Ticket(1_000_999))
+        );
+        assert_eq!(inner.take_mapped_ticket(ALICE, Ticket(999)), None);
+        assert_eq!(inner.take_mapped_ticket(ALICE, Ticket(0)), None);
+    }
+    layer.on_session_shutdown(ALICE, at).await.unwrap();
+    assert!(!layer
+        .inner
+        .read()
+        .await
+        .simultaneous_ticket_mappings
+        .contains_key(&ALICE));
 }

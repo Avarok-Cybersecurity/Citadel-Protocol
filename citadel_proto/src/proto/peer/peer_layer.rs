@@ -80,7 +80,10 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     pub(crate) group_watches: HashMap<u64, HashMap<MessageGroupKey, Vec<Ticket>>>,
     /// Waits for members to apply each group's latest Commit (see `group_commit_gate`).
     pub(crate) commit_gates: crate::proto::peer::group_commit_gate::CommitGates,
-    pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
+    /// For each session, the tickets of its crossed dials that were merged into the other side's,
+    /// oldest first, at most [`MAX_CROSSED_TICKET_MAPPINGS_PER_SESSION`]; dropped with the session.
+    pub(crate) simultaneous_ticket_mappings:
+        HashMap<u64, std::collections::VecDeque<(Ticket, Ticket)>>,
     waker: Arc<AtomicWaker>,
     inner: Arc<citadel_io::RwLock<SharedInner>>,
 }
@@ -114,6 +117,11 @@ pub const PEER_MAILBOX_MAP: &str = "mailbox";
 /// deregistrations cross only while both are in flight to the server; one arriving later finds
 /// the pair already gone and is answered as such.
 pub const SIMULTANEOUS_DEREGISTER_WINDOW: Duration = Duration::from_secs(30);
+
+/// The most crossed-dial ticket mappings one session holds. A mapping only re-addresses a late
+/// error for a dial merged into the other side's; a session has a few dials crossing at once at
+/// most, so the oldest beyond this has long since settled.
+pub const MAX_CROSSED_TICKET_MAPPINGS_PER_SESSION: usize = 64;
 
 #[derive(Clone)]
 pub struct CitadelNodePeerLayer<R: Ratchet> {
@@ -268,7 +276,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         incarnation: Instant,
     ) -> Result<(), NetworkError> {
         let pers = {
-            let this = self.inner.write().await;
+            let mut this = self.inner.write().await;
             {
                 let mut shared = this.inner.write();
                 if !is_current(&shared.admitted, session_cid, incarnation) {
@@ -277,6 +285,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                 }
                 shared.observed_postings.remove(&session_cid);
             }
+            this.simultaneous_ticket_mappings.remove(&session_cid);
             this.persistence_handler.clone()
         };
 
@@ -560,16 +569,18 @@ impl CitadelNodePeerLayerExecutor {
 
 impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
     pub fn insert_mapped_ticket(&mut self, cid: u64, ticket: Ticket, mapped_ticket: Ticket) {
-        self.simultaneous_ticket_mappings
-            .entry(cid)
-            .or_default()
-            .insert(ticket, mapped_ticket);
+        let mappings = self.simultaneous_ticket_mappings.entry(cid).or_default();
+        mappings.retain(|(held, _)| *held != ticket);
+        if mappings.len() == MAX_CROSSED_TICKET_MAPPINGS_PER_SESSION {
+            let _ = mappings.pop_front();
+        }
+        mappings.push_back((ticket, mapped_ticket));
     }
 
     pub fn take_mapped_ticket(&mut self, cid: u64, ticket: Ticket) -> Option<Ticket> {
-        self.simultaneous_ticket_mappings
-            .get_mut(&cid)?
-            .remove(&ticket)
+        let mappings = self.simultaneous_ticket_mappings.get_mut(&cid)?;
+        let index = mappings.iter().position(|(held, _)| *held == ticket)?;
+        mappings.remove(index).map(|(_, mapped)| mapped)
     }
     /// Determines if `peer_cid` is already attempting to register to `session_cid`
     /// Returns the target's ticket for their corresponding request
@@ -1239,5 +1250,5 @@ mod tests {
 mod incarnation_tests;
 
 #[cfg(all(test, not(target_family = "wasm")))]
-#[path = "peer_layer_deregister_tests.rs"]
-mod deregister_tests;
+#[path = "peer_layer_bounds_tests.rs"]
+mod bounds_tests;
