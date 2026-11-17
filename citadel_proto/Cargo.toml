@@ -73,6 +73,7 @@ anyhow = { workspace = true }
 either = { workspace = true }
 async-stream = { workspace = true }
 citadel_crypt = { workspace = true }
+citadel_negotiation = { workspace = true }
 citadel_user = { workspace = true }
 zeroize = { workspace = true }
 citadel_wire = { workspace = true }

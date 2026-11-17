@@ -20,15 +20,22 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
     /// (thus bypassing the unordered kernel)
+    /// `version` and `security_level` are the frame's authenticated header fields, which the
+    /// connection's message floor screens (§5.3 C4/C5).
     pub fn forward_data_to_ordered_channel(
         &self,
         target_cid: u64,
         group_id: u64,
-        data: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
+        version: u32,
+        security_level: SecurityLevel,
+        mut data: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
     ) -> Result<(), NetworkError> {
         // `&self`: the OrderedChannel is interior-mutable, so per-vconn ordered delivery only needs a
         // read lock on the StateContainer — concurrent vconns no longer serialize on the write lock.
         let endpoint_container = self.get_endpoint_container(target_cid)?;
+        endpoint_container
+            .message_floor
+            .screen(version, security_level, &mut data);
         endpoint_container
             .to_ordered_local_channel
             .on_packet_received(group_id, data)

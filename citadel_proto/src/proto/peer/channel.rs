@@ -57,6 +57,7 @@ use crate::error::NetworkError;
 use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, UnboundedReceiver};
+use crate::proto::peer::negotiation::key_epoch::KeyEpochHandle;
 use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
 use crate::proto::peer::p2p_rearm::PathControl;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
@@ -86,6 +87,7 @@ pub struct PeerChannel<R: Ratchet> {
     peer_protocol_version: Option<u32>,
     restored_udp: Option<RestoredUdpChannels<R>>,
     security_settings: SessionSecuritySettings,
+    key_epoch: Option<KeyEpochHandle<R>>,
 }
 
 /// Every UDP channel a P2P path recovery restores, in order (see `PeerChannel::upgrade`).
@@ -105,6 +107,7 @@ impl<R: Ratchet> PeerChannel<R> {
         path: P2pPathCell,
         peer_protocol_version: Option<u32>,
         restored_udp: Option<RestoredUdpChannels<R>>,
+        key_epoch: Option<KeyEpochHandle<R>>,
     ) -> Self {
         let session_cid = vconn_type.get_session_cid();
 
@@ -140,7 +143,14 @@ impl<R: Ratchet> PeerChannel<R> {
             peer_protocol_version,
             restored_udp,
             security_settings,
+            key_epoch,
         }
+    }
+
+    /// The connection's key-epoch surface (its ratchet manager, message floor and id), for the
+    /// negotiation layer's `KeyExchange` port. `Some` on a P2P channel.
+    pub fn key_epoch(&self) -> Option<KeyEpochHandle<R>> {
+        self.key_epoch.clone()
     }
 
     /// The security settings this connection was established with. On a P2P channel these are
@@ -299,6 +309,7 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
             packet: message.into(),
             target: self.vconn_type,
             security_level: self.security_level,
+            refused: false,
         };
 
         self.to_outbound_stream
@@ -392,15 +403,17 @@ impl<R: Ratchet> Stream for ReceiverType<R> {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
-            ReceiverType::OrderedReliable { rx } => {
+            ReceiverType::OrderedReliable { rx } => loop {
                 match futures::ready!(Pin::new(rx.as_mut()).poll_next(cx)) {
-                    Some(data) => Poll::Ready(Some(data.packet)),
+                    // Refused by the message floor: it kept its place in the ordering, and ends here.
+                    Some(data) if data.refused => continue,
+                    Some(data) => return Poll::Ready(Some(data.packet)),
                     _ => {
                         log::trace!(target: "citadel", "[PeerChannelRecvHalf] ending for OrderedReliable");
-                        Poll::Ready(None)
+                        return Poll::Ready(None);
                     }
                 }
-            }
+            },
 
             ReceiverType::UnorderedUnreliable { rx, .. } => {
                 match futures::ready!(Pin::new(rx).poll_recv(cx)) {

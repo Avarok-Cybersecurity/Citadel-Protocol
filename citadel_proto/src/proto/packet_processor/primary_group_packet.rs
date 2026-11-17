@@ -197,6 +197,8 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                         .forward_data_to_ordered_channel(
                                             target_cid,
                                             header.group.get(),
+                                            header.entropy_bank_version.get(),
+                                            security_level,
                                             ratchet_message,
                                         )
                                     {

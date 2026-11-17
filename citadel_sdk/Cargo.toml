@@ -74,6 +74,7 @@ citadel_media = { workspace = true }
 
 [dev-dependencies]
 citadel_io = { workspace = true }
+citadel_negotiation = { workspace = true }
 dirs2 = { workspace = true }
 rstest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

@@ -53,6 +53,11 @@ where
         self.epochs.built(version)
     }
 
+    /// The version that carries `epoch`, while the toolset still holds it.
+    pub fn version_of_epoch(&self, epoch: Epoch) -> Option<(u32, KeyEpochTag)> {
+        self.epochs.version_of(epoch)
+    }
+
     /// The newest epoch any version still in the toolset was built for.
     pub fn latest_epoch(&self) -> Option<KeyEpochTag> {
         self.epochs.latest_built()

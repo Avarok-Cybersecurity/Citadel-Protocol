@@ -2182,6 +2182,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         original_payload = Some(packet.clone());
                         (*ticket, *security_level)
                     }
+                    // A user message riding a rekey is sealed at its own level, as it would be
+                    // alone: the receiver's level floor (§5.3 C5) applies to it as well.
+                    RatchetMessage::AliceToBob {
+                        attached_payload:
+                            Some(MessengerLayerOrderedMessage {
+                                message: UserMessage { security_level, .. },
+                                ..
+                            }),
+                        ..
+                    } => (Ticket::default(), *security_level),
                     _other => (Ticket::default(), SecurityLevel::default()),
                 };
 
@@ -2224,6 +2234,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     }
                 };
 
+                let negotiated = state_container
+                    .get_endpoint_container(v_conn.get_target_cid())
+                    .is_ok_and(|endpoint| endpoint.ratchet_manager.latest_epoch().is_some());
+                let security_level = crate::proto::peer::negotiation::floor::seal_level(
+                    security_level,
+                    ratchet.message_ratchet_count(),
+                    negotiated,
+                );
                 let object_id = endpoint_container.get_next_object_id();
                 let group_id = endpoint_container.get_and_increment_group_id();
                 let time_tracker = state_container.time_tracker;
@@ -2893,6 +2911,9 @@ pub struct UserMessage {
     pub packet: SecBuffer,
     pub target: VirtualTargetType,
     pub security_level: SecurityLevel,
+    /// Set on receipt when the message floor refused this frame (§5.3 C4/C5). Never on the wire.
+    #[serde(skip)]
+    pub refused: bool,
 }
 
 #[derive(Debug)]
