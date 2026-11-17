@@ -13,6 +13,8 @@ pub mod quic_rebind;
 #[cfg(not(target_family = "wasm"))]
 pub mod socket_helpers;
 #[cfg(not(target_family = "wasm"))]
+pub(crate) mod stun_mappings;
+#[cfg(not(target_family = "wasm"))]
 pub mod tls;
 #[cfg(not(target_family = "wasm"))]
 pub mod upnp_handler;
