@@ -51,7 +51,6 @@ use crate::constructor_opts::{ConstructorOpts, RecursiveChain};
 use crate::encryption::AeadModule;
 use crate::export::keys_to_aead_store;
 use crate::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
-use citadel_io::ThreadRng;
 use citadel_types::crypto::{
     CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm, AES_GCM_NONCE_LENGTH_BYTES,
     ASCON_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES, KYBER_NONCE_LENGTH_BYTES,
@@ -222,7 +221,7 @@ pub(crate) mod functions {
         // 0.9, while this workspace is on rand 0.8. Drawing the 32-byte seed ourselves and calling
         // `from_seed` (FIPS 204 Alg. 1, exactly what `key_gen` did internally) keeps keygen on the
         // workspace RNG and produces identically-distributed keys.
-        let mut rng = citadel_io::ThreadRng::default();
+        let mut rng = citadel_io::thread_rng();
         let mut seed = Seed::default();
         rng.fill_bytes(&mut seed[..]);
         let sk = ExpandedSigningKey::<MlDsa65>::from_seed(&seed);
@@ -1031,7 +1030,7 @@ impl PostQuantumMeta {
         let (ciphertext, shared_secret) = match kem_scheme {
             KemAlgorithm::MlKem => {
                 let (ciphertext, shared_secret) =
-                    kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default()).map_err(
+                    kyber_pke::encapsulate(pk_alice, &mut citadel_io::thread_rng()).map_err(
                         |_err| citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed),
                     )?;
                 (ciphertext.to_vec(), shared_secret.to_vec())

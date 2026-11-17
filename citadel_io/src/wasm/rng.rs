@@ -57,6 +57,12 @@ impl RngCore for WasmRng {
 // Implement CryptoRng to indicate this is a cryptographically secure RNG
 impl CryptoRng for WasmRng {}
 
+/// The CSPRNG handle, named like native `rand::thread_rng` so callers build on every
+/// target without a `cfg`.
+pub fn thread_rng() -> WasmRng {
+    WasmRng
+}
+
 /// Helper function to generate a fixed-size array of random bytes.
 ///
 /// # Panics
