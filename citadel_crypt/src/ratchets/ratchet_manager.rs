@@ -1063,10 +1063,22 @@ where
         // The local declaration (declared version, when declared) that was
         // outstanding at the previous Idle tick. See the Idle branch below.
         let mut declaration_at_last_idle_tick: Option<(u32, u64)> = None;
+        // When this side left Idle, plus ACTIVE_REKEY_TIMEOUT: the round's deadline. Per round,
+        // not per message: a message that is not part of the round (a `JustMessage`, say)
+        // must not extend it, or steady traffic keeps a stuck round alive and rekeying stops.
+        let mut round_deadline: Option<citadel_io::time::Instant> = None;
 
         loop {
             let msg = if self.role() != RekeyRole::Idle {
-                match citadel_io::time::timeout(ACTIVE_REKEY_TIMEOUT, receiver.next()).await {
+                let deadline = *round_deadline
+                    .get_or_insert_with(|| citadel_io::time::Instant::now() + ACTIVE_REKEY_TIMEOUT);
+                let now = citadel_io::time::Instant::now();
+                let remaining = if deadline > now {
+                    deadline.duration_since(now)
+                } else {
+                    Duration::ZERO
+                };
+                match citadel_io::time::timeout(remaining, receiver.next()).await {
                     Ok(msg) => msg,
                     Err(_) => {
                         log::warn!(target: "citadel", "Client {} rekey message timeout (role={:?}, state={:?}), resetting for retry",
@@ -1077,6 +1089,7 @@ where
                     }
                 }
             } else {
+                round_deadline = None;
                 // Idle is not always idle: trigger_rekey declares a version and sends
                 // AliceToBob without leaving Idle, and the role only changes when the
                 // peer answers. If the peer never does, nothing else ends the round,
@@ -2602,3 +2615,7 @@ mod epoch_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "ratchet_manager_retain_tests.rs"]
 mod retain_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "ratchet_manager_round_deadline_tests.rs"]
+mod round_deadline_tests;
