@@ -1215,4 +1215,36 @@ pub enum ErrorCode {
     /// A group asked for relay options (ephemeral delivery, message limits) its server predates.
     #[form = "The server predates group relay options (ephemeral delivery, message limits) and would ignore them; the group was not created"]
     GroupRelayOptionsUnsupported = 393,
+
+    // --- citadel_pqcrypto / citadel_crypt / citadel_treekem: values received from a peer ---
+    /// A key-exchange transfer does not match the parameters it is used with (what differs).
+    #[form = "The key-exchange transfer does not match the negotiated parameters: {}"]
+    KeyTransferMismatch = 420,
+    /// A nonce has the wrong length for its algorithm (given len, required len).
+    #[form = "A nonce of {} bytes was given where {} bytes are required"]
+    NonceLengthMismatch = 421,
+    /// A public-key ciphertext is not of the shape its scheme produces (len).
+    #[form = "A public-key ciphertext of {} bytes is malformed"]
+    PkeCiphertextMalformed = 422,
+    /// Key material an operation needs has not been established (which).
+    #[form = "Key material is not established: {}"]
+    KeyMaterialMissing = 423,
+    /// An entropy bank's scramble mappings are not a permutation of the port range (why).
+    #[form = "The entropy bank's scramble mappings are invalid: {}"]
+    EntropyBankMappingsInvalid = 424,
+    /// A ratchet-tree node index is outside the tree (index, node count).
+    #[form = "Tree node index {} is outside a tree of {} nodes"]
+    TreeIndexOutOfRange = 426,
+    /// A ratchet tree is not well formed (why).
+    #[form = "The ratchet tree is malformed: {}"]
+    TreeMalformed = 427,
+    /// A commit's proposal cannot be applied to this tree (why).
+    #[form = "The commit cannot be applied: {}"]
+    CommitInvalid = 428,
+    /// Reading a transfer's source failed (reason).
+    #[form = "Reading the object source failed: {}"]
+    ObjectSourceReadFailed = 429,
+    /// Scrambling a group of a transfer failed (reason).
+    #[form = "Scrambling a group failed: {}"]
+    GroupScrambleFailed = 430,
 }
