@@ -148,6 +148,7 @@ define_outer_struct_wrapper!(StateContainer, StateContainerInner, <R: Ratchet>, 
 
 mod channels;
 mod completed_groups;
+mod early_hole_punch;
 mod group_hierarchy_outbound;
 pub(crate) mod inbound_group_bounds;
 mod inbound_transfer;
