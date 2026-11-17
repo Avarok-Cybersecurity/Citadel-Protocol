@@ -40,6 +40,7 @@
 use crate::multiplex::MultiplexedConnKey;
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use crate::sync::subscription::Subscribable;
+use crate::sync::wire::WireRevision;
 use crate::sync::RelativeNodeType;
 use crate::time_tracker::TimeTracker;
 use futures::Future;
@@ -117,11 +118,35 @@ impl<R> Future for NetSyncStart<'_, R> {
     }
 }
 
+/// The longest the initiator of a synchronized start waits on the receiver's word. The receiver
+/// holds its own start to the same bound, so both still start together over a slower path; the
+/// bound only stops a peer from stalling this side.
+pub const MAX_SYNC_START_DELAY: Duration = Duration::from_secs(1);
+
 #[derive(Serialize, Deserialize)]
 enum SyncPacket<P: Send + Sync> {
     Syn(P),
     SynAck(P),
+    /// [`WireRevision::CountPaired`]: the receiver's wall-clock start time, in ns.
     Ack(i64),
+    /// [`WireRevision::Exchanged`]: start this many ns after receipt.
+    AckAfter(u64),
+}
+
+/// When each side starts, measured from the receiver's `Ack`: the initiator waits `initiator`
+/// after it arrives, half a round trip later, and the receiver waits `receiver` after sending.
+struct StartDelays {
+    initiator: Duration,
+    receiver: Duration,
+}
+
+fn start_delays(rtt: Duration) -> StartDelays {
+    let one_way = rtt / 2;
+    let initiator = one_way.min(MAX_SYNC_START_DELAY);
+    StartDelays {
+        initiator,
+        receiver: one_way + initiator,
+    }
 }
 
 impl<P: Send + Sync> SyncPacket<P> {
@@ -135,6 +160,10 @@ impl<P: Send + Sync> SyncPacket<P> {
 
     fn is_ack(&self) -> bool {
         matches!(self, Self::Ack(..))
+    }
+
+    fn is_ack_after(&self) -> bool {
+        matches!(self, Self::AckAfter(..))
     }
 }
 
@@ -150,6 +179,13 @@ impl<P: Send + Sync> SyncPacket<P> {
         match self {
             Self::Ack(ts) => Ok(ts),
             _ => Err(anyhow::Error::msg("Payload not attached (sync time)")),
+        }
+    }
+
+    fn delay(self) -> Result<Duration, anyhow::Error> {
+        match self {
+            Self::AckAfter(ns) => Ok(Duration::from_nanos(ns).min(MAX_SYNC_START_DELAY)),
+            _ => Err(anyhow::Error::msg("Payload not attached (sync delay)")),
         }
     }
 }
@@ -174,6 +210,7 @@ where
     Fx: FnOnce(P) -> F,
     Fx: Send,
 {
+    let wire = conn.wire_revision();
     let conn = &(conn.initiate_subscription().await?);
     let tt = TimeTracker::new();
 
@@ -181,6 +218,7 @@ where
         RelativeNodeType::Receiver => {
             log::trace!(target: "citadel", "[Sync] Receiver sending SYN ...");
             let now = tt.get_global_time_ns();
+            let sent = citadel_io::time::Instant::now();
             conn.send_serialized::<SyncPacket<P>>(SyncPacket::Syn(payload))
                 .await?;
             log::trace!(target: "citadel", "[Sync] Receiver awaiting SYN_ACK ...");
@@ -188,13 +226,25 @@ where
                 .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_syn_ack())
                 .await?
                 .payload()?;
-            let rtt = tt.get_global_time_ns() - now;
-            let sync_time = tt.get_global_time_ns() + rtt;
             log::trace!(target: "citadel", "[Sync] Receiver sending ACK...");
-            conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::Ack(sync_time))
-                .await?;
+            let own_delay = match wire {
+                WireRevision::CountPaired => {
+                    let rtt = tt.get_global_time_ns() - now;
+                    let sync_time = tt.get_global_time_ns() + rtt;
+                    conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::Ack(sync_time))
+                        .await?;
+                    Duration::from_nanos(rtt as _)
+                }
+                WireRevision::Exchanged => {
+                    let delays = start_delays(sent.elapsed());
+                    let initiator_ns = delays.initiator.as_nanos() as u64;
+                    conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::AckAfter(initiator_ns))
+                        .await?;
+                    delays.receiver
+                }
+            };
 
-            citadel_io::time::sleep(Duration::from_nanos(rtt as _)).await;
+            citadel_io::time::sleep(own_delay).await;
             log::trace!(target: "citadel", "[Sync] Executing provided subroutine for receiver ...");
             Ok((future)(payload_recv).await)
         }
@@ -209,20 +259,50 @@ where
             conn.send_serialized::<SyncPacket<P>>(SyncPacket::SynAck(payload))
                 .await?;
             log::trace!(target: "citadel", "[Sync] Initiator awaiting ACK ...");
-            let sync_time = conn
-                .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_ack())
-                .await?
-                .timestamp()?;
-            let now = tt.get_global_time_ns();
+            match wire {
+                WireRevision::CountPaired => {
+                    let sync_time = conn
+                        .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_ack())
+                        .await?
+                        .timestamp()?;
+                    let now = tt.get_global_time_ns();
 
-            if sync_time > now {
-                let delta = i64::abs(sync_time - tt.get_global_time_ns());
-                citadel_io::time::sleep(Duration::from_nanos(delta as _)).await;
+                    if sync_time > now {
+                        let delta = i64::abs(sync_time - tt.get_global_time_ns());
+                        citadel_io::time::sleep(Duration::from_nanos(delta as _)).await;
+                    }
+                }
+                WireRevision::Exchanged => {
+                    let delay = conn
+                        .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_ack_after())
+                        .await?
+                        .delay()?;
+                    citadel_io::time::sleep(delay).await;
+                }
             }
 
             log::trace!(target: "citadel", "[Sync] Executing provided subroutine for initiator ...");
 
             Ok((future)(payload_recv).await)
+        }
+    }
+}
+
+#[cfg(test)]
+mod delay_tests {
+    use super::{start_delays, MAX_SYNC_START_DELAY};
+    use std::time::Duration;
+
+    /// The initiator learns of the start half a round trip after the receiver sent it, so the
+    /// receiver's wait exceeds the initiator's by exactly that; and the initiator never waits
+    /// past the bound, however slow the path.
+    #[test]
+    fn both_sides_start_at_the_same_instant_within_the_bound() {
+        for rtt_ms in [0, 1, 7, 100, 999, 2000, 2001, 10_000, 60_000] {
+            let rtt = Duration::from_millis(rtt_ms);
+            let delays = start_delays(rtt);
+            assert!(delays.initiator <= MAX_SYNC_START_DELAY, "rtt {rtt:?}");
+            assert_eq!(delays.receiver - delays.initiator, rtt / 2, "rtt {rtt:?}");
         }
     }
 }
