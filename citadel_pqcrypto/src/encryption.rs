@@ -172,7 +172,11 @@ pub mod kyber_module {
             log::trace!(target: "citadel", "KyberModule::encrypt_in_place: nonce len = {}, ad len = {}, input len = {}", nonce.len(), ad.len(), input.len());
 
             // encrypt the data using the remote's public key
-            let remote_public_key = self.kex.remote_public_key.as_deref().unwrap();
+            let remote_public_key = self
+                .kex
+                .remote_public_key
+                .as_deref()
+                .ok_or_else(|| missing("the remote public key"))?;
 
             core_kyber_otp_encrypt(
                 &*self.symmetric_key_local,
@@ -208,8 +212,16 @@ pub mod kyber_module {
             ad: &[u8],
             input: &mut dyn Buffer,
         ) -> Result<(), Error> {
-            let sig_remote_pk = self.sig.remote_sig_public_key.as_ref().unwrap();
-            let secret_key = self.kex.secret_key.as_deref().unwrap();
+            let sig_remote_pk = self
+                .sig
+                .remote_sig_public_key
+                .as_ref()
+                .ok_or_else(|| missing("the remote signature key"))?;
+            let secret_key = self
+                .kex
+                .secret_key
+                .as_deref()
+                .ok_or_else(|| missing("the local secret key"))?;
 
             // New flow: verify signature first, then decrypt
 
@@ -277,6 +289,13 @@ pub mod kyber_module {
         }
     }
 
+    fn missing(what: &'static str) -> Error {
+        citadel_io::error!(citadel_io::ErrorCode::KeyMaterialMissing, what)
+    }
+
+    /// The serialized length of the scramble dictionary the hybrid scheme seals with the PKE.
+    const SCRAMBLE_DICT_LEN: usize = 32;
+
     pub fn encrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>, V: AsRef<[u8]>>(
         kem_alg: KemAlgorithm,
         local_pk: T,
@@ -334,11 +353,12 @@ pub mod kyber_module {
 
         let object_len = u64::from_be_bytes(len_buf) as usize;
 
-        if object_len > total_len {
+        // The object precedes its 8-byte length, so it can be at most what remains before it.
+        if object_len > starting_pos {
             return Err(citadel_io::error!(
                 citadel_io::ErrorCode::DecodedLengthExceedsBuffer,
                 object_len,
-                total_len
+                starting_pos
             ));
         }
 
@@ -357,7 +377,7 @@ pub mod kyber_module {
         input: &mut dyn Buffer,
     ) -> Result<(), Error> {
         // Use only the first 12 bytes of nonce for AES-GCM
-        let cipher_nonce = &nonce[..citadel_types::crypto::AES_GCM_NONCE_LENGTH_BYTES];
+        let cipher_nonce = crate::transfer_check::aes_gcm_nonce(nonce)?;
         symmetric_cipher.encrypt_in_place(cipher_nonce, ad, input)?;
 
         let pre_scramble_len = input.len();
@@ -408,6 +428,11 @@ pub mod kyber_module {
         let encrypted_scramble_dict_len = decode_length(input)?;
         let split_pt = input.len().saturating_sub(encrypted_scramble_dict_len);
         let (_, encrypted_scramble_dict) = input.as_ref().split_at(split_pt);
+        crate::transfer_check::check_pke_ciphertext(
+            kem_alg,
+            encrypted_scramble_dict,
+            SCRAMBLE_DICT_LEN,
+        )?;
         let decrypted_scramble_dict = decrypt_pke(kem_alg, local_sk, encrypted_scramble_dict)?;
         let scram_crypt_dict: ScramCryptDictionary<32> =
             bincode::deserialize(&decrypted_scramble_dict)
@@ -423,7 +448,7 @@ pub mod kyber_module {
         input.truncate(pre_scramble_length);
         // with the AES-GCM encrypted ciphertext descrambled, now, decrypt it
         // Use only the first 12 bytes of nonce for AES-GCM
-        let cipher_nonce = &nonce[..citadel_types::crypto::AES_GCM_NONCE_LENGTH_BYTES];
+        let cipher_nonce = crate::transfer_check::aes_gcm_nonce(nonce)?;
         symmetric_cipher.decrypt_in_place(cipher_nonce, ad, input)?;
 
         Ok(())
