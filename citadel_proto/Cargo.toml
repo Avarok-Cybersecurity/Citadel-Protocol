@@ -57,6 +57,7 @@ wasm-threads = ["citadel_crypt/wasm-threads"]
 
 [dependencies]
 citadel_types = { workspace = true }
+citadel_negotiation = { workspace = true }
 embedded-semver = { workspace = true }
 dashmap = { workspace = true }
 lazy_static = { workspace = true }

@@ -2358,6 +2358,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     peer_conn_type: v_conn,
                     disconnect_response: resp,
                     disconnect_token,
+                    reason,
                 } => {
                     let target = v_conn.get_original_target_cid();
 
@@ -2385,6 +2386,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                         "Peer session already disconnected".to_string(),
                                     )),
                                     disconnect_token,
+                                    reason,
                                 },
                                 ticket,
                                 session_cid: self
@@ -2410,6 +2412,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         peer_conn_type: v_conn,
                         disconnect_response: resp,
                         disconnect_token,
+                        reason,
                     }
                 }
                 PeerSignal::DisconnectUDP {

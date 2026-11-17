@@ -42,6 +42,10 @@ use std::sync::atomic::Ordering;
 use bytes::BytesMut;
 
 use crate::proto::misc::platform_ops::PlatformOps;
+use crate::proto::peer::negotiation::reason::reported_reason;
+use crate::proto::peer::negotiation::refusal::{
+    end_attempt_refused_by, refuse_stamp, take_attempt_stamped_below,
+};
 use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
 use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::ratchets::Ratchet;
@@ -148,8 +152,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                     match &signal {
                         PeerSignal::Disconnect {
                             peer_conn_type: vconn,
-                            disconnect_response: _resp,
+                            disconnect_response: ref resp,
                             ref disconnect_token,
+                            reason,
                         } => {
                             // The target is always "the other peer" — the CID
                             // that isn't ours. Vconns are keyed by peer CID,
@@ -176,6 +181,23 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             }
 
                             let mut state_container = inner_mut_state!(session.state_container);
+                            // A server that rebuilt the signal without its reason cannot hide it:
+                            // the peer gave it on the connection's lane before disconnecting.
+                            let reason = reported_reason(
+                                *reason,
+                                state_container
+                                    .peer_closing_of(
+                                        target,
+                                        disconnect_token.map(|token| token.connection_id),
+                                    )
+                                    .as_ref(),
+                            );
+                            let signal = PeerSignal::Disconnect {
+                                peer_conn_type: *vconn,
+                                disconnect_response: resp.clone(),
+                                disconnect_token: *disconnect_token,
+                                reason,
+                            };
                             state_container.remove_udp_channel(target);
                             // Preserve ratchet for in-flight packet decryption,
                             // then remove the vconn cleanly.
@@ -310,6 +332,26 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         // unique to the session.
                                         //let mut state_container = inner_mut!(session.state_container);
                                         //let peer_cid = conn.get_original_session_cid();
+
+                                        // R-DIAL 3: never build a link below our own offer.
+                                        let stamped_below = take_attempt_stamped_below(
+                                            &mut inner_mut_state!(session.state_container),
+                                            *original_session_cid,
+                                            *endpoint_security_settings,
+                                        );
+                                        if let Some(attempt) = stamped_below {
+                                            return refuse_stamp(
+                                                &session.kernel_tx,
+                                                session_cid,
+                                                *original_session_cid,
+                                                attempt,
+                                                *endpoint_security_settings,
+                                                ticket,
+                                                &sess_ratchet,
+                                                timestamp,
+                                                security_level,
+                                            );
+                                        }
 
                                         let alice_constructor = return_if_none!(
                                             <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
@@ -525,6 +567,27 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     if state_container.has_live_peer_connection(peer_cid) {
                                         log::info!(target: "citadel", "Dual-connect race: dropping Stage0 from {peer_cid}, already connected");
                                         return Ok(PrimaryProcessorResult::Void);
+                                    }
+
+                                    // R-DIAL 3, bob's side: the exchange alice started must not
+                                    // be below the offer we made for this link.
+                                    if let Some(attempt) = take_attempt_stamped_below(
+                                        &mut state_container,
+                                        peer_cid,
+                                        *session_security_settings,
+                                    ) {
+                                        drop(state_container);
+                                        return refuse_stamp(
+                                            &session.kernel_tx,
+                                            session_cid,
+                                            peer_cid,
+                                            attempt,
+                                            *session_security_settings,
+                                            ticket,
+                                            &sess_ratchet,
+                                            timestamp,
+                                            security_level,
+                                        );
                                     }
 
                                     // Guard: during simultaneous P2P connect, both peers
@@ -1249,6 +1312,19 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             // Not simultaneous connect - fall through to forward to kernel
                         }
 
+                        PeerSignal::SignalError {
+                            ticket: refused,
+                            peer_connection_type,
+                            ..
+                        } => {
+                            end_attempt_refused_by(
+                                &mut inner_mut_state!(session.state_container),
+                                peer_connection_type,
+                                *refused,
+                                session_cid,
+                            );
+                        }
+
                         PeerSignal::WebRtcSignaling {
                             peer_conn_type: ref conn,
                             ref payload,
@@ -1791,6 +1867,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             peer_conn_type,
             disconnect_response: resp,
             disconnect_token,
+            reason,
         } => {
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
@@ -1831,6 +1908,9 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             // The connection the sender ended, so the peer can tell it from
                             // one that has since replaced it.
                             disconnect_token,
+                            // This signal is rebuilt, not relayed: a field not copied here
+                            // never reaches the peer (`DisconnectReason`).
+                            reason,
                         };
 
                         // now, remove target CID's v_conn to `session_cid`
@@ -1861,6 +1941,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             "Server has begun disconnection".to_string(),
                         )),
                         disconnect_token,
+                        reason,
                     };
 
                     reply_to_sender(

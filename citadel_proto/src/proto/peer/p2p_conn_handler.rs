@@ -358,6 +358,9 @@ pub(crate) mod native_p2p {
             );
         }
 
+        // Taken now, not when the stream ends: by then the connection's state may be gone. It
+        // holds the reason the peer gives on its lane for closing this connection.
+        let peer_closing = state_container.peer_closing_of(peer_cid, Some(cleanup_connection_id));
         drop(state_container);
 
         sess.session_manager
@@ -402,6 +405,7 @@ pub(crate) mod native_p2p {
                             signal.reason
                         ))),
                         disconnect_token: signal.disconnect_token,
+                        reason: None,
                     };
 
                     if let Some(to_primary_stream) = sess_for_dc.to_primary_stream.as_ref() {
@@ -449,6 +453,7 @@ pub(crate) mod native_p2p {
                             signal.reason
                         ))),
                         disconnect_token: signal.disconnect_token,
+                        reason: peer_closing.as_ref().and_then(|closing| closing.reason()),
                     },
                     ticket: signal.ticket.unwrap_or(Ticket(0)),
                     session_cid: session_cid_for_dc.get().unwrap_or(0),

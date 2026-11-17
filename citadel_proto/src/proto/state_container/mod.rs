@@ -185,6 +185,10 @@ pub struct StateContainerInner<R: Ratchet> {
     // u64 is peer id, ticket is the local original ticket (ticket may
     // transform if a simultaneous connect)
     pub(super) outgoing_peer_connect_attempts: HashMap<u64, OutgoingPeerConnectionAttempt>,
+    /// Per peer, its latest P2P connection and the reason it gave on that connection's lane for
+    /// closing it. Kept past the connection's removal, so every report of its end can name it.
+    pub(super) peer_closings:
+        HashMap<u64, (Ticket, crate::proto::peer::negotiation::reason::PeerClosing)>,
     /// TURN relay configuration the application supplied for the next P2P attempt with a peer.
     /// Taken (not cloned) when that attempt decides its plan, so credentials never outlive it.
     pub(crate) peer_turn_configs: HashMap<u64, TurnRelayConfig>,
@@ -580,6 +584,7 @@ impl<R: Ratchet> StateContainerInner<R> {
     ) -> StateContainer<R> {
         let inner = Self {
             outgoing_peer_connect_attempts: Default::default(),
+            peer_closings: Default::default(),
             peer_turn_configs: Default::default(),
             file_transfer_handles: DashMap::new(),
             group_channels: Default::default(),

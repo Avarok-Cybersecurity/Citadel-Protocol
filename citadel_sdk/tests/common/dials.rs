@@ -44,6 +44,33 @@ pub async fn next_offer(events: &mut Events) -> PeerSignal {
     panic!("the event stream ended before an offer arrived");
 }
 
+/// The next inbound connect offer, which must reach this end's kernel before any channel does:
+/// a channel first means the protocol answered the offer without asking.
+pub async fn offer_put_to_kernel(events: &mut Events) -> PeerSignal {
+    let wait = async {
+        while let Some(event) = events.recv().await {
+            match event {
+                NodeResult::PeerEvent(PeerEvent {
+                    event:
+                        offer @ PeerSignal::PostConnect {
+                            invitee_response: None,
+                            ..
+                        },
+                    ..
+                }) => return offer,
+                NodeResult::PeerChannelCreated(_) => {
+                    panic!("a channel opened without the offer being put to this end's kernel")
+                }
+                _ => {}
+            }
+        }
+        panic!("the event stream ended before an offer arrived");
+    };
+    tokio::time::timeout(DEADLINE, wait)
+        .await
+        .expect("the offer reaches this end's kernel")
+}
+
 /// Runs `dial` (if any) until this end holds a channel, from the dial or from the events.
 pub async fn channel_from(
     dial: Option<
