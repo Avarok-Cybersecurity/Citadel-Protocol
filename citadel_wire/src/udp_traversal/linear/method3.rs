@@ -63,6 +63,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 
+use bytes::BytesMut;
 use citadel_io::time::Duration;
 use citadel_io::tokio::net::UdpSocket;
 use citadel_io::tokio::sync::Mutex as TokioMutex;
@@ -93,6 +94,16 @@ enum NatPacket {
     // contains the local bind addr of candidate for socket identification
     SynAck(HolePunchID, RelativeNodeType, SocketAddr, HolePunchID),
     Check,
+}
+
+impl NatPacket {
+    /// The bytes sent for this packet: serialized, then sealed by `encryptor`, which is what
+    /// the peer's receive path decrypts before it reads any packet.
+    fn seal(&self, encryptor: &HolePunchConfigContainer) -> Result<BytesMut, FirewallError> {
+        let plaintext = bincode::serialize(self)
+            .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))?;
+        Ok(encryptor.generate_packet(&plaintext))
+    }
 }
 
 impl Method3 {
@@ -255,9 +266,7 @@ impl Method3 {
                     // SynAck
                 };
 
-                let packet_plaintext = bincode::serialize(&packet_ty).unwrap();
-
-                let packet = encryptor.generate_packet(&packet_plaintext);
+                let packet = packet_ty.seal(encryptor)?;
                 log::trace!(target: "citadel", "Sending TTL={} to {} || {:?}", ttl, endpoint, &packet[..] as &[u8]);
                 match socket.send(&packet, endpoint, Some(ttl)).await {
                     Ok(can_continue) => {
@@ -394,7 +403,7 @@ impl Method3 {
                             // the other node ACKs our sent out SYN, we should not terminate.
 
                             if peer_external_addr != address_we_sent_to {
-                                let packet = bincode::serialize(&NatPacket::Check).unwrap();
+                                let packet = NatPacket::Check.seal(encryptor)?;
                                 // See if we can send a packet to the addr
                                 if socket
                                     .socket
@@ -513,3 +522,7 @@ struct SendPacketBarrageParams<'a> {
     unique_id: HolePunchID,
     this_node_type: RelativeNodeType,
 }
+
+#[cfg(test)]
+#[path = "method3_tests.rs"]
+mod tests;

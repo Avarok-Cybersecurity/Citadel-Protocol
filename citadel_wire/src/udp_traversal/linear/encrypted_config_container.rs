@@ -62,19 +62,23 @@ impl HolePunchConfigContainer {
     /// Wraps the provided functions into a portable abstraction.
     /// In localhost-testing mode, encryption is disabled (identity functions used).
     pub fn new(
-        _generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
-        _decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
+        generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
+        decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
     ) -> Self {
-        #[cfg(not(feature = "localhost-testing"))]
-        {
-            Self {
-                generate_packet: Arc::new(_generate_packet),
-                decrypt_packet: Arc::new(_decrypt_packet),
-            }
+        if cfg!(feature = "localhost-testing") {
+            return Self::default();
         }
-        #[cfg(feature = "localhost-testing")]
-        {
-            Self::default()
+        Self::sealed_with(generate_packet, decrypt_packet)
+    }
+
+    /// Wraps the provided functions, whatever the build's features.
+    pub(crate) fn sealed_with(
+        generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
+        decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            generate_packet: Arc::new(generate_packet),
+            decrypt_packet: Arc::new(decrypt_packet),
         }
     }
 
