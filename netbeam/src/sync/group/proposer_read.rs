@@ -7,7 +7,7 @@ use crate::sync::group::engine_util::{ms, PendingRound};
 use crate::sync::group::proposer::ProposeError;
 use crate::sync::group::record::LockRecord;
 use crate::sync::group::wire::{Ballot, GroupMsg};
-use citadel_io::tokio::time::timeout;
+use citadel_io::time::timeout;
 use rand::Rng;
 use std::time::Duration;
 

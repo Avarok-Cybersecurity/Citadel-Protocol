@@ -34,7 +34,6 @@ use crate::proto::packet_processor::includes::Duration;
 use crate::proto::session::SessionState;
 use citadel_io::time::{delay_queue, DelayQueue};
 use citadel_io::tokio::sync::broadcast::Sender;
-use citadel_io::tokio::time::error::Error;
 use citadel_io::{error, ErrorCode};
 use futures::Stream;
 use std::collections::HashMap;
@@ -70,6 +69,9 @@ impl<
     > QueueFunction<R> for T
 {
 }
+
+/// A queued task asked for the session to end; the worker stops.
+struct QueueShutdown;
 
 #[allow(clippy::type_complexity)]
 pub struct SessionQueueWorker<R: Ratchet> {
@@ -229,7 +231,10 @@ impl<R: Ratchet> SessionQueueWorker<R> {
     }
 
     #[allow(unused_results)]
-    fn poll_purge(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+    fn poll_purge(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), QueueShutdown>> {
         self.register_waker(cx.waker());
 
         let SessionQueueWorker {
@@ -249,7 +254,7 @@ impl<R: Ratchet> SessionQueueWorker<R> {
                         // already removed from expiration; now, just remove from hashmap
                         let (fx, _, _) = entries.remove(&entry).unwrap();
                         if let QueueWorkerResult::EndSession = (fx)(&mut state_container) {
-                            return Poll::Ready(Err(Error::shutdown()));
+                            return Poll::Ready(Err(QueueShutdown));
                         }
                     }
 
@@ -269,7 +274,7 @@ impl<R: Ratchet> SessionQueueWorker<R> {
                             }
 
                             QueueWorkerResult::EndSession => {
-                                return Poll::Ready(Err(Error::shutdown()));
+                                return Poll::Ready(Err(QueueShutdown));
                             }
 
                             QueueWorkerResult::AdjustPeriodicity(new_period) => {
@@ -291,7 +296,7 @@ impl<R: Ratchet> SessionQueueWorker<R> {
 
             Poll::Pending
         } else {
-            Poll::Ready(Err(Error::shutdown()))
+            Poll::Ready(Err(QueueShutdown))
         }
     }
 }

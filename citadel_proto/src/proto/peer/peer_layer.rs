@@ -42,7 +42,6 @@ use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::time::Duration;
 use citadel_io::time::{delay_queue, DelayQueue};
-use citadel_io::tokio::time::error::Error;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::PreSharedKey;
 use citadel_types::prelude::PeerInfo;
@@ -531,7 +530,10 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
 }
 
 impl CitadelNodePeerLayerExecutor {
-    pub(self) fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+    pub(self) fn poll_purge(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::convert::Infallible>> {
         self.waker.register(cx.waker());
 
         let mut this = self.inner.write();
