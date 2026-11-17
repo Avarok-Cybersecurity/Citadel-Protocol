@@ -280,8 +280,11 @@ impl<R: Ratchet> Toolset<R> {
         let idx = self.get_adjusted_index(version);
 
         let res = self.map.get(idx);
+        // A miss is an answer, not a fault: callers probe for versions that may be gone or not
+        // yet built, and a version read off the wire may be anything. Each caller decides
+        // whether its miss matters and reports it there.
         if res.is_none() {
-            log::error!(target: "citadel", "Attempted to get ratchet v{} for cid={}, but does not exist! len: {}. Oldest: {}. Newest: {}", version, self.cid, self.map.len(), self.oldest_ratchet_version, self.most_recent_ratchet_version);
+            log::trace!(target: "citadel", "No ratchet v{} for cid={} (len: {}, oldest: {}, newest: {})", version, self.cid, self.map.len(), self.oldest_ratchet_version, self.most_recent_ratchet_version);
         }
 
         res
