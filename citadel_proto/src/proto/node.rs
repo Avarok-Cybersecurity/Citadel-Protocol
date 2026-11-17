@@ -419,9 +419,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         /// registers its listener under `CallbackKey { ticket, session_cid:
         /// request.session_cid() }`, and `session_cid()` is `Some` for
         /// PeerCommand, ReKey, SendObject, PullObject, DeleteObject,
-        /// GroupBroadcastCommand, Deregister and Disconnect. `search_for_value`
+        /// GroupBroadcastCommand, Deregister and Disconnect. `listener_for`
         /// refuses to match a cid-less result against a listener that expects
-        /// one — "we expect a cid, but the received does not have one" — so an
+        /// one, so an
         /// error stamped `None` fell through to the kernel's default handler,
         /// the subscription received nothing, and the SDK loops awaiting it
         /// never terminated: their stream only ends when the receiver drops, and
@@ -450,6 +450,27 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                 Err(error!(ErrorCode::KernelDisconnected))
             } else {
                 Ok(())
+            }
+        }
+
+        /// Runs a session the request loop started, reporting its failure, or the failure to
+        /// start it, to the caller waiting on `ticket_id`.
+        async fn run_initiated<K: Ratchet>(
+            initiated: Result<
+                impl std::future::Future<Output = Result<(), NetworkError>>,
+                NetworkError,
+            >,
+            to_kernel_tx: &UnboundedSender<NodeResult<K>>,
+            ticket_id: Ticket,
+            cid_opt: Option<u64>,
+        ) {
+            let outcome = match initiated {
+                Ok(session) => session.await,
+                Err(err) => Err(err),
+            };
+            if let Err(err) = outcome {
+                // Only fails once the kernel is gone, which the request loop reports itself.
+                let _ = send_error(to_kernel_tx, ticket_id, cid_opt, err);
             }
         }
 
@@ -495,43 +516,39 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     password,
                     admission,
                 }) => {
-                    match session_manager
-                        .initiate_connection(
-                            local_node_type,
-                            local_nat_type.clone(),
-                            HdpSessionInitMode::Register(
-                                peer_addr,
-                                credentials,
-                                endpoint,
-                                password,
-                                admission.map(AdmissionToken::new),
-                            ),
-                            ticket_id,
-                            None,
-                            listener_underlying_proto.clone(),
-                            None,
-                            None,
-                            security_settings,
-                            &default_client_config,
-                            session_password,
-                        )
-                        .await
-                    {
-                        Ok(session) => {
-                            let to_kernel_tx = to_kernel_tx.clone();
-                            let task = async move {
-                                if let Err(err) = session.await {
-                                    let _ = send_error(&to_kernel_tx, ticket_id, request_cid, err);
-                                }
-                            };
-
-                            spawn!(task);
-                        }
-
-                        Err(err) => {
-                            send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
-                        }
-                    }
+                    let (session_manager, local_nat_type, listener_underlying_proto) = (
+                        session_manager.clone(),
+                        local_nat_type.clone(),
+                        listener_underlying_proto.clone(),
+                    );
+                    let (default_client_config, to_kernel_tx) =
+                        (default_client_config.clone(), to_kernel_tx.clone());
+                    // Spawned, so one slow or unreachable server never holds up the requests
+                    // queued behind it.
+                    spawn!(async move {
+                        let initiated = session_manager
+                            .initiate_connection(
+                                local_node_type,
+                                local_nat_type,
+                                HdpSessionInitMode::Register(
+                                    peer_addr,
+                                    credentials,
+                                    endpoint,
+                                    password,
+                                    admission.map(AdmissionToken::new),
+                                ),
+                                ticket_id,
+                                None,
+                                listener_underlying_proto,
+                                None,
+                                None,
+                                security_settings,
+                                &default_client_config,
+                                session_password,
+                            )
+                            .await;
+                        run_initiated(initiated, &to_kernel_tx, ticket_id, request_cid).await
+                    });
                 }
 
                 NodeRequest::ConnectToHypernode(ConnectToHypernode {
@@ -542,36 +559,33 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     session_security_settings: security_settings,
                     session_password,
                 }) => {
-                    match session_manager
-                        .initiate_connection(
-                            local_node_type,
-                            local_nat_type.clone(),
-                            HdpSessionInitMode::Connect(authentication_request),
-                            ticket_id,
-                            Some(connect_mode),
-                            listener_underlying_proto.clone(),
-                            Some(udp_mode),
-                            keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000),
-                            security_settings,
-                            &default_client_config,
-                            session_password,
-                        )
-                        .await
-                    {
-                        Ok(session) => {
-                            let to_kernel_tx = to_kernel_tx.clone();
-                            let task = async move {
-                                if let Err(err) = session.await {
-                                    let _ = send_error(&to_kernel_tx, ticket_id, request_cid, err);
-                                }
-                            };
-                            spawn!(task);
-                        }
-
-                        Err(err) => {
-                            send_error(&to_kernel_tx, ticket_id, request_cid, err)?;
-                        }
-                    }
+                    let (session_manager, local_nat_type, listener_underlying_proto) = (
+                        session_manager.clone(),
+                        local_nat_type.clone(),
+                        listener_underlying_proto.clone(),
+                    );
+                    let (default_client_config, to_kernel_tx) =
+                        (default_client_config.clone(), to_kernel_tx.clone());
+                    // Spawned, so one slow or unreachable server never holds up the requests
+                    // queued behind it.
+                    spawn!(async move {
+                        let initiated = session_manager
+                            .initiate_connection(
+                                local_node_type,
+                                local_nat_type,
+                                HdpSessionInitMode::Connect(authentication_request),
+                                ticket_id,
+                                Some(connect_mode),
+                                listener_underlying_proto,
+                                Some(udp_mode),
+                                keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000),
+                                security_settings,
+                                &default_client_config,
+                                session_password,
+                            )
+                            .await;
+                        run_initiated(initiated, &to_kernel_tx, ticket_id, request_cid).await
+                    });
                 }
 
                 NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { session_cid }) => {

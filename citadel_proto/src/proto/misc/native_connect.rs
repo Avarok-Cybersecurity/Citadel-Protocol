@@ -65,18 +65,21 @@ pub async fn c2s_connect(
                 client_config_to_tls_connector(default_client_config.config.clone())
             };
 
-            let stream = connector
-                .connect(
-                    pki_types::ServerName::try_from(
-                        domain
-                            .clone()
-                            .unwrap_or_else(|| SELF_SIGNED_DOMAIN.to_string()),
-                    )
-                    .map_err(|err| generic_error(err.to_string()))?,
-                    stream,
-                )
-                .await
-                .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err))?;
+            let server_name = pki_types::ServerName::try_from(
+                domain
+                    .clone()
+                    .unwrap_or_else(|| SELF_SIGNED_DOMAIN.to_string()),
+            )
+            .map_err(|err| generic_error(err.to_string()))?;
+            // Bounded like the TCP connect and the first packet: a server that stops answering
+            // mid-handshake fails this connect instead of holding it open.
+            let stream = citadel_io::time::timeout(
+                timeout.unwrap_or(TCP_CONN_TIMEOUT),
+                connector.connect(server_name, stream),
+            )
+            .await
+            .map_err(|err| io::Error::new(io::ErrorKind::TimedOut, err.to_string()))?
+            .map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err))?;
             Ok(GenericNetworkStream::OrderedReliableSecure(Box::new(
                 stream.into(),
             )))
@@ -267,3 +270,7 @@ pub async fn p2p_connect_relayed(
     )
     .await
 }
+
+#[cfg(test)]
+#[path = "native_connect_tests.rs"]
+mod tests;
