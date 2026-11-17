@@ -70,6 +70,7 @@ use crate::proto::peer::peer_layer::{
 use crate::proto::pq_sign_in;
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::CitadelSessionManager;
+use crate::proto::state_container::relay_route::admits_key_exchange;
 use crate::proto::state_container::OutgoingPeerConnectionAttempt;
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use citadel_io::tokio::sync::oneshot;
@@ -1408,6 +1409,15 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
 
             // since this is the server, we just need to route this to the target_cid
             let sess_mgr = inner!(session.session_manager);
+            // Taken under the session manager's lock, which the accept that forges the route holds
+            // until the route exists.
+            if !admits_key_exchange(
+                &inner_state!(session.state_container).active_virtual_connections,
+                target_cid,
+            ) {
+                log::warn!(target: "citadel", "Not relaying a key exchange from {authenticated_cid} to {target_cid}: the pair has no accepted connection");
+                return Ok(PrimaryProcessorResult::Void);
+            }
             let signal_to = PeerSignal::Kex {
                 peer_conn_type: conn,
                 kex_payload: kep,

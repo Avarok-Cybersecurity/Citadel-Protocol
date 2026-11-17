@@ -153,6 +153,7 @@ mod inbound_transfer;
 mod monitoring;
 mod outbound_transfer;
 mod rekey_and_groups;
+pub(crate) mod relay_route;
 mod transfer_error;
 pub(crate) mod virtual_connections;
 pub(crate) use virtual_connections::RouteEnd;
