@@ -105,6 +105,8 @@ where
     declared_version_set_at: Arc<AtomicU64>,
     /// Negotiated key epochs: steered rounds, the versions they built, the Bob-side gate.
     epochs: Arc<EpochLedger>,
+    /// Woken once the rekey process has ended for good (`state` reads `Halted`).
+    halted: Arc<tokio::sync::Notify>,
 }
 
 /// What one trigger did: the payload it did not send, and the version a round it sent builds on.
@@ -192,6 +194,7 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             rekey_trigger_semaphore: self.rekey_trigger_semaphore.clone(),
             declared_version_set_at: self.declared_version_set_at.clone(),
             epochs: self.epochs.clone(),
+            halted: self.halted.clone(),
         }
     }
 }
@@ -349,6 +352,7 @@ where
             rekey_trigger_semaphore: Arc::new(Semaphore::new(1)),
             declared_version_set_at: Arc::new(AtomicU64::new(0)),
             epochs: Arc::new(EpochLedger::new()),
+            halted: Arc::new(tokio::sync::Notify::new()),
         };
 
         this.clone()
@@ -882,12 +886,14 @@ where
         struct DropWrapper {
             state: Arc<Atomic<RekeyState>>,
             role: Arc<Atomic<RekeyRole>>,
+            halted: Arc<tokio::sync::Notify>,
         }
 
         impl Drop for DropWrapper {
             fn drop(&mut self) {
-                self.state.store(RekeyState::Halted, Ordering::Relaxed);
+                self.state.store(RekeyState::Halted, Ordering::SeqCst);
                 self.role.store(RekeyRole::Idle, Ordering::Relaxed);
+                self.halted.notify_waiters();
             }
         }
 
@@ -902,6 +908,7 @@ where
             let _drop_wrapper = DropWrapper {
                 state: self.state.clone(),
                 role: self.role.clone(),
+                halted: self.halted.clone(),
             };
 
             let mut listener = { self.receiver.lock().take().unwrap() };
@@ -1860,6 +1867,21 @@ where
 
     pub fn state(&self) -> RekeyState {
         self.state.load(Ordering::Relaxed)
+    }
+
+    /// Resolves once the rekey process has ended for good: after [`Self::shutdown`], or when
+    /// the stream it reads from ends. Nothing rekeys on this manager afterwards.
+    pub async fn until_halted(&self) {
+        loop {
+            let halted = self.halted.notified();
+            tokio::pin!(halted);
+            // Registered before the check, so a halt between the check and the await wakes it.
+            let _ = halted.as_mut().enable();
+            if self.state.load(Ordering::SeqCst) == RekeyState::Halted {
+                return;
+            }
+            halted.await;
+        }
     }
 
     fn set_state(&self, state: RekeyState) {

@@ -82,6 +82,7 @@ where
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         let manager_for_shutdown = manager_clone.clone();
+        let manager_for_halt = manager_clone.clone();
         let background_task = async move {
             // Each time a rekey finishes, we should check the local queue for any enqueued messages
             // to poll and send
@@ -181,6 +182,13 @@ where
                 }
                 _ = ordered_receiver => {
                     log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): ordered receiver ended");
+                }
+                // The channels above are fed by senders inside the manager this task holds, so
+                // they never close on their own: without this the task, and the toolset, sink
+                // and keys it holds, outlive the connection for the life of the process. Once
+                // the manager has halted, nothing will rekey, carry or deliver a message again.
+                _ = manager_for_halt.until_halted() => {
+                    log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): the rekey process halted");
                 }
             }
 
