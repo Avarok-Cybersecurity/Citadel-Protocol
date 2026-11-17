@@ -485,6 +485,9 @@ pub(super) struct NetworkStats {
     /// When this session's keep-alive clock started: a session that has never sent a keep-alive
     /// is timed out from here.
     pub(super) measured_since_ns: i64,
+    /// A keep-alive reply is scheduled and not yet sent. An honest peer has one keep-alive in
+    /// flight at a time, so a second arriving meanwhile schedules nothing.
+    pub(super) keep_alive_reply_pending: bool,
     pub(super) last_keep_alive: Option<i64>,
     pub(super) ping_ns: Option<i64>,
     pub(super) jitter_ns: Option<i64>,

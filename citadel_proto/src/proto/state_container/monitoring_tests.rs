@@ -52,3 +52,20 @@ async fn a_silent_session_times_out_though_it_never_sent_a_keep_alive() {
     assert!(!inner.keep_alive_subsystem_timed_out(since + timeout));
     assert!(inner.keep_alive_subsystem_timed_out(since + timeout + 1));
 }
+
+#[tokio::test]
+async fn at_most_one_keep_alive_reply_is_pending() {
+    let container = state_container(true, MIN_SERVER_KEEP_ALIVE_TIMEOUT_NS).await;
+    let mut inner = inner_mut_state!(container);
+    assert!(inner.claim_keep_alive_reply());
+    for _ in 0..64 {
+        assert!(
+            !inner.claim_keep_alive_reply(),
+            "a second reply was scheduled"
+        );
+    }
+    // Sending the reply frees the slot, whether or not it could be sealed.
+    let (tx, _rx) = crate::proto::outbound_sender::unbounded();
+    inner.send_keep_alive_reply(&tx.into(), 0, SecurityLevel::Standard);
+    assert!(inner.claim_keep_alive_reply());
+}

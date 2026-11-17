@@ -53,6 +53,37 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
     }
 
+    /// Takes the one slot for a scheduled keep-alive reply: false if a reply is already pending.
+    pub(crate) fn claim_keep_alive_reply(&mut self) -> bool {
+        !std::mem::replace(&mut self.network_stats.keep_alive_reply_pending, true)
+    }
+
+    /// Sends the scheduled keep-alive reply, sealed with the newest C2S ratchet, and frees the
+    /// slot [`Self::claim_keep_alive_reply`] took.
+    pub(crate) fn send_keep_alive_reply(
+        &mut self,
+        to_primary_stream: &OutboundPrimaryStreamSender,
+        timestamp_ns: i64,
+        security_level: SecurityLevel,
+    ) {
+        self.network_stats.keep_alive_reply_pending = false;
+        let Some(ratchet) = self
+            .get_virtual_connection_crypto(C2S_IDENTITY_CID)
+            .and_then(|crypto| crypto.get_ratchet(None))
+        else {
+            log::warn!(target: "citadel", "No C2S ratchet to seal the keep-alive reply with");
+            return;
+        };
+        let reply = packet_crafter::keep_alive::craft_keep_alive_packet(
+            &ratchet,
+            timestamp_ns,
+            security_level,
+        );
+        if let Err(err) = to_primary_stream.unbounded_send(reply) {
+            log::warn!(target: "citadel", "Unable to send the keep-alive reply: {err}");
+        }
+    }
+
     /// This should be ran periodically by the session timer
     pub fn keep_alive_subsystem_timed_out(&self, current_timestamp_ns: i64) -> bool {
         keep_alive_timed_out(
