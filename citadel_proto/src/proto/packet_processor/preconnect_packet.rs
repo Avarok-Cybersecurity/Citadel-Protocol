@@ -173,7 +173,10 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                 sc.pre_connect_state.on_packet_received();
                                 sc.pre_connect_state.last_stage =
                                     packet_flags::cmd::aux::do_preconnect::SYN_ACK;
-                                sc.keep_alive_timeout_ns = kat;
+                                sc.keep_alive_timeout_ns =
+                                    crate::proto::state_container::server_keep_alive_timeout_ns(
+                                        kat,
+                                    );
                                 sc.udp_mode = udp_mode;
                                 sc.connect_state.connect_mode = Some(connect_mode);
                                 sc.cnac = Some(cnac);

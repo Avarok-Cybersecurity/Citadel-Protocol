@@ -160,6 +160,7 @@ pub(crate) mod relay_route;
 pub(crate) mod test_support;
 mod transfer_error;
 pub(crate) mod virtual_connections;
+pub(crate) use monitoring::server_keep_alive_timeout_ns;
 pub(crate) use virtual_connections::RouteEnd;
 
 /// For keeping track of the stages
@@ -481,6 +482,9 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
 
 #[derive(Default)]
 pub(super) struct NetworkStats {
+    /// When this session's keep-alive clock started: a session that has never sent a keep-alive
+    /// is timed out from here.
+    pub(super) measured_since_ns: i64,
     pub(super) last_keep_alive: Option<i64>,
     pub(super) ping_ns: Option<i64>,
     pub(super) jitter_ns: Option<i64>,
@@ -611,7 +615,10 @@ impl<R: Ratchet> StateContainerInner<R> {
             deregister_state: Default::default(),
             active_virtual_connections: Default::default(),
             stale_p2p_ratchets: Default::default(),
-            network_stats: Default::default(),
+            network_stats: NetworkStats {
+                measured_since_ns: time_tracker.get_global_time_ns(),
+                ..Default::default()
+            },
             kernel_tx,
             register_state: packet_flags::cmd::aux::do_register::STAGE0.into(),
             connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(),
