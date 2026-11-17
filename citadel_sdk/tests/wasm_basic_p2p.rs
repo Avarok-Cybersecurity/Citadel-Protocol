@@ -129,10 +129,10 @@ fn test_all_security_levels() {
     }
 }
 
-/// Verify BackendType::default() returns InMemory on WASM.
+/// Verify BackendType::platform_default() returns InMemory on WASM.
 #[wasm_bindgen_test]
 fn test_backend_type_default_is_in_memory() {
-    let backend = BackendType::default();
+    let backend = BackendType::platform_default().unwrap();
     assert_eq!(backend, BackendType::InMemory);
 }
 

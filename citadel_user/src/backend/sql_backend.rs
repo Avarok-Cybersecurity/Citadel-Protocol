@@ -129,9 +129,7 @@ impl From<&'_ SqlConnectionOptions> for AnyPoolOptions {
         ret = ret.idle_timeout(this.idle_timeout);
         ret = ret.max_lifetime(this.max_lifetime);
 
-        if cfg!(feature = "localhost-testing")
-            || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1"
-        {
+        if cfg!(feature = "localhost-testing") {
             log::trace!(target: "citadel", "Reducing connection pool");
             ret = ret.max_connections(1);
             ret = ret.max_lifetime(Duration::from_secs(60));
@@ -1170,6 +1168,20 @@ mod tests {
     fn test_u64_into_i64() {
         assert_eq!(super::u64_into_i64(0), i64::MIN);
         assert_eq!(super::u64_into_i64(u64::MAX), i64::MAX);
+    }
+
+    /// Only the compile-time `localhost-testing` feature shrinks the pool; nothing set at run time
+    /// changes how a release build connects.
+    #[cfg(all(feature = "sql", not(coverage), not(feature = "localhost-testing")))]
+    #[test]
+    fn no_environment_variable_shrinks_the_pool() {
+        std::env::set_var("LOCALHOST_TESTING", "1");
+        let options = super::AnyPoolOptions::from(&crate::backend::SqlConnectionOptions {
+            max_connections: Some(8),
+            ..Default::default()
+        });
+        std::env::remove_var("LOCALHOST_TESTING");
+        assert_eq!(options.get_max_connections(), 8);
     }
 
     #[test]

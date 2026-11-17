@@ -1220,4 +1220,8 @@ pub enum ErrorCode {
     /// An account was asked to record itself as its own peer (cid).
     #[form = "An account cannot be registered as its own peer (cid {})"]
     PeerRegisterSelf = 460,
+    /// The default account store lives in the home directory, and there is none (or its path is
+    /// not UTF-8). Choose a backend explicitly.
+    #[form = "No usable home directory for the default account store; choose a backend explicitly"]
+    BackendHomeDirUnavailable = 461,
 }

@@ -110,10 +110,11 @@ pub enum BackendType {
     HostSql(host_sql::HostSqlHandle),
 }
 
-impl Default for BackendType {
+impl BackendType {
     /// Platform-aware default backend selection.
     ///
-    /// On native + filesystem feature: uses `~/.citadel/<uuid>` directory.
+    /// On native + filesystem feature: uses `~/.citadel/<uuid>` directory, and fails when there is
+    /// no home directory (a service account without one) rather than guessing another place.
     /// On WASM or without filesystem feature: uses in-memory storage.
     ///
     /// Under `localhost-testing` the same kind of store goes under the OS temp
@@ -122,20 +123,28 @@ impl Default for BackendType {
     /// behind in the user's home, forever -- 27,000 of them, 6 GB, on one
     /// developer machine. `localhost-testing` is only ever enabled by
     /// dev-dependencies, so release builds keep `~/.citadel`.
-    fn default() -> Self {
+    pub fn platform_default() -> Result<Self, AccountError> {
         #[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
         {
             #[cfg(feature = "localhost-testing")]
-            let mut base = std::env::temp_dir();
+            let base = Some(std::env::temp_dir());
             #[cfg(not(feature = "localhost-testing"))]
-            let mut base = dirs2::home_dir().unwrap();
-            base.push(format!(".citadel/{}", uuid::Uuid::new_v4().as_u128()));
-            return BackendType::Filesystem(base.to_str().unwrap().to_string());
+            let base = dirs2::home_dir();
+            return store_under(base).map(BackendType::Filesystem);
         }
 
         #[allow(unreachable_code)]
-        BackendType::InMemory
+        Ok(BackendType::InMemory)
     }
+}
+
+/// A fresh store directory under `base`, which must exist and be UTF-8.
+#[cfg(all(feature = "filesystem", not(target_family = "wasm")))]
+fn store_under(base: Option<std::path::PathBuf>) -> Result<String, AccountError> {
+    let unavailable = || citadel_io::error!(citadel_io::ErrorCode::BackendHomeDirUnavailable);
+    let mut base = base.ok_or_else(unavailable)?;
+    base.push(format!(".citadel/{}", uuid::Uuid::new_v4().as_u128()));
+    base.to_str().map(str::to_string).ok_or_else(unavailable)
 }
 
 impl BackendType {
@@ -469,10 +478,26 @@ impl<R: Ratchet, Fcm: Ratchet> Clone for PersistenceHandler<R, Fcm> {
 
 #[cfg(all(test, feature = "filesystem", not(target_family = "wasm")))]
 mod default_backend_tests {
-    use super::BackendType;
+    use super::{store_under, BackendType};
+    use citadel_io::ErrorCode;
+
+    #[test]
+    fn no_home_directory_is_an_error_not_a_panic() {
+        let refused = store_under(None).map_err(|err| err.code);
+        assert_eq!(refused, Err(ErrorCode::BackendHomeDirUnavailable));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_home_directory_that_is_not_utf8_is_an_error_not_a_panic() {
+        use std::os::unix::ffi::OsStrExt;
+        let home = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(b"/home/\xff"));
+        let refused = store_under(Some(home)).map_err(|err| err.code);
+        assert_eq!(refused, Err(ErrorCode::BackendHomeDirUnavailable));
+    }
 
     fn default_dir() -> std::path::PathBuf {
-        match BackendType::default() {
+        match BackendType::platform_default().unwrap() {
             BackendType::Filesystem(dir) => std::path::PathBuf::from(dir),
             other => panic!("the default backend is not a filesystem store: {other:?}"),
         }

@@ -153,7 +153,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
     ) -> anyhow::Result<NodeFuture<'b, K>> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
-        let backend_type = self.backend_type.take().unwrap_or_default();
+        let backend_type = match self.backend_type.take() {
+            Some(backend_type) => backend_type,
+            None => BackendType::platform_default()?,
+        };
         let server_argon_settings = self.server_argon_settings.take();
         #[cfg(feature = "google-services")]
         let server_services_cfg = self.services.take();
