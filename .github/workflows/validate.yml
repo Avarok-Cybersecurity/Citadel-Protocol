@@ -599,6 +599,8 @@ jobs:
         run: cargo check --package citadel_sdk --target wasm32-unknown-unknown
       - name: No classical signature crate in the wasm32 server graph
         run: ci/no-classical-signatures.sh
+      - name: No WASI crate, fork or cfg; one crates.io tokio on wasm32
+        run: ci/no-wasi.sh
       - name: Check citadel_media for wasm32
         run: cargo check --package citadel_media --target wasm32-unknown-unknown
       - name: Check the browser security-key backend
@@ -612,6 +614,8 @@ jobs:
       - name: Run WASM integration tests
         working-directory: citadel_sdk
         run: wasm-pack test --node --release -- --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
+      - name: The wasm32 test artifact imports only wasm-bindgen host functions
+        run: python3 ci/wasm-imports-are-bindgen-only.py target/wasm32-unknown-unknown/release/deps/wasm_basic_p2p-*.wasm
       - name: Run citadel_media WASM tests
         working-directory: citadel_media
         run: wasm-pack test --node --release -- --test wasm_media
