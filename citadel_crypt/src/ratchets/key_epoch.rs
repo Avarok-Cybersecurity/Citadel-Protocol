@@ -13,6 +13,7 @@ use citadel_io::Mutex;
 use citadel_negotiation::settings::KeyProfile;
 use citadel_negotiation::Epoch;
 use citadel_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
+use citadel_types::crypto::SecurityLevel;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
 use std::collections::{BTreeMap, HashMap};
@@ -41,6 +42,19 @@ pub type GateFuture = Pin<Box<dyn Future<Output = bool> + Send + 'static>>;
 /// negotiator has seen the frame that makes it agree; it must resolve within a bound of its own.
 pub trait EpochRoundGate: Send + Sync + 'static {
     fn admit(&self, tag: KeyEpochTag, current_version: u32) -> GateFuture;
+}
+
+/// The key profile a ratchet carries: its layer count is the level, and the newest layer's
+/// parameters are the ones the last raise chose (for a ratchet never raised, the session's).
+pub fn profile_of<R: crate::ratchets::Ratchet>(ratchet: &R) -> Result<KeyProfile, CryptError> {
+    let layers = ratchet.message_ratchet_count();
+    let top = layers
+        .checked_sub(1)
+        .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::NoMessageRatchets))?;
+    let (pqc, _) = ratchet.get_message_pqc_and_entropy_bank_at_layer(Some(top))?;
+    let level = u8::try_from(top)
+        .map_err(|_| citadel_io::error!(citadel_io::ErrorCode::KeyEpochLayerCount, layers))?;
+    Ok(KeyProfile::new(SecurityLevel::from(level), pqc.params))
 }
 
 /// The next layers' constructor options for `profile`, given `base`: the options a plain rekey
@@ -144,6 +158,15 @@ impl EpochLedger {
         self.built.lock().values().next_back().copied()
     }
 
+    /// The version that carries `epoch`, while the toolset still holds it.
+    pub(crate) fn version_of(&self, epoch: Epoch) -> Option<(u32, KeyEpochTag)> {
+        self.built
+            .lock()
+            .iter()
+            .find(|(_, tag)| tag.epoch == epoch)
+            .map(|(version, tag)| (*version, *tag))
+    }
+
     pub(crate) fn record_refused(&self, epoch: Epoch) {
         self.refused.lock().push(epoch);
     }
@@ -155,12 +178,14 @@ impl EpochLedger {
         refused.len() != before
     }
 
-    /// Forgets what no longer matters once `completed` is the newest finished version.
+    /// Forgets what no longer matters once `completed` is the newest finished version. A version
+    /// above it was committed by a round that did not complete; the toolset drops it at the next
+    /// commit, so its epoch record goes too.
     pub(crate) fn round_ended(&self, completed: u32, oldest_kept: u32) {
         self.staged.lock().retain(|version, _| *version > completed);
         self.built
             .lock()
-            .retain(|version, _| *version >= oldest_kept);
+            .retain(|version, _| (oldest_kept..=completed).contains(version));
         self.rounds.send_modify(|n| *n = n.wrapping_add(1));
     }
 
@@ -198,7 +223,7 @@ impl Drop for PriorityClaim {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use citadel_types::crypto::{CryptoParameters, SecurityLevel};
+    use citadel_types::crypto::CryptoParameters;
 
     fn base(layers: usize) -> Vec<ConstructorOpts> {
         let chain = RecursiveChain::new([7u8; 32], [8u8; 32], [9u8; 32], false).unwrap();
