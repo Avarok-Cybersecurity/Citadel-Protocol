@@ -20,9 +20,6 @@ pub mod tests {
     /// IPv6/QUIC skip existed in `test_tcp_or_tls` only, so
     /// `test_many_proto_conns` went on binding `[::1]:0` on Windows.
     fn unsupported_here(addr: SocketAddr) -> Option<&'static str> {
-        if !cfg!(feature = "multi-threaded") {
-            return Some("only works in multi-threaded mode");
-        }
         if addr.is_ipv6() && !is_ipv6_enabled() {
             return Some("ipv6 is not enabled locally");
         }
@@ -32,6 +29,22 @@ pub mod tests {
             return Some("windows dual-stack ipv6 breaks QUIC endpoint creation");
         }
         None
+    }
+
+    /// Runs `body` the way this build runs the protocol. A single-threaded build spawns with
+    /// `spawn_local`, so production drives every node inside a `LocalSet`
+    /// (`proto::misc::threading`); a test that does not panics on its first spawn.
+    async fn as_the_build_runs<F: std::future::Future>(body: F) -> F::Output {
+        #[cfg(feature = "multi-threaded")]
+        {
+            body.await
+        }
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            citadel_io::tokio::task::LocalSet::new()
+                .run_until(body)
+                .await
+        }
     }
 
     /// Windows denies an ephemeral bind with WSAEACCES (10013) when the port the
@@ -202,6 +215,14 @@ pub mod tests {
             return Ok(());
         }
 
+        as_the_build_runs(many_proto_conns(addr, protocols, client_config)).await
+    }
+
+    async fn many_proto_conns(
+        addr: SocketAddr,
+        protocols: &Vec<ServerMode<NativeIO>>,
+        client_config: &NativeClientConfig,
+    ) -> std::io::Result<()> {
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
             log::trace!(target: "citadel", "Testing proto {:?}", proto);
@@ -278,6 +299,19 @@ pub mod tests {
         H: FnOnce(GenericNetworkStream, SocketAddr) -> F,
         F: std::future::Future<Output = std::io::Result<()>>,
     {
+        as_the_build_runs(round_trip_inner(proto, addr, client_config, server_handler)).await
+    }
+
+    async fn round_trip_inner<H, F>(
+        proto: &ServerMode<NativeIO>,
+        addr: SocketAddr,
+        client_config: &NativeClientConfig,
+        server_handler: H,
+    ) -> std::io::Result<()>
+    where
+        H: FnOnce(GenericNetworkStream, SocketAddr) -> F,
+        F: std::future::Future<Output = std::io::Result<()>>,
+    {
         log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", proto, addr);
 
         let res = bind_retrying_reserved_ports(proto.clone(), addr).await;
@@ -315,7 +349,14 @@ pub mod tests {
     #[rstest]
     #[case("127.0.0.1:0")]
     #[timeout(Duration::from_secs(60))]
-    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(
+        feature = "multi-threaded",
+        citadel_io::tokio::test(flavor = "multi_thread")
+    )]
+    #[cfg_attr(
+        not(feature = "multi-threaded"),
+        citadel_io::tokio::test(flavor = "current_thread")
+    )]
     async fn round_trip_reports_a_failed_server_half(
         #[case] addr: SocketAddr,
         protocols: &Vec<ServerMode<NativeIO>>,
