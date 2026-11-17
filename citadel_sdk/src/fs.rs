@@ -479,7 +479,7 @@ mod tests {
                 // The other peer will send the file first
                 log::info!(target: "citadel", "***CLIENT A {cid} LOGIN SUCCESS :: File transfer next ***");
                 let remote = connection.remote.clone();
-                let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
+                let handle_orig = connection.get_incoming_file_transfer_handle().unwrap();
                 let _file_transfer_task = accept_all(handle_orig);
 
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");
@@ -531,7 +531,7 @@ mod tests {
                 let cid = connection.channel.get_session_cid();
                 wait_for_peers().await;
                 let remote = connection.remote.clone();
-                let handle_orig = connection.incoming_object_transfer_handles.take().unwrap();
+                let handle_orig = connection.get_incoming_file_transfer_handle().unwrap();
                 let _file_transfer_task = accept_all(handle_orig);
                 log::info!(target: "citadel", "***CLIENT B {cid} LOGIN SUCCESS :: File transfer next ***");
                 let virtual_path = PathBuf::from("/home/john.doe/TheBridge.pdf");

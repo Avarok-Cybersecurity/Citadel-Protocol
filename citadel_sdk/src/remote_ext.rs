@@ -1663,7 +1663,10 @@ pub mod results {
         pub remote: PeerRemote<R>,
         /// Receives incoming file/object transfer requests. The handles must be
         /// .accepted() before the file/object transfer is allowed to proceed
-        pub(crate) incoming_object_transfer_handles: Option<FileTransferHandleRx>,
+        /// Offers that arrive while nobody can take the receiver are declined; see
+        /// [`inbox`](crate::prefabs::inbox).
+        pub(crate) incoming_object_transfer_handles:
+            Option<crate::prefabs::inbox::InboxClaim<ObjectTransferHandler>>,
     }
 
     impl<R: Ratchet> Debug for PeerConnectSuccess<R> {
@@ -1680,11 +1683,17 @@ pub mod results {
         pub fn get_incoming_file_transfer_handle(
             &mut self,
         ) -> Result<FileTransferHandleRx, NetworkError> {
-            self.incoming_object_transfer_handles
-                .take()
+            let inner = self
+                .incoming_object_transfer_handles
+                .as_ref()
+                .and_then(crate::prefabs::inbox::InboxClaim::take)
                 .ok_or(citadel_io::error!(
                     citadel_io::ErrorCode::RemoteFunctionAlreadyCalled
-                ))
+                ))?;
+            Ok(FileTransferHandleRx {
+                inner,
+                conn_type: *crate::remote_ext::TargetLockedRemote::user(&self.remote),
+            })
         }
 
         /// The security settings the link was established with; see
