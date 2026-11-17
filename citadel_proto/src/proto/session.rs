@@ -1913,7 +1913,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 metadata,
                 ticket,
                 target_cid,
-                next_gs_alerter: next_gs_alerter.clone(),
+                next_gs_alerter,
                 start: Some(start),
             };
             let file_key = FileKey::new(object_id);
@@ -1923,10 +1923,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             // spawn the task that takes GroupSenders from the threadpool cryptscrambler
             drop(state_container);
 
-            let this = self.clone();
+            // The task holds the session weakly and no alerter of its own: the alerters live in
+            // the transfer's records, so ending the transfer (or the session) ends this task.
+            let weak_session = self.as_weak();
+            let mut session_ended = inner!(self.stopper_tx).subscribe();
+            let session_cid = self.session_cid.get();
             let future = async move {
-                let this = &this;
-                let next_gs_alerter = &next_gs_alerter;
                 // this future will resolve when the sender drops in the file_crypt_scrambler
                 match start_rx.await {
                     Ok(false) => {
@@ -1953,14 +1955,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 //
 
                 let mut relative_group_id = 0;
-                let session_cid = this.session_cid.get();
                 // while waiting, we likely have a set of GroupSenders to process
                 while let Some(sender) = group_sender_rx.next().await {
                     match sender {
                         Ok(sender) => {
+                            let Some(sess) = CitadelSession::upgrade_weak(&weak_session) else {
+                                return;
+                            };
                             let (group_id, key) = {
                                 // construct the OutboundTransmitters
-                                let sess = this;
                                 if !sess.state.is_connected() {
                                     log::warn!(target: "citadel", "Since transmitting the file, the session ended");
                                     return;
@@ -1970,6 +1973,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                 // and the endpoint/ratchet lookup is read-only, so concurrent sends
                                 // don't serialize on the coarse write lock.
                                 let state_container = inner_state!(sess.state_container);
+                                let Some(next_gs_alerter) = state_container
+                                    .outbound_files
+                                    .get(&file_key)
+                                    .map(|transfer| transfer.next_gs_alerter.clone())
+                                else {
+                                    log::warn!(target: "citadel", "Outbound transfer {file_key:?} ended before group {relative_group_id} was sent");
+                                    return;
+                                };
                                 let latest_proper_ratchet = match state_container
                                     .get_endpoint_container(virtual_target.get_target_cid())
                                 {
@@ -2008,7 +2019,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                 let group_byte_len = transmitter.get_total_plaintext_bytes();
 
                                 let outbound_container = OutboundTransmitterContainer::new(
-                                    Some(next_gs_alerter.clone()),
+                                    Some(next_gs_alerter),
                                     transmitter,
                                     group_byte_len,
                                     groups_needed,
@@ -2033,7 +2044,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             };
 
                             let kernel_tx2 = kernel_tx.clone();
-                            this.queue_handle.insert_ordinary(target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
+                            sess.queue_handle.insert_ordinary(target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                             // Read the expiry decision while only holding the DashMap `Ref`, then let
                             // it drop before mutating other collections — the `Ref` holds a shard
                             // read-borrow to end-of-scope (unlike the old `&V`, freed at last use).
@@ -2072,6 +2083,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             } else {
                                 log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", file_key);
                             }
+                            state_container.drop_outbound_groups_of(&file_key);
 
                             let reason = format!("Timeout on ticket {ticket}: outbound group {group_id} expired");
                             if !state_container.fail_object_transfer_handle(&file_key, reason) {
@@ -2092,6 +2104,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
                             // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
                             // received a signal here
+                            drop(sess);
 
                             if (next_gs_alerter_rx.next().await).is_none() {
                                 log::warn!(target: "citadel", "next_gs_alerter: steam ended");
@@ -2118,7 +2131,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 post_close_hook();
             };
 
-            spawn!(future);
+            spawn!(async move {
+                citadel_io::tokio::select! {
+                    _ = future => {}
+                    _ = session_ended.recv() => {
+                        log::trace!(target: "citadel", "Outbound transfer {file_key:?} ended with its session");
+                    }
+                }
+            });
 
             Ok(())
         }

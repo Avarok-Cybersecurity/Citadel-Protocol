@@ -174,6 +174,9 @@ impl<R: Ratchet> StateContainerInner<R> {
                 _ => preferred_primary_stream.clone(),
             };
 
+            // Held weakly: the task can wait on the application for as long as it likes, and its
+            // records belong to the session, which must be free to end meanwhile.
+            let state_container = state_container.as_weak();
             let task = async move {
                 log::debug!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
                 let res = if let Some(start_rx) = start_recv_rx {
@@ -283,9 +286,13 @@ impl<R: Ratchet> StateContainerInner<R> {
                                             log::warn!(target: "citadel", "Unable to craft the file error packet: {err}")
                                         }
                                     }
-                                    let state_container = inner_state!(state_container);
-                                    let _ = state_container.inbound_files.remove(&key);
-                                    let _ = state_container.file_transfer_handles.remove(&key);
+                                    if let Some(state_container) =
+                                        StateContainer::upgrade_weak(&state_container)
+                                    {
+                                        let state_container = inner_state!(state_container);
+                                        let _ = state_container.inbound_files.remove(&key);
+                                        let _ = state_container.file_transfer_handles.remove(&key);
+                                    }
                                     ObjectTransferStatus::Fail(reason)
                                 }
                             };
@@ -301,9 +308,13 @@ impl<R: Ratchet> StateContainerInner<R> {
                             }
                             // user did not accept. cleanup local (DashMap removes need only a read lock)
                             log::warn!(target: "citadel", "User did not accept file transfer");
-                            let state_container = inner_state!(state_container);
-                            let _ = state_container.inbound_files.remove(&key);
-                            let _ = state_container.file_transfer_handles.remove(&key);
+                            if let Some(state_container) =
+                                StateContainer::upgrade_weak(&state_container)
+                            {
+                                let state_container = inner_state!(state_container);
+                                let _ = state_container.inbound_files.remove(&key);
+                                let _ = state_container.file_transfer_handles.remove(&key);
+                            }
                         }
                     }
 

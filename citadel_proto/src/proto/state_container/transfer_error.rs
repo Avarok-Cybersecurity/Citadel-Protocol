@@ -73,34 +73,87 @@ impl<R: Ratchet> StateContainerInner<R> {
                 _ => false,
             }
         }
-        let inbound: Vec<FileKey> = self
-            .inbound_files
-            .iter()
-            .filter(|entry| involves(&entry.value().virtual_target, peer_cid))
-            .map(|entry| *entry.key())
-            .collect();
-        let outbound: Vec<FileKey> = self
-            .outbound_files
-            .iter()
-            .filter(|(_, transfer)| transfer.target_cid == peer_cid)
-            .map(|(key, _)| *key)
-            .collect();
-        for key in &inbound {
-            let _ = self.inbound_files.remove(key);
-        }
-        for key in &outbound {
-            if let Some(mut transfer) = self.outbound_files.remove(key) {
-                transfer.halt();
-            }
-        }
-        let ended: usize = inbound.len() + outbound.len();
-        for key in inbound.iter().chain(outbound.iter()) {
-            self.fail_object_transfer_handle(key, reason.to_string());
-        }
+        let ended = self.fail_transfers_where(
+            |target| involves(target, peer_cid),
+            |transfer| transfer.target_cid == peer_cid,
+            reason,
+        );
         if ended > 0 {
             log::warn!(target: "citadel", "Ended {ended} object transfer(s) with {peer_cid}: {reason}");
         }
         ended
+    }
+
+    /// End every object transfer this session holds, both directions, with `reason` -- called
+    /// when the session ends. The tasks streaming a transfer wait on senders that only these
+    /// records hold, so a record left behind keeps its task, and everything that task holds,
+    /// for good. Returns how many were ended.
+    pub(crate) fn fail_all_transfers(&mut self, reason: &str) -> usize {
+        let mut ended = self.fail_transfers_where(|_| true, |_| true, reason);
+        // Handles whose transfer record is already gone still wait for an outcome.
+        let orphaned: Vec<FileKey> = self
+            .file_transfer_handles
+            .iter()
+            .map(|entry| *entry.key())
+            .collect();
+        for key in &orphaned {
+            if self.fail_object_transfer_handle(key, reason.to_string()) {
+                ended += 1;
+            }
+        }
+        if ended > 0 {
+            log::debug!(target: "citadel", "Ended {ended} object transfer(s): {reason}");
+        }
+        ended
+    }
+
+    fn fail_transfers_where(
+        &mut self,
+        inbound_matches: impl Fn(&VirtualTargetType) -> bool,
+        outbound_matches: impl Fn(&OutboundFileTransfer) -> bool,
+        reason: &str,
+    ) -> usize {
+        let inbound: Vec<FileKey> = self
+            .inbound_files
+            .iter()
+            .filter(|entry| inbound_matches(&entry.value().virtual_target))
+            .map(|entry| *entry.key())
+            .collect();
+        let outbound: Vec<(FileKey, Ticket)> = self
+            .outbound_files
+            .iter()
+            .filter(|(_, transfer)| outbound_matches(transfer))
+            .map(|(key, transfer)| (*key, transfer.ticket))
+            .collect();
+        for key in &inbound {
+            let _ = self.inbound_files.remove(key);
+            self.fail_object_transfer_handle(key, reason.to_string());
+        }
+        for (key, ticket) in &outbound {
+            if let Some(mut transfer) = self.outbound_files.remove(key) {
+                transfer.halt();
+            }
+            self.drop_outbound_groups_of(key);
+            if !self.fail_object_transfer_handle(key, reason.to_string()) {
+                // Not yet answered, so the sender has no handle: its request is still waiting.
+                let _ = self
+                    .kernel_tx
+                    .unbounded_send(NodeResult::InternalServerError(InternalServerError {
+                        ticket_opt: Some(*ticket),
+                        cid_opt: self.cnac.as_ref().map(|cnac| cnac.get_cid()),
+                        message: reason.to_string(),
+                    }));
+            }
+        }
+        inbound.len() + outbound.len()
+    }
+
+    /// Drops the groups of `file_key` still waiting to be sent. Each holds the group's
+    /// ciphertext and a sender of the transfer's group alerter, so leaving them behind keeps
+    /// both after the transfer has failed.
+    pub(crate) fn drop_outbound_groups_of(&self, file_key: &FileKey) {
+        self.outbound_transmitters
+            .retain(|group, _| group.object_id != file_key.object_id);
     }
 }
 

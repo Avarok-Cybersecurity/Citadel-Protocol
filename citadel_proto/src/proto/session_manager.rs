@@ -1035,6 +1035,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             state_container.end_connections();
         }
 
+        let _ = state_container.fail_all_transfers("The session ended");
+        drop(state_container);
         sess.drop_listener.set(None);
 
         if let Some(err) = err {
