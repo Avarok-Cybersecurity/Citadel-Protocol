@@ -1314,6 +1314,8 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref;
+    let authenticated_cid = return_if_none!(session.session_cid.get());
+    let signal = super::server::sender_binding::as_sent_by(signal, authenticated_cid);
     if let PeerSignal::SignInManagement { message, .. } = signal {
         let session_cid = return_if_none!(session.session_cid.get());
         let reply = pq_sign_in::manage::on_message(session, message).await;

@@ -59,9 +59,10 @@ pub async fn process_raw_packet<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     remote_peer: SocketAddr,
     local_primary_port: u16,
-    packet: BytesMut,
+    mut packet: BytesMut,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
+    crate::proto::seal_identity::bind_to_session(session.is_server, this_session_cid, &mut packet);
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     if packet.parse().is_none() {
         log::warn!(target: "citadel", "Unable to parse packet {:?} | Len: {}", packet.as_bytes(), packet.get_length());

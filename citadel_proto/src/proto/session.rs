@@ -2556,12 +2556,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
     pub fn process_inbound_packet_udp(
         &self,
-        packet: HdpPacket,
+        mut packet: HdpPacket,
         accessor: &EndpointCryptoAccessor<R>,
     ) -> Result<(), NetworkError> {
         if packet.get_length() < HDP_HEADER_BYTE_LEN {
             return Ok(());
         }
+        crate::proto::seal_identity::bind_to_session(
+            self.is_server,
+            self.session_cid.get(),
+            packet.as_bytes_mut(),
+        );
 
         if let Some((header, _)) = packet.parse() {
             // we only process streaming packets
