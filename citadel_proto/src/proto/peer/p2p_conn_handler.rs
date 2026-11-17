@@ -41,8 +41,10 @@ use crate::proto::misc;
 use crate::proto::misc::dual_rwlock::DualRwLock;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{NodeResult, PeerEvent};
+use crate::proto::outbound_budget::MAX_QUEUED_OUTBOUND_BYTES;
+use crate::proto::outbound_sender::budgeted_primary_channel;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
-use crate::proto::outbound_sender::{unbounded, OutboundPrimaryStreamReceiver, UnboundedSender};
+use crate::proto::outbound_sender::UnboundedSender;
 use crate::proto::packet::HeaderObfuscator;
 use crate::proto::packet_crafter;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
@@ -257,9 +259,8 @@ pub(crate) mod native_p2p {
 
         log::trace!(target: "citadel", "[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), remote_peer);
         let (sink, stream) = misc::safe_split_stream(p2p_stream);
-        let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
-        let p2p_primary_stream_tx = OutboundPrimaryStreamSender::from(p2p_primary_stream_tx);
-        let p2p_primary_stream_rx = OutboundPrimaryStreamReceiver::from(p2p_primary_stream_rx);
+        let (p2p_primary_stream_tx, p2p_primary_stream_rx) =
+            budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES);
         let header_obfuscator = HeaderObfuscator::new(
             from_listener,
             session_security_settings.header_obfuscator_settings,

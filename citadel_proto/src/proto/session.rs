@@ -65,6 +65,8 @@ use crate::proto::session_resume::HeldSessionResume;
 //use futures_codec::Framed;
 use crate::proto::disconnect_tracker::{DisconnectSignalTracker, DisconnectToken};
 use crate::proto::node_result::{ConnectFail, Disconnect, InternalServerError, NodeResult};
+use crate::proto::outbound_budget::MAX_QUEUED_OUTBOUND_BYTES;
+use crate::proto::outbound_sender::budgeted_primary_channel;
 use crate::proto::outbound_sender::{channel, unbounded, SendError, UnboundedSender};
 use crate::proto::outbound_sender::{OutboundPrimaryStreamReceiver, OutboundPrimaryStreamSender};
 use crate::proto::packet::{packet_flags, HdpPacket, HeaderObfuscator};
@@ -619,9 +621,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             *inner_mut!(this.ws_pinger) = T::ws_pinger(&primary_stream);
             let (writer, reader) = misc::safe_split_stream(primary_stream);
 
-            let (primary_outbound_tx, primary_outbound_rx) = unbounded();
-            let primary_outbound_tx = OutboundPrimaryStreamSender::from(primary_outbound_tx);
-            let primary_outbound_rx = OutboundPrimaryStreamReceiver::from(primary_outbound_rx);
+            let (primary_outbound_tx, primary_outbound_rx) =
+                budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES);
 
             // if the primary stream uses QUIC, load this inside for both client and server
             if let Some(quic_conn) = quic_conn_opt {

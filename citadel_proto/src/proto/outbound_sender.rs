@@ -44,6 +44,11 @@ use futures::task::{Context, Poll};
 use futures::Sink;
 use std::pin::Pin;
 
+pub(crate) use crate::proto::outbound_primary::budgeted_primary_channel;
+pub use crate::proto::outbound_primary::{
+    OutboundPrimaryStreamReceiver, OutboundPrimaryStreamSender,
+};
+
 pub struct UnboundedSender<T>(pub(crate) UnboundedSenderInner<T>);
 
 impl<T> Clone for UnboundedSender<T> {
@@ -122,54 +127,6 @@ impl OutboundPacket {
             OutboundPacket::Split { header, payload } => header.len() + payload.len(),
             OutboundPacket::Flush(_) => 0,
         }
-    }
-}
-
-#[derive(Clone)]
-pub struct OutboundPrimaryStreamSender(UnboundedSender<OutboundPacket>);
-
-impl OutboundPrimaryStreamSender {
-    #[inline]
-    pub fn unbounded_send(&self, item: bytes::BytesMut) -> Result<(), SendError<OutboundPacket>> {
-        self.0.unbounded_send(OutboundPacket::Contiguous(item))
-    }
-
-    /// Queue a packet whose header and payload are sent as two buffers via vectored I/O,
-    /// eliminating the copy that materializing a single contiguous packet would require.
-    #[inline]
-    pub fn unbounded_send_split(
-        &self,
-        header: BytesMut,
-        payload: Bytes,
-    ) -> Result<(), SendError<OutboundPacket>> {
-        self.0
-            .unbounded_send(OutboundPacket::Split { header, payload })
-    }
-
-    /// Queue a flush-barrier: the writer flushes everything queued before this marker, then signals
-    /// `ack`. See [`OutboundPacket::Flush`].
-    #[inline]
-    pub fn send_flush(
-        &self,
-        ack: citadel_io::tokio::sync::oneshot::Sender<()>,
-    ) -> Result<(), SendError<OutboundPacket>> {
-        self.0.unbounded_send(OutboundPacket::Flush(ack))
-    }
-}
-
-impl From<UnboundedSender<OutboundPacket>> for OutboundPrimaryStreamSender {
-    fn from(inner: UnboundedSender<OutboundPacket>) -> Self {
-        Self(inner)
-    }
-}
-
-pub struct OutboundPrimaryStreamReceiver(
-    pub citadel_io::tokio_stream::wrappers::UnboundedReceiverStream<OutboundPacket>,
-);
-
-impl From<UnboundedReceiver<OutboundPacket>> for OutboundPrimaryStreamReceiver {
-    fn from(inner: UnboundedReceiver<OutboundPacket>) -> Self {
-        Self(citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(inner))
     }
 }
 
