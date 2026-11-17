@@ -4,7 +4,6 @@
 use crate::kernel::kernel_communicator::{
     KernelAsyncCallbackHandler, KernelAsyncCallbackHandlerInner,
 };
-use crate::proto::misc::panic_future::OwnedTask;
 use crate::proto::outbound_sender::{unbounded, BoundedSender};
 use crate::proto::remote::NodeRemote;
 use crate::proto::session::SessionState;
@@ -87,6 +86,11 @@ fn counting(
     }
 }
 
+/// Single-threaded nodes spawn their session tasks locally, so the worker runs in a `LocalSet`.
+async fn in_a_local_set<F: std::future::Future>(test: F) -> F::Output {
+    tokio::task::LocalSet::new().run_until(test).await
+}
+
 /// Lets the spawned worker run everything now due.
 async fn settle() {
     for _ in 0..8 {
@@ -96,13 +100,17 @@ async fn settle() {
 
 #[tokio::test(start_paused = true)]
 async fn a_replaced_entry_runs_once_at_its_own_time() {
+    in_a_local_set(a_replaced_entry_runs_once_at_its_own_time_body()).await
+}
+
+async fn a_replaced_entry_runs_once_at_its_own_time_body() {
     let state = state_container().await;
     let (mut worker, _shutdown) = worker(&state);
     let (replaced, replacing) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
     let key = Some(QueueWorkerTicket::Oneshot(7, 1));
     worker.insert_reserved_fn(key, Duration::from_secs(1), counting(&replaced));
     worker.insert_reserved_fn(key, Duration::from_secs(3), counting(&replacing));
-    let _running = OwnedTask::new(tokio::spawn(worker));
+    let _running = spawn_handle!(worker);
 
     tokio::time::advance(Duration::from_secs(2)).await;
     settle().await;
@@ -120,6 +128,10 @@ async fn a_replaced_entry_runs_once_at_its_own_time() {
 
 #[tokio::test(start_paused = true)]
 async fn entries_from_one_handle_never_share_a_key() {
+    in_a_local_set(entries_from_one_handle_never_share_a_key_body()).await
+}
+
+async fn entries_from_one_handle_never_share_a_key_body() {
     let state = state_container().await;
     let (shutdown, _shutdown_rx) = citadel_io::tokio::sync::broadcast::channel(1);
     let (mut worker, handle) = SessionQueueWorker::<R>::new(shutdown);
@@ -128,7 +140,7 @@ async fn entries_from_one_handle_never_share_a_key() {
     // Same peer, as an inbound and an outbound group with that peer always were.
     handle.insert_ordinary(9, Duration::from_secs(1), counting(&runs));
     handle.insert_ordinary(9, Duration::from_secs(1), counting(&runs));
-    let _running = OwnedTask::new(tokio::spawn(worker));
+    let _running = spawn_handle!(worker);
     // The handle's entries reach the worker when it first runs.
     settle().await;
 
@@ -143,12 +155,16 @@ async fn entries_from_one_handle_never_share_a_key() {
 
 #[tokio::test]
 async fn a_dropped_worker_task_releases_the_session_state() {
+    in_a_local_set(a_dropped_worker_task_releases_the_session_state_body()).await
+}
+
+async fn a_dropped_worker_task_releases_the_session_state_body() {
     let state = state_container().await;
     let (worker, _shutdown) = worker(&state);
     let probe = state.as_weak();
     // The worker holds the state for as long as it runs, and with no timer due it never wakes
     // to notice its session has gone: only dropping its task releases the state.
-    let running = OwnedTask::new(tokio::spawn(worker));
+    let running = spawn_handle!(worker);
     drop(state);
     settle().await;
     assert!(StateContainer::upgrade_weak(&probe).is_some());
@@ -169,6 +185,10 @@ async fn a_dropped_worker_task_releases_the_session_state() {
 /// and reporting it as an error logged `QueueHandlerShutdown` at the end of every session.
 #[tokio::test(start_paused = true)]
 async fn a_worker_ends_without_error_when_its_session_ends() {
+    in_a_local_set(a_worker_ends_without_error_when_its_session_ends_body()).await
+}
+
+async fn a_worker_ends_without_error_when_its_session_ends_body() {
     let state = state_container().await;
     let (mut worker, _shutdown) = worker(&state);
     let runs = Arc::new(AtomicUsize::new(0));
@@ -177,7 +197,7 @@ async fn a_worker_ends_without_error_when_its_session_ends() {
         Duration::from_secs(1),
         counting(&runs),
     );
-    let running = OwnedTask::new(tokio::spawn(worker));
+    let running = spawn_handle!(worker);
     settle().await;
     inner_mut_state!(state)
         .state

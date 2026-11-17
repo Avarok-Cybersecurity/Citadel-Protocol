@@ -48,12 +48,12 @@ mod tests {
             let addr = listener.local_addr().unwrap();
             let cut = Arc::new(Notify::new());
             let cut_for_links = cut.clone();
-            let _ = tokio::spawn(async move {
+            drop(tokio::spawn(async move {
                 while let Ok((client, _)) = listener.accept().await {
                     let server = TcpStream::connect(upstream).await.unwrap();
-                    let _ = tokio::spawn(relay(client, server, cut_for_links.clone()));
+                    drop(tokio::spawn(relay(client, server, cut_for_links.clone())));
                 }
-            });
+            }));
             Self { addr, cut }
         }
 
