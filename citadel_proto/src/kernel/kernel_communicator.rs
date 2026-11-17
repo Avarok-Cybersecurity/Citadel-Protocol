@@ -33,6 +33,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::Mutex;
 use citadel_io::{error, ErrorCode};
 use futures::{Future, Stream};
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -59,53 +60,18 @@ pub struct CallbackKey {
     pub session_cid: Option<u64>,
 }
 
-fn search_for_value<'a, R: Ratchet>(
+/// The listener a result with `received` is delivered to: the one registered for its ticket and
+/// CID, or else the one registered for its ticket alone. A listener registered with a CID never
+/// receives a result without one. Two lookups, whatever the number of outstanding listeners.
+fn listener_for<'a, R: Ratchet>(
     map: &'a mut HashMap<CallbackKey, CallbackNotifier<R>>,
-    callback_key_received: &'a CallbackKey,
-) -> Option<(&'a mut CallbackNotifier<R>, CallbackKey)> {
-    let expected_ticket = callback_key_received.ticket;
-    for (key, notifier) in map.iter_mut() {
-        let ticket = key.ticket;
-        let cid_opt = key.session_cid;
-
-        // If we locally expect a cid, then, we require the same cid to be present in the received callback_key
-        // If we locally do not expect a cid, then, we don't need to check the cid
-        if let Some(cid_expected) = cid_opt {
-            if let Some(cid_received) = callback_key_received.session_cid {
-                if expected_ticket == key.ticket && cid_expected == cid_received {
-                    return Some((
-                        notifier,
-                        CallbackKey {
-                            ticket,
-                            session_cid: Some(cid_expected),
-                        },
-                    ));
-                } else {
-                    // Incorrect match
-                    continue;
-                }
-            } else {
-                // We expect a cid, but, the received does not have one
-                continue;
-            }
-        } else {
-            // We do not expect a CID. Therefore, we don't need to check the CID received
-            if expected_ticket == key.ticket {
-                return Some((
-                    notifier,
-                    CallbackKey {
-                        ticket,
-                        session_cid: None,
-                    },
-                ));
-            } else {
-                // Incorrect match
-                continue;
-            }
-        }
+    received: &CallbackKey,
+) -> Option<&'a mut CallbackNotifier<R>> {
+    let ticket_only = CallbackKey::ticket_only(received.ticket);
+    if received.session_cid.is_some() && map.contains_key(received) {
+        return map.get_mut(received);
     }
-
-    None
+    map.get_mut(&ticket_only)
 }
 
 impl CallbackKey {
@@ -157,9 +123,7 @@ impl<R: Ratchet> KernelAsyncCallbackHandler<R> {
         match result.callback_key() {
             Some(ref received_callback_key) => {
                 let mut this = self.inner.lock();
-                if let Some((prev, _new_key)) =
-                    search_for_value(&mut this.map, received_callback_key)
-                {
+                if let Some(prev) = listener_for(&mut this.map, received_callback_key) {
                     match prev.tx.send(result) {
                         Ok(_) => None,
                         Err(err) => Some(err.0),
@@ -191,10 +155,13 @@ impl<R: Ratchet> KernelAsyncCallbackHandlerInner<R> {
         callback_key: CallbackKey,
         notifier: CallbackNotifier<R>,
     ) -> Result<(), NetworkError> {
-        if self.map.insert(callback_key, notifier).is_some() {
-            Err(error!(ErrorCode::KernelNotifierOverwritten))
-        } else {
-            Ok(())
+        // A second listener for a key is refused, and the first keeps receiving.
+        match self.map.entry(callback_key) {
+            Entry::Occupied(_) => Err(error!(ErrorCode::KernelNotifierOverwritten)),
+            Entry::Vacant(slot) => {
+                let _ = slot.insert(notifier);
+                Ok(())
+            }
         }
     }
 }
@@ -236,3 +203,7 @@ impl<R: Ratchet> Stream for KernelStreamSubscription<R> {
         Pin::new(&mut self.inner).poll_recv(cx)
     }
 }
+
+#[cfg(test)]
+#[path = "kernel_communicator_tests.rs"]
+mod tests;
