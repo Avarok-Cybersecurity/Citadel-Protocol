@@ -211,6 +211,11 @@ pub(crate) struct SessionAliveTracker<R: Ratchet, T: PlatformOps> {
 }
 
 impl<R: Ratchet, T: PlatformOps> SessionAliveTracker<R, T> {
+    /// Whether anything still holds the session.
+    pub(crate) fn is_held(&self) -> bool {
+        self.weak.strong_count() > 0
+    }
+
     pub(crate) fn alive(&self) -> bool {
         if self.weak.strong_count() > 0 {
             true
@@ -307,7 +312,8 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     // the (only first!) incoming connection places a sender with the intent that its sender gets awaited and returns once the session
     // drops along with the drop_listener. This is to stop race conditions when higher-level applications try to connect right after disconnecting.
     pub(super) drop_listener: DualRwLock<Option<citadel_io::tokio::sync::oneshot::Sender<()>>>,
-    on_drop: UnboundedSender<()>,
+    /// This session's place in the node's [`SessionLedger`](crate::proto::session_ledger::SessionLedger), given back when it drops.
+    _hold: crate::proto::session_ledger::SessionHold,
     /// Disconnect signal tracker - cloned from session_manager at construction time
     /// to avoid needing to lock session_manager during Drop (which would cause deadlock)
     pub(super) disconnect_tracker: DisconnectSignalTracker,
@@ -356,7 +362,7 @@ pub enum HdpSessionInitMode {
 }
 
 pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
-    pub on_drop: UnboundedSender<()>,
+    pub hold: crate::proto::session_ledger::SessionHold,
     pub local_nat_type: NatType,
     pub citadel_remote: NodeRemote<R>,
     pub local_bind_addr: SocketAddr,
@@ -492,7 +498,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .as_ref()
             .map(|r| r.peer_only_connect_proto.clone())
             .into();
-        let on_drop = session_init_params.on_drop;
+        let hold = session_init_params.hold;
         let local_bind_addr = session_init_params.local_bind_addr;
         let local_node_type = session_init_params.local_node_type;
         let remote_node_type = None;
@@ -537,7 +543,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             resume: DualRwLock::from(HeldSessionResume::default()),
             dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
             peer_only_connect_protocol,
-            on_drop,
+            _hold: hold,
             local_bind_addr,
             local_node_type,
             remote_node_type,
@@ -2901,11 +2907,10 @@ impl<R: Ratchet, T: PlatformOps> Drop for CitadelSessionInner<R, T> {
             self.send_session_dc_signal(None, false, "Session dropped");
         }
 
-        if self.on_drop.unbounded_send(()).is_err() {
-            //log::error!(target: "citadel", "Unable to cleanly alert node that session ended: {:?}", err);
-        }
-
         let _ = inner!(self.stopper_tx).send(());
+        // The tracker is node-wide; this session's records are only consulted while it lives.
+        self.disconnect_tracker
+            .clear_session(self.kernel_ticket.get());
     }
 }
 

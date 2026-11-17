@@ -67,6 +67,7 @@ pub mod server_probe;
 pub(crate) mod session;
 mod session_abandon;
 /// Manages multiple sessions
+pub(crate) mod session_ledger;
 pub(crate) mod session_manager;
 mod session_probe;
 pub(crate) mod session_queue_handler;

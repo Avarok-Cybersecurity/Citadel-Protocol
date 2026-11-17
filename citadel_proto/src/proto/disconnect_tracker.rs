@@ -101,14 +101,17 @@ impl DisconnectSignalTracker {
             .remove(&(session_ticket, peer_cid));
     }
 
+    /// How many records are kept, across every session.
+    pub fn records(&self) -> usize {
+        self.inner.c2s_disconnected.lock().len() + self.inner.p2p_disconnected.lock().len()
+    }
+
     /// Clear all disconnect tracking state for a session.
     ///
-    /// Called when a session is fully cleaned up to prevent memory leaks
-    /// from accumulated Tickets.
+    /// Called when a session is dropped, so the records do not accumulate over a node's life.
     ///
     /// # Arguments
     /// * `session_ticket` - Unique ID for the session to clear
-    #[allow(dead_code)]
     pub fn clear_session(&self, session_ticket: Ticket) {
         self.inner.c2s_disconnected.lock().remove(&session_ticket);
         self.inner

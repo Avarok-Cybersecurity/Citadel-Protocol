@@ -209,6 +209,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             node_type,
             read.session_manager.local_rebinder(),
             read.session_manager.traffic(),
+            read.session_manager.footprint_source(),
         );
         let tt = read
             .session_manager
@@ -756,4 +757,5 @@ pub(crate) struct CitadelNodeRemoteInner<R: Ratchet> {
     pub account_manager: AccountManager<R, R>,
     pub local_rebinder: LocalRebinder,
     pub traffic: crate::proto::traffic::NodeTraffic,
+    pub footprint: crate::proto::session_ledger::FootprintSource,
 }
