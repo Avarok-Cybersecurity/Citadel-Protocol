@@ -25,7 +25,16 @@ pub(crate) enum PlanStep {
     /// Hole punch, then QUIC over the punched socket.
     Direct,
     /// QUIC through a TURN relay.
-    Turn(TurnRelayConfig),
+    Turn(
+        #[cfg_attr(
+            target_family = "wasm",
+            expect(
+                dead_code,
+                reason = "the browser's ICE agent owns relaying, so only native builds read the TURN plan"
+            )
+        )]
+        TurnRelayConfig,
+    ),
 }
 
 impl PlanStep {
@@ -41,6 +50,13 @@ impl PlanStep {
 #[derive(Clone, Debug)]
 pub(crate) struct TimedStep {
     pub(crate) step: PlanStep,
+    #[cfg_attr(
+        target_family = "wasm",
+        expect(
+            dead_code,
+            reason = "the browser's ICE agent owns relaying, so only native builds read the TURN plan"
+        )
+    )]
     pub(crate) timeout: Duration,
 }
 

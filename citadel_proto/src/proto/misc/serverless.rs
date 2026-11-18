@@ -62,12 +62,12 @@ pub struct ServerlessConnection {
 fn generate_nonce() -> io::Result<Vec<u8>> {
     let mut buf = vec![0u8; 32];
     let crypto = web_sys::window()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "no global window"))?
+        .ok_or_else(|| io::Error::other("no global window"))?
         .crypto()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))?;
+        .map_err(|e| io::Error::other(format!("{e:?}")))?;
     crypto
         .get_random_values_with_u8_array(&mut buf)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))?;
+        .map_err(|e| io::Error::other(format!("{e:?}")))?;
     Ok(buf)
 }
 
@@ -90,8 +90,7 @@ pub async fn establish_serverless_connection(
         identity_hash: my_hash.clone(),
         nonce: nonce.clone(),
     };
-    let hello_value = serde_json::to_value(&hello)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    let hello_value = serde_json::to_value(&hello).map_err(|e| io::Error::other(e.to_string()))?;
     let participant_key = &my_hash[..16];
     signaling
         .publish(
@@ -160,7 +159,7 @@ async fn poll_for_peer(
         let participants = signaling.list_children(room, "participants").await?;
         if participants.len() >= 2 {
             // Find the other participant's hash.
-            for (_, value) in &participants {
+            for value in participants.values() {
                 if let Ok(hello) = serde_json::from_value::<HelloMessage>(value.clone()) {
                     if hello.identity_hash != my_hash {
                         return Ok(hello.identity_hash);
@@ -190,8 +189,8 @@ async fn alpha_flow(
         sdp,
         ice_candidates: candidates,
     };
-    let offer_value = serde_json::to_value(&exchange)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    let offer_value =
+        serde_json::to_value(&exchange).map_err(|e| io::Error::other(e.to_string()))?;
     signaling.publish(room, "offer", offer_value).await?;
 
     // Poll for answer.
@@ -229,8 +228,8 @@ async fn beta_flow(
         sdp: answer_sdp,
         ice_candidates: answer_candidates,
     };
-    let answer_value = serde_json::to_value(&exchange)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    let answer_value =
+        serde_json::to_value(&exchange).map_err(|e| io::Error::other(e.to_string()))?;
     signaling.publish(room, "answer", answer_value).await?;
 
     // Wait for the remote DataChannel.

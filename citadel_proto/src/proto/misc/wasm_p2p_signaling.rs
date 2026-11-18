@@ -64,7 +64,7 @@ pub(super) async fn hole_punch_initiator(
         sdp: offer_sdp,
         ice_candidates: offer_candidates,
     })
-    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    .map_err(|e| std::io::Error::other(e.to_string()))?;
 
     let answer = sig_rx.recv().await.ok_or_else(|| {
         std::io::Error::new(
@@ -133,7 +133,7 @@ pub(super) async fn hole_punch_responder(
         sdp: answer_sdp,
         ice_candidates: answer_candidates,
     })
-    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    .map_err(|e| std::io::Error::other(e.to_string()))?;
 
     let dc = wasm_rtc::wait_for_remote_datachannel(&pc).await?;
     wasm_rtc::wait_for_datachannel_open(&dc).await?;

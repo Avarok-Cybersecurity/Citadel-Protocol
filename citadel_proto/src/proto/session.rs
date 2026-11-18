@@ -218,6 +218,7 @@ impl<R: Ratchet, T: PlatformOps> SessionAliveTracker<R, T> {
         self.weak.strong_count() > 0
     }
 
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn alive(&self) -> bool {
         if self.weak.strong_count() > 0 {
             true

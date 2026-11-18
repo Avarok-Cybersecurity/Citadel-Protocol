@@ -61,7 +61,7 @@ fn poll_read_from_state(
     }
 
     if let Some(ref e) = s.error {
-        return Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, e.clone())));
+        return Poll::Ready(Err(io::Error::other(e.clone())));
     }
 
     s.read_waker = Some(cx.waker().clone());
@@ -75,7 +75,7 @@ fn check_write_state(state: &Arc<std::sync::Mutex<WasmStreamState>>) -> io::Resu
         return Err(io::Error::new(io::ErrorKind::BrokenPipe, "stream closed"));
     }
     if let Some(ref e) = s.error {
-        return Err(io::Error::new(io::ErrorKind::Other, e.clone()));
+        return Err(io::Error::other(e.clone()));
     }
     Ok(())
 }
@@ -247,8 +247,7 @@ impl WasmWebSocketStream {
     ///
     /// Awaits the WebSocket `open` event before returning.
     pub async fn connect(url: &str) -> io::Result<Self> {
-        let ws = web_sys::WebSocket::new(url)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))?;
+        let ws = web_sys::WebSocket::new(url).map_err(|e| io::Error::other(format!("{e:?}")))?;
 
         let state = Arc::new(std::sync::Mutex::new(WasmStreamState::new()));
 
@@ -324,7 +323,7 @@ impl AsyncWrite for WasmWebSocketStream {
         check_write_state(&self.state)?;
         self.ws
             .send_with_u8_array(buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))?;
+            .map_err(|e| io::Error::other(format!("{e:?}")))?;
         Poll::Ready(Ok(buf.len()))
     }
 
@@ -455,7 +454,7 @@ impl AsyncWrite for WasmDataChannelStream {
         check_write_state(&self.state)?;
         self.dc
             .send_with_u8_array(buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))?;
+            .map_err(|e| io::Error::other(format!("{e:?}")))?;
         Poll::Ready(Ok(buf.len()))
     }
 

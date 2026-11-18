@@ -1955,6 +1955,7 @@ pub(crate) mod hole_punch {
     }
 
     /// Decrypts a hole punch packet for a given packet, hyper ratchet, security level, and target CID
+    #[cfg(not(target_family = "wasm"))]
     pub fn decrypt_packet<R: Ratchet>(
         ratchet: &R,
         packet: &[u8],
