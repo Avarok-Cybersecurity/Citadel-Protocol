@@ -148,6 +148,7 @@ impl<R: Ratchet> NodeRemote<R> {
         node_type: NodeType,
         local_rebinder: LocalRebinder,
         traffic: crate::proto::traffic::NodeTraffic,
+        footprint: crate::proto::session_ledger::FootprintSource,
     ) -> Self {
         // starts at 1. Ticket 0 is for reserved
         Self {
@@ -158,6 +159,7 @@ impl<R: Ratchet> NodeRemote<R> {
                 node_type,
                 local_rebinder,
                 traffic,
+                footprint,
             }),
         }
     }
@@ -166,6 +168,13 @@ impl<R: Ratchet> NodeRemote<R> {
     /// client-server, group broadcast), across all its sessions. Monotonic.
     pub fn traffic(&self) -> crate::proto::traffic::NodeTrafficSnapshot {
         self.inner.traffic.snapshot()
+    }
+
+    /// What this node still holds for its sessions. Once every session has ended, both counts
+    /// return to zero: a session that has ended and is still counted is held by something that
+    /// outlived it.
+    pub fn session_footprint(&self) -> crate::proto::session_ledger::SessionFootprint {
+        self.inner.footprint.snapshot()
     }
 
     /// Moves every client-role QUIC endpoint this node holds (C2S QUIC, and the dialing side of

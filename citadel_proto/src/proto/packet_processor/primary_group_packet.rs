@@ -269,7 +269,7 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                         let group_id = header.group.get();
                                         let peer_cid = header.session_cid.get();
 
-                                        session.queue_handle.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
+                                        session.queue_handle.insert_ordinary(peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                                             let key = GroupKey::new(peer_cid, group_id, object_id);
                                             // Decide under a scoped `Ref`, then DROP it before any
                                             // inbound_groups.remove (DashMap self-deadlock otherwise).

@@ -105,6 +105,8 @@ where
     declared_version_set_at: Arc<AtomicU64>,
     /// Negotiated key epochs: steered rounds, the versions they built, the Bob-side gate.
     epochs: Arc<EpochLedger>,
+    /// Woken once the rekey process has ended for good (`state` reads `Halted`).
+    halted: Arc<tokio::sync::Notify>,
 }
 
 /// What one trigger did: the payload it did not send, and the version a round it sent builds on.
@@ -192,6 +194,7 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             rekey_trigger_semaphore: self.rekey_trigger_semaphore.clone(),
             declared_version_set_at: self.declared_version_set_at.clone(),
             epochs: self.epochs.clone(),
+            halted: self.halted.clone(),
         }
     }
 }
@@ -349,6 +352,7 @@ where
             rekey_trigger_semaphore: Arc::new(Semaphore::new(1)),
             declared_version_set_at: Arc::new(AtomicU64::new(0)),
             epochs: Arc::new(EpochLedger::new()),
+            halted: Arc::new(tokio::sync::Notify::new()),
         };
 
         this.clone()
@@ -882,12 +886,14 @@ where
         struct DropWrapper {
             state: Arc<Atomic<RekeyState>>,
             role: Arc<Atomic<RekeyRole>>,
+            halted: Arc<tokio::sync::Notify>,
         }
 
         impl Drop for DropWrapper {
             fn drop(&mut self) {
-                self.state.store(RekeyState::Halted, Ordering::Relaxed);
+                self.state.store(RekeyState::Halted, Ordering::SeqCst);
                 self.role.store(RekeyRole::Idle, Ordering::Relaxed);
+                self.halted.notify_waiters();
             }
         }
 
@@ -902,6 +908,7 @@ where
             let _drop_wrapper = DropWrapper {
                 state: self.state.clone(),
                 role: self.role.clone(),
+                halted: self.halted.clone(),
             };
 
             let mut listener = { self.receiver.lock().take().unwrap() };
@@ -1056,10 +1063,22 @@ where
         // The local declaration (declared version, when declared) that was
         // outstanding at the previous Idle tick. See the Idle branch below.
         let mut declaration_at_last_idle_tick: Option<(u32, u64)> = None;
+        // When this side left Idle, plus ACTIVE_REKEY_TIMEOUT: the round's deadline. Per round,
+        // not per message: a message that is not part of the round (a `JustMessage`, say)
+        // must not extend it, or steady traffic keeps a stuck round alive and rekeying stops.
+        let mut round_deadline: Option<citadel_io::time::Instant> = None;
 
         loop {
             let msg = if self.role() != RekeyRole::Idle {
-                match citadel_io::time::timeout(ACTIVE_REKEY_TIMEOUT, receiver.next()).await {
+                let deadline = *round_deadline
+                    .get_or_insert_with(|| citadel_io::time::Instant::now() + ACTIVE_REKEY_TIMEOUT);
+                let now = citadel_io::time::Instant::now();
+                let remaining = if deadline > now {
+                    deadline.duration_since(now)
+                } else {
+                    Duration::ZERO
+                };
+                match citadel_io::time::timeout(remaining, receiver.next()).await {
                     Ok(msg) => msg,
                     Err(_) => {
                         log::warn!(target: "citadel", "Client {} rekey message timeout (role={:?}, state={:?}), resetting for retry",
@@ -1070,6 +1089,7 @@ where
                     }
                 }
             } else {
+                round_deadline = None;
                 // Idle is not always idle: trigger_rekey declares a version and sends
                 // AliceToBob without leaving Idle, and the role only changes when the
                 // peer answers. If the peer never does, nothing else ends the round,
@@ -1862,6 +1882,21 @@ where
         self.state.load(Ordering::Relaxed)
     }
 
+    /// Resolves once the rekey process has ended for good: after [`Self::shutdown`], or when
+    /// the stream it reads from ends. Nothing rekeys on this manager afterwards.
+    pub async fn until_halted(&self) {
+        loop {
+            let halted = self.halted.notified();
+            tokio::pin!(halted);
+            // Registered before the check, so a halt between the check and the await wakes it.
+            let _ = halted.as_mut().enable();
+            if self.state.load(Ordering::SeqCst) == RekeyState::Halted {
+                return;
+            }
+            halted.await;
+        }
+    }
+
     fn set_state(&self, state: RekeyState) {
         self.state.store(state, Ordering::Relaxed);
     }
@@ -2580,3 +2615,7 @@ mod epoch_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "ratchet_manager_retain_tests.rs"]
 mod retain_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "ratchet_manager_round_deadline_tests.rs"]
+mod round_deadline_tests;

@@ -32,6 +32,7 @@ async fn leave_room_survives_a_full_session_queue() {
         ticket: Ticket(1),
         session_cid: SESSION_CID,
         key,
+        undelivered: citadel_io::tokio::sync::mpsc::unbounded_channel().1,
     };
 
     drop(recv_half);

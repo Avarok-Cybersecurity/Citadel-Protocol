@@ -265,9 +265,9 @@ pub mod macros {
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(
-                citadel_io::tokio::task::spawn_local($future),
-            )
+            crate::proto::misc::panic_future::OwnedTask::new(citadel_io::tokio::task::spawn_local(
+                $future,
+            ))
         };
     }
 
@@ -483,9 +483,9 @@ pub mod macros {
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(
-                citadel_io::tokio::task::spawn($future),
-            )
+            crate::proto::misc::panic_future::OwnedTask::new(citadel_io::tokio::task::spawn(
+                $future,
+            ))
         };
     }
 
@@ -618,6 +618,7 @@ pub mod prelude {
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, PEER_MAILBOX_MAP};
     pub use crate::proto::remote::Ticket;
     pub use crate::proto::server_probe::{ServerProbeOutcome, ServerProbeResult};
+    pub use crate::proto::session_ledger::SessionFootprint;
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::proto::traffic::{ByteCount, NodeTrafficSnapshot, PathBytesSnapshot};
     pub use citadel_io::ServerMode;
