@@ -193,18 +193,16 @@ impl<const N: usize> PartitionedSecBuffer<N> {
         }
 
         // make sure every index before idx has a nonzero value
-        for idx in 0..idx {
-            if self.layout[idx] == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Previously unset partition detected",
-                ));
-            }
+        if self.layout[..idx].contains(&0) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Previously unset partition detected",
+            ));
         }
 
         // make sure every index after idx has a zero value
-        for idx in idx..N {
-            if self.layout[idx] != 0 {
+        for len in &self.layout[idx..] {
+            if *len != 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     "Next partitions already set",

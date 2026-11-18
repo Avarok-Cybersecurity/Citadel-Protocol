@@ -48,6 +48,12 @@ ignore = [
     # serde_cbor is unmaintained, with no known vulnerability. Only `authenticator` (citadel_proto's
     # opt-in `security-key` feature) uses it, to parse a security key's CTAP2 responses.
     "RUSTSEC-2021-0127",
+    # Each entry below has no release that fits the dependency graph; the
+    # reason says why the advisory does not reach what this workspace ships.
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 arrives only through elliptic-curve 0.13 (^0.5) under voprf 0.5, the newest stable voprf. The OPRF uses the ristretto255 ciphersuite: its group arithmetic is curve25519-dalek, and the one elliptic-curve item it calls is ExpandMsgXmd, a digest construction with no crypto-bigint code. No crypto-bigint operation runs on a secret." },
+    { id = "RUSTSEC-2026-0441", reason = "pin-utils is archived, with no known vulnerability. It arrives through nix 0.26, which every webrtc-util release (0.8 under stun, 0.17 under webrtc-srtp) pins." },
+    { id = "RUSTSEC-2026-0459", reason = "SQLite is fixed in libsqlite3-sys 0.39, which no sqlx release can link (0.8 needs ^0.30, 0.9 needs <0.38), and rusqlite must share sqlx's copy (one links = sqlite3). The flaw needs a database file and its -wal written by a less trusted party; the sql backend opens only the database its operator configures. Remove this when sqlx accepts libsqlite3-sys 0.39." },
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, with no known vulnerability, and has no maintained release to move to. Replacing it (jiff or time) spans citadel_proto, citadel_user and sqlx's chrono feature and is its own change." },
 ]
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
 # lower than the range specified will be ignored. Note that ignored advisories
