@@ -27,7 +27,7 @@
 //! On WASM targets, this crate provides:
 //! - WebAssembly-compatible synchronization primitives
 //! - WASM-specific random number generation
-//! - WASM-compatible Tokio implementation
+//! - The same crates.io Tokio as native, limited to the features wasm32-unknown-unknown supports
 //!
 //! ## Usage
 //!
@@ -94,24 +94,10 @@ pub use error::{Dbg, ErrorArgs, ErrorCode, NetworkError};
 
 pub mod time;
 
-// Re-export Tokio and related crates with platform-specific implementations
-#[cfg(not(target_family = "wasm"))]
+// One tokio for every target: crates.io tokio, with the features each target supports.
 pub use tokio;
-
-#[cfg(target_family = "wasm")]
-pub use tokio_wasm as tokio;
-
-#[cfg(not(target_family = "wasm"))]
-pub use tokio_util;
-
-#[cfg(target_family = "wasm")]
-pub use tokio_util_wasm as tokio_util;
-
-#[cfg(not(target_family = "wasm"))]
 pub use tokio_stream;
-
-#[cfg(target_family = "wasm")]
-pub use tokio_stream_wasm as tokio_stream;
+pub use tokio_util;
 
 #[cfg(not(target_family = "wasm"))]
 mod native_runtime {

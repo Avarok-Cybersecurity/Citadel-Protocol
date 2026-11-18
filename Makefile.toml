@@ -322,15 +322,6 @@ run_task = [
 command = "cargo"
 args = ["test", "--doc", "${@}"]
 
-[tasks.install-cargo-wasix]
-command = "cargo"
-args = ["install", "cargo-wasix"]
-
-[tasks.wasix-fix]
-description = "If you have a wasix error, run this task to potentially fix it"
-command = "cargo"
-args = ["wasix", "download-toolchain"]
-
 [tasks.test-wasm]
 description = "Run WASM integration tests (requires Node.js 22+ and wasm-pack)"
 script_runner = "@shell"
@@ -393,11 +384,6 @@ script_runner = "@shell"
 script = '''
 docker compose -f ./docker/wasm_p2p.yml up --build --abort-on-container-exit --exit-code-from wasm_tests
 '''
-
-[tasks.wasix]
-command = "cargo"
-args = ["--config=Cargo.wasix.toml", "wasix", "${@}", "--profile=wasix"]
-dependencies = ["install-nextest", "install-cargo-wasix"]
 
 # ── Phase 4: PGO + BOLT (profile-guided + post-link optimization) ────────────────────────────────
 # Training workload = the macro_throughput bench (full stack: connect + ratchet handshake +

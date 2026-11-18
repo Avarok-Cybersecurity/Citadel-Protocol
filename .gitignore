@@ -5,7 +5,6 @@
 /.idea/
 .idea/workspace.xml
 /logs/
-/wasi-sysroot/
 /*/report.json
 Cargo.lock
 target_ide/

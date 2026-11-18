@@ -16,9 +16,11 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["std"]
 std = ["net"]
-wasi = ["socket2_wasm"]
 deadlock-detection = ["parking_lot/deadlock_detection"]
-net = ["tokio/net", "tokio-util/net"]
+# Gates citadel_io's own socket helpers. tokio's `net` is listed with the native tokio below, not here:
+# a feature naming `tokio/net` would also switch it on for wasm32-unknown-unknown, where tokio refuses
+# to compile with it.
+net = []
 # Linux-only io_uring inbound-UDP backend. Off by default; the unsafe ring code lives here behind this
 # feature. On non-Linux targets the deps resolve to nothing, so enabling it is a harmless no-op.
 io-uring = ["dep:io-uring", "dep:libc"]
@@ -40,8 +42,9 @@ tokio = { workspace = true, features = [
     "fs",
     "sync",
     "parking_lot",
+    "net",
 ] }
-tokio-util = { workspace = true, features = ["codec", "time", "io"] }
+tokio-util = { workspace = true, features = ["codec", "time", "io", "net"] }
 tokio-stream = { workspace = true }
 parking_lot = { workspace = true }
 
@@ -52,22 +55,12 @@ io-uring = { workspace = true, optional = true }
 libc = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-# NOTE: `git` forces the WASI fork (branch v1.36.x = tokio 1.36.0) for actual wasm builds; the
-# version is only a constraint. It must stay caret-compatible with the native tokio requirement
-# (^1.47) so `cargo package`/publish — which strips the git source and maps both to crates.io —
-# can resolve a single tokio version. An exact `=1.36.0` pin makes the crate unpublishable.
-tokio_wasm = { package = "tokio", version = "1.36", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = [
-    "macros",
-    "sync",
-    "rt",
-    "io-util",
-] }
-socket2_wasm = { package = "socket2", optional = true, version = "=0.5.7", git = "https://github.com/second-state/socket2.git", branch = "v0.5.x" }
-tokio-util-wasm = { package = "tokio-util", version = "0.7.3", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x", features = [
-    "codec",
-    "io",
-] }
-tokio-stream-wasm = { package = "tokio-stream", version = "0.1.4", git = "https://github.com/second-state/wasi_tokio.git", branch = "v1.36.x" }
+# The same crates.io tokio as native, with the features tokio supports on wasm32-unknown-unknown
+# (no `time`: its clock is `std::time::Instant`, which panics in the browser; timers go through
+# `citadel_io::time`, backed by wasmtimer).
+tokio = { workspace = true, features = ["macros", "sync", "rt", "io-util"] }
+tokio-util = { workspace = true, features = ["codec", "io"] }
+tokio-stream = { workspace = true }
 wasmtimer = "0.4"
 getrandom = { workspace = true, features = ["wasm_js"] }
 serde = { workspace = true, default-features = false, features = [

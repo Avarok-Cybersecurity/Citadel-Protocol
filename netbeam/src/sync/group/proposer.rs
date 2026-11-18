@@ -9,7 +9,7 @@ use crate::sync::group::ops;
 use crate::sync::group::proposer_read::merge_accepted;
 use crate::sync::group::record::LockRecord;
 use crate::sync::group::wire::{Ballot, GroupMsg};
-use citadel_io::tokio::time::timeout;
+use citadel_io::time::timeout;
 use std::sync::atomic::Ordering;
 
 #[derive(Debug)]
