@@ -825,6 +825,11 @@ mod routable_candidate_tests {
     }
 }
 
-#[cfg(test)]
+// These tests time each attempt (4 s) against a loopback punch. Without `localhost-testing`,
+// every attempt first runs the production NAT identification: it waits on the unanswered
+// loopback STUN servers and asks async_ip's public endpoints for the host's addresses, which
+// spends 3 s of the 4 s and needs the network. They pair attempts, not identify NATs, so they
+// run only with the feature (as CI's citadel_wire legs do).
+#[cfg(all(test, feature = "localhost-testing"))]
 #[path = "attempt_pairing_tests.rs"]
 mod attempt_pairing_tests;
