@@ -1,0 +1,58 @@
+name: Coverage
+
+# The one coverage definition. validate.yml (pull requests) and upload_cov.yaml (master) both
+# call it, so a pull request is measured under the same budget master is. Before, the two copies
+# differed: the PR job had 120 minutes and a working cache, master had 50 and a cache action
+# (Swatinem/rust-cache@v1) whose service answered 400 on every run, so #389 passed on its PR
+# (50 of 120 minutes) and timed out on master.
+#
+# The suite runs as one job per `matrix.shard`. Every shard builds the same instrumented
+# binaries with the same packages and features (so feature unification and the measured code are
+# identical to a single run) and runs its nextest partition. Codecov merges the uploads of one
+# commit; codecov.yml's `after_n_builds` waits for all of them, and must equal the shard count.
+# Callers pass `secrets: inherit` for CODECOV_TOKEN.
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+  # 40 MiB stack
+  RUST_MIN_STACK: 40971520
+  RUST_LOG: "citadel=warn"
+  # The packages and features coverage measures.
+  COV_ARGS: "--features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip -p citadel_treekem -p citadel_types -p citadel_io"
+
+jobs:
+  coverage:
+    name: coverage (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: macos-latest
+    # Budget per shard. The single job had 50 minutes for build and tests together and needed
+    # about 52 at #389 (build 17 min uncached, tests 34 min); a shard builds the same and runs
+    # a third of the tests.
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        # The shard count is this list's length (`strategy.job-total`); keep `after_n_builds` in
+        # codecov.yml equal to it.
+        shard: [ 1, 2, 3 ]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable --component llvm-tools-preview
+      - uses: taiki-e/install-action@nextest
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+        continue-on-error: true  # Don't fail if cache service is unavailable
+      - name: Run llvm-cov nextest (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
+        env:
+          SKIP_EXT_BACKENDS: "true"
+        run: cargo llvm-cov nextest $COV_ARGS --partition hash:${{ matrix.shard }}/${{ strategy.job-total }} --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/standard/upnp_handler.rs"
+      - uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
