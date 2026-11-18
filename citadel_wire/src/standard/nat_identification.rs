@@ -90,6 +90,7 @@ impl NatType {
     }
 }
 
+#[derive(Debug)]
 pub struct SocketPair {
     pub internal: SocketAddr,
     pub external: SocketAddr,
@@ -439,7 +440,6 @@ mod native {
     use crate::stun_servers::StunServers;
     use citadel_io::tokio::net::UdpSocket;
     use futures::stream::FuturesUnordered;
-    use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
     use stun::client::ClientBuilder;
@@ -635,63 +635,31 @@ mod native {
 
                                 log::trace!(target: "citadel", "External ADDR: {natted_addr:?} | internal: {new_bind_addr:?}");
 
-                                return Ok(Some((natted_addr, new_bind_addr)));
+                                return Ok(Some(SocketPair {
+                                    internal: new_bind_addr,
+                                    external: natted_addr,
+                                }));
                             }
                             Err(err) => log::trace!(target: "citadel", "{err:?}"),
                         };
                     }
 
-                    Ok(None)
+                    Ok::<_, anyhow::Error>(None)
                 };
 
                 futures_unordered.push(Box::pin(task));
             }
 
-            let mut results = futures_unordered
-                .collect::<Vec<Result<Option<(SocketAddr, SocketAddr)>, anyhow::Error>>>()
-                .await;
-            let first_natted_addr = results
-                .pop()
-                .ok_or_else(|| anyhow::Error::msg("First result not present"))??;
-            let second_natted_addr = results
-                .pop()
-                .ok_or_else(|| anyhow::Error::msg("Second result not present"))??;
-            let third_natted_addr = results
-                .pop()
-                .ok_or_else(|| anyhow::Error::msg("Third result not present"))??;
-
-            match (first_natted_addr, second_natted_addr, third_natted_addr) {
-                (
-                    Some((addr_ext, addr_int)),
-                    Some((addr2_ext, addr2_int)),
-                    Some((addr3_ext, addr3_int)),
-                ) => {
-                    let pair0 = SocketPair {
-                        internal: addr_int,
-                        external: addr_ext,
-                    };
-                    let pair1 = SocketPair {
-                        internal: addr2_int,
-                        external: addr2_ext,
-                    };
-                    let pair2 = SocketPair {
-                        internal: addr3_int,
-                        external: addr3_ext,
-                    };
-
-                    let nat_type = NatType::new(pair0, pair1, pair2);
-                    log::trace!(target: "citadel", "NAT type: {nat_type:?}");
-
-                    Ok(nat_type)
-                }
-
-                _ => Err(anyhow::Error::msg("Unable to get all three STUN addrs")),
-            }
+            let [pair0, pair1, pair2] =
+                crate::standard::stun_mappings::first_mappings(futures_unordered).await?;
+            let nat_type = NatType::new(pair0, pair1, pair2);
+            log::trace!(target: "citadel", "NAT type: {nat_type:?}");
+            Ok::<_, anyhow::Error>(nat_type)
         };
 
         let ip_info_future = async move {
             match citadel_io::time::timeout(
-                Duration::from_millis(2000),
+                async_ip::EXTERNAL_IP_LOOKUP_TIMEOUT,
                 async_ip::get_all_multi_concurrent(None),
             )
             .await

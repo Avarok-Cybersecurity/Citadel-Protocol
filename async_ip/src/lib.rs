@@ -23,8 +23,7 @@
 //! #[tokio::main(flavor = "current_thread")]
 //! async fn main() -> Result<(), async_ip::IpRetrieveError> {
 //!     // Get both internal and external IP addresses
-//!     use reqwest::Client;
-//! let ip_info = get_all(None).await?;
+//!     let ip_info = get_all(None).await?;
 //!     println!("External IPv6: {:?}", ip_info.external_ipv6);
 //!     println!("Internal IPv4: {:?}", ip_info.internal_ip);
 //!     Ok(())
@@ -40,7 +39,7 @@
 //! #[tokio::main(flavor = "current_thread")]
 //! async fn main() -> Result<(), async_ip::IpRetrieveError> {
 //!     // Use multiple services concurrently with a custom client
-//!     let client = get_default_client();
+//!     let client = get_default_client()?;
 //!     let ip_info = get_all_multi_concurrent(Some(client)).await?;
 //!     println!("External IPs: {:?}", ip_info);
 //!     Ok(())
@@ -69,10 +68,23 @@
     unused_results
 )]
 
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
+use std::sync::OnceLock;
+use std::time::Duration;
 
-// use http since it's 2-3x faster
+mod bounded_body;
+pub use bounded_body::MAX_IP_RESPONSE_BYTES;
+
+/// How long one external-IP lookup may take, connection and answer together. The answer only
+/// adds an external candidate to a hole punch, which goes ahead without it, so the lookup gets
+/// a short window: NAT identification waits this long for it.
+pub const EXTERNAL_IP_LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
+
+// Plain HTTP: these answers carry the same trust as the unauthenticated STUN mappings beside
+// them. An altered answer can add one wrong candidate (bounded with the rest of the peer's
+// candidates), and a hole punch accepts only a peer that seals its packets under the session,
+// so a wrong address is wasted, never trusted.
 const URL_V6: &str = "http://api64.ipify.org";
 //const URL_V4: &str = "http://api.ipify.org";
 
@@ -94,9 +106,8 @@ pub struct IpAddressInfo {
 impl IpAddressInfo {
     /// Returns localhost addr
     pub fn localhost() -> Self {
-        let localhost = IpAddr::from_str("127.0.0.1").unwrap();
         Self {
-            internal_ip: localhost,
+            internal_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
             external_ipv6: None,
         }
     }
@@ -114,7 +125,7 @@ pub async fn get_all_multi_concurrent_from(
     client: Option<reqwest::Client>,
     v6_addrs: &[&str],
 ) -> Result<IpAddressInfo, IpRetrieveError> {
-    let client = &client.unwrap_or_else(get_default_client);
+    let client = &client_or_shared(client)?;
     let internal_ip_future = resolve_internal_ip(false);
     let external_ipv6_future = futures::future::select_ok(
         v6_addrs
@@ -144,9 +155,8 @@ pub async fn get_all_from(
     client: Option<reqwest::Client>,
     v6_addr: &str,
 ) -> Result<IpAddressInfo, IpRetrieveError> {
-    let client = client.unwrap_or_else(get_default_client);
     let internal_ip_future = resolve_internal_ip(false);
-    let external_ipv6_future = get_ip_from(Some(client), v6_addr);
+    let external_ipv6_future = get_ip_from(client, v6_addr);
     let (res0, res2) = citadel_io::tokio::join!(internal_ip_future, external_ipv6_future);
     let internal_ip =
         res0.ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::IpInternalUnobtainable))?;
@@ -162,25 +172,21 @@ pub async fn get_all_from(
 /// attempt to get the IP address; however, if the client is using an IPv4 address, that will be returned
 /// instead.
 ///
-/// If a reqwest client is supplied, this function will use that client to get the information. None by default.
+/// If a reqwest client is supplied, this function will use that client to get the information;
+/// otherwise the shared default client. The request is bounded by [`EXTERNAL_IP_LOOKUP_TIMEOUT`]
+/// and the answer by [`MAX_IP_RESPONSE_BYTES`].
 pub async fn get_ip_from(
     client: Option<reqwest::Client>,
     addr: &str,
 ) -> Result<IpAddr, IpRetrieveError> {
-    let client = client.unwrap_or_else(get_default_client);
-
-    let resp = client
+    let resp = client_or_shared(client)?
         .get(addr)
+        .timeout(EXTERNAL_IP_LOOKUP_TIMEOUT)
         .send()
         .await
         .map_err(|err| IpRetrieveError::ip_retrieve(err.to_string()))?;
 
-    let text = resp
-        .text()
-        .await
-        .map_err(|err| IpRetrieveError::ip_retrieve(err.to_string()))?;
-
-    parse_ip_response(&text)
+    parse_ip_response(&bounded_body::read_capped(resp).await?)
 }
 
 /// Parses an IP address out of an IP-echo service's HTTP response body.
@@ -246,12 +252,33 @@ async fn resolve_internal_ip(ipv6: bool) -> Option<IpAddr> {
 #[cfg(target_family = "wasm")]
 async fn resolve_internal_ip(_ipv6: bool) -> Option<IpAddr> {
     // Browser cannot discover LAN IP address; return localhost
-    Some(IpAddr::from_str("127.0.0.1").unwrap())
+    Some(IpAddr::V4(Ipv4Addr::LOCALHOST))
 }
 
-/// Returns a default client
-pub fn get_default_client() -> reqwest::Client {
-    reqwest::Client::builder().build().unwrap()
+/// The client every lookup without one of its own shares, built once rather than per lookup
+/// (building one loads the platform's root certificates).
+pub fn get_default_client() -> Result<reqwest::Client, IpRetrieveError> {
+    static SHARED: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    SHARED
+        .get_or_init(build_shared_client)
+        .clone()
+        .map_err(IpRetrieveError::ip_retrieve)
+}
+
+fn build_shared_client() -> Result<reqwest::Client, String> {
+    let builder = reqwest::Client::builder();
+    // The shared client outlives any one runtime, and a pooled connection belongs to the
+    // runtime that opened it, so no connection is kept idle for a later lookup to reuse.
+    #[cfg(not(target_family = "wasm"))]
+    let builder = builder.pool_max_idle_per_host(0);
+    builder.build().map_err(|err| err.to_string())
+}
+
+fn client_or_shared(client: Option<reqwest::Client>) -> Result<reqwest::Client, IpRetrieveError> {
+    match client {
+        Some(client) => Ok(client),
+        None => get_default_client(),
+    }
 }
 
 /// The default error type for this crate

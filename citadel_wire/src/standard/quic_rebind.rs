@@ -63,9 +63,9 @@ mod native {
 
     /// The client-role QUIC endpoints a node holds open. Cloning shares the set.
     ///
-    /// An endpoint is dropped from the set once it has no open connections, when the set is
-    /// next read ([`Self::track`], [`Self::len`], [`Self::rebind_all`]); until then it keeps
-    /// its socket bound.
+    /// An endpoint is dropped from the set as soon as its last connection has closed, so the
+    /// set never keeps a closed endpoint's socket bound. Every read ([`Self::track`],
+    /// [`Self::len`], [`Self::rebind_all`]) also drops endpoints with no open connection.
     #[derive(Clone)]
     pub struct LiveQuicEndpoints {
         endpoints: Arc<citadel_io::Mutex<Vec<Endpoint>>>,
@@ -79,12 +79,22 @@ mod native {
             }
         }
 
-        /// Tracks a client endpoint whose connection is established. One tracked with no open
-        /// connection is dropped at the next read.
+        /// Tracks a client endpoint whose connection is established, until its connections
+        /// have all closed. Must be called within the runtime: it spawns the wait for that.
         pub fn track(&self, endpoint: Endpoint) {
-            let mut endpoints = self.endpoints.lock();
-            prune(&mut endpoints);
-            endpoints.push(endpoint);
+            {
+                let mut endpoints = self.endpoints.lock();
+                prune(&mut endpoints);
+                endpoints.push(endpoint.clone());
+            }
+            let set = Arc::downgrade(&self.endpoints);
+            drop(citadel_io::tokio::spawn(async move {
+                endpoint.wait_idle().await;
+                drop(endpoint);
+                if let Some(set) = set.upgrade() {
+                    prune(&mut set.lock());
+                }
+            }));
         }
 
         /// How many tracked endpoints still have an open connection.

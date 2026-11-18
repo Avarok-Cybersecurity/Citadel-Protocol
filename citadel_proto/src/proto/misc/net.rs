@@ -37,7 +37,10 @@ use citadel_io::tokio_stream::{Stream, StreamExt};
 use citadel_user::serialization::SyncIO;
 use citadel_wire::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
 use citadel_wire::exports::{Connection, Endpoint, RecvStream, SendStream};
-use citadel_wire::quic::{accept_biconn, QuicEndpointListener, QuicNode, QUIC_LISTENER_DIED};
+use citadel_wire::quic::{
+    accept_biconn, QuicEndpointListener, QuicNode, QUIC_ACCEPT_DEADLINE, QUIC_LISTENER_DIED,
+    QUIC_MAX_CONCURRENT_ACCEPTS,
+};
 use citadel_wire::tls::TLSQUICInterop;
 use futures::{Future, TryStreamExt};
 use serde::{Deserialize, Serialize};
@@ -546,12 +549,12 @@ impl QuicListener {
                 }
             };
 
-            // Each connection completes (or fails) on its own: one a peer
-            // abandons mid-handshake is dropped, and neither ends the listener
-            // nor holds up the connections behind it.
+            // Each connection completes (or fails) on its own, within its deadline: one a
+            // peer abandons mid-handshake is dropped, and neither ends the listener nor holds
+            // up the connections behind it for longer than that deadline.
             incoming_stream
-                .try_for_each_concurrent(None, |incoming| async move {
-                    match accept_biconn(incoming).await {
+                .try_for_each_concurrent(Some(QUIC_MAX_CONCURRENT_ACCEPTS), |incoming| async move {
+                    match accept_biconn(incoming, QUIC_ACCEPT_DEADLINE).await {
                         Ok((conn, tx, rx)) => {
                             let addr = conn.remote_address();
                             log::trace!(target: "citadel", "RECV {:?} from {:?}", conn, addr);

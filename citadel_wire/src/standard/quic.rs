@@ -143,24 +143,53 @@ pub trait QuicEndpointListener {
                 .listener()
                 .await
                 .ok_or_else(|| anyhow::Error::msg(QUIC_LISTENER_DIED))?;
-            accept_biconn(incoming).await
+            accept_biconn(incoming, QUIC_ACCEPT_DEADLINE).await
         })
     }
 }
 
+/// How long one incoming connection may take over its handshake and its first bidirectional
+/// stream together. A connecting client opens that stream immediately after the handshake
+/// ([`QuicEndpointConnector::connect_biconn_with`]), so a live link needs a few round trips;
+/// 15 s matches the deadline the protocol's TCP, TLS and WebSocket listeners give an inbound
+/// handshake. Without it the accept would wait as long as the connection lives, and this
+/// endpoint's own keep-alive keeps an idle connection alive indefinitely.
+pub const QUIC_ACCEPT_DEADLINE: Duration = Duration::from_secs(15);
+
+/// How many incoming connections a listener completes at once. Each one in progress is bounded
+/// by [`QUIC_ACCEPT_DEADLINE`], so this caps the connection state held for handshakes in flight;
+/// further connections wait in quinn's queue ([`QUIC_MAX_QUEUED_INCOMING`]) until a slot frees.
+pub const QUIC_MAX_CONCURRENT_ACCEPTS: usize = 256;
+
+/// How many incoming connections quinn queues before the listener takes them. Past this, quinn
+/// refuses new handshakes outright rather than holding state for each.
+pub const QUIC_MAX_QUEUED_INCOMING: usize = 1024;
+
 /// Completes one incoming connection: the handshake, then the peer's first
-/// bidirectional stream. A failure here belongs to that connection alone; the
-/// endpoint can keep accepting others.
+/// bidirectional stream, both within `deadline`. A connection that misses the
+/// deadline is dropped, which closes it. A failure here belongs to that
+/// connection alone; the endpoint can keep accepting others.
 pub async fn accept_biconn(
     incoming: Incoming,
+    deadline: Duration,
 ) -> Result<(Connection, SendStream, RecvStream), anyhow::Error> {
-    let conn = incoming.await?;
-    let (sink, stream) = conn
-        .accept_bi()
-        .await
-        .map_err(|err| anyhow::Error::msg(err.to_string()))?;
+    let remote = incoming.remote_address();
+    let accept = async move {
+        let conn = incoming.await?;
+        let (sink, stream) = conn
+            .accept_bi()
+            .await
+            .map_err(|err| anyhow::Error::msg(err.to_string()))?;
+        Ok((conn, sink, stream))
+    };
 
-    Ok((conn, sink, stream))
+    citadel_io::time::timeout(deadline, accept)
+        .await
+        .unwrap_or_else(|_| {
+            Err(anyhow::Error::msg(format!(
+                "QUIC connection from {remote} did not open its first stream within {deadline:?}"
+            )))
+        })
 }
 
 pub const QUIC_LISTENER_DIED: &str = "No QUIC connections available";
@@ -478,7 +507,7 @@ pub mod secure {
             .map_err(|err| anyhow::Error::msg(err.to_string()))?;
 
         cfg.migration(true);
-        cfg.max_incoming(u32::MAX as usize);
+        cfg.max_incoming(super::QUIC_MAX_QUEUED_INCOMING);
 
         Ok(cfg)
     }
