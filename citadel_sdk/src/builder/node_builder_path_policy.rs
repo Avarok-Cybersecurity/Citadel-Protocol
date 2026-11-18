@@ -55,7 +55,8 @@ mod tests {
         let mut builder = DefaultNodeBuilder::default();
         let _ = builder
             .with_node_type(node_type)
-            .with_stun_servers(LOCALHOST_STUN_SERVERS);
+            .with_stun_servers(LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level());
         if with_policy {
             let _ = builder.with_path_policy(localhost_path_policy());
         }

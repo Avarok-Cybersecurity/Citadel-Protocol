@@ -52,6 +52,10 @@ mod tests {
             peer: channel.get_peer_cid(),
             initial: opened,
             minimum: opened,
+            bound: channel
+                .key_epoch()
+                .expect("a P2P channel has a key-epoch handle")
+                .max_security_level(),
             support: peer.support_for(SettingId::KEY_PROFILE),
             policy: POLICY,
         })

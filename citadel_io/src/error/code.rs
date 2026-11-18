@@ -1292,4 +1292,12 @@ pub enum ErrorCode {
     /// not UTF-8). Choose a backend explicitly.
     #[form = "No usable home directory for the default account store; choose a backend explicitly"]
     BackendHomeDirUnavailable = 461,
+
+    // --- security levels read from the wire ---
+    /// A node was built without a maximum security level; there is no default one.
+    #[form = "A node requires a maximum security level (NodeBuilder::with_max_security_level); there is no default"]
+    NodeMaxSecurityLevelMissing = 470,
+    /// A level read from a peer or server is above what this node builds (level, maximum).
+    #[form = "Security level {} is above this node's maximum, {}; nothing was built"]
+    SecurityLevelAboveMaximum = 471,
 }

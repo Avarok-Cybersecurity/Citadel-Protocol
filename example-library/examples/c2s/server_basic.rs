@@ -21,6 +21,8 @@
 //! client-server communication. For bidirectional client-server communication,
 //! see the `server_echo.rs` example which uses a `ClientConnectListenerKernel`.
 
+#[path = "../shared/max_level.rs"]
+mod max_level;
 #[path = "../shared/path_policy.rs"]
 mod path_policy;
 #[path = "../shared/stun.rs"]
@@ -45,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build the server
     let node = DefaultNodeBuilder::default()
         .with_stun_servers(stun::from_env())
+        .with_max_security_level(max_level::extreme())
         .with_path_policy(path_policy::every_path_in_order())
         .with_node_type(NodeType::server(server_addr)?)
         .build(kernel)?;

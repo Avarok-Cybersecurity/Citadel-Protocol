@@ -22,6 +22,7 @@
 //! let builder = DefaultNodeBuilder::default()
 //!     .with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()))
 //!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//!     .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme).unwrap())
 //!     .with_backend(BackendType::InMemory);
 //! ```
 //!
@@ -64,6 +65,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     turn_servers: Option<Vec<TurnServerConfig>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     path_policy: Option<PathPolicy>,
+    max_security_level: Option<citadel_types::crypto::MaxSecurityLevel>,
     websocket_listener: Option<citadel_io::WebSocketListen>,
     injected_listener: Option<T::Listener>,
     #[cfg(target_family = "wasm")]
@@ -93,6 +95,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             turn_servers: None,
             local_only_server_settings: None,
             path_policy: None,
+            max_security_level: None,
             websocket_listener: None,
             injected_listener: None,
             #[cfg(target_family = "wasm")]
@@ -152,6 +155,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         kernel: K,
     ) -> anyhow::Result<NodeFuture<'b, K>> {
         self.check()?;
+        let max_security_level = required_max_security_level(self.max_security_level)?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let backend_type = match self.backend_type.take() {
             Some(backend_type) => backend_type,
@@ -237,6 +241,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                     kernel_executor_settings,
                     stun_servers,
                     turn_servers,
+                    max_security_level,
                     server_only_session_init_settings,
                     websocket_listener,
                     pre_built_listener,
@@ -589,6 +594,7 @@ mod tests {
             .with_kernel_executor_settings(kernel_settings.clone())
             .with_insecure_skip_cert_verification()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_native_certs()
             .await
             .unwrap();
@@ -615,3 +621,7 @@ mod stun_tests;
 #[path = "node_builder_path_policy.rs"]
 mod path_policy;
 use path_policy::{check_path_policy, server_settings};
+
+#[path = "node_builder_level_cap.rs"]
+mod level_cap;
+use level_cap::required_max_security_level;

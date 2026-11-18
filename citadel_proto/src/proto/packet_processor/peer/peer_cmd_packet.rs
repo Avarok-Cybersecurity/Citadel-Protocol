@@ -41,6 +41,7 @@ use std::sync::atomic::Ordering;
 use bytes::BytesMut;
 
 use crate::proto::misc::platform_ops::PlatformOps;
+use crate::proto::peer::negotiation::level_cap::{above_maximum_error, refuse_if_above_maximum};
 use crate::proto::peer::negotiation::reason::reported_reason;
 use crate::proto::peer::negotiation::refusal::{
     decline_dial, end_attempt_refused_by, held_dial_password, refuse_accept, refuse_stamp,
@@ -326,6 +327,21 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         //let mut state_container = inner_mut!(session.state_container);
                                         //let peer_cid = conn.get_original_session_cid();
 
+                                        // Nor above this node's maximum.
+                                        if let Some(refused) = refuse_if_above_maximum(
+                                            session.max_security_level,
+                                            endpoint_security_settings.security_level,
+                                            &mut inner_mut_state!(session.state_container),
+                                            &session.kernel_tx,
+                                            session_cid,
+                                            *original_session_cid,
+                                            ticket,
+                                            &sess_ratchet,
+                                            timestamp,
+                                            security_level,
+                                        ) {
+                                            return refused;
+                                        }
                                         // R-DIAL 3: never build a link below our own offer.
                                         let stamped_below = take_attempt_stamped_below(
                                             &mut inner_mut_state!(session.state_container),
@@ -577,6 +593,20 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     //let mut state_container = inner_mut!(session.state_container);
                                     //let this_cid = conn.get_original_target_cid();
                                     let peer_cid = conn.get_original_session_cid();
+                                    if let Some(refused) = refuse_if_above_maximum(
+                                        session.max_security_level,
+                                        session_security_settings.security_level,
+                                        &mut inner_mut_state!(session.state_container),
+                                        &session.kernel_tx,
+                                        session_cid,
+                                        peer_cid,
+                                        ticket,
+                                        &sess_ratchet,
+                                        timestamp,
+                                        security_level,
+                                    ) {
+                                        return refused;
+                                    }
                                     let transfer_deser = return_if_none!(
                                         SyncIO::deserialize_from_vector(transfer).ok()
                                     );
@@ -1263,6 +1293,21 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             ..
                         } => {
                             let peer_cid = conn.get_original_session_cid();
+                            if let Err(above) = session
+                                .max_security_level
+                                .check(endpoint_security_settings.security_level)
+                            {
+                                log::warn!(target: "citadel", "Declining a dial from {peer_cid}: {above}");
+                                return decline_dial(
+                                    &sess_ratchet,
+                                    *conn,
+                                    ticket,
+                                    *endpoint_security_settings,
+                                    *udp_enabled,
+                                    timestamp,
+                                    security_level,
+                                );
+                            }
                             let (our_offer, connected, exchanging) = {
                                 let state_container = inner_state!(session.state_container);
                                 (
@@ -1824,6 +1869,22 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             udp_mode: udp_enabled,
             session_password,
         } => {
+            // A dial above this server's maximum is neither routed nor merged. An answer is
+            // relayed as it stands: the dialler, the side that builds from it, checks it.
+            if let (true, Err(above)) = (
+                peer_response.is_none(),
+                session
+                    .max_security_level
+                    .check(endpoint_security_level.security_level),
+            ) {
+                log::warn!(target: "citadel", "Refusing a connect signal: {above}");
+                let refusal = PeerSignal::SignalError {
+                    ticket,
+                    error: above_maximum_error(above),
+                    peer_connection_type: peer_conn_type,
+                };
+                return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+            }
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
                     session_cid,
@@ -2210,6 +2271,20 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                 .take_mapped_ticket(peer_cid, ticket)
                 .unwrap_or(ticket);
             drop(peer_layer);
+            // The refusal names the request it refuses by the receiver's own ticket, so a
+            // crossed dial's refusal ends the receiver's attempt and not only its dial's wait.
+            let signal = match signal {
+                PeerSignal::SignalError {
+                    error,
+                    peer_connection_type,
+                    ..
+                } => PeerSignal::SignalError {
+                    ticket,
+                    error,
+                    peer_connection_type,
+                },
+                other => other,
+            };
 
             let res = inner!(session.session_manager).send_signal_to_peer_direct(
                 peer_cid,

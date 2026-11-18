@@ -33,7 +33,7 @@ mod tests {
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use citadel_sdk::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::{server_info, TestBarrier};
+    use citadel_sdk::test_common::{localhost_max_security_level, server_info, TestBarrier};
     use futures::StreamExt;
     use std::net::SocketAddr;
     use std::path::{Path, PathBuf};
@@ -174,6 +174,7 @@ mod tests {
                     .block_on(async move {
                         DefaultNodeBuilder::default()
                             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                            .with_max_security_level(localhost_max_security_level())
                             .build(kernel)
                             .unwrap()
                             .await
@@ -181,9 +182,9 @@ mod tests {
                     })
             })
         };
-
         let receiver = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(localhost_max_security_level())
             .build(receiver_kernel)
             .unwrap();
         receiver.await.expect("the receiver's node failed");

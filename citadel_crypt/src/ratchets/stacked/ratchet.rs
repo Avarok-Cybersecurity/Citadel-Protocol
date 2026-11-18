@@ -192,9 +192,9 @@ pub mod constructor {
     use citadel_pqcrypto::constructor_opts::{ConstructorOpts, ImpliedSecurityLevel};
     use citadel_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
     use citadel_pqcrypto::PostQuantumContainer;
-    use citadel_types::crypto::CryptoParameters;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::crypto::LARGEST_NONCE_LEN;
+    use citadel_types::crypto::{check_structural, CryptoParameters};
     use serde::{Deserialize, Serialize};
     use std::fmt::{Debug, Formatter};
 
@@ -226,7 +226,10 @@ pub mod constructor {
         type BobToAliceWireTransfer = BobToAliceTransfer;
 
         fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
-            let security_level = opts.implied_security_level();
+            let Some(security_level) = opts.implied_security_level() else {
+                log::warn!(target: "citadel", "[ALICE] refusing to build {} layers", opts.len());
+                return None;
+            };
             log::trace!(target: "citadel", "[ALICE] Client {cid} creating container with {security_level:?} security level");
             //let count = security_level.value() as usize + 1;
             let len = opts.len();
@@ -270,6 +273,15 @@ pub mod constructor {
             let new_version = transfer.new_version;
             log::trace!(target: "citadel", "[BOB] Client {cid} creating container with {:?} security level", transfer.security_level);
             let count = transfer.security_level.value() as usize + 1;
+            // Every layer is a key exchange: refuse a transfer whose layers are not the ones
+            // this side chose to build, before building any of them.
+            if check_structural(transfer.security_level).is_err()
+                || opts.len() != count
+                || transfer.params_txs.len() != count
+            {
+                log::warn!(target: "citadel", "[BOB] refusing a transfer of {} layers at {:?}; this side builds {}", transfer.params_txs.len(), transfer.security_level, opts.len());
+                return None;
+            }
             let params = transfer.params;
             for nonce in [&transfer.msg_nonce, &transfer.scramble_nonce] {
                 if let Err(err) =

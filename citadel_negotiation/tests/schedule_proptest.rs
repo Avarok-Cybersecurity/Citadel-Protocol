@@ -6,7 +6,6 @@ mod common;
 
 use citadel_negotiation::schedule::{Action, Side, World};
 use citadel_negotiation::settings::{KeyProfile, MediaTransport, MediaTransportKind, TransferMode};
-use citadel_negotiation::Setting;
 use citadel_types::crypto::{CryptoParameters, KemAlgorithm, SecurityLevel};
 use common::{world, Tier};
 use proptest::prelude::*;
@@ -17,7 +16,7 @@ const BUDGET: usize = 2_000;
 /// One scheduling decision: which kind of thing happens, and a number to pick among them.
 type Seed = (u8, u8);
 
-fn run<S: Setting>(
+fn run<S: common::WidestBound>(
     initial: S,
     values: &[S],
     seeds: &[Seed],

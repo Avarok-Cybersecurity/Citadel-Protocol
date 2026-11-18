@@ -303,6 +303,9 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) hypernode_peer_layer: CitadelNodePeerLayer<R>,
     pub(super) stun_servers: citadel_wire::stun_servers::StunServers,
     pub(super) turn_servers: Option<Vec<TurnServerConfig>>,
+    /// The most security layers this node builds a link with: every level read from the wire
+    /// is checked against it before anything is built.
+    pub(crate) max_security_level: citadel_types::crypto::MaxSecurityLevel,
     /// Server side: this server's path policy (see `proto::path_policy`). `None` on a client,
     /// and on a server built without one.
     pub(super) path_policy: Option<citadel_types::proto::PathPolicy>,
@@ -382,6 +385,7 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub client_only_settings: Option<ClientOnlySessionInitSettings<R>>,
     pub stun_servers: citadel_wire::stun_servers::StunServers,
     pub turn_servers: Option<Vec<TurnServerConfig>>,
+    pub max_security_level: citadel_types::crypto::MaxSecurityLevel,
     pub init_time: Instant,
     pub session_password: PreSharedKey,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
@@ -524,6 +528,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
         let turn_servers = session_init_params.turn_servers;
+        let max_security_level = session_init_params.max_security_level;
         let path_policy = session_init_params
             .server_only_session_init_settings
             .as_ref()
@@ -581,6 +586,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             client_config,
             stun_servers,
             turn_servers,
+            max_security_level,
             path_policy,
             init_time,
             file_transfer_compatible: DualLateInit::default(),

@@ -168,6 +168,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     client_config: T::ClientConfig,
     stun_servers: citadel_wire::stun_servers::StunServers,
     turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
+    /// The most security layers this node builds a link with (see [`MaxSecurityLevel`]).
+    max_security_level: citadel_types::crypto::MaxSecurityLevel,
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
     /// Client side: each account's latest resume token, kept after its session ends.
@@ -215,6 +217,7 @@ const PROVISIONAL_CID_RESERVATION_TTL: Duration = Duration::from_secs(30);
 
 impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Creates a new [SessionManager] which handles individual connections
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         local_node_type: NodeType,
         kernel_tx: UnboundedSender<NodeResult<R>>,
@@ -223,6 +226,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         client_config: T::ClientConfig,
         stun_servers: citadel_wire::stun_servers::StunServers,
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
+        max_security_level: citadel_types::crypto::MaxSecurityLevel,
     ) -> Self {
         let incoming_cxn_count = 0;
         let inner = HdpSessionManagerInner {
@@ -243,6 +247,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             client_config,
             stun_servers,
             turn_servers,
+            max_security_level,
             disconnect_tracker: DisconnectSignalTracker::new(),
             resume_tokens: ResumeTokens::default(),
             ended_sessions: EndedSessions::default(),
@@ -542,6 +547,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 peer_layer,
                 stun_servers,
                 turn_servers,
+                max_security_level,
                 provisional_key,
                 reservation,
             ) = {
@@ -557,6 +563,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_layer,
                     stun_servers,
                     turn_servers,
+                    max_security_level,
                     provisional_key,
                     reservation,
                 ) = {
@@ -655,6 +662,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     let peer_layer = this.hypernode_peer_layer.clone();
                     let stun_servers = this.stun_servers.clone();
                     let turn_servers = this.turn_servers.clone();
+                    let max_security_level = this.max_security_level;
 
                     let provisional_key = ProvisionalKey::for_account(
                         peer_addr,
@@ -702,6 +710,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         peer_layer,
                         stun_servers,
                         turn_servers,
+                        max_security_level,
                         provisional_key,
                         reservation,
                     )
@@ -743,6 +752,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_layer,
                     stun_servers,
                     turn_servers,
+                    max_security_level,
                     provisional_key,
                     reservation,
                 )
@@ -780,6 +790,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 client_only_settings: Some(client_only_settings),
                 stun_servers,
                 turn_servers,
+                max_security_level,
                 init_time,
                 session_password,
                 server_only_session_init_settings: None,
@@ -1100,6 +1111,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let peer_layer = this.hypernode_peer_layer.clone();
         let stun_servers = this.stun_servers.clone();
         let turn_servers = this.turn_servers.clone();
+        let max_security_level = this.max_security_level;
 
         // Regardless if the IpAddr existed as a client before, we must treat the connection temporarily as provisional
         // However, two concurrent provisional connections from the same IP cannot be connecting at once
@@ -1127,6 +1139,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             client_only_settings: None,
             stun_servers,
             turn_servers,
+            max_security_level,
             init_time,
             session_password: server_only_session_init_settings
                 .declared_pre_shared_key

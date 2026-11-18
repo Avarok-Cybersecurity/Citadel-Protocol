@@ -63,6 +63,14 @@ pub const LOCALHOST_STUN_SERVERS: [&str; 3] =
 pub const BROWSER_STUN_SERVERS: [&str; 3] =
     ["127.0.0.1:25530", "127.0.0.1:25531", "127.0.0.1:25532"];
 
+/// The maximum security level of nodes under test. A node requires one and there is no
+/// default; this one is the highest level any test builds a link at (`Custom(10)`, the browser
+/// pair's), so every test keeps the levels it used before nodes had a maximum.
+pub fn localhost_max_security_level() -> citadel_types::crypto::MaxSecurityLevel {
+    citadel_types::crypto::MaxSecurityLevel::new(SecurityLevel::Custom(10))
+        .expect("Custom(10) is a level a ratchet can carry")
+}
+
 /// The path policy of servers under test: the owner's order (Direct, PeerRelay, Turn,
 /// ServerRelay), every path enabled for every class. A server requires a policy and there is no
 /// default; this one keeps the attempt timeouts the campaign used before policies existed (30 s
@@ -115,6 +123,7 @@ mod native {
         let builder = builder
             .with_node_type(NodeType::Server(bind_addr))
             .with_stun_servers(LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_path_policy(localhost_path_policy())
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),

@@ -141,6 +141,7 @@ mod tests {
                 });
             let client = DefaultNodeBuilder::default()
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(kernel)
                 .unwrap();
             kernels.push(async move { client.await.map(|_| ()) });

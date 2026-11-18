@@ -504,6 +504,7 @@ mod tests {
 
             let client = DefaultNodeBuilder::default()
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
 
@@ -630,6 +631,7 @@ mod tests {
 
             let client = DefaultNodeBuilder::default()
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -761,6 +763,7 @@ mod tests {
             );
             let client = DefaultNodeBuilder::default()
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
