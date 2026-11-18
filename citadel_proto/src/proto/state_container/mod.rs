@@ -39,6 +39,7 @@
 
 use self::includes::*;
 use crate::proto::peer::direct_journal::DirectJournal;
+use crate::proto::peer::negotiation::floor::MessageFloor;
 use crate::proto::peer::p2p_path::P2pPathCell;
 use citadel_wire::udp_traversal::turn_relay::TurnRelayConfig;
 
@@ -399,6 +400,9 @@ pub struct EndpointChannelContainer<R: Ratchet> {
         Option<citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>>,
     /// P2P: where UDP channels after the first go, to the application's `PeerChannel`.
     pub(crate) udp_restored: Option<citadel_io::tokio::sync::mpsc::UnboundedSender<UdpChannel<R>>>,
+    /// C4/C5: what the peer's message frames may no longer fall below (shared with the
+    /// connection's key-epoch handle).
+    pub(crate) message_floor: Arc<MessageFloor>,
 }
 
 pub(crate) struct UnorderedChannelContainer {

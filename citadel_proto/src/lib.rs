@@ -605,6 +605,8 @@ pub mod prelude {
         GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
     };
     pub use crate::proto::peer::kex_path::KexPath;
+    /// The SDK adapters of the in-session negotiation layer (`citadel_negotiation`).
+    pub use crate::proto::peer::negotiation;
     pub use crate::proto::peer::negotiation::lane::{LanePort, NegotiationLane, SettingLane};
     pub use crate::proto::peer::negotiation::reason::DisconnectReason;
     pub use crate::proto::peer::p2p_outcome::{

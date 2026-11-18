@@ -50,6 +50,8 @@ impl<R: Ratchet> Driver<R> {
                 _ = app.closed() => break,
                 message = inbound.next() => match message {
                     None => break,
+                    // Refused by the message floor: it kept its place in the ordering, and ends here.
+                    Some(message) if message.refused => {}
                     Some(message) if message.ticket == LANE_TICKET => self.on_frame(message.packet).await,
                     Some(message) => {
                         if app.send(message.packet).is_err() {
@@ -108,6 +110,7 @@ impl<R: Ratchet> Driver<R> {
             packet: SecBuffer::from(bytes),
             target: self.target,
             security_level: self.security_level,
+            refused: false,
         };
         self.tx
             .lock()

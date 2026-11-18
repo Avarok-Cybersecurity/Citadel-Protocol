@@ -72,6 +72,7 @@ pub mod p2p_conn_handler;
 
 pub mod class_gates;
 pub mod kex_path;
+/// The SDK adapters of the in-session negotiation layer.
 pub mod negotiation;
 pub mod p2p_path;
 pub(crate) mod p2p_plan;

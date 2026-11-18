@@ -1215,4 +1215,18 @@ pub enum ErrorCode {
     /// A group asked for relay options (ephemeral delivery, message limits) its server predates.
     #[form = "The server predates group relay options (ephemeral delivery, message limits) and would ignore them; the group was not created"]
     GroupRelayOptionsUnsupported = 393,
+
+    // --- citadel_crypt / citadel_proto: negotiated key epochs ---
+    /// A key profile asks for a layer count a stacked ratchet cannot carry (requested layers).
+    #[form = "A key profile asks for {} ratchet layers; a ratchet carries 1 to 254"]
+    KeyEpochLayerCount = 400,
+    /// This ratchet type cannot carry the requested key profile level (level).
+    #[form = "This ratchet cannot carry key profile level {}"]
+    KeyEpochUnsupportedRatchet = 401,
+    /// The ratchet holds no chain to derive the new layers of a raised key profile from.
+    #[form = "The ratchet has no chain to derive new key-epoch layers from"]
+    KeyEpochChainMissing = 402,
+    /// The peer refused a steered key round: it had not agreed to that epoch's profile (epoch).
+    #[form = "The peer refused the key round for epoch {}"]
+    KeyEpochRefused = 403,
 }

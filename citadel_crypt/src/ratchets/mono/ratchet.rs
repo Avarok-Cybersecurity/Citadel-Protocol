@@ -61,6 +61,7 @@ use crate::misc::CryptError;
 use crate::ratchets::entropy_bank::EntropyBank;
 use crate::ratchets::Ratchet;
 use arrayvec::ArrayVec;
+use citadel_negotiation::settings::KeyProfile;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
 use citadel_pqcrypto::PostQuantumContainer;
@@ -127,6 +128,20 @@ impl Ratchet for MonoRatchet {
 
     fn message_ratchet_count(&self) -> usize {
         1
+    }
+
+    /// A mono ratchet has exactly one layer, so it can carry only a Standard profile.
+    fn next_constructor_opts_for(
+        &self,
+        profile: &KeyProfile,
+    ) -> Result<Vec<ConstructorOpts>, CryptError> {
+        if profile.level().value() != 0 {
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::KeyEpochUnsupportedRatchet,
+                citadel_io::Dbg(profile.level())
+            ));
+        }
+        Ok(self.get_next_constructor_opts())
     }
 }
 

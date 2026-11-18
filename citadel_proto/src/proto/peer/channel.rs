@@ -58,6 +58,7 @@ use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, UnboundedReceiver};
 use crate::proto::peer::negotiation::driver::{Driver, SharedMessengerTx};
+use crate::proto::peer::negotiation::key_epoch::KeyEpochHandle;
 use crate::proto::peer::negotiation::lane::NegotiationLane;
 use crate::proto::peer::negotiation::reason::PeerClosing;
 use crate::proto::peer::negotiation::shared::LaneShared;
@@ -92,6 +93,8 @@ pub struct PeerChannel<R: Ratchet> {
     security_settings: SessionSecuritySettings,
     /// The negotiation lane; `None` on a client-server channel.
     lane: Option<Arc<LaneShared<R>>>,
+    /// The connection's key-epoch surface; `Some` on a P2P channel.
+    key_epoch: Option<KeyEpochHandle<R>>,
 }
 
 /// Every UDP channel a P2P path recovery restores, in order (see `PeerChannel::upgrade`).
@@ -112,6 +115,7 @@ impl<R: Ratchet> PeerChannel<R> {
         peer_protocol_version: Option<u32>,
         restored_udp: Option<RestoredUdpChannels<R>>,
         closing: PeerClosing,
+        key_epoch: Option<KeyEpochHandle<R>>,
     ) -> Self {
         let session_cid = vconn_type.get_session_cid();
 
@@ -158,6 +162,7 @@ impl<R: Ratchet> PeerChannel<R> {
             restored_udp,
             security_settings,
             lane,
+            key_epoch,
         }
     }
 
@@ -236,6 +241,12 @@ impl<R: Ratchet> PeerChannel<R> {
         let shared = self.lane.clone()?;
         let opened = shared.local.borrow().is_some();
         opened.then_some(NegotiationLane { shared })
+    }
+
+    /// The connection's key-epoch surface (its ratchet manager, message floor and id), for the
+    /// negotiation layer's `KeyExchange` port. `Some` on a P2P channel.
+    pub fn key_epoch(&self) -> Option<KeyEpochHandle<R>> {
+        self.key_epoch.clone()
     }
 
     /// The security settings this connection was established with. On a P2P channel these are
@@ -406,6 +417,7 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
             packet: message.into(),
             target: self.vconn_type,
             security_level: self.security_level,
+            refused: false,
         };
 
         self.to_outbound_stream
@@ -505,15 +517,17 @@ impl<R: Ratchet> Stream for ReceiverType<R> {
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.get_mut() {
-            ReceiverType::OrderedReliable { rx } => {
+            ReceiverType::OrderedReliable { rx } => loop {
                 match futures::ready!(Pin::new(rx.as_mut()).poll_next(cx)) {
-                    Some(data) => Poll::Ready(Some(data.packet)),
+                    // Refused by the message floor: it kept its place in the ordering, and ends here.
+                    Some(data) if data.refused => continue,
+                    Some(data) => return Poll::Ready(Some(data.packet)),
                     _ => {
                         log::trace!(target: "citadel", "[PeerChannelRecvHalf] ending for OrderedReliable");
-                        Poll::Ready(None)
+                        return Poll::Ready(None);
                     }
                 }
-            }
+            },
 
             ReceiverType::Lane { rx } => match futures::ready!(rx.poll_recv(cx)) {
                 Some(data) => Poll::Ready(Some(data)),

@@ -107,12 +107,13 @@ where
                         let queue_size = lock.len();
                         log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): re-key finished. Queue size: {}", queue_size);
 
-                        if let Some(last_item) = lock.pop_front() {
+                        if let Some(next_item) = lock.pop_front() {
                             // Release lock before async operation
                             drop(lock);
 
+                            let mut retained = Some(next_item);
                             match manager_clone
-                                .trigger_rekey_with_payload(Some(last_item), false)
+                                .trigger_rekey_retaining_payload(&mut retained, false)
                                 .await
                             {
                                 Ok(Some(message_not_sent)) => {
@@ -128,8 +129,21 @@ where
                                 }
 
                                 Err(err) => {
+                                    // The message keeps its place at the front: the ids after it
+                                    // are already assigned, so sending them without it would
+                                    // leave a gap the peer's ordered channel never fills.
+                                    let mut lock = enqueued_messages_rekey.lock().await;
+                                    if let Some(item) = retained {
+                                        lock.push_front(item);
+                                    }
+                                    if err.code() == citadel_io::ErrorCode::RekeyHalted {
+                                        // No round starts on a halted manager, so nothing will
+                                        // drain the queue: end here, which marks the messenger
+                                        // inactive and fails every later send.
+                                        log::error!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekeys halted with {} messages queued; the messenger stops", lock.len());
+                                        return;
+                                    }
                                     log::error!(target: "citadel", "RatchetManager failed to trigger rekey: {err:?}");
-                                    // Cannot re-enqueue since we moved the item
                                     break; // Wait for next rekey
                                 }
                             }

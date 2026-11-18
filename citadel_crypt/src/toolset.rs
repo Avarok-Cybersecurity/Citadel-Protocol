@@ -180,28 +180,52 @@ impl<R: Ratchet> Toolset<R> {
     /// Alice will then prevent herself from sending any more packets using version V, and will locally run this
     /// function. Next, Alice should alert Bob telling him that it's now safe to remove version V. Bob then runs
     /// this function last. By doing this, Alice no longer sends packets that may be no longer be valid
+    ///
+    /// A Truncate is the peer's statement that it sends nothing more under `version` or anything
+    /// older. A version already gone is therefore done, and one newer than the oldest held means
+    /// an earlier Truncate never applied here: every version up to `version` is retired, so one
+    /// lost Truncate cannot leave the two windows a version apart for every later round.
     #[allow(unused_results)]
     pub fn deregister_oldest_ratchet(&mut self, version: u32) -> Result<(), CryptError> {
+        // Versions wrap, so they are compared as distances from the oldest held.
+        let ahead = version.wrapping_sub(self.get_oldest_ratchet_version());
+        if ahead > u32::MAX / 2 {
+            return Ok(()); // behind the oldest held: already retired
+        }
         if self.map.len() < MAX_RATCHETS_IN_MEMORY {
             return Err(citadel_io::error!(
                 citadel_io::ErrorCode::ToolsetDeregisterNotMaxed
             ));
         }
-
-        let oldest = self.get_oldest_ratchet_version();
-        if oldest != version {
-            Err(citadel_io::error!(
+        let span = self
+            .get_most_recent_ratchet_version()
+            .wrapping_sub(self.get_oldest_ratchet_version());
+        if ahead >= span {
+            return Err(citadel_io::error!(
                 citadel_io::ErrorCode::ToolsetDeregisterVersionMismatch,
                 version,
-                oldest
-            ))
-        } else {
+                self.get_oldest_ratchet_version()
+            ));
+        }
+        for _ in 0..=ahead {
             self.map
                 .pop_back()
                 .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::OutOfBounds))?;
             self.oldest_ratchet_version = self.oldest_ratchet_version.wrapping_add(1);
-            log::trace!(target: "citadel", "[Toolset] Deregistered version {} for cid={}. New oldest: {} | LEN: {}", version, self.cid, self.oldest_ratchet_version, self.len());
-            Ok(())
+        }
+        log::trace!(target: "citadel", "[Toolset] Deregistered through version {} for cid={}. New oldest: {} | LEN: {}", version, self.cid, self.oldest_ratchet_version, self.len());
+        Ok(())
+    }
+
+    /// Drops every version newer than `version`: ratchets committed by a round that never
+    /// completed. Nothing was ever sent under them, since a version is used only once its round
+    /// completes, and keeping them would number the next round's ratchet one past the peer's.
+    pub fn truncate_newest_to(&mut self, version: u32) {
+        let mut newer = self.most_recent_ratchet_version.wrapping_sub(version);
+        while newer > 0 && newer <= u32::MAX / 2 && self.map.len() > 1 {
+            let _ = self.map.pop_front();
+            self.most_recent_ratchet_version = self.most_recent_ratchet_version.wrapping_sub(1);
+            newer -= 1;
         }
     }
 

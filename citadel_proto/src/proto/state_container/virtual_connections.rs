@@ -4,6 +4,8 @@
 use super::includes::*;
 use crate::proto::peer::direct_journal::{DirectJournal, JournaledMessage};
 use crate::proto::peer::direct_route;
+use crate::proto::peer::negotiation::floor::MessageFloor;
+use crate::proto::peer::negotiation::key_epoch::KeyEpochHandle;
 use crate::proto::peer::negotiation::reason::PeerClosing;
 use crate::proto::peer::p2p_path::P2pPathCell;
 use bytes::BytesMut;
@@ -328,6 +330,14 @@ impl<R: Ratchet> StateContainerInner<R> {
             self.relay_index
                 .register(target_cid, p2p_path.byte_counters());
         }
+        let message_floor = Arc::new(MessageFloor::new());
+        let key_epoch = disconnect_token.map(|token| {
+            KeyEpochHandle::new(
+                ratchet_manager.clone(),
+                message_floor.clone(),
+                citadel_negotiation::ConnectionId(token.connection_id.0),
+            )
+        });
         let (udp_restored, restored_udp) = match virtual_connection_type {
             VirtualConnectionType::LocalGroupPeer { .. } => {
                 let (tx, rx) = unbounded_channel();
@@ -349,6 +359,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             peer_protocol_version,
             restored_udp,
             peer_closing.clone(),
+            key_epoch,
         );
 
         CitadelSession::spawn_message_sender_function(
@@ -370,6 +381,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             // by p2p_conn_handler when P2P stream is established
             p2p_disconnect_notifier: None,
             udp_restored,
+            message_floor,
         });
         if let VirtualConnectionType::LocalGroupPeer { .. } = virtual_connection_type {
             self.peer_closings
