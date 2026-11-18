@@ -36,7 +36,6 @@ use crate::proto::peer::kex_path::{self, KexPath};
 use crate::proto::peer::p2p_campaign;
 use crate::proto::peer::p2p_path::CampaignEndGuard;
 use crate::proto::peer::p2p_plan::execution_plan;
-use citadel_types::proto::PairFeasibility;
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
@@ -893,7 +892,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
-                                    let direct_impossible = should_use_turn(needs_turn);
+                                    let direct_impossible = needs_turn;
                                     let stamped = kex_path::stamped_plan(
                                         kex_path_in.as_ref(),
                                         *peer_protocol_version,
@@ -1091,7 +1090,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
-                                    let direct_impossible = should_use_turn(needs_turn);
+                                    let direct_impossible = needs_turn;
                                     let stamped = kex_path::stamped_plan(
                                         kex_path_in.as_ref(),
                                         *peer_protocol_version,
@@ -1372,10 +1371,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             let target_cid = conn.get_original_target_cid();
             let path = kex_path::stamp(session.path_policy.as_ref(), path, || {
                 let target_nat = session.session_manager.adjacent_nat_type_of(target_cid)?;
-                Some(PairFeasibility {
-                    direct: !should_use_turn(!sender_nat.stun_compatible(&target_nat)),
-                    forwarder: None,
-                })
+                Some(kex_path::pair_feasibility(&sender_nat, &target_nat))
             });
 
             // since this is the server, we just need to route this to the target_cid
@@ -2107,20 +2103,6 @@ fn take_turn_config<R: Ratchet, T: PlatformOps>(
     inner_mut_state!(session.state_container)
         .peer_turn_configs
         .remove(&peer_cid)
-}
-
-/// Whether to use TURN routing. In localhost-testing mode, always attempt
-/// direct hole-punching regardless of `needs_turn`.
-fn should_use_turn(needs_turn: bool) -> bool {
-    #[cfg(feature = "localhost-testing")]
-    {
-        let _ = needs_turn;
-        false
-    }
-    #[cfg(not(feature = "localhost-testing"))]
-    {
-        needs_turn
-    }
 }
 
 #[inline]
