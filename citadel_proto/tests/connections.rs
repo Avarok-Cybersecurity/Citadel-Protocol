@@ -275,8 +275,10 @@ pub mod tests {
                 }
             };
 
-            log::trace!(target: "citadel", "Res: {res:?}");
-
+            // The round trips' own error is the verdict. Asserting only the count discarded it:
+            // a Windows run (44212780505) failed with "left: 0, right: 32" after 86 ms and no
+            // way to tell which connect or which side had failed.
+            res?;
             assert_eq!(cnt.load(Ordering::SeqCst), count);
 
             log::trace!(target: "citadel", "Ended proto test for singular proto successfully");
