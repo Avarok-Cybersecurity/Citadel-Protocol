@@ -35,7 +35,9 @@ async fn a_server_that_stalls_the_tls_handshake_fails_the_connect_at_its_deadlin
     )
     .await
     .expect("the connect outlived its deadline: the TLS handshake is unbounded");
-    let err = outcome.err().expect("a stalled handshake cannot succeed");
+    let Err(err) = outcome else {
+        panic!("a stalled handshake cannot succeed");
+    };
     assert_eq!(err.kind(), io::ErrorKind::TimedOut, "{err:?}");
     stalling_server.abort();
 }
