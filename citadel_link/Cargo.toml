@@ -1,0 +1,28 @@
+[package]
+name = "citadel_link"
+version = "0.1.0"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+description = "The pure core of the Citadel RobustConnectionManager: link typestates, the heal state machine, the settings decision and the undelivered-payload outbox"
+edition = "2021"
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography", "network-programming"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+citadel_types = { workspace = true }
+citadel_negotiation = { workspace = true }
+citadel_media = { workspace = true }
+
+[dev-dependencies]
+citadel_link = { path = ".", features = ["harness"] }
+proptest = { version = "1.5", default-features = false, features = ["std"] }
+
+[features]
+# The deterministic two-link scheduler (`schedule`). Tests and downstream lanes' tests only; no
+# production build enables it.
+harness = []
+
+[lints.rust]
+unsafe_code = "forbid"
