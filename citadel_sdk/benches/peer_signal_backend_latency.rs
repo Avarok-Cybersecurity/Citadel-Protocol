@@ -17,6 +17,7 @@
     not(target_family = "wasm")
 ))]
 #[path = "../../citadel_user/tests/common/sqlite_host.rs"]
+#[allow(dead_code)] // a shared test helper; this bench uses `in_memory` only
 mod sqlite_host;
 
 #[cfg(all(
