@@ -15,7 +15,9 @@ use citadel_wire::exports::Connection;
 use citadel_wire::nat_identification::NatType;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
-use citadel_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
+use citadel_wire::udp_traversal::udp_hole_puncher::{
+    EndpointHolePunchExt, PunchBudget, STANDALONE_ATTEMPT_TIMEOUT,
+};
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
 
@@ -85,17 +87,23 @@ impl PlatformOps for NativeIO {
         target_cid: u64,
         stun_servers: citadel_wire::stun_servers::StunServers,
         node_type: RelativeNodeType,
+        wire: netbeam::sync::wire::WireRevision,
     ) -> impl std::future::Future<Output = Result<Option<UdpSplittableTypes>, NetworkError>>
            + ContextRequirements {
         async move {
-            let endpoint = NetworkEndpoint::register(node_type, stream)
+            let endpoint = NetworkEndpoint::register(node_type, stream, wire)
                 .await
                 .map_err(|err| NetworkError::generic(err.to_string()))?;
             log::trace!(target: "citadel", "{node_type:?} created for C2S hole punch");
 
             let config = generate_hole_punch_crypt_container(ratchet, security_level, target_cid);
 
-            match endpoint.begin_udp_hole_punch(config, stun_servers).await {
+            // The pre-connect has no stage deadline of its own.
+            let budget = PunchBudget::per_attempt(STANDALONE_ATTEMPT_TIMEOUT);
+            match endpoint
+                .begin_udp_hole_punch(config, stun_servers, budget)
+                .await
+            {
                 Ok(socket) => {
                     log::trace!(target: "citadel", "{node_type:?} finished NAT traversal");
                     let send_addr = socket.addr.send_address;

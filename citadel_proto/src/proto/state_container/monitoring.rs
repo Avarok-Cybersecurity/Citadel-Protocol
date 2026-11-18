@@ -1,6 +1,7 @@
 //! Keep-alive monitoring for [`StateContainerInner`].
 
 use super::includes::*;
+use crate::constants::KEEP_ALIVE_TIMEOUT_NS;
 
 impl<R: Ratchet> StateContainerInner<R> {
     /// When a keep alive is received, this function gets called. Prior to getting called,
@@ -52,13 +53,77 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
     }
 
-    /// This should be ran periodically by the session timer
-    pub fn keep_alive_subsystem_timed_out(&self, current_timestamp_ns: i64) -> bool {
-        if let Some(prev_ka_time) = self.network_stats.last_keep_alive {
-            //assert_ne!(self.keep_alive_timeout_ns, 0);
-            current_timestamp_ns - prev_ka_time > self.keep_alive_timeout_ns
-        } else {
-            false
+    /// Takes the one slot for a scheduled keep-alive reply: false if a reply is already pending.
+    pub(crate) fn claim_keep_alive_reply(&mut self) -> bool {
+        !std::mem::replace(&mut self.network_stats.keep_alive_reply_pending, true)
+    }
+
+    /// Sends the scheduled keep-alive reply, sealed with the newest C2S ratchet, and frees the
+    /// slot [`Self::claim_keep_alive_reply`] took.
+    pub(crate) fn send_keep_alive_reply(
+        &mut self,
+        to_primary_stream: &OutboundPrimaryStreamSender,
+        timestamp_ns: i64,
+        security_level: SecurityLevel,
+    ) {
+        self.network_stats.keep_alive_reply_pending = false;
+        let Some(ratchet) = self
+            .get_virtual_connection_crypto(C2S_IDENTITY_CID)
+            .and_then(|crypto| crypto.get_ratchet(None))
+        else {
+            log::warn!(target: "citadel", "No C2S ratchet to seal the keep-alive reply with");
+            return;
+        };
+        let reply = packet_crafter::keep_alive::craft_keep_alive_packet(
+            &ratchet,
+            timestamp_ns,
+            security_level,
+        );
+        if let Err(err) = to_primary_stream.unbounded_send(reply) {
+            log::warn!(target: "citadel", "Unable to send the keep-alive reply: {err}");
         }
     }
+
+    /// This should be ran periodically by the session timer
+    pub fn keep_alive_subsystem_timed_out(&self, current_timestamp_ns: i64) -> bool {
+        keep_alive_timed_out(
+            self.network_stats.last_keep_alive,
+            self.network_stats.measured_since_ns,
+            current_timestamp_ns,
+            self.keep_alive_timeout_ns,
+        )
+    }
 }
+
+/// The shortest keep-alive timeout a server holds a client to. A keep-alive reaches the server
+/// once every two intervals (each end waits one before answering), so below three intervals an
+/// honest session would be dropped between two of its keep-alives.
+pub(crate) const MIN_SERVER_KEEP_ALIVE_TIMEOUT_NS: i64 = KEEP_ALIVE_TIMEOUT_NS;
+
+/// The longest: how long a server holds a session that has stopped proving it is alive, however
+/// long its client asked for.
+pub(crate) const MAX_SERVER_KEEP_ALIVE_TIMEOUT_NS: i64 = 4 * KEEP_ALIVE_TIMEOUT_NS;
+
+/// The keep-alive timeout a server applies to a client that asked for `requested_ns`. A client
+/// may disable keep-alives on its own side (0), but not the server's check on it.
+pub(crate) fn server_keep_alive_timeout_ns(requested_ns: i64) -> i64 {
+    requested_ns.clamp(
+        MIN_SERVER_KEEP_ALIVE_TIMEOUT_NS,
+        MAX_SERVER_KEEP_ALIVE_TIMEOUT_NS,
+    )
+}
+
+/// Whether a session whose last keep-alive arrived at `last_keep_alive_ns` (none yet: its clock
+/// started at `since_ns`) has, at `now_ns`, gone longer than `timeout_ns` without one.
+pub(crate) fn keep_alive_timed_out(
+    last_keep_alive_ns: Option<i64>,
+    since_ns: i64,
+    now_ns: i64,
+    timeout_ns: i64,
+) -> bool {
+    now_ns.saturating_sub(last_keep_alive_ns.unwrap_or(since_ns)) > timeout_ns
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "monitoring_tests.rs"]
+mod tests;

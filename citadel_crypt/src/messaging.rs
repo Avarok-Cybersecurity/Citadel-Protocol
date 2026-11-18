@@ -82,6 +82,7 @@ where
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         let manager_for_shutdown = manager_clone.clone();
+        let manager_for_halt = manager_clone.clone();
         let background_task = async move {
             // Each time a rekey finishes, we should check the local queue for any enqueued messages
             // to poll and send
@@ -107,12 +108,13 @@ where
                         let queue_size = lock.len();
                         log::trace!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): re-key finished. Queue size: {}", queue_size);
 
-                        if let Some(last_item) = lock.pop_front() {
+                        if let Some(next_item) = lock.pop_front() {
                             // Release lock before async operation
                             drop(lock);
 
+                            let mut retained = Some(next_item);
                             match manager_clone
-                                .trigger_rekey_with_payload(Some(last_item), false)
+                                .trigger_rekey_retaining_payload(&mut retained, false)
                                 .await
                             {
                                 Ok(Some(message_not_sent)) => {
@@ -128,8 +130,21 @@ where
                                 }
 
                                 Err(err) => {
+                                    // The message keeps its place at the front: the ids after it
+                                    // are already assigned, so sending them without it would
+                                    // leave a gap the peer's ordered channel never fills.
+                                    let mut lock = enqueued_messages_rekey.lock().await;
+                                    if let Some(item) = retained {
+                                        lock.push_front(item);
+                                    }
+                                    if err.code() == citadel_io::ErrorCode::RekeyHalted {
+                                        // No round starts on a halted manager, so nothing will
+                                        // drain the queue: end here, which marks the messenger
+                                        // inactive and fails every later send.
+                                        log::error!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): rekeys halted with {} messages queued; the messenger stops", lock.len());
+                                        return;
+                                    }
                                     log::error!(target: "citadel", "RatchetManager failed to trigger rekey: {err:?}");
-                                    // Cannot re-enqueue since we moved the item
                                     break; // Wait for next rekey
                                 }
                             }
@@ -167,6 +182,13 @@ where
                 }
                 _ = ordered_receiver => {
                     log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): ordered receiver ended");
+                }
+                // The channels above are fed by senders inside the manager this task holds, so
+                // they never close on their own: without this the task, and the toolset, sink
+                // and keys it holds, outlive the connection for the life of the process. Once
+                // the manager has halted, nothing will rekey, carry or deliver a message again.
+                _ = manager_for_halt.until_halted() => {
+                    log::debug!(target: "citadel", "RatchetManagerMessengerLayer (client: {cid}, mode: {secrecy_mode:?}): the rekey process halted");
                 }
             }
 

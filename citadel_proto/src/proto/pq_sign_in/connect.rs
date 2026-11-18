@@ -5,7 +5,6 @@ use super::packets::{self, Kind};
 use super::refusal::{fail_login, failure};
 use super::runs_with;
 use super::security_key::SecurityKeyPurpose;
-use super::state::ServerPending;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -17,12 +16,10 @@ use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::auth::SessionScope;
 use citadel_user::auth::pq::admission;
-use citadel_user::auth::pq::client::{ClientLogin, ClientProof};
+use citadel_user::auth::pq::client::{ClientLogin, ClientProof, RelyingParty};
 use citadel_user::auth::pq::login_transcript;
-use citadel_user::auth::pq::messages::{ChallengeBody, LoginChallenge, LoginProof, LoginStart};
-use citadel_user::auth::pq::server::build_login_challenge;
-use citadel_user::auth::pq::server::Expectation;
-use citadel_user::client_account::{ClientNetworkAccount, PqAccountState};
+use citadel_user::auth::pq::messages::{LoginProof, LoginStart};
+use citadel_user::client_account::ClientNetworkAccount;
 
 fn kind(aux: u8) -> Kind {
     Kind {
@@ -74,12 +71,14 @@ pub(crate) fn begin<R: Ratchet>(
     Ok(Some(packet))
 }
 
-/// Server: answers `AUTH_START` with a challenge, and remembers what STAGE0 must prove.
+/// Server: answers `AUTH_START` with a challenge in the layout the client at `client_version`
+/// reads, and remembers what STAGE0 must prove.
 pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cnac: &ClientNetworkAccount<R, R>,
     ratchet: &R,
     payload: &[u8],
+    client_version: u32,
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -100,7 +99,7 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
             let ctx = super::admission::sign_in(session, cnac.get_cid(), &start).await;
             let policy = super::admission::policy(session);
             admission::then(policy.as_ref(), ctx, false, || {
-                issue_challenge(session, cnac, ratchet.get_cid(), &start)
+                super::challenge::issue(session, cnac, ratchet.get_cid(), &start, client_version)
             })
             .await
         }
@@ -127,42 +126,6 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
     Ok(PrimaryProcessorResult::ReplyToSender(packet))
 }
 
-fn issue_challenge<R: Ratchet, T: PlatformOps>(
-    session: &CitadelSession<R, T>,
-    cnac: &ClientNetworkAccount<R, R>,
-    cid: u64,
-    start: &LoginStart,
-) -> Result<(LoginChallenge, ServerPending), NetworkError> {
-    let account = cnac.pq_account_state(&start.username);
-    match session.account_manager.pq_settings() {
-        Some(settings) => {
-            let (challenge, expectation) =
-                build_login_challenge(settings, account.as_account_auth(), start)?;
-            if matches!(ClientLogin::security_key_request(&challenge), Ok(Some(_))) {
-                super::presence::open(session);
-            }
-            let pending = match expectation {
-                Expectation::Factors(expected) => {
-                    ServerPending::Factors(expected.bind(login_transcript(cid, start, &challenge)))
-                }
-                Expectation::Legacy { upgrade } => ServerPending::Legacy(upgrade),
-            };
-            Ok((challenge, pending))
-        }
-        None if matches!(account, PqAccountState::PostQuantum(_)) => Err(citadel_io::error!(
-            citadel_io::ErrorCode::PqSignInUnavailable,
-            "this server has no post-quantum sign-in settings"
-        )),
-        None => {
-            let legacy = LoginChallenge {
-                server_nonce: [0u8; 32],
-                body: ChallengeBody::Legacy { upgrade: None },
-            };
-            Ok((legacy, ServerPending::Legacy(None)))
-        }
-    }
-}
-
 /// Client: answers the challenge in connect STAGE0.
 pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
@@ -187,12 +150,15 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
         return_if_none!(pending, "AUTH_CHALLENGE without a login in flight");
     let credentials = return_if_none!(credentials, "Proposed creds not loaded");
     let cid = ratchet.get_cid();
-    let challenge: LoginChallenge = match packets::read(payload) {
-        Ok(challenge) => challenge,
+    let sent = match super::challenge::read(payload, server_version) {
+        Ok(sent) => sent,
         Err(err) => return fail_login(session, cid, err.into_string()),
     };
-    let transcript = login_transcript(cid, &start, &challenge);
-    let request = match ClientLogin::security_key_request(&challenge) {
+    let transcript = login_transcript(cid, &start, &sent);
+    let request =
+        ClientLogin::security_key_request(&sent.challenge, RelyingParty::of_sign_in(&sent));
+    let challenge = sent.challenge;
+    let request = match request {
         Ok(request) => request,
         Err(err) => return fail_login(session, cid, err.into_string()),
     };

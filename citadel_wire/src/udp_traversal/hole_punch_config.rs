@@ -105,6 +105,7 @@ mod native {
     use super::*;
     use crate::error::FirewallError;
     use crate::nat_identification::NatType;
+    use crate::udp_traversal::candidate_bounds;
     use citadel_io::tokio::net::UdpSocket;
     use itertools::Itertools;
     use std::net::{Ipv4Addr, Ipv6Addr};
@@ -194,6 +195,7 @@ mod native {
         peer_internal_addrs: &[SocketAddr],
         peer_reflexive_addrs: &[SocketAddr],
     ) -> Result<Vec<AddrBand>, FirewallError> {
+        candidate_bounds::check_peer_candidates(peer_internal_addrs, peer_reflexive_addrs)?;
         let mut pool = Vec::new();
         for peer_internal_addr in peer_internal_addrs {
             pool.extend(match peer_nat.predict(peer_internal_addr)? {
@@ -217,7 +219,9 @@ mod native {
 
         pool.extend(peer_internal_addrs.iter().flat_map(get_localhost_bands));
 
-        Ok(pool.into_iter().unique().collect())
+        let pool: Vec<AddrBand> = pool.into_iter().unique().collect();
+        candidate_bounds::check_candidate_pool(&pool)?;
+        Ok(pool)
     }
 
     fn get_localhost_bands(peer_internal_addr: &SocketAddr) -> Vec<AddrBand> {

@@ -33,6 +33,7 @@ This module is the root of the peer-to-peer networking implementation in the Cit
 
 */
 
+pub(crate) mod mailbox;
 /// For managing the state of peer-related activities
 pub mod peer_layer;
 
@@ -72,8 +73,11 @@ pub mod p2p_conn_handler;
 
 pub mod class_gates;
 pub mod kex_path;
+/// The SDK adapters of the in-session negotiation layer.
+pub mod negotiation;
 pub mod p2p_path;
 pub(crate) mod p2p_plan;
+pub(crate) mod p2p_seal_binding;
 
 /// Per-attempt outcomes of the P2P path campaign (which path won, and why the others did not)
 pub mod p2p_outcome;
@@ -84,6 +88,8 @@ pub(crate) mod direct_journal;
 pub(crate) mod direct_route;
 
 pub(crate) mod p2p_campaign;
+
+pub(crate) mod coordination;
 
 pub(crate) mod p2p_rearm;
 

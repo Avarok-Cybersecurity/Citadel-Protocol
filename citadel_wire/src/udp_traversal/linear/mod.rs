@@ -266,6 +266,13 @@ impl SingleUDPHolePuncher {
         self.unique_id
     }
 
+    /// Where this puncher's socket saw the peer socket `remote_id`, if it saw it at all.
+    pub fn observed_peer_addr(&self, remote_id: HolePunchID) -> Option<TargettedSocketAddr> {
+        self.method3
+            .1
+            .get_peer_external_addr_from_peer_hole_punch_id(remote_id)
+    }
+
     /// this should only be called when the adjacent node verified that the connection occurred
     pub fn recovery_mode_generate_socket_by_remote_id(
         &mut self,

@@ -62,6 +62,7 @@
 //! [`UserIdentifier`]: crate::prelude::UserIdentifier
 //! [`GroupInitRequestType`]: crate::prefabs::client::broadcast::GroupInitRequestType
 
+use crate::prefabs::client::broadcast_owner::{while_accepting, RegisterRoute};
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
 use citadel_io::tokio::sync::Mutex;
@@ -267,13 +268,14 @@ where
 
         log::trace!(target: "citadel", "Peer {session_cid} is attempting to join group");
         let acceptor_task = if creator_only_accept_inbound_registers {
-            shared.route_registers.store(true, Ordering::Relaxed);
-            let mut reg_rx = shared.register_rx.lock().take().unwrap();
+            let mut reg_rx = RegisterRoute::open(
+                &shared.route_registers,
+                shared.register_rx.lock().take().unwrap(),
+            );
             let remote = connect_success.remote_ref().clone();
             Box::pin(async move {
                 let mut subscription = subscription.lock().await.take().unwrap();
                 // Merge the reg_rx stream and the subscription stream
-                let mut count_registered = 0;
                 loop {
                     let post_register = citadel_io::tokio::select! {
                         reg_request = reg_rx.recv() => {
@@ -306,16 +308,10 @@ where
                         }
 
                         let _ = responses::peer_register(post_register, true, &remote).await?;
-                        if cfg!(feature = "localhost-testing") {
-                            count_registered += 1;
-                            if count_registered == crate::test_common::num_local_test_peers() - 1 {
-                                // wait_for_peers().await;
-                                break;
-                            }
-                        }
                     }
                 }
 
+                // The loop ends only by `?`: the acceptor serves the owner until it is dropped.
                 Ok::<_, NetworkError>(())
             })
                 as Pin<
@@ -358,8 +354,7 @@ where
                     // Drop the lock to allow the acceptor task to gain access to the subscription
                     drop(lock);
                     return if is_owner {
-                        citadel_io::tokio::try_join!(fx(channel, connect_success), acceptor_task)
-                            .map(|_| ())
+                        while_accepting(fx(channel, connect_success), acceptor_task).await
                     } else {
                         fx(channel, connect_success).await.map(|_| ())
                     };
@@ -412,12 +407,11 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for BroadcastKernel<'_, F, Fut, R> {
             ..
         }) = &message
         {
-            if self.shared.route_registers.load(Ordering::Relaxed) {
-                return self
-                    .shared
-                    .register_tx
-                    .send(ps.clone())
-                    .map_err(|err| NetworkError::generic(err.to_string()));
+            // A failed send means the acceptor has just ended; the inner kernel takes it.
+            if self.shared.route_registers.load(Ordering::Acquire)
+                && self.shared.register_tx.send(ps.clone()).is_ok()
+            {
+                return Ok(());
             }
         }
 

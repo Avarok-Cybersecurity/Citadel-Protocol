@@ -26,14 +26,18 @@
 //! use netbeam::sync::SymmetricConvID;
 //! use netbeam::reliable_conn::ReliableOrderedStreamToTarget;
 //! use netbeam::sync::subscription::Subscribable;
+//! use netbeam::sync::wire::WireRevision;
 //! use netbeam::sync::RelativeNodeType;
 //!
-//! async fn example() -> Result<()> {
+//! // `wire` is the revision both ends speak. netbeam does not negotiate it: the layer that creates
+//! // the connection knows the peer's protocol version and picks it (`WireRevision::Exchanged` when
+//! // both ends support exchanged subscription ids, `WireRevision::CountPaired` for an older peer).
+//! async fn example(wire: WireRevision) -> Result<()> {
 //!     // This is just a placeholder - replace with your actual connection
 //!     let conn = get_connection().await?;
 //!     
 //!     // Create a multiplexed connection
-//!     let muxed_conn = MultiplexedConn::<SymmetricConvID>::new(RelativeNodeType::Initiator, conn);
+//!     let muxed_conn = MultiplexedConn::<SymmetricConvID>::new(RelativeNodeType::Initiator, conn, wire);
 //!     
 //!     // Create a new stream with a unique ID
 //!     let stream_id = 1.into();

@@ -1215,4 +1215,81 @@ pub enum ErrorCode {
     /// A group asked for relay options (ephemeral delivery, message limits) its server predates.
     #[form = "The server predates group relay options (ephemeral delivery, message limits) and would ignore them; the group was not created"]
     GroupRelayOptionsUnsupported = 393,
+
+    // --- citadel_crypt / citadel_proto: negotiated key epochs ---
+    /// A key profile asks for a layer count a stacked ratchet cannot carry (requested layers).
+    #[form = "A key profile asks for {} ratchet layers; a ratchet carries 1 to 254"]
+    KeyEpochLayerCount = 400,
+    /// This ratchet type cannot carry the requested key profile level (level).
+    #[form = "This ratchet cannot carry key profile level {}"]
+    KeyEpochUnsupportedRatchet = 401,
+    /// The ratchet holds no chain to derive the new layers of a raised key profile from.
+    #[form = "The ratchet has no chain to derive new key-epoch layers from"]
+    KeyEpochChainMissing = 402,
+    /// The peer refused a steered key round: it had not agreed to that epoch's profile (epoch).
+    #[form = "The peer refused the key round for epoch {}"]
+    KeyEpochRefused = 403,
+
+    // --- citadel_proto: identity-bound connections ---
+    /// A P2P connection was to be created for a peer this node holds no session password for: it
+    /// neither asked to connect to the peer nor accepted the peer's request (peer cid).
+    #[form = "No connection request with peer {}; its connection was not created"]
+    StateVconnNoSessionPassword = 410,
+
+    // --- citadel_pqcrypto / citadel_crypt / citadel_treekem: values received from a peer ---
+    /// A key-exchange transfer does not match the parameters it is used with (what differs).
+    #[form = "The key-exchange transfer does not match the negotiated parameters: {}"]
+    KeyTransferMismatch = 420,
+    /// A nonce has the wrong length for its algorithm (given len, required len).
+    #[form = "A nonce of {} bytes was given where {} bytes are required"]
+    NonceLengthMismatch = 421,
+    /// A public-key ciphertext is not of the shape its scheme produces (len).
+    #[form = "A public-key ciphertext of {} bytes is malformed"]
+    PkeCiphertextMalformed = 422,
+    /// Key material an operation needs has not been established (which).
+    #[form = "Key material is not established: {}"]
+    KeyMaterialMissing = 423,
+    /// An entropy bank's scramble mappings are not a permutation of the port range (why).
+    #[form = "The entropy bank's scramble mappings are invalid: {}"]
+    EntropyBankMappingsInvalid = 424,
+    /// A ratchet-tree node index is outside the tree (index, node count).
+    #[form = "Tree node index {} is outside a tree of {} nodes"]
+    TreeIndexOutOfRange = 425,
+    /// A ratchet tree is not well formed (why).
+    #[form = "The ratchet tree is malformed: {}"]
+    TreeMalformed = 426,
+    /// A commit's proposal cannot be applied to this tree (why).
+    #[form = "The commit cannot be applied: {}"]
+    CommitInvalid = 427,
+    /// Reading a transfer's source failed (reason).
+    #[form = "Reading the object source failed: {}"]
+    ObjectSourceReadFailed = 428,
+    /// Scrambling a group of a transfer failed (reason).
+    #[form = "Scrambling a group failed: {}"]
+    GroupScrambleFailed = 429,
+
+    // --- citadel_proto: bounded peer inputs ---
+    /// A peer announced a group while it already had the most groups it may hold open here
+    /// (peer cid, limit).
+    #[form = "Peer {} already has {} groups open; this group was not accepted"]
+    InboundGroupLimitReached = 430,
+    /// A connect request named a peer that is offline; connect requests are not held (peer cid).
+    #[form = "Peer {} is offline; a connect request is not held for an offline peer"]
+    PeerConnectTargetOffline = 431,
+    /// A sender already holds the most signals it may in an offline peer's mailbox
+    /// (sender cid, limit, peer cid).
+    #[form = "{} already holds {} signals for offline peer {}; this one was not held"]
+    MailboxSenderAtCap = 432,
+    /// A session already has the most routed requests awaiting an answer it may have (cid, limit).
+    #[form = "Session {} already has {} requests awaiting an answer; this one was not routed"]
+    PendingRequestsAtCap = 433,
+
+    // --- citadel_user: the account layer ---
+    /// An account was asked to record itself as its own peer (cid).
+    #[form = "An account cannot be registered as its own peer (cid {})"]
+    PeerRegisterSelf = 460,
+    /// The default account store lives in the home directory, and there is none (or its path is
+    /// not UTF-8). Choose a backend explicitly.
+    #[form = "No usable home directory for the default account store; choose a backend explicitly"]
+    BackendHomeDirUnavailable = 461,
 }

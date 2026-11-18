@@ -19,17 +19,3 @@ rustflags = ["--cfg", "aes_armv8"]
 
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
-
-[target.wasm32-wasi]
-rustflags = ["-C", "target-feature=+atomics,+bulk-memory,+threads,+net"]
-
-[target.wasm32-wasip1]
-rustflags = ['--cfg', 'wasmedge', '--cfg', 'tokio_unstable']
-
-[target.wasm32-wasip2]
-rustflags = ['--cfg', 'wasmedge', '--cfg', 'tokio_unstable']
-
-[profile.wasix]
-opt-level = 3
-inherits = "dev"
-rustflags = ["-Z", "unstable-options"]

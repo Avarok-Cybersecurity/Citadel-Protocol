@@ -110,6 +110,15 @@ pub struct RecursiveChain {
     pub(crate) first: bool,
 }
 
+impl Drop for RecursiveChain {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.chain.zeroize();
+        self.alice.zeroize();
+        self.bob.zeroize();
+    }
+}
+
 impl RecursiveChain {
     pub fn new<T: AsRef<[u8]>, R: AsRef<[u8]>, V: AsRef<[u8]>>(
         chain: T,

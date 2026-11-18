@@ -1,20 +1,22 @@
 //! The server's side of sign-in management: a step-up bound to the operation, a proof of
 //! possession for a key being added, then the change itself.
 
+use super::change::Change;
 use super::login::{build_login_challenge, AccountAuth, Expectation, Expected};
 use super::PqAuthServerSettings;
 use crate::auth::pq::kem::{encapsulate, EncapsulationKey, SharedSecret};
 use crate::auth::pq::messages::{
     transcript_bytes, ChallengeBody, EnrolChallenge, EnrolProof, FactorChallenges, LoginChallenge,
-    ManagementBegin, ManagementChallenge, ManagementCommit, NewSecurityKey, ServerOutcome,
+    ManagementBegin, ManagementCeremony, ManagementChallenge, ManagementCommit, ManagementOp,
+    NewSecurityKey, SignInLayout,
 };
 use crate::auth::pq::proof::{verify_factor_tag, TranscriptHash, TranscriptPurpose, ENROL_LABEL};
-use crate::auth::pq::record::{NewFactor, PqAuthRecord};
+use crate::auth::pq::record::PqAuthRecord;
 use crate::auth::pq::recovery::RECOVERY_CODE_COUNT;
-use crate::auth::pq::{management_transcript, policy, random_32};
+use crate::auth::pq::{management_transcript, random_32};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
-use citadel_types::auth::{FactorId, FactorKind, SessionScope, SignInManagementOp, SignInPolicy};
+use citadel_types::auth::{FactorKind, SessionScope};
 
 /// The longest label a factor may carry.
 pub const MAX_LABEL_CHARS: usize = 64;
@@ -34,14 +36,19 @@ pub struct PendingManagement {
     expected: Option<Expected>,
 }
 
-/// Starts a change. A recovery session may only make the changes it is allowed.
+/// Starts a change, answering in the client's `layout`. A recovery session may only make the
+/// changes it is allowed.
 pub fn begin_management(
     settings: &PqAuthServerSettings,
     cid: u64,
     record: &PqAuthRecord,
     scope: SessionScope,
     begin: ManagementBegin,
+    layout: SignInLayout,
 ) -> Result<(ManagementChallenge, PendingManagement), AccountError> {
+    if begin.op.layout().is_some_and(|needed| needed != layout) {
+        return Err(malformed("a change from another protocol version"));
+    }
     if scope == SessionScope::Recovery && !begin.op.allowed_in_recovery() {
         return Err(error!(ErrorCode::PqSignInRestricted));
     }
@@ -50,12 +57,12 @@ pub fn begin_management(
     }
     let codes = begin.recovery_eks.len();
     match begin.op {
-        SignInManagementOp::RegenerateRecoveryCodes if codes != RECOVERY_CODE_COUNT => {
+        ManagementOp::RegenerateRecoveryCodes if codes != RECOVERY_CODE_COUNT => {
             return Err(malformed("the recovery code count"))
         }
-        SignInManagementOp::RegenerateRecoveryCodes => {}
+        ManagementOp::RegenerateRecoveryCodes => {}
         _ if codes != 0 => return Err(malformed("recovery keys for another change")),
-        SignInManagementOp::AddSecurityKey { .. } if settings.security_key_rp_id().is_none() => {
+        ManagementOp::AddSecurityKey { .. } if settings.security_key_rp_id().is_none() => {
             return Err(error!(
                 ErrorCode::PqSignInUnavailable,
                 "this server has not enabled security keys"
@@ -71,19 +78,22 @@ pub fn begin_management(
                 _ => return Err(malformed("a step-up for a legacy account")),
             }
         }
-        SessionScope::Recovery => (recovery_challenge(settings, record), None),
+        SessionScope::Recovery => (recovery_challenge(record), None),
     };
-    let exclude_credentials = match begin.op {
-        SignInManagementOp::AddSecurityKey { .. } => record
-            .usable(FactorKind::SecurityKey)
-            .filter_map(|key| key.credential_id.clone())
-            .collect(),
-        _ => Vec::new(),
+    let ceremony = match layout {
+        SignInLayout::V0_12_2 => None,
+        SignInLayout::SecurityKeyCeremony => Some(ManagementCeremony {
+            rp_id: settings.security_key_rp_id().map(str::to_owned),
+            exclude_credentials: match begin.op {
+                ManagementOp::AddSecurityKey { .. } => record
+                    .usable(FactorKind::SecurityKey)
+                    .filter_map(|key| key.credential_id.clone())
+                    .collect(),
+                _ => Vec::new(),
+            },
+        }),
     };
-    let challenge = ManagementChallenge {
-        step_up,
-        exclude_credentials,
-    };
+    let challenge = ManagementChallenge { step_up, ceremony };
     let pending = PendingManagement {
         cid,
         begin,
@@ -94,15 +104,14 @@ pub fn begin_management(
 }
 
 /// A recovery session's step-up challenges nothing, but still tells the client the account's PRF
-/// salt and the relying party, which it needs to derive a key it is adding.
-fn recovery_challenge(settings: &PqAuthServerSettings, record: &PqAuthRecord) -> LoginChallenge {
+/// salt, which it needs to derive a key it is adding.
+fn recovery_challenge(record: &PqAuthRecord) -> LoginChallenge {
     LoginChallenge {
         server_nonce: random_32(),
         body: ChallengeBody::Factors(FactorChallenges {
             oprf_evaluated: None,
             salt_user: record.salt_user,
             prf_eval_salt: record.prf_eval_salt,
-            rp_id: settings.security_key_rp_id().map(str::to_owned),
             ksf: record.ksf,
             challenges: Vec::new(),
         }),
@@ -118,11 +127,14 @@ pub enum CommitStep {
 
 impl PendingManagement {
     pub fn commit(self, commit: &ManagementCommit) -> Result<CommitStep, AccountError> {
+        if commit.ceremony.is_some() != self.challenge.ceremony.is_some() {
+            return Err(malformed("a commit in another layout than its challenge"));
+        }
         let transcript = management_transcript(
             self.cid,
             &self.begin,
             &self.challenge,
-            commit.new_key.as_ref(),
+            &commit.key_binding(),
         );
         match self.expected {
             Some(expected) => {
@@ -134,39 +146,34 @@ impl PendingManagement {
             None if commit.step_up.tags.is_empty() => {}
             None => return Err(malformed("step-up tags in a recovery session")),
         }
-        let new_key = commit.new_key.clone();
+        let new_key = match (&commit.new_key_ek, &commit.ceremony) {
+            (Some(_), Some(_)) => return Err(malformed("a key in both layouts")),
+            (Some(ek), None) => Some(Added::Created(ek.clone())),
+            (None, Some(ceremony)) => ceremony.new_key.clone().map(Added::ByCeremony),
+            (None, None) => None,
+        };
         let change = match (self.begin.op, new_key) {
-            (SignInManagementOp::AddSecurityKey { label }, Some(new_key)) => {
+            (ManagementOp::AddSecurityKey { label }, Some(Added::ByCeremony(new_key))) => {
                 let NewSecurityKey { credential_id, ek } = new_key;
-                let (ct, k) = encapsulate(&ek)?;
-                let challenge = EnrolChallenge { ct };
-                let transcript = TranscriptHash::new(
-                    TranscriptPurpose::StepUp,
-                    self.cid,
-                    &[transcript.as_bytes(), &transcript_bytes(&challenge)],
-                );
-                let pending = PendingEnrol {
-                    key: NewKey {
-                        ek,
-                        credential_id,
-                        label,
-                    },
-                    k,
-                    transcript,
-                };
-                return Ok(CommitStep::Enrol(challenge, pending));
+                return enrol(self.cid, transcript, ek, credential_id, label);
             }
-            (SignInManagementOp::AddSecurityKey { .. }, None) => {
+            (
+                ManagementOp::AddCreatedSecurityKey {
+                    credential_id,
+                    label,
+                },
+                Some(Added::Created(ek)),
+            ) => return enrol(self.cid, transcript, ek, credential_id, label),
+            (ManagementOp::AddSecurityKey { .. }, _)
+            | (ManagementOp::AddCreatedSecurityKey { .. }, _) => {
                 return Err(malformed("a key to add"))
             }
             (_, Some(_)) => return Err(malformed("a key for another change")),
-            (SignInManagementOp::ListCredentials, None) => Change::List,
-            (SignInManagementOp::RenameCredential { id, label }, None) => {
-                Change::Rename { id, label }
-            }
-            (SignInManagementOp::RemoveCredential { id }, None) => Change::Remove { id },
-            (SignInManagementOp::SetSignInPolicy { policy }, None) => Change::SetPolicy(policy),
-            (SignInManagementOp::RegenerateRecoveryCodes, None) => {
+            (ManagementOp::ListCredentials, None) => Change::List,
+            (ManagementOp::RenameCredential { id, label }, None) => Change::Rename { id, label },
+            (ManagementOp::RemoveCredential { id }, None) => Change::Remove { id },
+            (ManagementOp::SetSignInPolicy { policy }, None) => Change::SetPolicy(policy),
+            (ManagementOp::RegenerateRecoveryCodes, None) => {
                 Change::ReplaceRecovery(self.begin.recovery_eks)
             }
         };
@@ -174,10 +181,44 @@ impl PendingManagement {
     }
 }
 
-pub struct NewKey {
+/// The key a commit adds, in either layout.
+enum Added {
+    /// 0.12.2: the credential id came in `Begin`.
+    Created(EncapsulationKey),
+    ByCeremony(NewSecurityKey),
+}
+
+/// The proof of possession a key being added must give.
+fn enrol(
+    cid: u64,
+    transcript: TranscriptHash,
     ek: EncapsulationKey,
     credential_id: Vec<u8>,
     label: String,
+) -> Result<CommitStep, AccountError> {
+    let (ct, k) = encapsulate(&ek)?;
+    let challenge = EnrolChallenge { ct };
+    let transcript = TranscriptHash::new(
+        TranscriptPurpose::StepUp,
+        cid,
+        &[transcript.as_bytes(), &transcript_bytes(&challenge)],
+    );
+    let pending = PendingEnrol {
+        key: NewKey {
+            ek,
+            credential_id,
+            label,
+        },
+        k,
+        transcript,
+    };
+    Ok(CommitStep::Enrol(challenge, pending))
+}
+
+pub struct NewKey {
+    pub(super) ek: EncapsulationKey,
+    pub(super) credential_id: Vec<u8>,
+    pub(super) label: String,
 }
 
 /// A key waiting for its proof of possession.
@@ -195,70 +236,6 @@ impl PendingEnrol {
             Ok(Change::AddKey(self.key))
         } else {
             Err(error!(ErrorCode::PqSignInFailed))
-        }
-    }
-}
-
-/// A verified change, applied under the record lock.
-pub enum Change {
-    List,
-    AddKey(NewKey),
-    Rename { id: FactorId, label: String },
-    Remove { id: FactorId },
-    SetPolicy(SignInPolicy),
-    ReplaceRecovery(Vec<EncapsulationKey>),
-}
-
-fn checked_label(label: String) -> Result<String, AccountError> {
-    let label = label.trim().to_string();
-    if label.is_empty() || label.chars().count() > MAX_LABEL_CHARS {
-        return Err(policy::refused("a label must be 1 to 64 characters"));
-    }
-    Ok(label)
-}
-
-impl Change {
-    pub fn apply(
-        self,
-        record: &mut PqAuthRecord,
-        now_ms: u64,
-    ) -> Result<ServerOutcome, AccountError> {
-        match self {
-            Self::List => Ok(ServerOutcome::Credentials {
-                policy: record.policy,
-                credentials: record.credentials(),
-            }),
-            Self::AddKey(key) => {
-                if key.credential_id.is_empty() || key.credential_id.len() > MAX_CREDENTIAL_ID_BYTES
-                {
-                    return Err(policy::refused("a credential id must be 1 to 1023 bytes"));
-                }
-                let enrolled = record.factors().iter().any(|f| {
-                    f.ek == key.ek || f.credential_id.as_deref() == Some(&key.credential_id)
-                });
-                if enrolled {
-                    return Err(policy::refused("this key is already enrolled"));
-                }
-                let factor = NewFactor {
-                    kind: FactorKind::SecurityKey,
-                    ek: key.ek,
-                    credential_id: Some(key.credential_id),
-                    label: checked_label(key.label)?,
-                };
-                Ok(ServerOutcome::Added {
-                    id: record.add(factor, now_ms),
-                })
-            }
-            Self::Rename { id, label } => {
-                record.rename(id, checked_label(label)?)?;
-                Ok(ServerOutcome::Renamed)
-            }
-            Self::Remove { id } => record.remove(id).map(|()| ServerOutcome::Removed),
-            Self::SetPolicy(policy) => record.set_policy(policy).map(|()| ServerOutcome::PolicySet),
-            Self::ReplaceRecovery(eks) => {
-                record.replace_recovery_codes(eks, now_ms);
-                Ok(ServerOutcome::RecoveryCodesReplaced)
-            }
         }
     }
 }

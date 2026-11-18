@@ -2,7 +2,9 @@
 
 use super::client::{ClientLogin, ClientProof, ClientRegistration, SecurityKeyAnswer};
 use super::login_transcript;
-use super::messages::{ChallengeBody, LoginChallenge, LoginProof, LoginStart};
+use super::messages::{
+    AuthChallenge, ChallengeBody, ChallengeCeremony, LoginChallenge, LoginProof, LoginStart,
+};
 use super::oprf::OprfSeed;
 use super::record::{KsfParams, PqAuthRecord};
 use super::recovery::RecoveryCode;
@@ -27,6 +29,16 @@ pub(crate) fn settings() -> PqAuthServerSettings {
     settings_without_keys()
         .with_security_key_rp_id(RP_ID)
         .unwrap()
+}
+
+/// `challenge` as a server at the security-key ceremony sends it.
+pub(crate) fn sent(challenge: &LoginChallenge) -> AuthChallenge {
+    AuthChallenge {
+        challenge: challenge.clone(),
+        ceremony: Some(ChallengeCeremony {
+            rp_id: Some(RP_ID.into()),
+        }),
+    }
 }
 
 pub(crate) fn password(text: &str) -> SecBuffer {
@@ -77,7 +89,7 @@ pub(crate) async fn complete_with_key(
     x: Exchange,
     key: Option<SecurityKeyAnswer>,
 ) -> Result<VerifiedLogin, citadel_io::NetworkError> {
-    let server_transcript = login_transcript(CID, &x.start, &x.challenge);
+    let server_transcript = login_transcript(CID, &x.start, &sent(&x.challenge));
     let Expectation::Factors(expected) = x.expectation else {
         panic!("not a post-quantum challenge");
     };
@@ -126,7 +138,7 @@ async fn a_tag_replayed_from_another_transcript_is_refused() {
     // The client's tags are bound to a transcript other than the one the server issued.
     let mut other = x.challenge.clone();
     other.server_nonce[0] ^= 1;
-    let elsewhere = login_transcript(CID, &x.start, &other);
+    let elsewhere = login_transcript(CID, &x.start, &sent(&other));
     let ClientProof::Factors {
         proof: LoginProof::Factors(finish),
         ..
@@ -138,7 +150,7 @@ async fn a_tag_replayed_from_another_transcript_is_refused() {
     else {
         panic!()
     };
-    let server_transcript = login_transcript(CID, &x.start, &x.challenge);
+    let server_transcript = login_transcript(CID, &x.start, &sent(&x.challenge));
     assert!(is_generic_failure(
         &expected.bind(server_transcript).verify(&finish)
     ));

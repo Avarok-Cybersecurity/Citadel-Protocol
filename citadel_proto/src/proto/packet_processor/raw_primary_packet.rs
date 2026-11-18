@@ -59,9 +59,10 @@ pub async fn process_raw_packet<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     remote_peer: SocketAddr,
     local_primary_port: u16,
-    packet: BytesMut,
+    mut packet: BytesMut,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
+    crate::proto::seal_identity::bind_to_session(session.is_server, this_session_cid, &mut packet);
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     if packet.parse().is_none() {
         log::warn!(target: "citadel", "Unable to parse packet {:?} | Len: {}", packet.as_bytes(), packet.get_length());
@@ -235,17 +236,22 @@ pub(crate) fn check_proxy<R: Ratchet, T: PlatformOps>(
         if let Some(this_session_cid) = this_session_cid {
             // this implies there is at least a connection between hLAN client and hLAN server, but we don't know which is which
             if this_session_cid != target_cid {
+                if !session.is_server {
+                    log::warn!(target: "citadel", "Dropping a {cmd_primary}:{cmd_aux} packet for {target_cid}: a client relays nothing");
+                    return None;
+                }
                 log::trace!(target: "citadel", "Proxying {cmd_primary}:{cmd_aux} packet from {this_session_cid} to {target_cid}");
                 // Proxy will only occur if there exists a virtual connection, in which case, we get the TcpSender (since these are primary packets)
 
-                // `MetaExpiryState::on_event_confirmation` is interior-mutable now, so this proxy
-                // block no longer needs a `mut` binding (kept on the write lock pending the planned
-                // DashMap sharding of `active_virtual_connections`).
-                let state_container = inner_mut_state!(session.state_container);
+                // Everything this block touches is interior-mutable (the expiry stamp, the vconn's
+                // delivery stamp, the senders), so a read guard suffices: relayed packets of one
+                // session no longer serialise on its exclusive lock, nor block its C2S traffic.
+                let state_container = inner_state!(session.state_container);
                 state_container.meta_expiry_state.on_event_confirmation();
 
-                if let Some(peer_vconn) =
-                    state_container.active_virtual_connections.get(&target_cid)
+                let vconn = state_container.active_virtual_connections.get(&target_cid);
+                if let Some((peer_vconn, (udp_sender, tcp_sender))) =
+                    vconn.and_then(|vconn| Some((vconn, vconn.relay_route()?)))
                 {
                     // Ensure that any p2p conn proxied packets (i.e., TURNed packets) can continue to traverse until any full disconnections occur
                     peer_vconn
@@ -266,20 +272,13 @@ pub(crate) fn check_proxy<R: Ratchet, T: PlatformOps>(
                                 }
                             }
 
-                            if let Err(_err) = peer_vconn
-                                .sender
-                                .as_ref()
-                                .unwrap()
-                                .1
-                                .unbounded_send(packet.into_packet())
-                            {
+                            if let Err(_err) = tcp_sender.unbounded_send(packet.into_packet()) {
                                 log::warn!(target: "citadel", "Proxy TrySendError to {target_cid}");
                             }
                         }
 
                         ReceivePortType::UnorderedUnreliable => {
-                            if let Some(udp_sender) = peer_vconn.sender.as_ref().unwrap().0.as_ref()
-                            {
+                            if let Some(udp_sender) = udp_sender.as_ref() {
                                 if let Err(_err) = udp_sender.unbounded_send(packet.into_packet()) {
                                     log::error!(target: "citadel", "Proxy TrySendError to {target_cid}");
                                 }

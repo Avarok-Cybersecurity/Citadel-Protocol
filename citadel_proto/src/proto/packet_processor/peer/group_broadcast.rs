@@ -31,7 +31,7 @@
 //! - `MemberState`: Member status tracking
 
 use super::super::includes::*;
-use super::{group_commit_ack, group_commit_relay, group_message_relay};
+use super::{group_commit_ack, group_commit_relay, group_control, group_message_relay};
 use crate::error::NetworkError;
 use crate::functional::*;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -1167,6 +1167,10 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
             payload,
         } => {
             if session.is_server {
+                if !group_control::relays_control_from(session_cid, key) {
+                    log::warn!(target: "citadel", "Not relaying a Commit for {key:?} from {session_cid}: only the group's owner commits");
+                    return Ok(PrimaryProcessorResult::Void);
+                }
                 // Relay verbatim to the existing members (the fanout excludes the owner/sender). The
                 // joiner receives it too and, still awaiting its Welcome, ignores it.
                 group_commit_relay::relay_commit(
@@ -1186,9 +1190,9 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 // Member: apply the commit (epoch-gated) to advance the ratchet tree, then
                 // acknowledge it under the same lock.
                 let mut state = inner_mut_state!(session.state_container);
-                if let Some(cgka) = state.group_cgka.get_mut(&key) {
-                    cgka.process_commit(&payload, epoch)?;
-                }
+                // A Commit this member cannot apply is acknowledged like one it ignores (an epoch
+                // it is not at): it will never apply it, and the owner's joins must not wait on it.
+                group_control::apply_commit(state.group_cgka.get_mut(&key), key, &payload, epoch);
                 group_commit_ack::acknowledge_commit(
                     &state, session, &crafter, key, epoch, ticket,
                 )?;
@@ -1204,6 +1208,10 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
             payload,
         } => {
             if session.is_server {
+                if !group_control::relays_control_from(session_cid, key) {
+                    log::warn!(target: "citadel", "Not relaying a hierarchy assignment for {key:?} from {session_cid}: only the group's owner assigns");
+                    return Ok(PrimaryProcessorResult::Void);
+                }
                 // Relay verbatim to the assigned member; the relay sees neither path nor node secret.
                 //
                 // A dropped assignment is silent by construction: the member
@@ -1232,9 +1240,11 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
             } else {
                 // Member: take up the assigned hierarchy position (path + node secret).
                 let mut state = inner_mut_state!(session.state_container);
-                if let Some(cgka) = state.group_cgka.get_mut(&key) {
-                    cgka.apply_hierarchy_assignment(&payload)?;
-                }
+                group_control::apply_hierarchy_assignment(
+                    state.group_cgka.get_mut(&key),
+                    key,
+                    &payload,
+                );
                 Ok(PrimaryProcessorResult::Void)
             }
         }

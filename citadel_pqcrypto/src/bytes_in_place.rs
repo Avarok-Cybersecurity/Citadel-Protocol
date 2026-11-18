@@ -68,10 +68,13 @@ impl<T: EzBuffer> Buffer for InPlaceBuffer<'_, T> {
         Ok(())
     }
 
+    /// Like `Vec::truncate`, a length past the end leaves the buffer as it is, so the window never
+    /// reaches past the bytes it views.
     fn truncate(&mut self, len: usize) {
         let start = self.window.start;
-        self.window = start..len;
-        self.inner.truncate(len);
+        let end = len.min(self.inner.len()).max(start);
+        self.window = start..end;
+        self.inner.truncate(end);
     }
 }
 

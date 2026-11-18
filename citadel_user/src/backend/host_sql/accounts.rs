@@ -66,7 +66,10 @@ impl<R: Ratchet, Fcm: Ratchet> HostSqlBackend<R, Fcm> {
                     schema::DELETE_PEERS_OF_CNAC,
                     vec![cid_value(cid), cid_value(cid)],
                 ),
-                statement(schema::DELETE_BYTEMAP_OF_CNAC, vec![cid_value(cid)]),
+                statement(
+                    schema::DELETE_BYTEMAP_OF_CNAC,
+                    vec![cid_value(cid), cid_value(cid)],
+                ),
                 statement(
                     schema::DELETE_REVFS_CHUNKS_OF_CNAC,
                     vec![cid_value(cid), cid_value(cid)],

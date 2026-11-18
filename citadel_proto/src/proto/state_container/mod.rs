@@ -39,6 +39,7 @@
 
 use self::includes::*;
 use crate::proto::peer::direct_journal::DirectJournal;
+use crate::proto::peer::negotiation::floor::MessageFloor;
 use crate::proto::peer::p2p_path::P2pPathCell;
 use citadel_wire::udp_traversal::turn_relay::TurnRelayConfig;
 
@@ -147,13 +148,21 @@ define_outer_struct_wrapper!(StateContainer, StateContainerInner, <R: Ratchet>, 
 
 mod channels;
 mod completed_groups;
+mod early_hole_punch;
 mod group_hierarchy_outbound;
+pub(crate) mod inbound_group_bounds;
 mod inbound_transfer;
 mod monitoring;
 mod outbound_transfer;
+pub(crate) mod peer_keys;
 mod rekey_and_groups;
+pub(crate) mod relay_route;
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) mod test_support;
 mod transfer_error;
+mod vconn_end;
 pub(crate) mod virtual_connections;
+pub(crate) use monitoring::server_keep_alive_timeout_ns;
 pub(crate) use virtual_connections::RouteEnd;
 
 /// For keeping track of the stages
@@ -185,16 +194,19 @@ pub struct StateContainerInner<R: Ratchet> {
     // u64 is peer id, ticket is the local original ticket (ticket may
     // transform if a simultaneous connect)
     pub(super) outgoing_peer_connect_attempts: HashMap<u64, OutgoingPeerConnectionAttempt>,
+    /// Per peer, its latest P2P connection and the reason it gave on that connection's lane for
+    /// closing it. Kept past the connection's removal, so every report of its end can name it.
+    pub(super) peer_closings:
+        HashMap<u64, (Ticket, crate::proto::peer::negotiation::reason::PeerClosing)>,
     /// TURN relay configuration the application supplied for the next P2P attempt with a peer.
     /// Taken (not cloned) when that attempt decides its plan, so credentials never outlive it.
     pub(crate) peer_turn_configs: HashMap<u64, TurnRelayConfig>,
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
     pub(super) kernel_tx: UnboundedSender<NodeResult<R>>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection<R>>,
-    /// Ratchets extracted from P2P vconns before removal, allowing in-flight
-    /// packets to be decrypted after the stream dies. Cleared when a new
-    /// connection for the same peer is created or at session shutdown.
-    pub(super) stale_p2p_ratchets: HashMap<u64, R>,
+    /// Session passwords, and the ratchets of ended P2P connections kept for packets still in
+    /// flight; both are given back when a connection ends (see `end_virtual_connection`).
+    pub(super) peer_keys: peer_keys::PeerKeys<R>,
     pub(crate) keep_alive_timeout_ns: i64,
     pub(crate) state: DualCell<SessionState>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
@@ -231,7 +243,6 @@ pub struct StateContainerInner<R: Ratchet> {
     /// duplicate check in `initiate_rekey` unable to fire at all: a `Ticket` is
     /// unique per request, so `insert` never returned `Some`.
     triggered_rekeys: Arc<Mutex<HashMap<u64, Ticket>>>,
-    session_passwords: HashMap<u64, PreSharedKey>,
     /// The protocol version of the node at the other end of the C2S link (the server, on a
     /// client; the client, on a server), from its connect packet. `None` until connected.
     pub(crate) adjacent_protocol_version: Option<u32>,
@@ -395,6 +406,9 @@ pub struct EndpointChannelContainer<R: Ratchet> {
         Option<citadel_io::tokio::sync::oneshot::Sender<P2PDisconnectSignal>>,
     /// P2P: where UDP channels after the first go, to the application's `PeerChannel`.
     pub(crate) udp_restored: Option<citadel_io::tokio::sync::mpsc::UnboundedSender<UdpChannel<R>>>,
+    /// C4/C5: what the peer's message frames may no longer fall below (shared with the
+    /// connection's key-epoch handle).
+    pub(crate) message_floor: Arc<MessageFloor>,
 }
 
 pub(crate) struct UnorderedChannelContainer {
@@ -472,6 +486,12 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
 
 #[derive(Default)]
 pub(super) struct NetworkStats {
+    /// When this session's keep-alive clock started: a session that has never sent a keep-alive
+    /// is timed out from here.
+    pub(super) measured_since_ns: i64,
+    /// A keep-alive reply is scheduled and not yet sent. An honest peer has one keep-alive in
+    /// flight at a time, so a second arriving meanwhile schedules nothing.
+    pub(super) keep_alive_reply_pending: bool,
     pub(super) last_keep_alive: Option<i64>,
     pub(super) ping_ns: Option<i64>,
     pub(super) jitter_ns: Option<i64>,
@@ -522,7 +542,6 @@ impl<R: Ratchet> OutboundTransmitterContainer<R> {
 #[allow(dead_code)]
 pub(crate) struct GroupReceiverContainer {
     pub(crate) receiver: GroupReceiver,
-    pub(crate) has_begun: bool,
     virtual_target: VirtualTargetType,
     ticket: Ticket,
     // Waves in this window are accepted
@@ -547,7 +566,6 @@ impl GroupReceiverContainer {
         ticket: Ticket,
     ) -> Self {
         Self {
-            has_begun: false,
             object_id,
             security_level,
             virtual_target,
@@ -566,7 +584,7 @@ impl GroupReceiverContainer {
 impl<R: Ratchet> StateContainerInner<R> {
     /// Creates a new container
     #[allow(clippy::too_many_arguments)]
-    pub fn create(
+    pub(crate) fn create(
         kernel_tx: UnboundedSender<NodeResult<R>>,
         hdp_server_remote: NodeRemote<R>,
         keep_alive_timeout_ns: i64,
@@ -577,9 +595,11 @@ impl<R: Ratchet> StateContainerInner<R> {
         is_server: bool,
         transfer_stats: TransferStats,
         udp_mode: UdpMode,
+        ledger: crate::proto::session_ledger::SessionLedger,
     ) -> StateContainer<R> {
         let inner = Self {
             outgoing_peer_connect_attempts: Default::default(),
+            peer_closings: Default::default(),
             peer_turn_configs: Default::default(),
             file_transfer_handles: DashMap::new(),
             group_channels: Default::default(),
@@ -603,8 +623,11 @@ impl<R: Ratchet> StateContainerInner<R> {
             udp_primary_outbound_tx: None,
             deregister_state: Default::default(),
             active_virtual_connections: Default::default(),
-            stale_p2p_ratchets: Default::default(),
-            network_stats: Default::default(),
+            peer_keys: peer_keys::PeerKeys::new(ledger),
+            network_stats: NetworkStats {
+                measured_since_ns: time_tracker.get_global_time_ns(),
+                ..Default::default()
+            },
             kernel_tx,
             register_state: packet_flags::cmd::aux::do_register::STAGE0.into(),
             connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(),
@@ -614,7 +637,6 @@ impl<R: Ratchet> StateContainerInner<R> {
             peer_kem_states: HashMap::new(),
             inbound_files: DashMap::new(),
             outbound_files: HashMap::new(),
-            session_passwords: HashMap::new(),
             adjacent_protocol_version: None,
             relay_index: crate::proto::traffic::relay_index::RelayIndex::new(),
             triggered_rekeys: Arc::new(Mutex::new(HashMap::new())),
@@ -624,16 +646,10 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     // Note: c2s connection passwords are also stored as "session_password" in the [`CitadelSession`]
     pub fn store_session_password(&mut self, peer_cid: u64, session_password: PreSharedKey) {
-        self.session_passwords.insert(peer_cid, session_password);
+        self.peer_keys.store_password(peer_cid, session_password);
     }
 
     pub fn get_session_password(&self, peer_cid: u64) -> Option<&PreSharedKey> {
-        self.session_passwords.get(&peer_cid)
-    }
-
-    // TODO: use this in period cleanup tasks
-    #[allow(dead_code)]
-    pub fn remove_session_password(&mut self, peer_cid: u64) {
-        self.session_passwords.remove(&peer_cid);
+        self.peer_keys.password(peer_cid)
     }
 }

@@ -64,8 +64,35 @@
   the group registry, which still reads rows written before them. The server's mailbox byte map
   is now public as `PEER_MAILBOX_MAP`; it remains unbounded.
 
+### Fixed
+
+- **Account layer** (`citadel_user`):
+  - Registering two accounts as peers on the server takes one account lock at a time, so two
+    registrations of the same pair in opposite orders always finish; registering an account as
+    its own peer is refused with `ErrorCode::PeerRegisterSelf`.
+  - Deleting an account removes it from its peers for good: the filesystem and OPFS backends
+    re-save each surviving peer (previously the deleted CID came back after a restart) and remove
+    the account's `virtual/<cid>` directory; every backend drops the values survivors stored about
+    the account (SQL: the `post_cid_delete` trigger, plus `post_cid_delete_bytemap` on MySQL).
+  - A password is accepted at login exactly as it was registered: registration and every login,
+    legacy and post-quantum, ignore surrounding whitespace through one rule
+    (`ProposedCredentials::password_transform`). Previously a password registered with a leading
+    or trailing space was always refused.
+  - The SQL backend no longer reads a `LOCALHOST_TESTING` environment variable; only the
+    `localhost-testing` feature shrinks its pool.
+- **Argon2 profile** (`citadel_crypt`, `citadel_user`): the default parameters are the same in
+  every build (they were 1 MiB / 1 pass under `debug_assertions`, and stored with each account);
+  a node that wants cheaper hashing passes `NodeBuilder::with_server_argon_settings` explicitly.
+  A floor (`ARGON_FLOOR_*`, OWASP's 19 MiB / 2 passes / 1 lane; `ArgonSettings::meets_floor`)
+  is checked at each legacy login: a stored hash below it is replaced, after it verified, by one
+  under the server's settings (`AccountManager::verify_legacy_login`), when those meet the floor.
+  `KsfParams::FLOOR` reads the same constants.
+
 ### Breaking
 
+- `BackendType` no longer implements `Default`. Use `BackendType::platform_default()`, which
+  returns `ErrorCode::BackendHomeDirUnavailable` instead of panicking when there is no usable home
+  directory; `NodeBuilder::build` returns that error when no backend is set.
 - `NodeResult` has a new variant, `PeerPathOutcome`; an exhaustive `match` on `NodeResult` needs
   an arm for it (a wildcard arm already covers it).
 - `PlatformOps::p2p_hole_punch` resolves to an `AttemptReport` instead of `bool`.

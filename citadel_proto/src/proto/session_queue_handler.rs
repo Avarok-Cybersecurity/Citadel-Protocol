@@ -34,7 +34,6 @@ use crate::proto::packet_processor::includes::Duration;
 use crate::proto::session::SessionState;
 use citadel_io::time::{delay_queue, DelayQueue};
 use citadel_io::tokio::sync::broadcast::Sender;
-use citadel_io::tokio::time::error::Error;
 use citadel_io::{error, ErrorCode};
 use futures::Stream;
 use std::collections::HashMap;
@@ -70,6 +69,9 @@ impl<
     > QueueFunction<R> for T
 {
 }
+
+/// A queued task asked for the session to end; the worker stops.
+struct QueueShutdown;
 
 #[allow(clippy::type_complexity)]
 pub struct SessionQueueWorker<R: Ratchet> {
@@ -121,10 +123,11 @@ impl<R: Ratchet> SessionQueueWorkerHandle<R> {
         });
     }
 
-    /// factors-in the offset
+    /// Schedules `on_timeout` under a key no other entry has: the index comes from this
+    /// handle's own counter alone, never from a group id, so an inbound and an outbound group
+    /// with the same peer cannot share a key, and no wire value enters the arithmetic.
     pub fn insert_ordinary(
         &self,
-        idx: usize,
         target_cid: u64,
         timeout: Duration,
         on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner<R>>) -> QueueWorkerResult
@@ -136,8 +139,8 @@ impl<R: Ratchet> SessionQueueWorkerHandle<R> {
                 // Relaxed is sufficient: this counter only mints a unique periodic-ticket index; it
                 // guards no other memory and needs no happens-before ordering, so SeqCst's full
                 // fence is unnecessary (and costlier on weak-memory archs like aarch64).
-                idx + QUEUE_WORKER_RESERVED_INDEX
-                    + self.rolling_idx.fetch_add(1, Ordering::Relaxed),
+                QUEUE_WORKER_RESERVED_INDEX
+                    .wrapping_add(self.rolling_idx.fetch_add(1, Ordering::Relaxed)),
                 target_cid,
             )),
             timeout,
@@ -195,16 +198,22 @@ impl<R: Ratchet> SessionQueueWorker<R> {
     ) {
         // the zero in the default unwrap ensures that the key is going to be unique
         let key_new = key_orig.unwrap_or(QueueWorkerTicket::Oneshot(
-            self.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1,
+            self.rolling_idx
+                .wrapping_add(QUEUE_WORKER_RESERVED_INDEX + 1),
             RESERVED_CID_IDX,
         ));
         let delay = self.expirations.insert(key_new, timeout);
 
-        if let Some(key) = self.entries.insert(key_new, (on_timeout, delay, timeout)) {
-            log::warn!(target: "citadel", "Overwrote a session key: {:?} || Original: {key_orig:?}", key.1);
+        if let Some((_, replaced_delay, _)) =
+            self.entries.insert(key_new, (on_timeout, delay, timeout))
+        {
+            // Every key in `entries` has its live delay: left in the queue, the replaced one
+            // would fire for an entry that no longer matches it.
+            let _ = self.expirations.remove(&replaced_delay);
+            log::warn!(target: "citadel", "Replaced the queue entry {key_new:?}");
         }
 
-        self.rolling_idx += 1;
+        self.rolling_idx = self.rolling_idx.wrapping_add(1);
     }
 
     pub fn insert_reserved_fn(
@@ -229,7 +238,10 @@ impl<R: Ratchet> SessionQueueWorker<R> {
     }
 
     #[allow(unused_results)]
-    fn poll_purge(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+    fn poll_purge(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), QueueShutdown>> {
         self.register_waker(cx.waker());
 
         let SessionQueueWorker {
@@ -247,14 +259,20 @@ impl<R: Ratchet> SessionQueueWorker<R> {
                 match entry {
                     QueueWorkerTicket::Oneshot(_, _) => {
                         // already removed from expiration; now, just remove from hashmap
-                        let (fx, _, _) = entries.remove(&entry).unwrap();
+                        let Some((fx, _, _)) = entries.remove(&entry) else {
+                            log::warn!(target: "citadel", "The queue entry {entry:?} expired with no function");
+                            continue;
+                        };
                         if let QueueWorkerResult::EndSession = (fx)(&mut state_container) {
-                            return Poll::Ready(Err(Error::shutdown()));
+                            return Poll::Ready(Err(QueueShutdown));
                         }
                     }
 
                     QueueWorkerTicket::Periodic(_, _) => {
-                        let (fx, _key, duration) = entries.get(&entry).unwrap();
+                        let Some((fx, _key, duration)) = entries.get(&entry) else {
+                            log::warn!(target: "citadel", "The queue entry {entry:?} expired with no function");
+                            continue;
+                        };
 
                         let next_key = match fx(&mut state_container) {
                             QueueWorkerResult::Complete => {
@@ -269,7 +287,7 @@ impl<R: Ratchet> SessionQueueWorker<R> {
                             }
 
                             QueueWorkerResult::EndSession => {
-                                return Poll::Ready(Err(Error::shutdown()));
+                                return Poll::Ready(Err(QueueShutdown));
                             }
 
                             QueueWorkerResult::AdjustPeriodicity(new_period) => {
@@ -283,15 +301,27 @@ impl<R: Ratchet> SessionQueueWorker<R> {
                             }
                         };
 
-                        let (_fx, key, _duration) = entries.get_mut(&entry).unwrap();
-                        *key = next_key;
+                        if let Some((_fx, key, _duration)) = entries.get_mut(&entry) {
+                            *key = next_key;
+                        }
                     }
                 }
             }
 
             Poll::Pending
         } else {
-            Poll::Ready(Err(Error::shutdown()))
+            // The session is ending: a normal end, not a failure.
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    fn register_inbound(mut self: Pin<&mut Self>, cx: &mut Context<'_>) {
+        while let Poll::Ready(Some((key, timeout, on_timeout))) =
+            self.as_mut().get_mut().rx.poll_recv(cx)
+        {
+            self.as_mut()
+                .get_mut()
+                .insert_reserved(key, timeout, on_timeout);
         }
     }
 }
@@ -305,19 +335,9 @@ impl<R: Ratchet> Stream for SessionQueueWorker<R> {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        while let Poll::Ready(Some((key, timeout, on_timeout))) =
-            self.as_mut().get_mut().rx.poll_recv(cx)
-        {
-            // register any inbound tasks
-            self.as_mut()
-                .get_mut()
-                .insert_reserved(key, timeout, on_timeout);
-        }
-
-        match futures::ready!(self.poll_purge(cx)) {
-            Ok(_) => Poll::Pending,
-            Err(_) => Poll::Ready(None),
-        }
+        self.as_mut().register_inbound(cx);
+        let _ = futures::ready!(self.poll_purge(cx));
+        Poll::Ready(None)
     }
 }
 
@@ -325,15 +345,10 @@ impl<R: Ratchet> futures::Future for SessionQueueWorker<R> {
     type Output = Result<(), NetworkError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match futures::ready!(self.as_mut().poll_next(cx)) {
-            Some(_) => Poll::Pending,
-            None => {
-                if let Err(_err) = self.sess_shutdown.send(()) {
-                    //log::error!(target: "citadel", "Unable to shutdown session: {:?}", err);
-                }
-
-                Poll::Ready(Err(error!(ErrorCode::QueueHandlerShutdown)))
-            }
-        }
+        self.as_mut().register_inbound(cx);
+        let ended = futures::ready!(self.as_mut().poll_purge(cx));
+        // Fails only when nothing listens, which means the session is already gone.
+        let _ = self.sess_shutdown.send(());
+        Poll::Ready(ended.map_err(|_| error!(ErrorCode::QueueHandlerShutdown)))
     }
 }

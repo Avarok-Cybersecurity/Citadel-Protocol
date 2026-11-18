@@ -1,4 +1,5 @@
 use super::config::MediaTransportConfig;
+use super::in_band::{self, MediaAgreement};
 use super::negotiation::agree_on_udp;
 use super::receiver::MediaReceiver;
 use super::sender::MediaSender;
@@ -20,12 +21,15 @@ pub struct MediaEndpoint {
     kind: MediaTransportKind,
     sender: MediaSender,
     receiver: MediaReceiver,
+    /// How the two ends agreed on `kind`; `None` for an endpoint assembled from parts.
+    agreement: Option<MediaAgreement>,
 }
 
 impl std::fmt::Debug for MediaEndpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MediaEndpoint")
             .field("kind", &self.kind)
+            .field("agreement", &self.agreement)
             .finish()
     }
 }
@@ -95,7 +99,7 @@ impl MediaEndpoint {
     }
 
     async fn build<R: Ratchet>(
-        channel: PeerChannel<R>,
+        mut channel: PeerChannel<R>,
         udp_rx: Option<Receiver<UdpChannel<R>>>,
         cfg: MediaTransportConfig,
     ) -> Result<Self, NetworkError> {
@@ -108,6 +112,8 @@ impl MediaEndpoint {
         // offers, the side refused first dropped its channel (a disconnect) while its own offer
         // could still be queued, and the other side failed with MediaTransportClosed instead.
         channel.p2p_path_cell().check(PathClass::Media)?;
+        let cids = (channel.get_session_cid(), channel.get_peer_cid());
+        let lane = in_band::lane_of(&mut channel);
         let (reliable_tx, reliable_rx) = channel.split();
         let mut control_sink = ReliableSink::spawn(reliable_tx);
         let mut control_src: BoxedSource = Box::pin(reliable_rx);
@@ -125,15 +131,34 @@ impl MediaEndpoint {
                 ));
             }
         }
-        let peer_udp = agree_on_udp(
-            peer_protocol_version,
-            local_udp.is_some(),
-            &mut control_sink,
-            &mut control_src,
-        )
-        .await?;
+        let in_band = match &lane {
+            Some(lane) => in_band::negotiates_in_band(lane).await?,
+            None => false,
+        };
+        let (peer_udp, agreement) = match lane.filter(|_| in_band) {
+            Some(lane) => {
+                let setting = lane.take_setting(in_band::SETTING)?;
+                let (kind, epoch) =
+                    in_band::agree(&lane, setting, cids, local_udp.is_some(), &cfg).await?;
+                let agreement = MediaAgreement::InBand { epoch };
+                (kind == MediaTransportKind::Unreliable, agreement)
+            }
+            None => {
+                let peer_udp = agree_on_udp(
+                    peer_protocol_version,
+                    local_udp.is_some(),
+                    &mut control_sink,
+                    &mut control_src,
+                )
+                .await?;
+                (
+                    peer_udp,
+                    in_band::agreement_by_offers(peer_protocol_version),
+                )
+            }
+        };
 
-        match local_udp.filter(|_| peer_udp) {
+        let endpoint = match local_udp.filter(|_| peer_udp) {
             Some((udp_tx, udp_rx)) => Self::assemble(
                 MediaTransportKind::Unreliable,
                 Box::new(udp_tx),
@@ -145,14 +170,22 @@ impl MediaEndpoint {
             ),
             None => Self::assemble(
                 MediaTransportKind::Reliable,
-                Box::new(control_sink.clone()),
+                // Room for one largest frame between the send queue and the pump.
+                Box::new(
+                    control_sink
+                        .media_lane(cfg.media.fragment_count_for(cfg.media.max_frame_bytes)),
+                ),
                 Box::new(control_sink),
                 control_src,
                 None,
                 cfg,
                 start,
             ),
-        }
+        }?;
+        Ok(Self {
+            agreement: Some(agreement),
+            ..endpoint
+        })
     }
 
     pub(crate) fn assemble(
@@ -174,11 +207,17 @@ impl MediaEndpoint {
                 cfg.send_queue_frames,
             )?,
             receiver: MediaReceiver::new(kind, media_src, control_src, cfg.media, start)?,
+            agreement: None,
         })
     }
 
     pub fn kind(&self) -> MediaTransportKind {
         self.kind
+    }
+
+    /// How the two ends agreed on [`Self::kind`]; `None` for an endpoint assembled from parts.
+    pub fn agreement(&self) -> Option<MediaAgreement> {
+        self.agreement
     }
 
     /// Splits into independent send/receive halves. Dropping the receiver in

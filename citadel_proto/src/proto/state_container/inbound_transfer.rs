@@ -1,6 +1,7 @@
 //! Inbound group/file reception for [`StateContainerInner`]: group-header and
 //! file-header intake plus per-wave payload reassembly.
 
+use super::inbound_group_bounds::MAX_INBOUND_GROUPS_PER_PEER;
 use super::includes::*;
 use citadel_io::{error, Dbg, ErrorCode};
 
@@ -19,7 +20,14 @@ impl<R: Ratchet> StateContainerInner<R> {
         let group_id = header.group.get();
         let ticket = header.context_info.get();
         // below, the target_cid in the key is where the packet came from. If it is a client, or a hyperlan conn, the implicated cid stays the same
-        let inbound_group_key = GroupKey::new(header.session_cid.get(), group_id, object_id);
+        let peer_cid = header.session_cid.get();
+        if self.inbound_groups_open_for(peer_cid) >= MAX_INBOUND_GROUPS_PER_PEER {
+            return Err(error!(
+                ErrorCode::InboundGroupLimitReached,
+                peer_cid, MAX_INBOUND_GROUPS_PER_PEER
+            ));
+        }
+        let inbound_group_key = GroupKey::new(peer_cid, group_id, object_id);
         if let dashmap::mapref::entry::Entry::Vacant(e) =
             self.inbound_groups.entry(inbound_group_key)
         {
@@ -174,6 +182,9 @@ impl<R: Ratchet> StateContainerInner<R> {
                 _ => preferred_primary_stream.clone(),
             };
 
+            // Held weakly: the task can wait on the application for as long as it likes, and its
+            // records belong to the session, which must be free to end meanwhile.
+            let state_container = state_container.as_weak();
             let task = async move {
                 log::debug!(target: "citadel", "File transfer initiated, awaiting acceptance ... | revfs_pull: {is_revfs_pull}");
                 let res = if let Some(start_rx) = start_recv_rx {
@@ -283,9 +294,13 @@ impl<R: Ratchet> StateContainerInner<R> {
                                             log::warn!(target: "citadel", "Unable to craft the file error packet: {err}")
                                         }
                                     }
-                                    let state_container = inner_state!(state_container);
-                                    let _ = state_container.inbound_files.remove(&key);
-                                    let _ = state_container.file_transfer_handles.remove(&key);
+                                    if let Some(state_container) =
+                                        StateContainer::upgrade_weak(&state_container)
+                                    {
+                                        let state_container = inner_state!(state_container);
+                                        let _ = state_container.inbound_files.remove(&key);
+                                        let _ = state_container.file_transfer_handles.remove(&key);
+                                    }
                                     ObjectTransferStatus::Fail(reason)
                                 }
                             };
@@ -301,9 +316,13 @@ impl<R: Ratchet> StateContainerInner<R> {
                             }
                             // user did not accept. cleanup local (DashMap removes need only a read lock)
                             log::warn!(target: "citadel", "User did not accept file transfer");
-                            let state_container = inner_state!(state_container);
-                            let _ = state_container.inbound_files.remove(&key);
-                            let _ = state_container.file_transfer_handles.remove(&key);
+                            if let Some(state_container) =
+                                StateContainer::upgrade_weak(&state_container)
+                            {
+                                let state_container = inner_state!(state_container);
+                                let _ = state_container.inbound_files.remove(&key);
+                                let _ = state_container.file_transfer_handles.remove(&key);
+                            }
                         }
                     }
 

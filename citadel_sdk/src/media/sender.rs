@@ -73,6 +73,16 @@ impl MediaSender {
     /// queue after a drain attempt (a stale count would lie to the peer).
     pub async fn end_of_stream(&mut self, track: TrackId) -> Result<(), NetworkError> {
         self.drain()?;
+        // Frames held back by a full lane leave as it empties.
+        loop {
+            let head = self.queue.iter().next().map(|frame| frame.payload.len());
+            let Some(len) = head else {
+                break;
+            };
+            let fragments = self.packetizer.config().fragment_count_for(len);
+            self.media.room_for(fragments).await;
+            self.drain()?;
+        }
         if !self.queue.is_empty() {
             return Err(citadel_io::error!(
                 citadel_io::ErrorCode::MediaTransportClosed,
@@ -119,6 +129,14 @@ impl MediaSender {
             let Some(frame) = self.queue.iter().next().cloned() else {
                 return Ok(());
             };
+            let fragments = self
+                .packetizer
+                .config()
+                .fragment_count_for(frame.payload.len());
+            if !self.media.has_room(fragments) {
+                // Stays queued, without taking a sequence; the next call retries it.
+                return Ok(());
+            }
             self.send_one(&frame)?;
             drop(self.queue.pop());
         }

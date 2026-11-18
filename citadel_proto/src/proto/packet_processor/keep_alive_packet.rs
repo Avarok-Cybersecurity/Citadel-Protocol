@@ -33,11 +33,9 @@
 
 use super::includes::*;
 use crate::error::NetworkError;
-use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::{error, ErrorCode};
 
 /// This will handle a keep alive packet. It will automatically send a keep packet after it sleeps for a period of time
 #[allow(unused_results, unused_must_use)]
@@ -93,46 +91,36 @@ pub async fn process_keep_alive<R: Ratchet, T: PlatformOps>(
             );
             let security_level = header.security_level.into();
 
-            let task = {
-                let accessor = EndpointCryptoAccessor::C2S(session.state_container.clone());
-                // if the KA came in on time, then we pass. If it did not come-in on time, BUT, the meta expiry container is unexpired (meaning packets are coming in), then, pass
-                let mut state_container = inner_mut_state!(session.state_container);
-                if state_container
-                    .on_keep_alive_received(header.timestamp.get(), current_timestamp_ns)
-                    || !state_container.meta_expiry_state.expired()
-                {
+            // if the KA came in on time, then we pass. If it did not come-in on time, BUT, the meta expiry container is unexpired (meaning packets are coming in), then, pass
+            let mut state_container = inner_mut_state!(session.state_container);
+            if state_container.on_keep_alive_received(header.timestamp.get(), current_timestamp_ns)
+                || !state_container.meta_expiry_state.expired()
+            {
+                // The reply waits one interval on the session's queue worker, not in this
+                // inbound slot, and at most one is pending.
+                if state_container.claim_keep_alive_reply() {
                     std::mem::drop(state_container);
-                    // We no longer send the ka here since the sleeping blocked the ENTIRE task
                     const DELTA_NS: i64 = (KEEP_ALIVE_INTERVAL_MS * 1_000_000) as i64;
-                    // we can no longer hold-on to the StackedRatchet due to truncation
-                    // ever since creating the anti-replay attack, we can no longer withhold packets; they must be sent outbound
-                    // immediately, otherwise other packets will fail, invalidating the session
-                    async move {
-                        citadel_io::time::sleep(Duration::from_millis(KEEP_ALIVE_INTERVAL_MS))
-                            .await;
-                        accessor.borrow_hr(None, |hr, _| {
-                            let next_ka = packet_crafter::keep_alive::craft_keep_alive_packet(
-                                hr,
+                    session.queue_handle.insert_oneshot(
+                        Duration::from_millis(KEEP_ALIVE_INTERVAL_MS),
+                        move |state_container| {
+                            state_container.send_keep_alive_reply(
+                                &to_primary_stream,
                                 current_timestamp_ns + DELTA_NS,
                                 security_level,
-                            );
-                            to_primary_stream.unbounded_send(next_ka).map_err(|err| {
-                                error!(ErrorCode::KeepAliveSendFailed, err.to_string())
-                            })
-                        })?;
-
-                        Ok(PrimaryProcessorResult::Void)
-                    }
+                            )
+                        },
+                    );
                 } else {
-                    log::trace!(target: "citadel", "Invalid KEEP_ALIVE window; expired");
-                    //session.session_manager.clear_session(session.session_cid.unwrap());
-                    return Ok(PrimaryProcessorResult::EndSession(
-                        "Keep alive arrived too late",
-                    ));
+                    log::trace!(target: "citadel", "A keep-alive reply is already pending; this keep-alive schedules none");
                 }
-            };
-
-            task.await
+                Ok(PrimaryProcessorResult::Void)
+            } else {
+                log::trace!(target: "citadel", "Invalid KEEP_ALIVE window; expired");
+                Ok(PrimaryProcessorResult::EndSession(
+                    "Keep alive arrived too late",
+                ))
+            }
         } else {
             // timeout
             log::error!(target: "citadel", "Keep alive invalid!");

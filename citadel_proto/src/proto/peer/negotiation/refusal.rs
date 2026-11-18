@@ -1,0 +1,125 @@
+//! A client's refusals around a dial: R-DIAL 3 (never build a link below its own offer), and
+//! the end of a dial or accept the server refused.
+
+use crate::error::NetworkError;
+use crate::proto::node_result::NodeResult;
+use crate::proto::node_result::PeerEvent;
+use crate::proto::packet_crafter;
+use crate::proto::packet_processor::PrimaryProcessorResult;
+use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
+use crate::proto::remote::Ticket;
+use crate::proto::state_container::{OutgoingPeerConnectionAttempt, StateContainerInner};
+use citadel_crypt::ratchets::Ratchet;
+use citadel_negotiation::RejectReason;
+use citadel_types::crypto::SecurityLevel;
+use citadel_types::proto::{falls_short_of, SessionSecuritySettings};
+
+/// R-DIAL 3. When this side made an offer for the link to `peer_cid` (a dial, or an accept), and
+/// the settings it is now told to build with fall short of it, the attempt ends here: it is
+/// taken and returned, so the caller refuses. A stamp at or above the offer leaves it in place.
+pub(crate) fn take_attempt_stamped_below<R: Ratchet>(
+    state_container: &mut StateContainerInner<R>,
+    peer_cid: u64,
+    stamped: SessionSecuritySettings,
+) -> Option<OutgoingPeerConnectionAttempt> {
+    let own = state_container
+        .outgoing_peer_connect_attempts
+        .get(&peer_cid)?
+        .session_security_settings;
+    if falls_short_of(stamped, own) {
+        state_container
+            .outgoing_peer_connect_attempts
+            .remove(&peer_cid)
+    } else {
+        None
+    }
+}
+
+/// What the refusing side reports to its kernel (as `SignalError::error`) and to the peer.
+pub(crate) fn below_policy_error(
+    stamped: SessionSecuritySettings,
+    own: SessionSecuritySettings,
+) -> String {
+    format!(
+        "{:?}: the link was stamped {:?} ({:?}), below this side's own offer {:?} ({:?})",
+        RejectReason::BelowPolicy,
+        stamped.security_level,
+        stamped.secrecy_mode,
+        own.security_level,
+        own.secrecy_mode
+    )
+}
+
+/// Refuses a stamp below this side's offer: the kernel hears it on the attempt's ticket (so the
+/// dial's caller gets it), and the peer hears it through the server on the exchange's `ticket`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn refuse_stamp<R: Ratchet>(
+    kernel_tx: &crate::proto::outbound_sender::UnboundedSender<NodeResult<R>>,
+    session_cid: u64,
+    peer_cid: u64,
+    attempt: OutgoingPeerConnectionAttempt,
+    stamped: SessionSecuritySettings,
+    ticket: Ticket,
+    sess_ratchet: &R,
+    timestamp: i64,
+    security_level: SecurityLevel,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let error = below_policy_error(stamped, attempt.session_security_settings);
+    log::warn!(target: "citadel", "R-DIAL: refusing the link to {peer_cid}: {error}");
+    let toward = |session_cid, peer_cid| PeerConnectionType::LocalGroupPeer {
+        session_cid,
+        peer_cid,
+    };
+    kernel_tx
+        .unbounded_send(NodeResult::PeerEvent(PeerEvent {
+            event: PeerSignal::SignalError {
+                ticket: attempt.ticket,
+                error: error.clone(),
+                peer_connection_type: toward(session_cid, peer_cid),
+            },
+            ticket: attempt.ticket,
+            session_cid,
+        }))
+        .map_err(|err| NetworkError::msg(err.to_string()))?;
+    let to_peer = PeerSignal::SignalError {
+        ticket,
+        error,
+        peer_connection_type: toward(session_cid, peer_cid),
+    };
+    let packet = packet_crafter::peer_cmd::craft_peer_signal(
+        sess_ratchet,
+        to_peer,
+        ticket,
+        timestamp,
+        security_level,
+    )?;
+    Ok(PrimaryProcessorResult::ReplyToSender(packet))
+}
+
+/// A refused signal ends the attempt it refused. A dial or an accept is recorded as an attempt
+/// when it is sent, and a created channel consumes it; one the server (or the peer) refused must
+/// end here too, because the client tiebreak reads that record as "this side is dialling". With
+/// it gone, the peer's next dial is put to this side's kernel, whichever side has the lower CID.
+pub(crate) fn end_attempt_refused_by<R: Ratchet>(
+    state_container: &mut StateContainerInner<R>,
+    refusal: &PeerConnectionType,
+    refused_ticket: Ticket,
+    session_cid: u64,
+) {
+    let original = refusal.get_original_session_cid();
+    let peer_cid = if original == session_cid {
+        refusal.get_original_target_cid()
+    } else {
+        original
+    };
+    let refused = state_container
+        .outgoing_peer_connect_attempts
+        .get(&peer_cid)
+        .is_some_and(|attempt| attempt.ticket == refused_ticket);
+    if refused {
+        log::trace!(target: "citadel", "The attempt toward {peer_cid} on {refused_ticket} was refused; it is no longer an attempt");
+        state_container
+            .outgoing_peer_connect_attempts
+            .remove(&peer_cid);
+    }
+}

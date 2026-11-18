@@ -180,6 +180,14 @@ jobs:
         if: ${{ !startsWith(matrix.os, 'windows') }}
       - run: cargo nextest run --features=localhost-testing,multi-threaded,vendored --package citadel_proto
         if: ${{ startsWith(matrix.os, 'windows') }}
+      # Single-threaded builds spawn with spawn_local inside a LocalSet; this leg is the only
+      # place citadel_proto's own tests run that way.
+      - name: citadel_proto single-threaded
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: cargo nextest run --features=localhost-testing --package citadel_proto
+      - name: citadel_proto single-threaded (windows only)
+        if: ${{ startsWith(matrix.os, 'windows') }}
+        run: cargo nextest run --features=localhost-testing,vendored --package citadel_proto
 
   nat:
     strategy:
@@ -238,28 +246,39 @@ jobs:
       - name: Run basic localhost NAT tests (windows only)
         if: startsWith(matrix.os, 'windows')
         run: cargo nextest run --release --package citadel_wire --features=localhost-testing,vendored
-      # localhost-testing short-circuits NatType::identify, so identification failing (or
-      # succeeding) inside a hole punch is only exercised without it, against local STUN
-      # responders or silent local sockets.
-      - name: Run NAT identification tests
+      # The whole crate again, built as production builds it: localhost-testing short-circuits
+      # NatType::identify and the loopback bind, so identification failing (or succeeding)
+      # inside a hole punch, and every other cfg-gated path, is only exercised without it.
+      # Tests that need the localhost NAT model are compiled only with the feature.
+      - name: Run citadel_wire without localhost-testing
         if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --release --package citadel_wire --test nat_identify_under_stall --test hole_punch_without_nat_identification
-      - name: Run NAT identification tests (windows only)
+        run: cargo nextest run --release --package citadel_wire
+      - name: Run citadel_wire without localhost-testing (windows only)
         if: startsWith(matrix.os, 'windows')
-        run: cargo nextest run --release --package citadel_wire --features=vendored --test nat_identify_under_stall --test hole_punch_without_nat_identification
+        run: cargo nextest run --release --package citadel_wire --features=vendored
 
   citadel_sdk:
     strategy:
       # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
       # with no cross-leg dependency, and cancelling destroys which leg actually failed.
       fail-fast: false
+      # One job per (OS, thread model), as citadel_sdk_release does. Both nextest passes in one
+      # job took 56 of 65 min on macOS at master (run 43621433190: 27 + 26) and ran out on
+      # #389 (run 44263624976: single-threaded 255/255 green in 30 min, multi-threaded cut off
+      # at 32). Each pass compiles its own test binaries, so splitting halves each job's work.
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
+        threading: [ single-threaded, multi-threaded ]
+        include:
+          - threading: single-threaded
+            features: localhost-testing
+          - threading: multi-threaded
+            features: multi-threaded,localhost-testing
+    name: citadel_sdk (${{ matrix.os }}, ${{ matrix.threading }})
     runs-on: ${{ matrix.os }}
-    # CI capacity budget, not a test timeout (the tests' own bounds are unchanged). On Windows
-    # each nextest pass compiles for ~25 min (00:38 -> 01:04 in run 36785646666's rerun) and the
-    # job runs two passes, single- then multi-threaded: the single-threaded pass went 156/156 green
-    # in 12 min, and the 65-min limit cut the multi-threaded pass off at 145/156 with 0 failures.
+    # CI capacity budget, not a test timeout (the tests' own bounds are unchanged). Windows'
+    # budget was sized for two passes (each compiles ~25 min, run 36785646666); a job now runs
+    # one, and neither budget is changed.
     timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 110 || 65 }}
     steps:
       - name: Setup dependencies
@@ -303,18 +322,12 @@ jobs:
         with:
           path: target/media_fixtures
           key: media-fixtures-b3726eac-be112703
-      - name: Single-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=localhost-testing
+      - name: ${{ matrix.threading }} testing
         if: ${{ !startsWith(matrix.os, 'windows') }}
-      - name: Single-threaded testing (windows only)
-        run: cargo nextest run --package citadel_sdk --features=localhost-testing,vendored
+        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }}
+      - name: ${{ matrix.threading }} testing (windows only)
         if: startsWith(matrix.os, 'windows')
-      - name: Multi-threaded testing (windows only)
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,vendored
-        if: startsWith(matrix.os, 'windows')
-      - name: Multi-threaded testing
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing
+        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }},vendored
 
   io_uring:
     # Linux-only: validates the opt-in io_uring inbound-UDP backend. Compile-checks both thread models
@@ -588,17 +601,27 @@ jobs:
     name: WASM Build Check
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      SDK_WASM_TESTS: wasm_basic_p2p wasm_crypto wasm_backend wasm_browser_connection_split
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+          components: clippy
+      # The crates below citadel_proto are clippy-clean on wasm32; citadel_proto, citadel_sdk
+      # and citadel_media still carry wasm-only warnings (unused native imports and the like),
+      # so they join this list once those are cleared.
+      - name: Clippy for wasm32
+        run: cargo clippy --target wasm32-unknown-unknown --no-deps -p citadel_io -p citadel_types -p citadel_logging -p citadel_pqcrypto -p citadel_crypt -p citadel_treekem -p citadel_user -p netbeam -p async_ip -p citadel_wire -- -D warnings
       - name: Check citadel_pqcrypto for wasm32
         run: cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
       - name: Check citadel_sdk for wasm32
         run: cargo check --package citadel_sdk --target wasm32-unknown-unknown
       - name: No classical signature crate in the wasm32 server graph
         run: ci/no-classical-signatures.sh
+      - name: No WASI crate, fork or cfg; one crates.io tokio on wasm32
+        run: ci/no-wasi.sh
       - name: Check citadel_media for wasm32
         run: cargo check --package citadel_media --target wasm32-unknown-unknown
       - name: Check the browser security-key backend
@@ -611,7 +634,16 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Run WASM integration tests
         working-directory: citadel_sdk
-        run: wasm-pack test --node --release -- --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
+        run: wasm-pack test --node --release -- --no-default-features $(printf -- '--test %s ' $SDK_WASM_TESTS)
+      # Cargo, not a path guess, names the artifacts: the build-dir layout moved test binaries
+      # out of deps/. The same flags as wasm-pack's cargo call keep this a no-op rebuild.
+      - name: The wasm32 test artifacts import only wasm-bindgen host functions
+        working-directory: citadel_sdk
+        run: |
+          cargo test --target wasm32-unknown-unknown --release --no-default-features $(printf -- '--test %s ' $SDK_WASM_TESTS) --no-run --message-format=json > "$RUNNER_TEMP/sdk-wasm-tests.json"
+          artifacts=$(python3 ../ci/wasm-test-executables.py "$RUNNER_TEMP/sdk-wasm-tests.json" $SDK_WASM_TESTS)
+          mapfile -t paths <<< "$artifacts"
+          python3 ../ci/wasm-imports-are-bindgen-only.py "${paths[@]}"
       - name: Run citadel_media WASM tests
         working-directory: citadel_media
         run: wasm-pack test --node --release -- --test wasm_media

@@ -4,6 +4,9 @@
 use super::kem::EncapsulationKey;
 use super::policy;
 use crate::misc::AccountError;
+use citadel_crypt::argon::argon_container::{
+    ARGON_FLOOR_LANES, ARGON_FLOOR_MEM_COST, ARGON_FLOOR_TIME_COST,
+};
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::{FactorId, FactorKind, SignInCredential, SignInPolicy};
 use serde::{Deserialize, Serialize};
@@ -21,9 +24,9 @@ impl KsfParams {
     /// OWASP's minimum for Argon2id (19 MiB, 2 passes, 1 lane). A server cannot weaken a client's
     /// stretching below this.
     pub const FLOOR: Self = Self {
-        mem_kib: 19 * 1024,
-        iterations: 2,
-        lanes: 1,
+        mem_kib: ARGON_FLOOR_MEM_COST,
+        iterations: ARGON_FLOOR_TIME_COST,
+        lanes: ARGON_FLOOR_LANES,
     };
 
     pub fn meets_floor(&self) -> bool {

@@ -54,8 +54,8 @@
 //! [`ClientServerRemote`]: crate::prelude::ClientServerRemote
 //! [`CitadelClientServerConnection`]: crate::prelude::CitadelClientServerConnection
 
-use crate::prefabs::client::peer_connection::FileTransferHandleRx;
 use crate::prefabs::client::ServerConnectionSettings;
+use crate::prefabs::inbox::{inbox, InboxClaim, InboxSender};
 use crate::prefabs::ClientServerRemote;
 use crate::remote_ext::CitadelClientServerConnection;
 use crate::remote_ext::ProtocolRemoteExt;
@@ -75,16 +75,17 @@ pub struct SingleClientServerConnectionKernel<F, Fut, R: Ratchet> {
     udp_mode: UdpMode,
     auth_info: Mutex<Option<ConnectionType>>,
     session_security_settings: SessionSecuritySettings,
-    unprocessed_signal_filter_tx:
-        Mutex<Option<citadel_io::tokio::sync::mpsc::UnboundedSender<NodeResult<R>>>>,
+    unprocessed_signals: InboxSender<NodeResult<R>>,
+    incoming_file_transfers: InboxSender<ObjectTransferHandler>,
+    /// Handed to the connection's [`ClientServerRemote`] once it connects.
+    claims: Mutex<Option<Claims<R>>>,
     remote: Option<NodeRemote<R>>,
     server_password: Option<PreSharedKey>,
-    rx_incoming_object_transfer_handle: Mutex<Option<FileTransferHandleRx>>,
-    tx_incoming_object_transfer_handle:
-        citadel_io::tokio::sync::mpsc::UnboundedSender<ObjectTransferHandler>,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> Fut>,
 }
+
+type Claims<R> = (InboxClaim<NodeResult<R>>, InboxClaim<ObjectTransferHandler>);
 
 #[derive(Debug)]
 pub(crate) enum ConnectionType {
@@ -109,26 +110,14 @@ where
     F: FnOnce(CitadelClientServerConnection<R>) -> Fut + Send,
     Fut: Future<Output = Result<(), NetworkError>> + Send,
 {
-    fn generate_object_transfer_handle() -> (
-        citadel_io::tokio::sync::mpsc::UnboundedSender<ObjectTransferHandler>,
-        Mutex<Option<FileTransferHandleRx>>,
-    ) {
-        let (tx, rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
-        let rx = FileTransferHandleRx {
-            inner: rx,
-            conn_type: VirtualTargetType::LocalGroupServer { session_cid: 0 },
-        };
-        (tx, Mutex::new(Some(rx)))
-    }
-
     /// Creates a new [`SingleClientServerConnectionKernel`] with the given settings.
     /// The [`ServerConnectionSettings`] must be provided, and the `on_channel_received` function will be called when the connection is established.
     pub fn new(settings: ServerConnectionSettings<R>, on_channel_received: F) -> Self {
         let (udp_mode, session_security_settings) =
             (settings.udp_mode(), settings.session_security_settings());
         let server_password = settings.pre_shared_key().cloned();
-        let (tx_incoming_object_transfer_handle, rx_incoming_object_transfer_handle) =
-            Self::generate_object_transfer_handle();
+        let (unprocessed_signals, signals_claim) = inbox();
+        let (incoming_file_transfers, file_transfers_claim) = inbox();
 
         let connection_type = match settings {
             ServerConnectionSettings::CredentialedConnect {
@@ -163,9 +152,9 @@ where
             udp_mode,
             auth_info: Mutex::new(Some(connection_type)),
             session_security_settings,
-            unprocessed_signal_filter_tx: Default::default(),
-            rx_incoming_object_transfer_handle,
-            tx_incoming_object_transfer_handle,
+            unprocessed_signals,
+            incoming_file_transfers,
+            claims: Mutex::new(Some((signals_claim, file_transfers_claim))),
             server_password,
             remote: None,
             _pd: Default::default(),
@@ -251,21 +240,14 @@ where
             session_cid: connect_success.cid,
         };
 
-        let mut handle = {
-            let mut lock = self.rx_incoming_object_transfer_handle.lock();
-            lock.take().expect("Should not have been called before")
-        };
-
-        handle.conn_type.set_session_cid(connect_success.cid);
-
-        let (reroute_tx, reroute_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
-        *self.unprocessed_signal_filter_tx.lock() = Some(reroute_tx);
+        let (signals_claim, file_transfers_claim) =
+            self.claims.lock().take().expect("on_start runs once");
         connect_success.remote = ClientServerRemote::new(
             conn_type,
             remote,
             session_security_settings,
-            Some(reroute_rx),
-            Some(handle),
+            Some(signals_claim),
+            Some(file_transfers_claim),
         );
 
         handler(connect_success).await
@@ -274,19 +256,10 @@ where
     async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         match message {
             NodeResult::ObjectTransferHandle(handle) => {
-                if let Err(err) = self.tx_incoming_object_transfer_handle.send(handle.handle) {
-                    log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {err:?}")
-                }
+                self.incoming_file_transfers.deliver(handle.handle)
             }
 
-            message => {
-                if let Some(val) = self.unprocessed_signal_filter_tx.lock().as_ref() {
-                    log::trace!(target: "citadel", "Will forward message {val:?}");
-                    if let Err(err) = val.send(message) {
-                        log::warn!(target: "citadel", "failed to send unprocessed NodeResult: {err:?}")
-                    }
-                }
-            }
+            message => self.unprocessed_signals.deliver(message),
         }
 
         Ok(())

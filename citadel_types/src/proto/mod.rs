@@ -11,6 +11,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 mod group_limits;
+mod offer_strength;
 mod path_plan;
 #[cfg(test)]
 mod path_plan_tests;
@@ -19,6 +20,7 @@ mod path_policy_error;
 #[cfg(test)]
 mod path_policy_tests;
 pub use group_limits::{GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal};
+pub use offer_strength::{falls_short_of, stronger_offer};
 pub use path_plan::{
     effective_plan, EffectivePlan, PairFeasibility, PathOffer, PathRestrictions, PlannedPath,
 };

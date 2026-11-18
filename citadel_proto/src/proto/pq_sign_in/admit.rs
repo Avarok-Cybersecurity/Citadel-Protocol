@@ -10,6 +10,7 @@ use crate::proto::session_resume;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::SessionScope;
+use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::pq::messages::LoginProof;
 use citadel_user::client_account::ClientNetworkAccount;
 use citadel_user::misc::now_ms;
@@ -61,7 +62,7 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
             let presented = presented.as_ref();
             super::admission::legacy_sign_in(session, cid, &username, presented, adjacent_version)
                 .await?;
-            legacy_credentials(cnac, &stage0).await?;
+            legacy_credentials(account_manager, cnac, &stage0).await?;
             Admission::legacy()
         }
         (Some(ServerPending::Factors(pending)), Some(LoginProof::Factors(finish))) => {
@@ -84,7 +85,7 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
             }
         }
         (Some(ServerPending::Legacy(upgrade)), proof) => {
-            legacy_credentials(cnac, &stage0).await?;
+            legacy_credentials(account_manager, cnac, &stage0).await?;
             if let (Some(pending), Some(LoginProof::Upgrade(finish))) = (upgrade, proof) {
                 let record = pending.finish(finish, now_ms())?;
                 account_manager.upgrade_to_pq(cid, record).await?;
@@ -98,10 +99,12 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
 }
 
 async fn legacy_credentials<R: Ratchet>(
+    account_manager: &AccountManager<R, R>,
     cnac: &ClientNetworkAccount<R, R>,
     stage0: &DoConnectStage0Packet,
 ) -> Result<(), NetworkError> {
-    cnac.validate_credentials(stage0.proposed_credentials.clone())
+    account_manager
+        .verify_legacy_login(cnac, stage0.proposed_credentials.clone())
         .await
         .map_err(|err| NetworkError::generic(err.into_string()))?;
     log::trace!(target: "citadel", "Success validating credentials!");

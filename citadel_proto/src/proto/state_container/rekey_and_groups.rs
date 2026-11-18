@@ -294,7 +294,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     /// Tells the group channel of `key` that a message sent on it never left this node, with the
     /// same `MessageResponse { success: false }` the server sends when it cannot deliver one.
-    fn report_group_message_not_delivered(&self, key: MessageGroupKey) {
+    pub(crate) fn report_group_message_not_delivered(&self, key: MessageGroupKey) {
         log::warn!(target: "citadel", "A group message for {key:?} was not sent; reporting it to the sender");
         if let Some(tx) = self.group_channels.get(&key) {
             let refusal = GroupBroadcast::MessageResponse {

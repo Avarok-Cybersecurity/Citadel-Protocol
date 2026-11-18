@@ -42,6 +42,7 @@ use std::sync::atomic::Ordering;
 use bytes::BytesMut;
 
 use crate::proto::misc::local_rebind::LocalRebinder;
+use crate::proto::misc::panic_future::catch_panic;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ServerMode;
@@ -62,7 +63,7 @@ use crate::prelude::{ConnectionInfo, Disconnect, SessionInfo};
 use crate::proto::disconnect_tracker::DisconnectSignalTracker;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::node_result::NodeResult;
-use crate::proto::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
+use crate::proto::outbound_sender::UnboundedSender;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::includes::{Duration, Instant};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -73,11 +74,13 @@ use crate::proto::peer::peer_layer::{
     CitadelNodePeerLayer, CitadelNodePeerLayerInner, MailboxTransfer, PeerConnectionType,
     PeerResponse, PeerSignal,
 };
+use crate::proto::provisional_reservation::ProvisionalReservation;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
     CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode,
     ServerOnlySessionInitSettings, SessionInitParams, SessionState,
 };
+use crate::proto::session_ledger::SessionLedger;
 use crate::proto::session_resume::{self, EndedSessions, ResumeToken, ResumeTokens};
 use crate::proto::session_resume_store;
 use crate::proto::state_container::{VirtualConnectionType, VirtualTargetType};
@@ -155,10 +158,13 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     /// released on commit/failure and auto-expire as a safety net so a dropped attempt cannot
     /// permanently block the CID.
     provisional_cid_reservations: HashMap<u64, Instant>,
+    /// Client side: provisional keys whose connect is between admission and registration in
+    /// `provisional_connections` (see `provisional_reservation`).
+    pub(crate) provisional_reservations: std::collections::HashSet<ProvisionalKey>,
     kernel_tx: UnboundedSender<NodeResult<R>>,
     time_tracker: TimeTracker,
-    clean_shutdown_tracker_tx: UnboundedSender<()>,
-    clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
+    /// Every session this node holds in memory, until its last handle drops.
+    ledger: SessionLedger,
     client_config: T::ClientConfig,
     stun_servers: citadel_wire::stun_servers::StunServers,
     turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
@@ -219,10 +225,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     ) -> Self {
         let incoming_cxn_count = 0;
-        let (clean_shutdown_tracker_tx, clean_shutdown_tracker_rx) = unbounded();
         let inner = HdpSessionManagerInner {
-            clean_shutdown_tracker_tx,
-            clean_shutdown_tracker: Some(clean_shutdown_tracker_rx),
+            ledger: SessionLedger::default(),
             hypernode_peer_layer: CitadelNodePeerLayer::new(
                 account_manager.get_persistence_handler().clone(),
             ),
@@ -233,6 +237,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             account_manager,
             provisional_connections: HashMap::new(),
             provisional_cid_reservations: HashMap::new(),
+            provisional_reservations: Default::default(),
             kernel_tx,
             time_tracker,
             client_config,
@@ -529,7 +534,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 kernel_tx,
                 account_manager,
                 tt,
-                on_drop,
+                hold,
                 peer_addr,
                 cnac,
                 peer_only_connect_mode,
@@ -538,13 +543,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 stun_servers,
                 turn_servers,
                 provisional_key,
+                reservation,
             ) = {
                 let (
                     remote,
                     kernel_tx,
                     account_manager,
                     tt,
-                    on_drop,
+                    hold,
                     peer_addr,
                     cnac,
                     proposed_credentials,
@@ -552,6 +558,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     stun_servers,
                     turn_servers,
                     provisional_key,
+                    reservation,
                 ) = {
                     let (peer_addr, cnac, proposed_credentials, endpoint) = {
                         match &init_mode {
@@ -640,7 +647,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     }
 
                     let mut this = inner_mut!(self);
-                    let on_drop = this.clean_shutdown_tracker_tx.clone();
+                    let hold = this.ledger.hold();
                     let remote = this.server_remote.clone().unwrap();
                     let kernel_tx = this.kernel_tx.clone();
                     let account_manager = this.account_manager.clone();
@@ -669,13 +676,26 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                             ));
                         }
                     }
+                    // Connects run concurrently: claimed here, in the same step as the check, so
+                    // a second connect for this account is refused until this one registers.
+                    let reservation = ProvisionalReservation::claim(
+                        &mut this.provisional_reservations,
+                        self,
+                        &provisional_key,
+                    )
+                    .ok_or_else(|| {
+                        error!(
+                            ErrorCode::SessionManagerProvisionalConnectionExists,
+                            peer_addr
+                        )
+                    })?;
 
                     (
                         remote,
                         kernel_tx,
                         account_manager,
                         tt,
-                        on_drop,
+                        hold,
                         peer_addr,
                         cnac,
                         proposed_credentials,
@@ -683,6 +703,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         stun_servers,
                         turn_servers,
                         provisional_key,
+                        reservation,
                     )
                 };
 
@@ -714,7 +735,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     kernel_tx,
                     account_manager,
                     tt,
-                    on_drop,
+                    hold,
                     peer_addr,
                     cnac,
                     peer_only_connect_mode,
@@ -723,6 +744,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     stun_servers,
                     turn_servers,
                     provisional_key,
+                    reservation,
                 )
             };
 
@@ -744,7 +766,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 local_nat_type,
                 remote_peer: peer_addr,
                 provisional_key: provisional_key.clone(),
-                on_drop,
+                hold,
                 citadel_remote: remote,
                 local_bind_addr,
                 local_node_type,
@@ -774,6 +796,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 log::warn!(target: "citadel", "Found a previous lingering connection to {peer_addr}. Dropping it ...");
                 lingering_session.shutdown();
             }
+            // Registered: the provisional entry itself now refuses a second connect.
+            drop(reservation);
 
             (
                 session_manager_clone,
@@ -811,8 +835,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         log::trace!(target: "citadel", "Beginning pre-execution of session");
         let mut err = None;
         let init_time = new_session.init_time;
-        let res = new_session.execute(tcp_stream, peer_addr).await;
-        new_session.state.set(SessionState::Disconnecting);
+        let res = catch_panic(new_session.execute(tcp_stream, peer_addr))
+            .await
+            .unwrap_or_else(|panic| {
+                log::error!(target: "citadel", "Session to {peer_addr} panicked; tearing it down: {panic}");
+                Err((NetworkError::msg(panic), new_session.session_cid.get()))
+            });
+        // Ends every task that waits on this session's stopper, whichever way the session ended.
+        new_session.shutdown();
 
         match &res {
             Ok(cid_opt) | Err((_, cid_opt)) => {
@@ -959,6 +989,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                     peer_conn_type,
                                     disconnect_response: Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {session_cid} forcibly"))),
                                     disconnect_token: None,
+                                    reason: None,
                                 };
                                 if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_ratchet| {
                                     super::packet_crafter::peer_cmd::craft_peer_signal(peer_ratchet, signal, Ticket(0), timestamp, security_level)
@@ -1029,6 +1060,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             state_container.end_connections();
         }
 
+        let _ = state_container.fail_all_transfers("The session ended");
+        drop(state_container);
         sess.drop_listener.set(None);
 
         if let Some(err) = err {
@@ -1061,7 +1094,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         // RefCell double-borrow panic during session construction
         let disconnect_tracker = self.disconnect_tracker();
         let mut this = inner_mut!(self);
-        let on_drop = this.clean_shutdown_tracker_tx.clone();
+        let hold = this.ledger.hold();
         let remote = this.server_remote.clone().unwrap();
         let client_config = this.client_config.clone();
         let peer_layer = this.hypernode_peer_layer.clone();
@@ -1077,7 +1110,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let init_time = Instant::now();
 
         let session_init_params = SessionInitParams {
-            on_drop,
+            hold,
             local_nat_type,
             citadel_remote: remote,
             local_bind_addr,
@@ -1901,11 +1934,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     }
 
     /// Stores the `signal` inside the internal timed-queue for `session_cid`, and then sends `packet` to `target_cid`.
-    /// After `timeout`, the closure `on_timeout` is executed
+    /// After `timeout`, the closure `on_timeout` is executed.
+    ///
+    /// `target_registration` is the backend's answer to "is `target_cid` registered here?". The
+    /// caller resolves it before taking the peer-layer lock it passes in, so that lock is never
+    /// held across the backend round-trip.
     #[allow(clippy::too_many_arguments)]
     pub async fn route_signal_primary(
         &self,
         peer_layer: &mut CitadelNodePeerLayerInner<R>,
+        target_registration: Result<bool, String>,
         session_cid: u64,
         target_cid: u64,
         ticket: Ticket,
@@ -1917,6 +1955,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         if session_cid == target_cid {
             return Err("Target CID cannot be equal to the implicated CID".to_string());
         }
+        peer_layer
+            .admit_posting(session_cid)
+            .map_err(|err| err.into_string())?;
 
         let (account_manager, peer_sess) = {
             let this = inner!(self);
@@ -1926,12 +1967,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             )
         };
 
-        log::trace!(target: "citadel", "Checking if {target_cid} is registered locally ... {signal:?}");
-        if account_manager
-            .hyperlan_cid_is_registered(target_cid)
-            .await
-            .map_err(|err| err.into_string())?
-        {
+        if target_registration? {
             let pers = account_manager.get_persistence_handler().clone();
 
             // get the target cid's session
@@ -1948,50 +1984,56 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
                 }).map_err(|err| err.into_string())?
             } else {
-                // session is not active, but user is registered (thus offline). Setup return ticket tracker on session_cid
-                // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: external svc route, if available
-                {
-                    peer_layer
-                        .insert_tracked_posting(
-                            session_cid,
-                            timeout,
-                            ticket,
-                            signal.clone(),
-                            on_timeout,
-                        )
-                        .await;
-                }
-                CitadelNodePeerLayer::try_add_mailbox(&pers, target_cid, signal)
-                    .await
-                    .map_err(|err| err.into_string())
+                // The target is registered but offline. The signal is held for its next connect
+                // only if `mailbox` allows it; the return ticket is tracked only once it is held.
+                crate::proto::peer::mailbox::mail_from(
+                    &pers,
+                    target_cid,
+                    session_cid,
+                    signal.clone(),
+                )
+                .await
+                .map_err(|err| err.into_string())?;
+                peer_layer
+                    .insert_tracked_posting(session_cid, timeout, ticket, signal, on_timeout)
+                    .await;
+                Ok(())
             }
         } else {
             Err(format!("CID {target_cid} is not registered locally"))
         }
     }
 
+    /// Stops every registered session and waits until each has been released. Sessions that
+    /// ended before this call are not waited on: they are no longer in the map.
     pub(crate) async fn shutdown(self) -> Result<(), NetworkError> {
-        let (mut recv, len) = {
-            let mut inner = inner_mut!(self);
-            if let Some(recv) = inner.clean_shutdown_tracker.take() {
-                let len = inner.sessions.len();
-                for sender in inner.sessions.values().map(|r| &r.0) {
-                    let _ = sender.send(());
-                }
-                (recv, len)
-            } else {
-                return Err(error!(ErrorCode::SessionManagerReceiverNotLoaded));
-            }
+        let (ledger, stopping) = {
+            let inner = inner!(self);
+            let stopping = inner
+                .sessions
+                .values()
+                .map(|(stopper, session)| {
+                    let _ = stopper.send(());
+                    session.alive_tracker()
+                })
+                .collect::<Vec<_>>();
+            (inner.ledger.clone(), stopping)
         };
 
-        for _ in 0..len {
-            recv.recv()
-                .await
-                .ok_or(error!(ErrorCode::SessionManagerShutdownRecvFailed))?;
-        }
-
+        ledger
+            .released_when(|| stopping.iter().any(|session| session.is_held()))
+            .await;
         log::trace!(target: "citadel", "All sessions dropped");
         Ok(())
+    }
+
+    /// Where the node's remote reads its [`SessionFootprint`](crate::proto::session_ledger::SessionFootprint).
+    pub(crate) fn footprint_source(&self) -> crate::proto::session_ledger::FootprintSource {
+        let inner = inner!(self);
+        crate::proto::session_ledger::FootprintSource {
+            ledger: inner.ledger.clone(),
+            disconnect_tracker: inner.disconnect_tracker.clone(),
+        }
     }
 
     /// Sends a [GroupBroadcast] message to `peer_cid`. Ensures the target is mutual before sending

@@ -42,7 +42,6 @@ use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::time::Duration;
 use citadel_io::time::{delay_queue, DelayQueue};
-use citadel_io::tokio::time::error::Error;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::PreSharedKey;
 use citadel_types::prelude::PeerInfo;
@@ -80,7 +79,10 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     pub(crate) group_watches: HashMap<u64, HashMap<MessageGroupKey, Vec<Ticket>>>,
     /// Waits for members to apply each group's latest Commit (see `group_commit_gate`).
     pub(crate) commit_gates: crate::proto::peer::group_commit_gate::CommitGates,
-    pub(crate) simultaneous_ticket_mappings: HashMap<u64, HashMap<Ticket, Ticket>>,
+    /// For each session, the tickets of its crossed dials that were merged into the other side's,
+    /// oldest first, at most [`MAX_CROSSED_TICKET_MAPPINGS_PER_SESSION`]; dropped with the session.
+    pub(crate) simultaneous_ticket_mappings:
+        HashMap<u64, std::collections::VecDeque<(Ticket, Ticket)>>,
     waker: Arc<AtomicWaker>,
     inner: Arc<citadel_io::RwLock<SharedInner>>,
 }
@@ -104,10 +106,26 @@ fn is_current(admitted: &HashMap<u64, Instant>, cid: u64, incarnation: Instant) 
 // message group byte map key layout:
 // implicated cid = implicated cid -> key = (u128."concurrent" OR u128."pending") -> u64 (peer cid)
 
-/// The byte map (`(cid, 0, PEER_MAILBOX_MAP, <uuid>)`) where a server holds the signals it mails to
-/// an offline `cid`, each a serialized [`PeerSignal`], until `cid` next connects. Unbounded: nothing
-/// caps how many a member accumulates.
+/// The byte map (`(cid, 0, PEER_MAILBOX_MAP, <key>)`) where a server holds the signals it mails to
+/// an offline `cid`, each a serialized [`PeerSignal`], until `cid` next connects. A peer-routed
+/// signal's key names its sender and is bounded per sender (see `mailbox`); a group broadcast's
+/// key is a bare uuid.
 pub const PEER_MAILBOX_MAP: &str = "mailbox";
+
+/// How long a deregistration's posting waits for the other side's crossing one. Two
+/// deregistrations cross only while both are in flight to the server; one arriving later finds
+/// the pair already gone and is answered as such.
+pub const SIMULTANEOUS_DEREGISTER_WINDOW: Duration = Duration::from_secs(30);
+
+/// The most crossed-dial ticket mappings one session holds. A mapping only re-addresses a late
+/// error for a dial merged into the other side's; a session has a few dials crossing at once at
+/// most, so the oldest beyond this has long since settled.
+pub const MAX_CROSSED_TICKET_MAPPINGS_PER_SESSION: usize = 64;
+
+/// The most routed requests one session may have awaiting an answer at once. An invitation
+/// waits up to an hour; an application inviting or dialling more peers than this at once is
+/// asking the server to hold its requests faster than peers answer them.
+pub const MAX_PENDING_POSTINGS_PER_SESSION: usize = 256;
 
 #[derive(Clone)]
 pub struct CitadelNodePeerLayer<R: Ratchet> {
@@ -262,7 +280,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         incarnation: Instant,
     ) -> Result<(), NetworkError> {
         let pers = {
-            let this = self.inner.write().await;
+            let mut this = self.inner.write().await;
             {
                 let mut shared = this.inner.write();
                 if !is_current(&shared.admitted, session_cid, incarnation) {
@@ -271,6 +289,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                 }
                 shared.observed_postings.remove(&session_cid);
             }
+            this.simultaneous_ticket_mappings.remove(&session_cid);
             this.persistence_handler.clone()
         };
 
@@ -531,7 +550,10 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
 }
 
 impl CitadelNodePeerLayerExecutor {
-    pub(self) fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+    pub(self) fn poll_purge(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::convert::Infallible>> {
         self.waker.register(cx.waker());
 
         let mut this = self.inner.write();
@@ -554,16 +576,18 @@ impl CitadelNodePeerLayerExecutor {
 
 impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
     pub fn insert_mapped_ticket(&mut self, cid: u64, ticket: Ticket, mapped_ticket: Ticket) {
-        self.simultaneous_ticket_mappings
-            .entry(cid)
-            .or_default()
-            .insert(ticket, mapped_ticket);
+        let mappings = self.simultaneous_ticket_mappings.entry(cid).or_default();
+        mappings.retain(|(held, _)| *held != ticket);
+        if mappings.len() == MAX_CROSSED_TICKET_MAPPINGS_PER_SESSION {
+            let _ = mappings.pop_front();
+        }
+        mappings.push_back((ticket, mapped_ticket));
     }
 
     pub fn take_mapped_ticket(&mut self, cid: u64, ticket: Ticket) -> Option<Ticket> {
-        self.simultaneous_ticket_mappings
-            .get_mut(&cid)?
-            .remove(&ticket)
+        let mappings = self.simultaneous_ticket_mappings.get_mut(&cid)?;
+        let index = mappings.iter().position(|(held, _)| *held == ticket)?;
+        mappings.remove(index).map(|(_, mapped)| mapped)
     }
     /// Determines if `peer_cid` is already attempting to register to `session_cid`
     /// Returns the target's ticket for their corresponding request
@@ -607,13 +631,70 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         })
     }
 
-    pub fn check_simultaneous_deregister(
+    /// The security settings `peer_cid` offered in its pending `PostConnect` posting `ticket`,
+    /// the one [`Self::check_simultaneous_connect`] matched.
+    pub fn pending_connect_offer(
+        &self,
+        peer_cid: u64,
+        ticket: Ticket,
+    ) -> Option<SessionSecuritySettings> {
+        let this = self.inner.read();
+        match &this.observed_postings.get(&peer_cid)?.get(&ticket)?.signal {
+            PeerSignal::PostConnect {
+                session_security_settings,
+                ..
+            } => Some(*session_security_settings),
+            _ => None,
+        }
+    }
+
+    /// Whether `session_cid` may route one more request that awaits an answer: it holds fewer
+    /// than [`MAX_PENDING_POSTINGS_PER_SESSION`].
+    pub fn admit_posting(&self, session_cid: u64) -> Result<(), NetworkError> {
+        let held = self
+            .inner
+            .read()
+            .observed_postings
+            .get(&session_cid)
+            .map_or(0, HashMap::len);
+        if held >= MAX_PENDING_POSTINGS_PER_SESSION {
+            return Err(error!(
+                ErrorCode::PendingRequestsAtCap,
+                session_cid, MAX_PENDING_POSTINGS_PER_SESSION
+            ));
+        }
+        Ok(())
+    }
+
+    /// Posts `session_cid`'s deregistration (`peer_conn_type`), done, for the other side's
+    /// crossing one to find within [`SIMULTANEOUS_DEREGISTER_WINDOW`].
+    pub async fn post_deregistration(
+        &self,
+        session_cid: u64,
+        ticket: Ticket,
+        peer_conn_type: PeerConnectionType,
+    ) {
+        self.insert_tracked_posting(
+            session_cid,
+            SIMULTANEOUS_DEREGISTER_WINDOW,
+            ticket,
+            PeerSignal::DeregistrationSuccess { peer_conn_type },
+            |_| {},
+        )
+        .await
+    }
+
+    /// Takes `peer_cid`'s pending deregistration of `session_cid`, if one is posted: the two
+    /// requests crossed, and the first already removed the pair. A posting matches once, and
+    /// only for [`SIMULTANEOUS_DEREGISTER_WINDOW`] after it was made, so a later registration
+    /// of the same pair is never mistaken for one already removed.
+    pub fn take_simultaneous_deregister(
         &mut self,
         session_cid: u64,
         peer_cid: u64,
     ) -> Option<Ticket> {
         log::trace!(target: "citadel", "Checking simultaneous deregister between {session_cid} and {peer_cid}");
-        self.check_simultaneous_event(peer_cid, |posting| {
+        let ticket = self.check_simultaneous_event(peer_cid, |posting| {
             if let PeerSignal::DeregistrationSuccess {
                 peer_conn_type: peer,
             } = &posting.signal
@@ -623,7 +704,9 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
             } else {
                 false
             }
-        })
+        })?;
+        let _ = self.remove_tracked_posting_inner(peer_cid, ticket);
+        Some(ticket)
     }
 
     fn check_simultaneous_event(
@@ -816,16 +899,10 @@ impl futures::Future for CitadelNodePeerLayerExecutor {
     }
 }
 
-/// Reads a field appended after a signal's original fields. A signal from a node that predates
-/// the field ends where it would begin, which bincode reports as an error; that means the field
-/// is absent, so it reads as `None`.
-fn appended_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Ok(Option::<T>::deserialize(deserializer).ok().flatten())
-}
+/// Reads a field appended after a signal's original fields: a signal from a node that predates
+/// the field ends where it would begin and reads as `None`. One definition, the negotiation
+/// crate's, for every appended field.
+use citadel_negotiation::frame::appended_field;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[allow(variant_size_differences)]
@@ -860,6 +937,13 @@ pub enum PeerSignal {
         /// a connection that has one; that connection's own end follows, named.
         #[serde(default)]
         disconnect_token: Option<DisconnectToken>,
+        /// Why the connection was closed, when it was closed on purpose (see
+        /// [`DisconnectReason`](super::negotiation::reason::DisconnectReason)). Appended last, so
+        /// an older node ignores it and one from an older node reads as `None`. The server
+        /// rebuilds this signal rather than relaying its bytes, so a server below
+        /// `NEGOTIATION_SINCE` drops it; the negotiation lane carries it past such a server.
+        #[serde(default, deserialize_with = "appended_field")]
+        reason: Option<super::negotiation::reason::DisconnectReason>,
     },
     DisconnectUDP {
         peer_conn_type: PeerConnectionType,
@@ -1190,3 +1274,7 @@ mod tests {
 #[cfg(test)]
 #[path = "peer_layer_incarnation_tests.rs"]
 mod incarnation_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "peer_layer_bounds_tests.rs"]
+mod bounds_tests;

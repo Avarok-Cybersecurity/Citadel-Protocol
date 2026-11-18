@@ -36,17 +36,20 @@ use crate::proto::peer::kex_path::{self, KexPath};
 use crate::proto::peer::p2p_campaign;
 use crate::proto::peer::p2p_path::CampaignEndGuard;
 use crate::proto::peer::p2p_plan::execution_plan;
-use citadel_types::proto::PairFeasibility;
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
 use crate::proto::misc::platform_ops::PlatformOps;
+use crate::proto::peer::negotiation::reason::reported_reason;
+use crate::proto::peer::negotiation::refusal::{
+    end_attempt_refused_by, refuse_stamp, take_attempt_stamped_below,
+};
 use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
 use citadel_crypt::prelude::ConstructorOpts;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
-use citadel_types::proto::UdpMode;
+use citadel_types::proto::{stronger_offer, UdpMode};
 use citadel_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
@@ -62,6 +65,7 @@ use crate::proto::packet_processor::primary_group_packet::{
 use crate::proto::peer::hole_punch_compat_sink_stream::{
     CompatStreamKey, ReliableOrderedCompatStream,
 };
+use crate::proto::peer::p2p_seal_binding::{exchange_psks, P2pSealContext};
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
     CitadelNodePeerLayerInner, ClientConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
@@ -69,6 +73,7 @@ use crate::proto::peer::peer_layer::{
 use crate::proto::pq_sign_in;
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::CitadelSessionManager;
+use crate::proto::state_container::relay_route::admits_key_exchange;
 use crate::proto::state_container::OutgoingPeerConnectionAttempt;
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use citadel_io::tokio::sync::oneshot;
@@ -148,8 +153,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                     match &signal {
                         PeerSignal::Disconnect {
                             peer_conn_type: vconn,
-                            disconnect_response: _resp,
+                            disconnect_response: ref resp,
                             ref disconnect_token,
+                            reason,
                         } => {
                             // The target is always "the other peer" — the CID
                             // that isn't ours. Vconns are keyed by peer CID,
@@ -176,17 +182,24 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             }
 
                             let mut state_container = inner_mut_state!(session.state_container);
-                            state_container.remove_udp_channel(target);
-                            // Preserve ratchet for in-flight packet decryption,
-                            // then remove the vconn cleanly.
-                            if let Some(ratchet) = state_container
-                                .active_virtual_connections
-                                .get(&target)
-                                .and_then(|vconn| vconn.get_endpoint_ratchet(None))
-                            {
-                                state_container.stale_p2p_ratchets.insert(target, ratchet);
-                            }
-                            state_container.active_virtual_connections.remove(&target);
+                            // A server that rebuilt the signal without its reason cannot hide it:
+                            // the peer gave it on the connection's lane before disconnecting.
+                            let reason = reported_reason(
+                                *reason,
+                                state_container
+                                    .peer_closing_of(
+                                        target,
+                                        disconnect_token.map(|token| token.connection_id),
+                                    )
+                                    .as_ref(),
+                            );
+                            let signal = PeerSignal::Disconnect {
+                                peer_conn_type: *vconn,
+                                disconnect_response: resp.clone(),
+                                disconnect_token: *disconnect_token,
+                                reason,
+                            };
+                            let _ = state_container.end_virtual_connection(target);
                             let _ = state_container
                                 .fail_transfers_with_peer(target, "the peer disconnected");
 
@@ -310,6 +323,26 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         // unique to the session.
                                         //let mut state_container = inner_mut!(session.state_container);
                                         //let peer_cid = conn.get_original_session_cid();
+
+                                        // R-DIAL 3: never build a link below our own offer.
+                                        let stamped_below = take_attempt_stamped_below(
+                                            &mut inner_mut_state!(session.state_container),
+                                            *original_session_cid,
+                                            *endpoint_security_settings,
+                                        );
+                                        if let Some(attempt) = stamped_below {
+                                            return refuse_stamp(
+                                                &session.kernel_tx,
+                                                session_cid,
+                                                *original_session_cid,
+                                                attempt,
+                                                *endpoint_security_settings,
+                                                ticket,
+                                                &sess_ratchet,
+                                                timestamp,
+                                                security_level,
+                                            );
+                                        }
 
                                         let alice_constructor = return_if_none!(
                                             <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
@@ -527,6 +560,27 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         return Ok(PrimaryProcessorResult::Void);
                                     }
 
+                                    // R-DIAL 3, bob's side: the exchange alice started must not
+                                    // be below the offer we made for this link.
+                                    if let Some(attempt) = take_attempt_stamped_below(
+                                        &mut state_container,
+                                        peer_cid,
+                                        *session_security_settings,
+                                    ) {
+                                        drop(state_container);
+                                        return refuse_stamp(
+                                            &session.kernel_tx,
+                                            session_cid,
+                                            peer_cid,
+                                            attempt,
+                                            *session_security_settings,
+                                            ticket,
+                                            &sess_ratchet,
+                                            timestamp,
+                                            security_level,
+                                        );
+                                    }
+
                                     // Guard: during simultaneous P2P connect, both peers
                                     // run Accept handlers, each storing an alice_constructor
                                     // in peer_kem_states. When the other peer's Stage0
@@ -571,13 +625,24 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         }
                                     }
 
-                                    let session_password =
-                                        state_container.get_session_password(peer_cid).cloned();
-                                    if session_password.is_none() {
-                                        log::error!(target: "citadel", "The session password locally is set to None. This is a development issue, please report");
-                                    }
-
-                                    let session_password = session_password.unwrap_or_default();
+                                    // This node stores a session password for a peer only
+                                    // when it asks to connect or accepts the peer's request, so
+                                    // without one there is no request this exchange answers.
+                                    let Some(session_password) =
+                                        state_container.get_session_password(peer_cid).cloned()
+                                    else {
+                                        log::warn!(target: "citadel", "Refusing a key exchange from {peer_cid}: no connection request with it");
+                                        return Ok(PrimaryProcessorResult::Void);
+                                    };
+                                    let psks = exchange_psks(
+                                        &session_password,
+                                        P2pSealContext {
+                                            initiator: peer_cid,
+                                            responder: conn.get_original_target_cid(),
+                                            connection: *p2p_connection_id,
+                                        },
+                                        *peer_protocol_version,
+                                    );
 
                                     let mut bob_constructor = return_if_none!(
                                         <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
@@ -587,7 +652,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 session_security_settings.security_level,
                                             ),
                                             transfer_deser,
-                                            session_password.as_ref(),
+                                            &psks,
                                         )
                                     );
                                     let transfer = return_if_none!(bob_constructor.stage0_bob());
@@ -700,10 +765,18 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             "bad deser"
                                         );
 
-                                        if let Err(err) = alice_constructor.stage1_alice(
-                                            deser,
-                                            kem_state.session_password.as_ref(),
-                                        ) {
+                                        let psks = exchange_psks(
+                                            &kem_state.session_password,
+                                            P2pSealContext {
+                                                initiator: this_cid,
+                                                responder: peer_cid,
+                                                connection: kem_state.p2p_connection_id,
+                                            },
+                                            *peer_protocol_version,
+                                        );
+                                        if let Err(err) =
+                                            alice_constructor.stage1_alice(deser, &psks)
+                                        {
                                             log::warn!(target: "citadel", "Failed to complete key exchange for {session_cid} | Wrong session passwords? Err: {err:?}");
                                             send_dc_signal_peer(
                                                 session,
@@ -893,7 +966,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
-                                    let direct_impossible = should_use_turn(needs_turn);
+                                    let direct_impossible = needs_turn;
                                     let stamped = kex_path::stamped_plan(
                                         kex_path_in.as_ref(),
                                         *peer_protocol_version,
@@ -1091,7 +1164,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             udp_rx_opt,
                                         });
 
-                                    let direct_impossible = should_use_turn(needs_turn);
+                                    let direct_impossible = needs_turn;
                                     let stamped = kex_path::stamped_plan(
                                         kex_path_in.as_ref(),
                                         *peer_protocol_version,
@@ -1159,12 +1232,13 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             ..
                         } => {
                             let peer_cid = conn.get_original_session_cid();
-                            let (has_outgoing, connected, exchanging) = {
+                            let (our_offer, connected, exchanging) = {
                                 let state_container = inner_state!(session.state_container);
                                 (
                                     state_container
                                         .outgoing_peer_connect_attempts
-                                        .contains_key(&peer_cid),
+                                        .get(&peer_cid)
+                                        .map(|dial| dial.session_security_settings),
                                     state_container.has_live_peer_connection(peer_cid),
                                     state_container
                                         .peer_kem_states
@@ -1173,6 +1247,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 )
                             };
 
+                            let has_outgoing = our_offer.is_some();
                             if has_outgoing && connected {
                                 // Both sides dialled again over a live connection. Accepting
                                 // here would replace its KEM state (and UDP offer) below; the
@@ -1192,12 +1267,16 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 return Ok(PrimaryProcessorResult::Void);
                             }
 
-                            if has_outgoing {
+                            if let Some(our_offer) = our_offer {
                                 // Both sides are trying to connect to each other.
                                 // Use CID-based tiebreaker: lower CID auto-accepts.
                                 let we_are_lower = session_cid < peer_cid;
                                 if we_are_lower {
                                     log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} auto-accepting incoming PostConnect from {peer_cid}");
+                                    // Nobody was asked to accept: both dialled. The link
+                                    // takes the stronger of the two offers.
+                                    let endpoint_security_settings =
+                                        &stronger_offer(*endpoint_security_settings, our_offer);
 
                                     // Store peer KEM state for the incoming connection
                                     let mut state_container =
@@ -1241,6 +1320,19 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 }
                             }
                             // Not simultaneous connect - fall through to forward to kernel
+                        }
+
+                        PeerSignal::SignalError {
+                            ticket: refused,
+                            peer_connection_type,
+                            ..
+                        } => {
+                            end_attempt_refused_by(
+                                &mut inner_mut_state!(session.state_container),
+                                peer_connection_type,
+                                *refused,
+                                session_cid,
+                            );
                         }
 
                         PeerSignal::WebRtcSignaling {
@@ -1308,9 +1400,12 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref;
+    let authenticated_cid = return_if_none!(session.session_cid.get());
+    let signal = super::server::sender_binding::as_sent_by(signal, authenticated_cid);
     if let PeerSignal::SignInManagement { message, .. } = signal {
         let session_cid = return_if_none!(session.session_cid.get());
-        let reply = pq_sign_in::manage::on_message(session, message).await;
+        let layout = pq_sign_in::layout_of(Some(header.protocol_version.get()));
+        let reply = pq_sign_in::manage::on_message(session, message, layout).await;
         let signal = PeerSignal::SignInManagement {
             session_cid,
             message: reply,
@@ -1372,14 +1467,20 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             let target_cid = conn.get_original_target_cid();
             let path = kex_path::stamp(session.path_policy.as_ref(), path, || {
                 let target_nat = session.session_manager.adjacent_nat_type_of(target_cid)?;
-                Some(PairFeasibility {
-                    direct: !should_use_turn(!sender_nat.stun_compatible(&target_nat)),
-                    forwarder: None,
-                })
+                Some(kex_path::pair_feasibility(&sender_nat, &target_nat))
             });
 
             // since this is the server, we just need to route this to the target_cid
             let sess_mgr = inner!(session.session_manager);
+            // Taken under the session manager's lock, which the accept that forges the route holds
+            // until the route exists.
+            if !admits_key_exchange(
+                &inner_state!(session.state_container).active_virtual_connections,
+                target_cid,
+            ) {
+                log::warn!(target: "citadel", "Not relaying a key exchange from {authenticated_cid} to {target_cid}: the pair has no accepted connection");
+                return Ok(PrimaryProcessorResult::Void);
+            }
             let signal_to = PeerSignal::Kex {
                 peer_conn_type: conn,
                 kex_payload: kep,
@@ -1431,8 +1532,8 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     peer_cid: target_cid,
                 } => {
                     let session_cid = header.session_cid.get();
-                    const TIMEOUT: Duration = Duration::from_secs(60 * 60); // 1 hour
-                                                                            // if the peer response is some, then HyperLAN Client B responded
+                    const TIMEOUT: Duration = crate::constants::PEER_POSTING_TIMEOUT;
+                    // if the peer response is some, then HyperLAN Client B responded
                     if let Some(peer_response) = peer_response {
                         // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
                         super::server::post_register::handle_response_phase_post_register(
@@ -1469,6 +1570,13 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             peer_cid: target_cid,
                         };
 
+                        // Resolved before the peer-layer lock: holding it across a backend
+                        // round-trip would serialise every pair's signalling behind this one.
+                        let target_registration = session
+                            .account_manager
+                            .hyperlan_cid_is_registered(target_cid)
+                            .await
+                            .map_err(|err| err.into_string());
                         let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_register(session_cid, target_cid)
@@ -1541,6 +1649,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                 &sess_ratchet,
                                 security_level,
                                 &mut peer_layer,
+                                target_registration,
                             )
                             .await
                         }
@@ -1573,7 +1682,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     let mut register_event = false;
 
                     let dereg_result = if peer_layer_lock
-                        .check_simultaneous_deregister(session_cid, target_cid)
+                        .take_simultaneous_deregister(session_cid, target_cid)
                         .is_some()
                     {
                         // if the other peer is simultaneously deregistering, mark as Ok(())
@@ -1592,13 +1701,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             if register_event {
                                 log::trace!(target: "citadel", "Registering dereg event");
                                 peer_layer_lock
-                                    .insert_tracked_posting(
-                                        session_cid,
-                                        Duration::from_secs(60 * 60),
-                                        ticket,
-                                        PeerSignal::DeregistrationSuccess { peer_conn_type },
-                                        |_| {},
-                                    )
+                                    .post_deregistration(session_cid, ticket, peer_conn_type)
                                     .await;
                             }
                             drop(peer_layer_lock);
@@ -1698,6 +1801,12 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
                         let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
                         let sess_mgr = session.session_manager.clone();
+                        // Resolved before the peer-layer lock (see PostRegister).
+                        let target_registration = session
+                            .account_manager
+                            .hyperlan_cid_is_registered(target_cid)
+                            .await
+                            .map_err(|err| err.into_string());
                         let peer_layer_arc = session.hypernode_peer_layer.inner.clone();
                         let mut peer_layer = peer_layer_arc.write().await;
                         // Self-supersede: any pending PostConnect this sender still has for the
@@ -1711,6 +1820,17 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                         {
                             log::trace!(target: "citadel", "Simultaneous connect detected! Simulating session_cid={session_cid} sent an accept_connect to target={target_cid}");
                             log::trace!(target: "citadel", "Simultaneous connect: first_ticket: {ticket_new} | sender expected ticket: {ticket}");
+                            // Neither agent was asked to accept: both dialled. The link takes
+                            // the stronger offer, not whichever was processed second.
+                            let first_offer = peer_layer
+                                .pending_connect_offer(target_cid, ticket_new)
+                                .ok_or_else(|| {
+                                    NetworkError::msg(format!(
+                                        "Simultaneous connect matched posting {ticket_new} of {target_cid}, which holds no PostConnect offer"
+                                    ))
+                                })?;
+                            let merged_settings =
+                                stronger_offer(first_offer, endpoint_security_level);
                             peer_layer.insert_mapped_ticket(session_cid, ticket_new, ticket);
                             // NOTE: Packet will rebound to sender, then, sender will locally send
                             // packet to the peer who first attempted a connect request
@@ -1720,7 +1840,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                     peer_conn_type,
                                     ticket_new,
                                     PeerResponse::Accept(None),
-                                    endpoint_security_level,
+                                    merged_settings,
                                     udp_enabled,
                                     session_cid,
                                     target_cid,
@@ -1736,6 +1856,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             // This prevents a race where two PostConnects slip through before either is registered.
                             route_signal_and_register_ticket_forwards_with_lock(
                                 &mut peer_layer,
+                                target_registration,
                                 PeerSignal::PostConnect {
                                     peer_conn_type,
                                     ticket_opt: Some(ticket),
@@ -1774,6 +1895,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             peer_conn_type,
             disconnect_response: resp,
             disconnect_token,
+            reason,
         } => {
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
@@ -1814,6 +1936,9 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             // The connection the sender ended, so the peer can tell it from
                             // one that has since replaced it.
                             disconnect_token,
+                            // This signal is rebuilt, not relayed: a field not copied here
+                            // never reaches the peer (`DisconnectReason`).
+                            reason,
                         };
 
                         // now, remove target CID's v_conn to `session_cid`
@@ -1844,6 +1969,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             "Server has begun disconnection".to_string(),
                         )),
                         disconnect_token,
+                        reason,
                     };
 
                     reply_to_sender(
@@ -2109,20 +2235,6 @@ fn take_turn_config<R: Ratchet, T: PlatformOps>(
         .remove(&peer_cid)
 }
 
-/// Whether to use TURN routing. In localhost-testing mode, always attempt
-/// direct hole-punching regardless of `needs_turn`.
-fn should_use_turn(needs_turn: bool) -> bool {
-    #[cfg(feature = "localhost-testing")]
-    {
-        let _ = needs_turn;
-        false
-    }
-    #[cfg(not(feature = "localhost-testing"))]
-    {
-        needs_turn
-    }
-}
-
 #[inline]
 /// This just makes the repeated operation above cleaner. By itself does not send anything; must return the result of this closure directly
 fn reply_to_sender<R: Ratchet>(
@@ -2193,12 +2305,13 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, T: Pla
     sess_ratchet: &R,
     security_level: SecurityLevel,
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
+    target_registration: Result<bool, String>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_ratchet_2 = sess_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
     // Give the target_cid 10 seconds to respond
-    let res = sess_mgr.route_signal_primary(peer_layer, session_cid, target_cid, ticket, signal.clone(), move |peer_ratchet| {
+    let res = sess_mgr.route_signal_primary(peer_layer, target_registration, session_cid, target_cid, ticket, signal.clone(), move |peer_ratchet| {
         packet_crafter::peer_cmd::craft_peer_signal(peer_ratchet, signal.clone(), ticket, timestamp, security_level)
     }, timeout, move |stale_signal| {
         // on timeout, run this
@@ -2237,6 +2350,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
     T: PlatformOps,
 >(
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
+    target_registration: Result<bool, String>,
     signal: PeerSignal,
     timeout: Duration,
     session_cid: u64,
@@ -2254,6 +2368,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
     let res = sess_mgr
         .route_signal_primary(
             peer_layer,
+            target_registration,
             session_cid,
             target_cid,
             ticket,

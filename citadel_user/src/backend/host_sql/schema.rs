@@ -48,7 +48,8 @@ pub(super) const SELECT_IMPERSONAL_CIDS: &str =
 pub(super) const DELETE_CNAC: &str = "DELETE FROM citadel_cnacs WHERE cid = ?";
 pub(super) const DELETE_PEERS_OF_CNAC: &str =
     "DELETE FROM citadel_peers WHERE cid = ? OR peer_cid = ?";
-pub(super) const DELETE_BYTEMAP_OF_CNAC: &str = "DELETE FROM citadel_bytemap WHERE cid = ?";
+pub(super) const DELETE_BYTEMAP_OF_CNAC: &str =
+    "DELETE FROM citadel_bytemap WHERE cid = ? OR peer_cid = ?";
 pub(super) const DELETE_REVFS_CHUNKS_OF_CNAC: &str = "DELETE FROM citadel_revfs_chunks WHERE upload IN (SELECT upload FROM citadel_revfs_files WHERE cid = ? UNION SELECT upload FROM citadel_revfs_uploads WHERE cid = ?)";
 pub(super) const DELETE_REVFS_FILES_OF_CNAC: &str = "DELETE FROM citadel_revfs_files WHERE cid = ?";
 pub(super) const DELETE_REVFS_UPLOADS_OF_CNAC: &str =

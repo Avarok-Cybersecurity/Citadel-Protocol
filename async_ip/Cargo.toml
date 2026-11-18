@@ -22,3 +22,6 @@ futures = { workspace = true, features = ["alloc"] }
 async-trait = { workspace = true }
 auto_impl = { workspace = true }
 reqwest = { workspace = true }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros", "rt", "net", "io-util"] }

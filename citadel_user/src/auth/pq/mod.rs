@@ -43,21 +43,18 @@ mod tests_factors;
 #[cfg(test)]
 mod tests_manage;
 #[cfg(test)]
+mod tests_manage_0_12_2;
+#[cfg(test)]
+mod tests_password_whitespace;
+#[cfg(test)]
 mod tests_record;
 
-use messages::{
-    transcript_bytes, LoginChallenge, LoginStart, ManagementBegin, ManagementChallenge,
-    NewSecurityKey,
-};
+use messages::{transcript_bytes, AuthChallenge, LoginStart, ManagementBegin, ManagementChallenge};
 use proof::{TranscriptHash, TranscriptPurpose};
 
 /// The transcript a login's tags are bound to: the account, the client's start and the server's
-/// challenge, byte for byte.
-pub fn login_transcript(
-    cid: u64,
-    start: &LoginStart,
-    challenge: &LoginChallenge,
-) -> TranscriptHash {
+/// challenge, byte for byte as sent (so a 0.12.2 peer's transcript is its own).
+pub fn login_transcript(cid: u64, start: &LoginStart, challenge: &AuthChallenge) -> TranscriptHash {
     TranscriptHash::new(
         TranscriptPurpose::Login,
         cid,
@@ -66,12 +63,13 @@ pub fn login_transcript(
 }
 
 /// The transcript a management step-up is bound to: the change asked for, the server's challenge,
-/// and the key being added (if any), so a proof made for one change cannot authorize another.
+/// and the key being added (`ManagementCommit::key_binding`), so a proof made for one change
+/// cannot authorize another.
 pub fn management_transcript(
     cid: u64,
     begin: &ManagementBegin,
     challenge: &ManagementChallenge,
-    new_key: Option<&NewSecurityKey>,
+    key_binding: &[u8],
 ) -> TranscriptHash {
     TranscriptHash::new(
         TranscriptPurpose::StepUp,
@@ -79,7 +77,7 @@ pub fn management_transcript(
         &[
             &transcript_bytes(begin),
             &transcript_bytes(challenge),
-            &transcript_bytes(&new_key),
+            key_binding,
         ],
     )
 }

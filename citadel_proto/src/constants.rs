@@ -60,7 +60,16 @@ pub const MINOR_VERSION: u8 = 12;
 // effective plan into the pair's key exchange (see `PATH_POLICY_SINCE`). Additive: a node below it
 // neither sends nor reads either, and its peers plan their paths as before. In the same patch,
 // servers honour a group's relay options (see `GROUP_RELAY_OPTIONS_SINCE`).
-pub const PATCH_VERSION: u8 = 2;
+// Bumped 2 -> 3 (one release, several additive changes, each with its own gate at 0.12.3):
+// P2P connections carry a negotiation lane, and a deliberate disconnect carries its reason (see
+// `NEGOTIATION_SINCE`); a P2P connection's keys are derived from the pair it joins and the
+// connection's id (see `IDENTITY_BOUND_SEAL_SINCE`); the coordination endpoints pair
+// subscriptions by an exchanged id within a named topic, and time a synchronized start by a
+// relative delay (see `EXCHANGED_SUBSCRIPTIONS_SINCE`); a server names its security-key relying
+// party and a client creates the credential it enrols (see `SECURITY_KEY_CEREMONY_SINCE`).
+// Additive: each side uses them only with a node at or above the gate, and with an older peer
+// behaves as before.
+pub const PATCH_VERSION: u8 = 3;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -113,6 +122,36 @@ pub const PATH_POLICY_SINCE: (u8, u8, u8) = (0, 12, 2);
 /// version; an older sender gets the `MessageResponse { success: false }` it understands). A
 /// server below it would ignore both options, so a client refuses to create such a group there.
 pub const GROUP_RELAY_OPTIONS_SINCE: (u8, u8, u8) = (0, 12, 2);
+
+/// The first protocol version whose P2P connections carry a negotiation lane: control frames on
+/// the reliable stream, beginning with each side's `Hello`, that the SDK takes out before the
+/// application sees them (`proto::peer::negotiation::lane`). Its server copies a deliberate
+/// disconnect's `reason` into the `PeerSignal::Disconnect` it sends on. A peer below it, or of
+/// unknown version, is sent no lane frame and its Hello reads as empty: every setting is legacy
+/// toward it. A server below it drops the reason, which the lane then carries instead.
+pub const NEGOTIATION_SINCE: (u8, u8, u8) = (0, 12, 3);
+
+/// The first protocol version whose P2P key exchange binds the keys to the connection they are
+/// for: both peers mix the initiator's CID, the responder's CID and the connection's id into the
+/// exchange (`proto::peer::p2p_seal_binding`), so a packet is accepted only under the connection
+/// it was sealed for. Both peers must agree: each binds only when the other's key-exchange signal
+/// names a version at or above it, and a pair with an older or unknown peer derives its keys as
+/// before.
+pub const IDENTITY_BOUND_SEAL_SINCE: (u8, u8, u8) = (0, 12, 3);
+
+/// The first protocol version whose hole-punch and P2P coordination endpoints speak
+/// `netbeam::sync::wire::WireRevision::Exchanged`. Both ends pick the revision from the other's
+/// version, so a pair with either below it, or of unknown version, speaks the count-paired wire.
+pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
+
+/// The first protocol version whose sign-in messages carry the security-key ceremony: a server
+/// names the WebAuthn relying party its keys are scoped to and the keys an enrolment must avoid,
+/// and a client enrolling a key creates its credential after the challenge, rather than naming
+/// one it created before. Each field rides appended after the 0.12.2 layout
+/// (`citadel_user::auth::pq::messages::SignInLayout`). A peer below it, or of unknown version, is
+/// sent exactly the 0.12.2 bytes and hashes the 0.12.2 transcript; a client cannot enrol a key at
+/// a server below it.
+pub const SECURITY_KEY_CEREMONY_SINCE: (u8, u8, u8) = (0, 12, 3);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.
@@ -169,6 +208,9 @@ pub const RAW_UDP_SAFE_DATAGRAM_LEN: usize = 1280 - 40 - 8;
 pub const CODEC_BUFFER_CAPACITY: usize = u16::MAX as usize;
 /// The minimum number of bytes allocated in the codec
 pub const CODEC_MIN_BUFFER: usize = 8192;
+/// How long the server holds a registration invite for its target to answer, before answering
+/// it as timed out. (A deregistration's posting lasts only `SIMULTANEOUS_DEREGISTER_WINDOW`.)
+pub const PEER_POSTING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 /// After the time defined below, any incomplete packet groups will be discarded
 pub const GROUP_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(60000);
 /// After this time, the registration state is invalidated
@@ -201,6 +243,42 @@ mod tests {
 
     fn version(major: usize, minor: usize, patch: usize) -> Option<u32> {
         Some(Semver::new(major, minor, patch).to_u32().unwrap())
+    }
+
+    #[test]
+    fn this_node_carries_the_negotiation_lane_and_the_previous_patch_does_not() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            NEGOTIATION_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 12, 2),
+            NEGOTIATION_SINCE
+        ));
+    }
+
+    #[test]
+    fn this_node_binds_p2p_keys_and_the_previous_patch_does_not() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            IDENTITY_BOUND_SEAL_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 12, 2),
+            IDENTITY_BOUND_SEAL_SINCE
+        ));
+    }
+
+    #[test]
+    fn this_node_runs_the_security_key_ceremony_and_the_previous_patch_does_not() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            SECURITY_KEY_CEREMONY_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 12, 2),
+            SECURITY_KEY_CEREMONY_SINCE
+        ));
     }
 
     #[test]

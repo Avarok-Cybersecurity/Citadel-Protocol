@@ -264,13 +264,20 @@ impl<T: NetObject, S: Subscribable + 'static> Drop for ChannelRecvHalf<T, S> {
                     return chan.send_serialized(ChannelPacket::<T>::HaltVerified).await;
                 }
 
-                // wait for halt verified packet
+                // Wait for the peer to confirm. A peer dropping its half at the same moment sends
+                // its own Halt instead and waits just the same, so a Halt is its close: confirm it,
+                // and neither side waits on the other. Ends at the latest with the subscription.
                 loop {
                     let packet = chan.recv_serialized::<ChannelPacket<T>>().await?;
                     log::trace!(target: "citadel", "[Drop RECV] on {:?} recv {:?}", chan.node_type(), packet);
 
-                    if let ChannelPacket::<T>::HaltVerified = packet {
-                        break
+                    match packet {
+                        ChannelPacket::<T>::HaltVerified => break,
+                        ChannelPacket::<T>::Halt => {
+                            chan.send_serialized(ChannelPacket::<T>::HaltVerified).await?;
+                            break
+                        }
+                        ChannelPacket::<T>::Packet(_) => {}
                     }
                 }
 
@@ -296,9 +303,37 @@ impl<T: NetObject, S: Subscribable + 'static> Future for ChannelLoader<'_, T, S>
 
 #[cfg(test)]
 mod tests {
+    use crate::sync::subscription::Subscribable;
     use crate::sync::test_utils::create_streams;
     use citadel_io::tokio;
     use futures::StreamExt;
+    use std::time::Duration;
+
+    /// Both halves dropped at once each send a Halt and wait for the other's confirmation. Each
+    /// must read the other's Halt as that confirmation, or both close tasks wait for as long as
+    /// the transport lives, each holding its subscription.
+    #[tokio::test]
+    async fn channels_dropped_together_release_their_subscriptions() {
+        let (server, client) = create_streams().await;
+        let (a, b) = tokio::join!(server.bi_channel::<u32>(), client.bi_channel::<u32>());
+        let (a, b) = (a.unwrap(), b.unwrap());
+        assert_eq!(server.subscriptions().read().len(), 1);
+        assert_eq!(client.subscriptions().read().len(), 1);
+
+        drop(a);
+        drop(b);
+
+        let released =
+            || server.subscriptions().read().is_empty() && client.subscriptions().read().is_empty();
+        // A hang guard, not a latency bound: the close is a few loopback messages.
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while !released() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("a channel dropped on both sides at once never released its subscription");
+    }
 
     #[tokio::test]
     async fn bi_channel() {

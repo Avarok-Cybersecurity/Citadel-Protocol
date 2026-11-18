@@ -45,6 +45,13 @@ fn media_config() -> MediaTransportConfig {
         send_queue_frames: 256,
         udp_payload_budget: RECOMMENDED_UDP_PAYLOAD_BUDGET,
         udp_wait: std::time::Duration::from_secs(10),
+        // Test bound (PCND): generous for a loaded CI runner; an answer comes on receipt
+        negotiation: citadel_sdk::citadel_negotiation::NegotiationPolicy {
+            proposal_deadline: std::time::Duration::from_secs(30),
+            apply_deadline: std::time::Duration::from_secs(30),
+            max_apply_attempts: 1,
+            udp_retire_grace: None,
+        },
     };
     cfg.validate().expect("valid media config");
     cfg

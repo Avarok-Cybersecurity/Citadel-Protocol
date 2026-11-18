@@ -193,18 +193,16 @@ impl<const N: usize> PartitionedSecBuffer<N> {
         }
 
         // make sure every index before idx has a nonzero value
-        for idx in 0..idx {
-            if self.layout[idx] == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Previously unset partition detected",
-                ));
-            }
+        if self.layout[..idx].contains(&0) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Previously unset partition detected",
+            ));
         }
 
         // make sure every index after idx has a zero value
-        for idx in idx..N {
-            if self.layout[idx] != 0 {
+        for len in &self.layout[idx..] {
+            if *len != 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
                     "Next partitions already set",
@@ -250,11 +248,22 @@ impl DerefMut for SliceHandle<'_> {
 mod tests {
     use crate::secure_buffer::partitioned_sec_buffer::PartitionedSecBuffer;
 
+    /// A refused call must surface as its error. These tests asserted refusals with
+    /// `#[should_panic]`, and a panic in a test process where another test ran `setup_log`
+    /// reaches that test's exiting panic hook: plain `cargo test` aborted the whole binary.
+    fn assert_refused<T>(res: std::io::Result<T>, reason: &str) {
+        match res {
+            Ok(_) => panic!("accepted a call that must be refused with {reason:?}"),
+            Err(err) => {
+                assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+                assert_eq!(err.to_string(), reason);
+            }
+        }
+    }
+
     #[test]
-    #[should_panic]
     fn partitioned_sec_buffer_0() {
-        citadel_logging::should_panic_test();
-        let _ = PartitionedSecBuffer::<0>::new().unwrap();
+        assert_refused(PartitionedSecBuffer::<0>::new(), "Partitions == 0");
     }
 
     #[test]
@@ -267,20 +276,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn partitioned_sec_buffer_1_improper() {
-        citadel_logging::should_panic_test();
         let mut buf = PartitionedSecBuffer::<1>::new().unwrap();
-        buf.reserve_partition(1, 10).unwrap();
+        assert_refused(buf.reserve_partition(1, 10), "idx > partitions");
     }
 
     #[test]
-    #[should_panic]
     fn partitioned_sec_buffer_1_improper_2() {
-        citadel_logging::should_panic_test();
         let mut buf = PartitionedSecBuffer::<1>::new().unwrap();
         buf.reserve_partition(0, 10).unwrap();
-        buf.partition_window(1).unwrap().fill(1);
+        assert_refused(buf.partition_window(1).map(|_| ()), "idx > partitions");
     }
 
     #[test]
@@ -312,12 +317,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn partitioned_sec_buffer_2_improper() {
-        citadel_logging::should_panic_test();
         let mut buf = PartitionedSecBuffer::<2>::new().unwrap();
-        //buf.reserve_partition(0, 10).unwrap();
-        buf.reserve_partition(1, 3).unwrap();
+        assert_refused(
+            buf.reserve_partition(1, 3),
+            "Previously unset partition detected",
+        );
     }
 
     #[test]

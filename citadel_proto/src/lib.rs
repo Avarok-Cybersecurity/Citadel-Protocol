@@ -265,9 +265,9 @@ pub mod macros {
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(
-                citadel_io::tokio::task::spawn_local($future),
-            )
+            crate::proto::misc::panic_future::OwnedTask::new(citadel_io::tokio::task::spawn_local(
+                $future,
+            ))
         };
     }
 
@@ -483,9 +483,9 @@ pub mod macros {
 
     macro_rules! spawn_handle {
         ($future:expr) => {
-            crate::proto::misc::panic_future::ExplicitPanicFuture::new(
-                citadel_io::tokio::task::spawn($future),
-            )
+            crate::proto::misc::panic_future::OwnedTask::new(citadel_io::tokio::task::spawn(
+                $future,
+            ))
         };
     }
 
@@ -605,6 +605,10 @@ pub mod prelude {
         GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
     };
     pub use crate::proto::peer::kex_path::KexPath;
+    /// The SDK adapters of the in-session negotiation layer (`citadel_negotiation`).
+    pub use crate::proto::peer::negotiation;
+    pub use crate::proto::peer::negotiation::lane::{LanePort, NegotiationLane, SettingLane};
+    pub use crate::proto::peer::negotiation::reason::DisconnectReason;
     pub use crate::proto::peer::p2p_outcome::{
         PathAttemptOutcome, PathPlanKind, PathStage, PeerPathOutcome, StageFailure, StageOutcome,
     };
@@ -614,6 +618,7 @@ pub mod prelude {
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, PEER_MAILBOX_MAP};
     pub use crate::proto::remote::Ticket;
     pub use crate::proto::server_probe::{ServerProbeOutcome, ServerProbeResult};
+    pub use crate::proto::session_ledger::SessionFootprint;
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::proto::traffic::{ByteCount, NodeTrafficSnapshot, PathBytesSnapshot};
     pub use citadel_io::ServerMode;

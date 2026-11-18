@@ -56,6 +56,7 @@ use crate::endpoint_crypto_container::{
 };
 use crate::misc::CryptError;
 use crate::prelude::Toolset;
+use crate::ratchets::key_epoch::{EpochLedger, KeyEpochTag};
 use crate::ratchets::Ratchet;
 use crate::sync_toggle::ToggleGuard;
 use atomic::Atomic;
@@ -64,6 +65,7 @@ use citadel_io::time::{Duration, UNIX_EPOCH};
 use citadel_io::tokio::sync::Mutex as TokioMutex;
 use citadel_io::tokio_stream::Stream;
 use citadel_io::{tokio, Mutex};
+use citadel_negotiation::Epoch;
 use futures::{Sink, SinkExt, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -101,6 +103,32 @@ where
     /// Timestamp (seconds since UNIX_EPOCH) when declared_version was last incremented.
     /// Used to detect stale declared_version that blocks new rekeys.
     declared_version_set_at: Arc<AtomicU64>,
+    /// Negotiated key epochs: steered rounds, the versions they built, the Bob-side gate.
+    epochs: Arc<EpochLedger>,
+    /// Woken once the rekey process has ended for good (`state` reads `Halted`).
+    halted: Arc<tokio::sync::Notify>,
+}
+
+/// What one trigger did: the payload it did not send, and the version a round it sent builds on.
+struct Triggered<P> {
+    unsent: Option<P>,
+    sent_from: Option<u32>,
+}
+
+impl<P> Triggered<P> {
+    fn unsent(payload: Option<P>) -> Self {
+        Self {
+            unsent: payload,
+            sent_from: None,
+        }
+    }
+
+    fn sent(from: u32) -> Self {
+        Self {
+            unsent: None,
+            sent_from: Some(from),
+        }
+    }
 }
 
 pub(crate) type LocalListener<R> = Arc<Mutex<Option<citadel_io::tokio::sync::oneshot::Sender<R>>>>;
@@ -165,6 +193,8 @@ impl<S, I, R: Ratchet, P: AttachedPayload> Clone for RatchetManager<S, I, R, P> 
             shutdown_tx: self.shutdown_tx.clone(),
             rekey_trigger_semaphore: self.rekey_trigger_semaphore.clone(),
             declared_version_set_at: self.declared_version_set_at.clone(),
+            epochs: self.epochs.clone(),
+            halted: self.halted.clone(),
         }
     }
 }
@@ -217,6 +247,20 @@ pub enum RatchetMessage<P> {
     LoserCanFinish,
     #[serde(bound = "")]
     JustMessage(P),
+    /// An `AliceToBob` for a steered round that builds a negotiated key epoch (§5.1). Sent only
+    /// to a peer that negotiates in band, so a peer predating it never receives one.
+    EpochAliceToBob {
+        payload: Vec<u8>,
+        earliest_ratchet_version: u32,
+        latest_ratchet_version: u32,
+        metadata: RekeyMetadata,
+        epoch: KeyEpochTag,
+    },
+    /// The receiver's answer to an `EpochAliceToBob` it did not agree to: the round is dropped.
+    EpochRefused {
+        metadata: RekeyMetadata,
+        epoch: Epoch,
+    },
 }
 
 impl<P> Debug for RatchetMessage<P> {
@@ -230,6 +274,10 @@ impl<P> Debug for RatchetMessage<P> {
             RatchetMessage::LeaderCanFinish { .. } => write!(f, "LeaderCanFinish"),
             RatchetMessage::LoserCanFinish => write!(f, "LoserCanFinish"),
             RatchetMessage::JustMessage(_) => write!(f, "JustMessage"),
+            RatchetMessage::EpochAliceToBob { epoch, .. } => {
+                write!(f, "EpochAliceToBob(epoch: {:?})", epoch.epoch)
+            }
+            RatchetMessage::EpochRefused { epoch, .. } => write!(f, "EpochRefused({epoch:?})"),
         }
     }
 }
@@ -303,6 +351,8 @@ where
             shutdown_tx: Arc::new(Mutex::new(Some(shutdown_tx))),
             rekey_trigger_semaphore: Arc::new(Semaphore::new(1)),
             declared_version_set_at: Arc::new(AtomicU64::new(0)),
+            epochs: Arc::new(EpochLedger::new()),
+            halted: Arc::new(tokio::sync::Notify::new()),
         };
 
         this.clone()
@@ -341,6 +391,52 @@ where
         attached_payload: Option<P>,
         wait_for_completion: bool,
     ) -> Result<Option<P>, CryptError> {
+        let mut attached_payload = attached_payload;
+        self.trigger_rekey_retaining_payload(&mut attached_payload, wait_for_completion)
+            .await
+    }
+
+    /// [`Self::trigger_rekey_with_payload`], except that a payload the call could not send stays
+    /// in `attached_payload` when it fails, so the caller keeps it. It leaves only by riding the
+    /// round's first frame or by coming back in `Ok(Some(_))`.
+    pub async fn trigger_rekey_retaining_payload(
+        &self,
+        attached_payload: &mut Option<P>,
+        wait_for_completion: bool,
+    ) -> Result<Option<P>, CryptError> {
+        self.trigger_round(attached_payload, wait_for_completion, None)
+            .await
+            .map(|triggered| triggered.unsent)
+    }
+
+    /// Starts one steered round building `tag` (the Leader's key-epoch apply, §5.1) and returns
+    /// the version it builds on. A round already in flight is waited out first, and this side's
+    /// plain rekeys stand aside meanwhile, so local contention cannot happen; only the peer's can,
+    /// and [`Self::await_epoch_round`] reports it as `Superseded`.
+    pub async fn trigger_rekey_with_profile(&self, tag: KeyEpochTag) -> Result<u32, CryptError> {
+        let _priority = self.epochs.claim_priority();
+        loop {
+            let mut round_ends = self.epochs.subscribe();
+            if let Some(from) = self
+                .trigger_round(&mut None, false, Some(tag))
+                .await?
+                .sent_from
+            {
+                return Ok(from);
+            }
+            round_ends
+                .changed()
+                .await
+                .map_err(|_| citadel_io::error!(citadel_io::ErrorCode::RekeyHalted))?;
+        }
+    }
+
+    async fn trigger_round(
+        &self,
+        attached_payload: &mut Option<P>,
+        wait_for_completion: bool,
+        epoch: Option<KeyEpochTag>,
+    ) -> Result<Triggered<P>, CryptError> {
         // CBD: Checkpoint RKT-0
         let rkt_start = citadel_io::time::Instant::now();
         log::info!(target: "citadel", "[CBD-RKT-0] Client {} entry: wait_for_completion={}, role={:?}, state={:?}, elapsed=0ms",
@@ -361,6 +457,12 @@ where
         // CBD: Checkpoint RKT-0b - Semaphore acquired
         log::info!(target: "citadel", "[CBD-RKT-0b] Client {} acquired rekey trigger semaphore: elapsed={}ms",
             self.cid, rkt_start.elapsed().as_millis());
+
+        if epoch.is_none() && self.epochs.has_priority() {
+            // A steered round is waiting to start: a plain rekey would only contend with it. The
+            // payload goes out without a rekey; the steered round's end notifies the messenger.
+            return Ok(Triggered::unsent(attached_payload.take()));
+        }
 
         // Snapshot the current version BEFORE doing any work
         let version_at_entry = self.session_crypto_state.latest_usable_version();
@@ -405,7 +507,7 @@ where
                 // any notification as "retry now": a None sent from this line woke it
                 // straight back into this same early return, a busy loop for as long as
                 // the rekey stayed pending.
-                return Ok(attached_payload);
+                return Ok(Triggered::unsent(attached_payload.take()));
             }
         }
 
@@ -424,7 +526,7 @@ where
             if !wait_for_completion {
                 // No notification: the ongoing rekey sends one when it concludes. See the
                 // "rekey already pending" return above.
-                return Ok(attached_payload);
+                return Ok(Triggered::unsent(attached_payload.take()));
             }
 
             // If wait_for_completion=true, register a listener and wait for the ongoing rekey to finish
@@ -436,7 +538,7 @@ where
             if current_version > version_at_entry {
                 log::debug!(target: "citadel", "[CBD-RKT-0e2] Client {} version already advanced from {} to {} (race avoided)",
                     self.cid, version_at_entry, current_version);
-                return Ok(None);
+                return Ok(Triggered::unsent(None));
             }
 
             let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
@@ -467,7 +569,7 @@ where
             if current_version > version_at_entry {
                 log::debug!(target: "citadel", "[CBD-RKT-0f] Client {} version advanced from {} to {} after waiting",
                     self.cid, version_at_entry, current_version);
-                return Ok(None);
+                return Ok(Triggered::unsent(None));
             }
 
             // Version didn't advance - the ongoing rekey might have been cancelled or failed.
@@ -514,7 +616,7 @@ where
                     // be waiting on on_rekey_finish_listener.recv() while messages are queued,
                     // causing deadlock. Send None to indicate "check queue" rather than success.
                     let _ = self.rekey_done_notifier_tx.send(None);
-                    return Ok(attached_payload);
+                    return Ok(Triggered::unsent(attached_payload.take()));
                 }
 
                 let source_ratchet = self.session_crypto_state.claim_next_constructor_source();
@@ -542,7 +644,20 @@ where
             // KEM work stalls every task sharing this thread when run inline.
             let prepared = match source_ratchet {
                 Some(source_ratchet) => citadel_io::spawn_blocking(move || {
-                    let Some(constructor) = source_ratchet.next_alice_constructor() else {
+                    let constructor = match epoch {
+                        None => source_ratchet.next_alice_constructor(),
+                        Some(tag) => Some(
+                            source_ratchet
+                                .next_alice_constructor_for(&tag.profile)
+                                .ok_or_else(|| {
+                                    citadel_io::error!(
+                                        citadel_io::ErrorCode::KeyEpochUnsupportedRatchet,
+                                        citadel_io::Dbg(tag.profile.level())
+                                    )
+                                })?,
+                        ),
+                    };
+                    let Some(constructor) = constructor else {
                         return Ok(None);
                     };
                     let transfer = constructor.stage0_alice().ok_or_else(|| {
@@ -607,6 +722,7 @@ where
                     if constructors.insert(next_version, constructor).is_some() {
                         log::warn!(target: "citadel", "Replaced constructor for next_version={next_version}; concurrent rekey attempt detected");
                     }
+                    self.epochs.stage(next_version, epoch);
                 }
 
                 // CRITICAL: Set update_in_progress toggle BEFORE sending AliceToBob.
@@ -642,16 +758,26 @@ where
                     continue 'rekey_attempt;
                 }
 
-                self.sender
-                    .lock()
-                    .await
-                    .send(RatchetMessage::AliceToBob {
+                let message = match epoch {
+                    None => RatchetMessage::AliceToBob {
                         payload,
                         earliest_ratchet_version,
                         latest_ratchet_version,
-                        attached_payload,
+                        attached_payload: attached_payload.take(),
                         metadata,
-                    })
+                    },
+                    Some(epoch) => RatchetMessage::EpochAliceToBob {
+                        payload,
+                        earliest_ratchet_version,
+                        latest_ratchet_version,
+                        metadata,
+                        epoch,
+                    },
+                };
+                self.sender
+                    .lock()
+                    .await
+                    .send(message)
                     .await
                     .map_err(|_err| {
                         citadel_io::error!(citadel_io::ErrorCode::RekeySinkSendError)
@@ -670,7 +796,7 @@ where
                     // CBD: Checkpoint RKT-FINAL (no-wait path)
                     log::info!(target: "citadel", "[CBD-RKT-FINAL] Client {} returning without wait: elapsed={}ms",
                     self.cid, rkt_start.elapsed().as_millis());
-                    return Ok(None);
+                    return Ok(Triggered::sent(metadata.current_version));
                 }
 
                 // Block until the entire rekey is finished, with timeout+version-check fallback.
@@ -738,7 +864,7 @@ where
                     }
                 }
 
-                return Ok(None);
+                return Ok(Triggered::sent(metadata.current_version));
             } else {
                 // CBD: Checkpoint RKT-7 (constructor=None path)
                 log::info!(target: "citadel", "[CBD-RKT-7] Client {} constructor is None, returning payload: elapsed={}ms",
@@ -747,7 +873,7 @@ where
                 // Without this, the background task waits forever on recv() while
                 // messages sit in the queue, causing a deadlock in Perfect mode.
                 let _ = self.rekey_done_notifier_tx.send(None);
-                return Ok(attached_payload);
+                return Ok(Triggered::unsent(attached_payload.take()));
             }
         } // end 'rekey_attempt loop
     }
@@ -760,12 +886,14 @@ where
         struct DropWrapper {
             state: Arc<Atomic<RekeyState>>,
             role: Arc<Atomic<RekeyRole>>,
+            halted: Arc<tokio::sync::Notify>,
         }
 
         impl Drop for DropWrapper {
             fn drop(&mut self) {
-                self.state.store(RekeyState::Halted, Ordering::Relaxed);
+                self.state.store(RekeyState::Halted, Ordering::SeqCst);
                 self.role.store(RekeyRole::Idle, Ordering::Relaxed);
+                self.halted.notify_waiters();
             }
         }
 
@@ -780,6 +908,7 @@ where
             let _drop_wrapper = DropWrapper {
                 state: self.state.clone(),
                 role: self.role.clone(),
+                halted: self.halted.clone(),
             };
 
             let mut listener = { self.receiver.lock().take().unwrap() };
@@ -788,6 +917,7 @@ where
                 let result = self.rekey(&mut listener).await;
                 self.set_state(RekeyState::Idle);
                 self.set_role(RekeyRole::Idle);
+                self.publish_round_end();
 
                 match result {
                     Ok(latest_ratchet) => {
@@ -933,10 +1063,22 @@ where
         // The local declaration (declared version, when declared) that was
         // outstanding at the previous Idle tick. See the Idle branch below.
         let mut declaration_at_last_idle_tick: Option<(u32, u64)> = None;
+        // When this side left Idle, plus ACTIVE_REKEY_TIMEOUT: the round's deadline. Per round,
+        // not per message: a message that is not part of the round (a `JustMessage`, say)
+        // must not extend it, or steady traffic keeps a stuck round alive and rekeying stops.
+        let mut round_deadline: Option<citadel_io::time::Instant> = None;
 
         loop {
             let msg = if self.role() != RekeyRole::Idle {
-                match citadel_io::time::timeout(ACTIVE_REKEY_TIMEOUT, receiver.next()).await {
+                let deadline = *round_deadline
+                    .get_or_insert_with(|| citadel_io::time::Instant::now() + ACTIVE_REKEY_TIMEOUT);
+                let now = citadel_io::time::Instant::now();
+                let remaining = if deadline > now {
+                    deadline.duration_since(now)
+                } else {
+                    Duration::ZERO
+                };
+                match citadel_io::time::timeout(remaining, receiver.next()).await {
                     Ok(msg) => msg,
                     Err(_) => {
                         log::warn!(target: "citadel", "Client {} rekey message timeout (role={:?}, state={:?}), resetting for retry",
@@ -947,6 +1089,7 @@ where
                     }
                 }
             } else {
+                round_deadline = None;
                 // Idle is not always idle: trigger_rekey declares a version and sends
                 // AliceToBob without leaving Idle, and the role only changes when the
                 // peer answers. If the peer never does, nothing else ends the round,
@@ -974,6 +1117,7 @@ where
                 UNIX_EPOCH.elapsed().unwrap_or_default().as_secs(),
                 Ordering::Relaxed,
             );
+            let (msg, epoch_tag) = epochs::split_epoch_round(msg);
             match msg {
                 Some(RatchetMessage::AliceToBob {
                     payload,
@@ -1011,10 +1155,11 @@ where
                                         citadel_io::ErrorCode::RekeyStackedRatchetFailed
                                     )
                                 })?;
-                            (
-                                read.get_oldest_ratchet_version(),
-                                ratchet.get_next_constructor_opts(),
-                            )
+                            let next_opts = match &epoch_tag {
+                                None => Ok(ratchet.get_next_constructor_opts()),
+                                Some(tag) => ratchet.next_constructor_opts_for(&tag.profile),
+                            };
+                            (read.get_oldest_ratchet_version(), next_opts)
                         };
 
                         // CBD: Version snapshot upon receiving AliceToBob
@@ -1118,6 +1263,12 @@ where
                         }
 
                         log::info!(target: "citadel", "[CBD-RKT-PROC-1b] Client {} validation passed, local_meta={:?}", self.cid, metadata);
+                        if let Some(tag) = epoch_tag {
+                            if !self.admit_epoch_round(tag, peer_metadata).await? {
+                                continue;
+                            }
+                        }
+                        let next_opts = next_opts?;
                         // Create Bob constructor
                         log::info!(target: "citadel", "[CBD-RKT-PROC-2] Client {} creating Bob constructor after validation", self.cid);
                         // Offload new_bob (KEM encapsulation) and update_sync_safe
@@ -1155,6 +1306,9 @@ where
 
                     match status {
                         KemTransferStatus::Some(transfer, _) => {
+                            if let Some(tag) = epoch_tag {
+                                self.record_built_epoch(tag);
+                            }
                             let serialized = bincode::serialize(&transfer)
                                 .map_err(|err| CryptError::rekey_update(format!("{err:?}")))?;
 
@@ -1337,6 +1491,7 @@ where
                     // Now process the transfer data
                     let mut constructor =
                         { self.constructors.lock().remove(&peer_metadata.next_version) };
+                    let staged_epoch = self.epochs.unstage(peer_metadata.next_version);
                     if let Some(mut alice_constructor) = constructor.take() {
                         let transfer = bincode::deserialize(&transfer_data).map_err(|e| {
                             CryptError::rekey_update(format!("Failed to deserialize transfer: {e}"))
@@ -1377,6 +1532,9 @@ where
                         );
 
                         if expected_status {
+                            if let Some(tag) = staged_epoch {
+                                self.record_built_epoch(tag);
+                            }
                             if let Some(version_to_truncate) = truncation_required {
                                 {
                                     self.session_crypto_state
@@ -1625,6 +1783,22 @@ where
                     }
                 }
 
+                Some(RatchetMessage::EpochRefused {
+                    metadata: peer_metadata,
+                    epoch,
+                }) => {
+                    if self.on_epoch_refused(peer_metadata, epoch) {
+                        return Err(citadel_io::error!(
+                            citadel_io::ErrorCode::KeyEpochRefused,
+                            citadel_io::Dbg(epoch)
+                        ));
+                    }
+                }
+
+                Some(RatchetMessage::EpochAliceToBob { .. }) => {
+                    unreachable!("split_epoch_round turns every EpochAliceToBob into an AliceToBob")
+                }
+
                 None => {
                     return Err(citadel_io::error!(
                         citadel_io::ErrorCode::RekeyUnexpectedEndOfStream
@@ -1706,6 +1880,21 @@ where
 
     pub fn state(&self) -> RekeyState {
         self.state.load(Ordering::Relaxed)
+    }
+
+    /// Resolves once the rekey process has ended for good: after [`Self::shutdown`], or when
+    /// the stream it reads from ends. Nothing rekeys on this manager afterwards.
+    pub async fn until_halted(&self) {
+        loop {
+            let halted = self.halted.notified();
+            tokio::pin!(halted);
+            // Registered before the check, so a halt between the check and the await wakes it.
+            let _ = halted.as_mut().enable();
+            if self.state.load(Ordering::SeqCst) == RekeyState::Halted {
+                return;
+            }
+            halted.await;
+        }
     }
 
     fn set_state(&self, state: RekeyState) {
@@ -2408,6 +2597,9 @@ pub(crate) mod tests {
     }
 }
 
+#[path = "ratchet_manager_epochs.rs"]
+mod epochs;
+
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "ratchet_manager_offload_tests.rs"]
 mod offload_tests;
@@ -2415,3 +2607,15 @@ mod offload_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "ratchet_manager_cancel_tests.rs"]
 mod cancel_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "ratchet_manager_epoch_tests.rs"]
+mod epoch_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "ratchet_manager_retain_tests.rs"]
+mod retain_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "ratchet_manager_round_deadline_tests.rs"]
+mod round_deadline_tests;

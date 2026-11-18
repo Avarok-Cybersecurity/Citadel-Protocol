@@ -48,6 +48,8 @@ pub mod node;
 pub mod node_request;
 pub mod node_result;
 /// A cloneable handle for sending data through UDP ports
+pub(crate) mod outbound_budget;
+pub(crate) mod outbound_primary;
 pub(crate) mod outbound_sender;
 pub(crate) mod outbound_udp_sender;
 /// The fundamental packet types
@@ -59,16 +61,21 @@ pub(crate) mod packet_processor;
 pub(crate) mod path_policy;
 pub(crate) mod peer;
 pub(crate) mod pq_sign_in;
+/// Manages multiple sessions
+pub(crate) mod provisional_reservation;
 pub mod remote;
 mod reseal_tests;
+pub(crate) mod seal_identity;
 /// Each CID gets a session
 pub mod server_probe;
 pub(crate) mod session;
 mod session_abandon;
-/// Manages multiple sessions
+pub(crate) mod session_ledger;
 pub(crate) mod session_manager;
 mod session_probe;
 pub(crate) mod session_queue_handler;
+#[cfg(test)]
+mod session_queue_handler_tests;
 pub(crate) mod session_resume;
 pub(crate) mod session_resume_store;
 /// For keeping track of the stages of different processes

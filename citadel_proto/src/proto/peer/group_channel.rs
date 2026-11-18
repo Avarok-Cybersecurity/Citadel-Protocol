@@ -85,12 +85,14 @@ impl GroupChannel {
         session_cid: u64,
         recv: UnboundedReceiver<GroupBroadcastPayload>,
     ) -> Self {
+        let (undelivered_tx, undelivered) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         Self {
             send_half: GroupChannelSendHalf {
                 tx: tx.clone(),
                 ticket,
                 key,
                 session_cid,
+                undelivered: undelivered_tx,
             },
 
             recv_half: GroupChannelRecvHalf {
@@ -99,6 +101,7 @@ impl GroupChannel {
                 ticket,
                 session_cid,
                 key,
+                undelivered,
             },
         }
     }
@@ -135,6 +138,8 @@ pub struct GroupChannelSendHalf {
     ticket: Ticket,
     key: MessageGroupKey,
     session_cid: u64,
+    /// Where a message is reported undelivered once the session that carried it has ended.
+    undelivered: citadel_io::tokio::sync::mpsc::UnboundedSender<GroupBroadcastPayload>,
 }
 
 impl Debug for GroupChannelSendHalf {
@@ -150,12 +155,25 @@ impl Debug for GroupChannelSendHalf {
 impl GroupChannelSendHalf {
     /// Broadcasts a message to the group
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
-        self.send_group_command(GroupBroadcast::Message {
-            sender: self.session_cid,
-            key: self.key,
-            message,
-        })
-        .await
+        let sent = self
+            .send_group_command(GroupBroadcast::Message {
+                sender: self.session_cid,
+                key: self.key,
+                message,
+            })
+            .await;
+        if sent.is_err() && self.tx.is_closed() {
+            // The session has ended and released everything it held, so nothing will answer
+            // the message: it is reported undelivered on this channel, as a live session reports
+            // a message it cannot deliver.
+            let refusal = GroupBroadcast::MessageResponse {
+                key: self.key,
+                success: false,
+            };
+            let _ = self.undelivered.send(refusal.into());
+            return Ok(());
+        }
+        sent
     }
 
     /// Kicks a peer from the group. User must be owner
@@ -255,6 +273,7 @@ pub struct GroupChannelRecvHalf {
     ticket: Ticket,
     session_cid: u64,
     key: MessageGroupKey,
+    undelivered: citadel_io::tokio::sync::mpsc::UnboundedReceiver<GroupBroadcastPayload>,
 }
 
 impl Debug for GroupChannelRecvHalf {
@@ -271,7 +290,14 @@ impl Stream for GroupChannelRecvHalf {
     type Item = GroupBroadcastPayload;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.recv).poll_recv(cx)
+        if let Poll::Ready(Some(undelivered)) = self.undelivered.poll_recv(cx) {
+            return Poll::Ready(Some(undelivered));
+        }
+        match Pin::new(&mut self.recv).poll_recv(cx) {
+            // The session's side has closed; what this channel itself reported still comes out.
+            Poll::Ready(None) => Poll::Ready(self.undelivered.try_recv().ok()),
+            polled => polled,
+        }
     }
 }
 

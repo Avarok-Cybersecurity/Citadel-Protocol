@@ -30,6 +30,7 @@
 //! `PeerChannel::ensure_direct` follows. Every attempt's outcome (see `p2p_outcome`) is published
 //! there too, and sent to the kernel.
 
+use crate::proto::peer::coordination::coordination_wire;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -118,13 +119,14 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
     } = campaign;
     let started = Instant::now();
     let cell = guard.cell().clone();
-    let (rearmable, connection_id) = match &channel_signal {
+    let (peer_version, connection_id) = match &channel_signal {
         NodeResult::PeerChannelCreated(created) => (
-            p2p_rearm::peer_parks(created.channel.peer_protocol_version()),
+            created.channel.peer_protocol_version(),
             created.channel.connection_id(),
         ),
-        _ => (false, None),
+        _ => (None, None),
     };
+    let rearmable = p2p_rearm::peer_parks(peer_version);
     let outcomes = OutcomeContext::new(
         peer_cid,
         &plan,
@@ -162,7 +164,11 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         };
         let register = citadel_io::time::timeout(
             REGISTER_TIMEOUT,
-            NetworkEndpoint::register(node_type, hole_punch_compat_stream),
+            NetworkEndpoint::register(
+                node_type,
+                hole_punch_compat_stream,
+                coordination_wire(peer_version),
+            ),
         );
         let app = match node_type {
             RelativeNodeType::Receiver => {

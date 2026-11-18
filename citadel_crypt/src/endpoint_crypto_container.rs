@@ -160,8 +160,10 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         CryptError,
     > {
         log::info!(target: "citadel", "[CBD-CNRV-1] Client {} commit_next_ratchet_version entry, generate_next={}", local_cid, generate_next);
-        // Minimize lock scope: read current version under read lock, compute outside, then commit under short write lock
-        let cur_vers = self.toolset.read().get_most_recent_ratchet_version();
+        // The round builds on the latest *usable* version. A newer one in the toolset was
+        // committed by a round that failed before completing; it is provisional and is dropped
+        // at the commit below, so both ends number this round's ratchet alike.
+        let cur_vers = self.latest_usable_version();
         let next_vers = cur_vers.wrapping_add(1);
         log::info!(target: "citadel", "[CBD-CNRV-2] Client {} cur_vers={}, next_vers={}", local_cid, cur_vers, next_vers);
 
@@ -190,6 +192,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
             // Commit with short write lock
             let status = {
                 let mut toolset = self.toolset.write();
+                toolset.truncate_newest_to(cur_vers);
                 let current_toolset_version = toolset.get_most_recent_ratchet_version();
                 log::info!(target: "citadel", "[CBD-CNRV-ALICE-3] Client {} write lock acquired, toolset_v={}, ratchet_v={}", local_cid, current_toolset_version, ratchet_version);
                 toolset.update_from(latest_ratchet).ok_or_else(|| {
@@ -220,6 +223,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         // Short commit under write lock
         let status = {
             let mut toolset = self.toolset.write();
+            toolset.truncate_newest_to(cur_vers);
             log::info!(target: "citadel", "[CBD-CNRV-6] Client {} write lock acquired, calling update_from", local_cid);
             toolset
                 .update_from(next_ratchet)

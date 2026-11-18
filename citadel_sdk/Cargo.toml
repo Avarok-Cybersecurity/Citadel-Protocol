@@ -54,6 +54,7 @@ mimalloc = ["dep:mimalloc"]
 
 [dependencies]
 citadel_proto = { workspace = true }
+citadel_negotiation = { workspace = true }
 citadel_io = { workspace = true }
 citadel_user = { workspace = true }
 embed-doc-image = { workspace = true, optional = true }
@@ -144,6 +145,18 @@ harness = false
 # quinn datagrams vs bare UdpSocket (loss / reorder / pps / one-way p50,p99). Phase-0 media baseline.
 [[bench]]
 name = "udp_media_stream"
+harness = false
+
+# Relayed packet path: per-message StateContainer lock acquisitions and allocated bytes for a pair
+# the server keeps on its relay. Needs localhost-testing,multi-threaded,lock-profiling. Local only.
+[[bench]]
+name = "relayed_packet_path"
+harness = false
+
+# Peer signalling against a slow account backend: K pairs dial at once while the host SQL delays
+# the registration lookup. Needs localhost-testing,multi-threaded. Local only.
+[[bench]]
+name = "peer_signal_backend_latency"
 harness = false
 
 [package.metadata.cargo-all-features]

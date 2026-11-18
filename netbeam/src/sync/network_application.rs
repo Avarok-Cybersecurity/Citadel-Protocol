@@ -46,18 +46,22 @@ use citadel_io::tokio::sync::Mutex;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::multiplex::{MultiplexedConn, MultiplexedConnKey, MultiplexedPacket};
+use crate::multiplex::{
+    MultiplexedConn, MultiplexedConnKey, MultiplexedPacket, UNCLAIMED_BUFFER_LIMIT,
+};
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use crate::sync::channel::bi_channel;
 use crate::sync::operations::net_join::NetJoin;
 use crate::sync::operations::net_select::NetSelect;
 use crate::sync::operations::net_select_ok::NetSelectOk;
 use crate::sync::operations::net_try_join::NetTryJoin;
+use crate::sync::pairing;
 use crate::sync::primitives::net_mutex::{NetMutex, NetMutexLoader};
 use crate::sync::primitives::net_rwlock::{NetRwLock, NetRwLockLoader};
 use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;
 use crate::sync::sync_start::NetSyncStart;
+use crate::sync::wire::WireRevision;
 use crate::sync::{RelativeNodeType, SymmetricConvID};
 
 pub type NetworkApplication = MultiplexedConn<SymmetricConvID>;
@@ -148,9 +152,12 @@ impl<K: MultiplexedConnKey> PostActionChannel<K> {
 }
 
 impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
+    /// Both ends must pass the same `wire`: the layer creating the connection picks it from the
+    /// peer's protocol version.
     pub async fn register<T: ReliableOrderedStreamToTarget + 'static>(
         relative_node_type: RelativeNodeType,
         t: T,
+        wire: WireRevision,
     ) -> Result<Self, anyhow::Error> {
         match relative_node_type {
             RelativeNodeType::Receiver => {
@@ -163,7 +170,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
             }
         }
 
-        let this = Self::new(relative_node_type, t);
+        let this = Self::new(relative_node_type, t, wire);
         let conn_task = this.clone();
 
         citadel_io::spawn(async move {
@@ -177,6 +184,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
                 }
             }
             // Nothing can arrive any more: fail the subscriptions still waiting on the peer.
+            conn_task.mark_transport_closed();
             conn_task.subscriptions().write().clear();
             conn_task.post_close_container().close_all().await;
         });
@@ -188,15 +196,39 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         let deserialized = bincode::deserialize::<MultiplexedPacket<K>>(packet)?;
         match deserialized {
             MultiplexedPacket::ApplicationLayer { id, payload } => {
-                let lock = self.subscriptions().read();
-                let channel_tx = lock
-                    .get(&id)
-                    .ok_or_else(|| anyhow::Error::msg("Channel ID does not exist"))?;
-                Ok(channel_tx.send(payload)?)
+                {
+                    let lock = self.subscriptions().read();
+                    let channel_tx = lock
+                        .get(&id)
+                        .ok_or_else(|| anyhow::Error::msg("Channel ID does not exist"))?;
+                    if channel_tx.admits(payload.len()) {
+                        return Ok(channel_tx.send(payload)?);
+                    }
+                }
+                let _ = self.subscriptions().write().remove(&id);
+                Err(anyhow::Error::msg(format!(
+                    "refused unclaimed subscription {id:?}: over {UNCLAIMED_BUFFER_LIMIT} bytes buffered"
+                )))
             }
 
-            MultiplexedPacket::PreCreate { id } => {
+            MultiplexedPacket::PreCreate { id }
+                if self.wire_revision() == WireRevision::CountPaired =>
+            {
                 Ok(self.pre_action_container().tx.send(id).await?)
+            }
+
+            MultiplexedPacket::Open { topic, id }
+                if self.wire_revision() == WireRevision::Exchanged
+                    && self.node_type() == RelativeNodeType::Initiator =>
+            {
+                self.pairing().proposed(topic, id)
+            }
+
+            MultiplexedPacket::OpenAck { id }
+                if self.wire_revision() == WireRevision::Exchanged
+                    && self.node_type() == RelativeNodeType::Receiver =>
+            {
+                self.pairing().answered(id)
             }
 
             MultiplexedPacket::PostDrop { id } => self.post_close_container().send(id).await,
@@ -331,6 +363,16 @@ async fn preaction_sync<
 >(
     ptr: &'a S,
 ) -> Result<<S as Subscribable>::BorrowedSubscriptionType, anyhow::Error> {
+    match (ptr.wire_revision(), ptr.node_type()) {
+        (WireRevision::Exchanged, RelativeNodeType::Receiver) => {
+            return pairing::open_as_receiver(ptr, ptr.topic()).await;
+        }
+        (WireRevision::Exchanged, RelativeNodeType::Initiator) => {
+            return pairing::open_as_initiator(ptr, ptr.topic()).await;
+        }
+        (WireRevision::CountPaired, _) => {}
+    }
+
     let container = ptr.pre_action_container();
     let mut recv_lock = container.rx.lock().await;
 
@@ -398,7 +440,9 @@ async fn preaction_sync<
     *container.in_flight.lock() = None;
     // we can safely return, knowing the adjacent node will still have the conv open to receive messages
     ptr.claim_reserved(id).ok_or_else(|| {
-        anyhow::Error::msg(format!("Subscription {id:?} was claimed by another caller"))
+        anyhow::Error::msg(format!(
+            "Subscription {id:?} was claimed by another caller, or refused for buffering too much"
+        ))
     })
 }
 
@@ -455,6 +499,7 @@ mod transport_end_tests {
     use crate::reliable_conn::ReliableOrderedStreamToTarget;
     use crate::sync::network_application::NetworkApplication;
     use crate::sync::subscription::Subscribable;
+    use crate::sync::wire::WireRevision;
     use crate::sync::RelativeNodeType;
     use async_trait::async_trait;
     use bytes::Bytes;
@@ -462,6 +507,9 @@ mod transport_end_tests {
     use citadel_io::tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
     use citadel_io::tokio::sync::Mutex;
     use std::time::Duration;
+
+    /// Opens subscriptions with no peer answering, which only the count-paired wire allows.
+    const WIRE: WireRevision = WireRevision::CountPaired;
 
     /// A transport whose inbound side the test ends by dropping its sender.
     struct Pipe {
@@ -501,7 +549,7 @@ mod transport_end_tests {
             outbound,
             inbound: Mutex::new(inbound),
         };
-        let app = NetworkApplication::register(RelativeNodeType::Receiver, pipe)
+        let app = NetworkApplication::register(RelativeNodeType::Receiver, pipe, WIRE)
             .await
             .unwrap();
 

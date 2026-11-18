@@ -90,6 +90,7 @@ impl NatType {
     }
 }
 
+#[derive(Debug)]
 pub struct SocketPair {
     pub internal: SocketAddr,
     pub external: SocketAddr,
@@ -439,7 +440,6 @@ mod native {
     use crate::stun_servers::StunServers;
     use citadel_io::tokio::net::UdpSocket;
     use futures::stream::FuturesUnordered;
-    use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
     use stun::client::ClientBuilder;
@@ -448,6 +448,9 @@ mod native {
 
     const V4_BIND_ADDR: &str = "0.0.0.0:0";
     pub const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(3000);
+    /// How long [`NatType::get_reflexive_addr`] waits, name resolution included, for any of the
+    /// STUN servers to answer.
+    pub const STUN_PROBE_WINDOW: Duration = Duration::from_millis(1500);
 
     static LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> =
         citadel_io::Mutex::new(None);
@@ -527,20 +530,60 @@ mod native {
                 return None;
             }
 
-            for server in stun_servers.iter() {
-                if let Some(addr) = stun_probe_socket(socket, server).await {
-                    return Some(addr);
-                }
-            }
-
-            None
+            citadel_io::time::timeout(STUN_PROBE_WINDOW, stun_probe_socket(socket, stun_servers))
+                .await
+                .ok()
+                .flatten()
         }
     }
 
-    /// Sends a single STUN BINDING request from `socket` to `server` and returns the
-    /// observed XOR-mapped (external) address. IPv4 only; bounded by a short timeout.
-    async fn stun_probe_socket(socket: &UdpSocket, server: &str) -> Option<SocketAddr> {
-        // Resolve to an IPv4 endpoint (the probe socket is IPv4).
+    /// Sends a STUN BINDING request from `socket` to every server at once and returns the
+    /// observed XOR-mapped (external) address from the first to answer. Asking them in turn
+    /// gave each silent server a full window before the next was asked, which the hole punch
+    /// pays out of its attempt. IPv4 only; the caller bounds it by [`STUN_PROBE_WINDOW`].
+    async fn stun_probe_socket(
+        socket: &UdpSocket,
+        stun_servers: &StunServers,
+    ) -> Option<SocketAddr> {
+        let requests = futures::future::join_all(
+            stun_servers
+                .iter()
+                .map(|server| send_binding_request(socket, server)),
+        )
+        .await
+        .into_iter()
+        .flatten()
+        .collect::<Vec<(SocketAddr, stun::agent::TransactionId)>>();
+        if requests.is_empty() {
+            return None;
+        }
+
+        let mut buf = [0u8; 256];
+        loop {
+            let (len, from) = socket.recv_from(&mut buf).await.ok()?;
+            let mut response = Message::new();
+            response.raw = buf[..len].to_vec();
+            // Anything but an answer to one of these requests (e.g. a stray/early hole-punch
+            // packet) is ignored.
+            if response.decode().is_err() || !requests.contains(&(from, response.transaction_id)) {
+                continue;
+            }
+
+            let mut xor_addr = XorMappedAddress::default();
+            if xor_addr.get_from(&response).is_err() {
+                continue;
+            }
+
+            return Some(SocketAddr::new(xor_addr.ip, xor_addr.port));
+        }
+    }
+
+    /// Sends one BINDING request to `server`'s IPv4 endpoint, returning where it went and its
+    /// transaction id; `None` when the server does not resolve or the send fails.
+    async fn send_binding_request(
+        socket: &UdpSocket,
+        server: &str,
+    ) -> Option<(SocketAddr, stun::agent::TransactionId)> {
         let server_addr = citadel_io::tokio::net::lookup_host(server)
             .await
             .ok()?
@@ -553,38 +596,9 @@ mod native {
                 Box::new(BINDING_REQUEST),
             ])
             .ok()?;
-        let transaction_id = request.transaction_id;
 
         socket.send_to(&request.raw, server_addr).await.ok()?;
-
-        let recv = async {
-            let mut buf = [0u8; 256];
-            loop {
-                let (len, from) = socket.recv_from(&mut buf).await.ok()?;
-                if from != server_addr {
-                    // Not the STUN server (e.g. a stray/early hole-punch packet); ignore.
-                    continue;
-                }
-
-                let mut response = Message::new();
-                response.raw = buf[..len].to_vec();
-                if response.decode().is_err() || response.transaction_id != transaction_id {
-                    continue;
-                }
-
-                let mut xor_addr = XorMappedAddress::default();
-                if xor_addr.get_from(&response).is_err() {
-                    continue;
-                }
-
-                return Some(SocketAddr::new(xor_addr.ip, xor_addr.port));
-            }
-        };
-
-        citadel_io::time::timeout(Duration::from_millis(1500), recv)
-            .await
-            .ok()
-            .flatten()
+        Some((server_addr, request.transaction_id))
     }
 
     /// The IP information that needs no network: the internal IPv4 address, resolved by a
@@ -635,63 +649,31 @@ mod native {
 
                                 log::trace!(target: "citadel", "External ADDR: {natted_addr:?} | internal: {new_bind_addr:?}");
 
-                                return Ok(Some((natted_addr, new_bind_addr)));
+                                return Ok(Some(SocketPair {
+                                    internal: new_bind_addr,
+                                    external: natted_addr,
+                                }));
                             }
                             Err(err) => log::trace!(target: "citadel", "{err:?}"),
                         };
                     }
 
-                    Ok(None)
+                    Ok::<_, anyhow::Error>(None)
                 };
 
                 futures_unordered.push(Box::pin(task));
             }
 
-            let mut results = futures_unordered
-                .collect::<Vec<Result<Option<(SocketAddr, SocketAddr)>, anyhow::Error>>>()
-                .await;
-            let first_natted_addr = results
-                .pop()
-                .ok_or_else(|| anyhow::Error::msg("First result not present"))??;
-            let second_natted_addr = results
-                .pop()
-                .ok_or_else(|| anyhow::Error::msg("Second result not present"))??;
-            let third_natted_addr = results
-                .pop()
-                .ok_or_else(|| anyhow::Error::msg("Third result not present"))??;
-
-            match (first_natted_addr, second_natted_addr, third_natted_addr) {
-                (
-                    Some((addr_ext, addr_int)),
-                    Some((addr2_ext, addr2_int)),
-                    Some((addr3_ext, addr3_int)),
-                ) => {
-                    let pair0 = SocketPair {
-                        internal: addr_int,
-                        external: addr_ext,
-                    };
-                    let pair1 = SocketPair {
-                        internal: addr2_int,
-                        external: addr2_ext,
-                    };
-                    let pair2 = SocketPair {
-                        internal: addr3_int,
-                        external: addr3_ext,
-                    };
-
-                    let nat_type = NatType::new(pair0, pair1, pair2);
-                    log::trace!(target: "citadel", "NAT type: {nat_type:?}");
-
-                    Ok(nat_type)
-                }
-
-                _ => Err(anyhow::Error::msg("Unable to get all three STUN addrs")),
-            }
+            let [pair0, pair1, pair2] =
+                crate::standard::stun_mappings::first_mappings(futures_unordered).await?;
+            let nat_type = NatType::new(pair0, pair1, pair2);
+            log::trace!(target: "citadel", "NAT type: {nat_type:?}");
+            Ok::<_, anyhow::Error>(nat_type)
         };
 
         let ip_info_future = async move {
             match citadel_io::time::timeout(
-                Duration::from_millis(2000),
+                async_ip::EXTERNAL_IP_LOOKUP_TIMEOUT,
                 async_ip::get_all_multi_concurrent(None),
             )
             .await
@@ -731,7 +713,7 @@ mod native {
 }
 
 #[cfg(not(target_family = "wasm"))]
-pub use native::IDENTIFY_TIMEOUT;
+pub use native::{IDENTIFY_TIMEOUT, STUN_PROBE_WINDOW};
 
 #[cfg(test)]
 mod tests {
@@ -799,76 +781,6 @@ mod tests {
         let nat = NatType::identified_or_local(Ok(identified)).await;
         assert!(matches!(nat.ip_translation, IpTranslation::Constant { .. }));
         assert!(matches!(nat.port_translation, PortTranslation::Identity));
-    }
-
-    /// Exercises `get_reflexive_addr` (and `stun_probe_socket`) end-to-end against a local
-    /// fake STUN responder over loopback — no real network — so the observe-the-real-mapping
-    /// path is covered even though the hole-punch driver gates it off under localhost-testing.
-    #[cfg(not(target_family = "wasm"))]
-    #[tokio::test]
-    async fn get_reflexive_addr_parses_local_stun_response() {
-        use citadel_io::tokio::net::UdpSocket;
-        use stun::message::{Message, BINDING_SUCCESS};
-        use stun::xoraddr::XorMappedAddress;
-
-        // The external address the fake STUN server will report back.
-        let mapped = SocketAddr::from_str("203.0.113.9:51234").unwrap();
-
-        // Fake STUN server: echoes the request's transaction id in a BINDING_SUCCESS carrying
-        // an XOR-MAPPED-ADDRESS. `build()` clears attributes but preserves `transaction_id`,
-        // and `XorMappedAddress` encodes against it, so the client can match and decode.
-        let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let server_addr = server.local_addr().unwrap();
-        let server_task = citadel_io::tokio::task::spawn(async move {
-            let mut buf = [0u8; 256];
-            let (len, from) = server.recv_from(&mut buf).await.unwrap();
-            let mut request = Message::new();
-            request.raw = buf[..len].to_vec();
-            request.decode().unwrap();
-
-            let mut response = Message::new();
-            response.transaction_id = request.transaction_id;
-            response
-                .build(&[
-                    Box::new(BINDING_SUCCESS),
-                    Box::new(XorMappedAddress {
-                        ip: mapped.ip(),
-                        port: mapped.port(),
-                    }),
-                ])
-                .unwrap();
-            server.send_to(&response.raw, from).await.unwrap();
-        });
-
-        let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        // The responder first: the probe stops at the first server that answers.
-        let servers = crate::stun_servers::StunServers::new([
-            server_addr.to_string(),
-            "127.0.0.1:3479".to_string(),
-            "127.0.0.1:3480".to_string(),
-        ])
-        .unwrap();
-        let observed = NatType::get_reflexive_addr(&client, &servers).await;
-        server_task.await.unwrap();
-
-        assert_eq!(
-            observed,
-            Some(mapped),
-            "reflexive addr must match the STUN-reported mapping"
-        );
-    }
-
-    /// An IPv6 probe socket is skipped (cannot reach the IPv4 STUN servers) and returns None
-    /// without any network I/O.
-    #[cfg(not(target_family = "wasm"))]
-    #[tokio::test]
-    async fn get_reflexive_addr_skips_ipv6_socket() {
-        let socket = citadel_io::tokio::net::UdpSocket::bind("[::1]:0")
-            .await
-            .unwrap();
-        let observed =
-            NatType::get_reflexive_addr(&socket, &crate::stun_servers::unanswered_loopback()).await;
-        assert_eq!(observed, None);
     }
 
     #[test]
@@ -1185,6 +1097,10 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "reflexive_probe_tests.rs"]
+mod reflexive_probe_tests;
 
 #[cfg(test)]
 mod predicate_tests {

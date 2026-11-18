@@ -34,9 +34,11 @@
 
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use crate::sync::network_application::{PostActionChannel, PreActionChannel, INITIAL_CAPACITY};
+use crate::sync::pairing::Pairing;
 use crate::sync::subscription::{
     close_sequence_for_multiplexed_bistream, Subscribable, SubscriptionBiStream,
 };
+use crate::sync::wire::{Topic, WireRevision};
 use crate::sync::{RelativeNodeType, SymmetricConvID};
 use anyhow::Error;
 use async_trait::async_trait;
@@ -49,7 +51,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 /// A trait representing a multiplexed connection key.
@@ -107,6 +109,8 @@ impl IDGen<SymmetricConvID> for SymmetricConvID {
 /// A multiplexed connection.
 pub struct MultiplexedConn<K: MultiplexedConnKey = SymmetricConvID> {
     inner: Arc<MultiplexedConnInner<K>>,
+    /// The topic `initiate_subscription` opens on (see [`MultiplexedConn::on`]).
+    topic: Topic,
 }
 
 /// The inner implementation of a multiplexed connection.
@@ -125,7 +129,18 @@ pub struct MultiplexedConnInner<K: MultiplexedConnKey> {
     current_latest_subscribed: K::Container,
     /// The node type.
     node_type: RelativeNodeType,
+    /// What both ends speak (see [`WireRevision`]).
+    wire: WireRevision,
+    /// Subscription pairing under [`WireRevision::Exchanged`].
+    pairing: Pairing<K>,
+    /// Set once the transport can deliver nothing more.
+    transport_closed: AtomicBool,
 }
+
+/// Bytes the peer may send to a subscription id before this side claims it. Past this the id is
+/// refused: its buffer is dropped and a later claim fails, rather than the peer growing this
+/// side's memory for as long as nobody reads that id.
+pub const UNCLAIMED_BUFFER_LIMIT: usize = 1 << 20;
 
 /// A memory sender.
 pub struct MemorySender {
@@ -133,6 +148,28 @@ pub struct MemorySender {
     tx: UnboundedSender<Vec<u8>>,
     /// The pre-reserved receiver.
     pre_reserved_rx: Option<UnboundedReceiver<Vec<u8>>>,
+    /// Bytes buffered while `pre_reserved_rx` was unclaimed.
+    unclaimed_bytes: AtomicUsize,
+}
+
+impl MemorySender {
+    fn reserved() -> Self {
+        let (tx, pre_reserved_rx) = unbounded_channel();
+        Self {
+            tx,
+            pre_reserved_rx: Some(pre_reserved_rx),
+            unclaimed_bytes: AtomicUsize::new(0),
+        }
+    }
+
+    /// Whether `len` more bytes fit, counting only while nobody has claimed the id.
+    pub(crate) fn admits(&self, len: usize) -> bool {
+        if self.pre_reserved_rx.is_none() {
+            return true;
+        }
+        let buffered = self.unclaimed_bytes.fetch_add(len, Ordering::Relaxed) + len;
+        buffered <= UNCLAIMED_BUFFER_LIMIT
+    }
 }
 
 impl Deref for MemorySender {
@@ -163,6 +200,10 @@ pub(crate) enum MultiplexedPacket<K: MultiplexedConnKey> {
     PreCreate { id: K },
     /// A greeter packet.
     Greeter,
+    /// [`WireRevision::Exchanged`]: the receiver proposes `id` for `topic`.
+    Open { topic: Topic, id: K },
+    /// [`WireRevision::Exchanged`]: the initiator took the proposed `id`.
+    OpenAck { id: K },
 }
 
 impl<K: MultiplexedConnKey> MultiplexedConn<K> {
@@ -170,25 +211,23 @@ impl<K: MultiplexedConnKey> MultiplexedConn<K> {
     pub fn new<T: ReliableOrderedStreamToTarget + 'static>(
         node_type: RelativeNodeType,
         conn: T,
+        wire: WireRevision,
     ) -> Self {
         let id_gen = K::generate_container();
-        let ids: Vec<K> = (0..INITIAL_CAPACITY)
+        // Only the count-paired wire opens ids without asking the peer.
+        let pre_reserved = match wire {
+            WireRevision::CountPaired => INITIAL_CAPACITY,
+            WireRevision::Exchanged => 0,
+        };
+        let ids: Vec<K> = (0..pre_reserved)
             .map(|_| <K as IDGen<K>>::generate_next(&id_gen))
             .collect();
         // the next two lines will generate a list of pre-established bistreams
         let post_close_container = PostActionChannel::new(&ids);
-        let mut subscribers = HashMap::new();
-
-        for id in ids {
-            let (tx, pre_reserved_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
-            subscribers.insert(
-                id,
-                MemorySender {
-                    tx,
-                    pre_reserved_rx: Some(pre_reserved_rx),
-                },
-            );
-        }
+        let subscribers = ids
+            .into_iter()
+            .map(|id| (id, MemorySender::reserved()))
+            .collect::<HashMap<_, _>>();
 
         let current_latest_subscribed = K::generate_container();
 
@@ -201,8 +240,31 @@ impl<K: MultiplexedConnKey> MultiplexedConn<K> {
                 current_latest_subscribed,
                 id_gen,
                 node_type,
+                wire,
+                pairing: Pairing::new(),
+                transport_closed: AtomicBool::new(false),
             }),
+            topic: Topic::GENERAL,
         }
+    }
+
+    /// This connection with its subscriptions opened on `topic`: they pair only with the peer's
+    /// subscriptions on the same topic (under [`WireRevision::Exchanged`]; the count-paired wire
+    /// has no topics).
+    pub fn on(&self, topic: Topic) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            topic,
+        }
+    }
+
+    pub fn wire_revision(&self) -> WireRevision {
+        self.wire
+    }
+
+    pub(crate) fn mark_transport_closed(&self) {
+        self.transport_closed.store(true, Ordering::Release);
+        self.pairing.close();
     }
 }
 
@@ -210,6 +272,7 @@ impl<K: MultiplexedConnKey> Clone for MultiplexedConn<K> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            topic: self.topic,
         }
     }
 }
@@ -242,6 +305,10 @@ impl<K: MultiplexedConnKey> SubscriptionBiStream for MultiplexedSubscription<'_,
 
     fn node_type(&self) -> RelativeNodeType {
         self.ptr.node_type
+    }
+
+    fn wire_revision(&self) -> WireRevision {
+        self.ptr.wire
     }
 }
 
@@ -290,6 +357,10 @@ impl<K: MultiplexedConnKey> SubscriptionBiStream for OwnedMultiplexedSubscriptio
     fn node_type(&self) -> RelativeNodeType {
         self.ptr.node_type
     }
+
+    fn wire_revision(&self) -> WireRevision {
+        self.ptr.wire
+    }
 }
 
 #[async_trait]
@@ -334,8 +405,38 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
             .await?)
     }
 
+    async fn send_open(&self, topic: Topic, id: Self::ID) -> Result<(), Error> {
+        Ok(self
+            .conn
+            .send_serialized(MultiplexedPacket::Open { topic, id })
+            .await?)
+    }
+
+    async fn send_open_ack(&self, id: Self::ID) -> Result<(), Error> {
+        Ok(self
+            .conn
+            .send_serialized(MultiplexedPacket::OpenAck { id })
+            .await?)
+    }
+
     fn node_type(&self) -> RelativeNodeType {
         self.node_type
+    }
+
+    fn wire_revision(&self) -> WireRevision {
+        self.wire
+    }
+
+    fn topic(&self) -> Topic {
+        self.topic
+    }
+
+    fn pairing(&self) -> &Pairing<Self::ID> {
+        &self.pairing
+    }
+
+    fn transport_closed(&self) -> bool {
+        self.transport_closed.load(Ordering::Acquire)
     }
 
     fn get_next_prereserved(&self) -> Option<Self::BorrowedSubscriptionType> {
@@ -352,13 +453,10 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
     }
 
     fn reserve(&self, id: Self::ID) {
-        self.subscribers.write().entry(id).or_insert_with(|| {
-            let (tx, pre_reserved_rx) = unbounded_channel();
-            MemorySender {
-                tx,
-                pre_reserved_rx: Some(pre_reserved_rx),
-            }
-        });
+        self.subscribers
+            .write()
+            .entry(id)
+            .or_insert_with(MemorySender::reserved);
     }
 
     fn claim_reserved(&self, id: Self::ID) -> Option<Self::BorrowedSubscriptionType> {
@@ -391,7 +489,8 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
                 id,
                 MemorySender {
                     tx,
-                    pre_reserved_rx: None
+                    pre_reserved_rx: None,
+                    unclaimed_bytes: AtomicUsize::new(0),
                 }
             )
             .is_none());
@@ -537,3 +636,7 @@ mod tests {
         .await
     }
 }
+
+#[cfg(test)]
+#[path = "multiplex_unclaimed_tests.rs"]
+mod unclaimed_tests;

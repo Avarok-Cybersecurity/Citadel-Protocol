@@ -17,6 +17,7 @@ members = [
     "citadel_treekem",
     "citadel_types",
     "citadel_media",
+    "citadel_negotiation",
     "example-library",
 ]
 
@@ -38,6 +39,13 @@ lto = "fat"
 codegen-units = 1
 strip = true
 
+# Argon2 runs at the shipped cost (64 MiB, 10 passes, 8 lanes) in every build. Unoptimised it costs
+# ~4.3 s of CPU per hash instead of ~0.3 s, which pushed debug test jobs past their time limits.
+# Optimising only the hashing crate keeps the same settings and code; `test` inherits `dev`, and
+# release builds are untouched. (Its blake2b_simd dependency measured no further gain.)
+[profile.dev.package.rust-argon2]
+opt-level = 3
+
 [workspace.lints.clippy]
 await_holding_lock = "warn"
 
@@ -54,6 +62,7 @@ citadel_io = { path = "./citadel_io", default-features = false, version = "0.14.
 citadel_io_macros = { path = "./citadel_io_macros", version = "0.14.0" }
 citadel_treekem = { path = "./citadel_treekem", default-features = false, version = "0.14.0" }
 citadel_types = { path = "./citadel_types", default-features = false, version = "0.14.0" }
+citadel_negotiation = { path = "./citadel_negotiation", version = "0.14.0" }
 citadel_media = { path = "./citadel_media", default-features = false, version = "0.14.0" }
 netbeam = { path = "./netbeam", default-features = false, version = "0.14.0" }
 firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.14.0" }
@@ -89,7 +98,6 @@ getrandom = { version = "0.3.3", default-features = false }
 serde-big-array = { default-features = false, version = "0.5.0" }
 ascon-aead = { default-features = false, version = "0.4.0" }
 tracing-subscriber = { version = "0.3.16" }
-reqwest_wasi = { version = "0.11.16", default-features = false }
 reqwest = { version = "0.12.7", default-features = false }
 tokio = { version = "1.47.0" }
 bytes = { default-features = false, version = "1.3.0" }

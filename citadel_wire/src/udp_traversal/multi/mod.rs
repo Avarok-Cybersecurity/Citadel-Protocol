@@ -79,6 +79,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+mod commanded;
 mod coordination;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
@@ -208,11 +209,14 @@ async fn drive(
 
     struct RebuildReadyContainer {
         local_failures: HashMap<HolePunchID, SingleUDPHolePuncher>,
+        /// Punchers whose socket finished, kept for what each one observed (`commanded`).
+        local_finished: HashMap<HolePunchID, SingleUDPHolePuncher>,
         post_rebuild_rx: Option<UnboundedReceiver<Option<HolePunchedUdpSocket>>>,
     }
 
     let rebuilder = &citadel_io::tokio::sync::Mutex::new(RebuildReadyContainer {
         local_failures: HashMap::new(),
+        local_finished: HashMap::new(),
         post_rebuild_rx: Some(post_rebuild_rx),
     });
 
@@ -276,15 +280,18 @@ async fn drive(
                     let receivers = kill_signal_tx.send((local_id, peer_id)).unwrap_or(0);
                     log::trace!(target: "citadel", "Sent kill signal to {receivers} hole-punchers");
 
+                    let observed = rebuilder
+                        .lock()
+                        .await
+                        .local_finished
+                        .get(&local_id)
+                        .and_then(|puncher| puncher.observed_peer_addr(peer_id));
                     let mut current_enqueued_set = current_enqueued_set.lock().await;
-                    'pop: while let Some(current_enqueued) = current_enqueued_set.pop() {
-                        log::trace!(target: "citadel", "Maybe grabbed the currently enqueued local socket {:?}: {:?}", current_enqueued.local_id, current_enqueued.addr);
-                        if current_enqueued.addr.unique_id != peer_id {
-                            log::trace!(target: "citadel", "Cannot use the enqueued socket since ID does not match");
-                            continue 'pop;
-                        }
-
-                        return Ok(current_enqueued);
+                    if let Some(socket) =
+                        commanded::take(&mut current_enqueued_set, local_id, peer_id, observed)
+                    {
+                        log::trace!(target: "citadel", "Using the finished local socket {:?} for {:?}: {:?}", socket.local_id, peer_id, socket.addr);
+                        return Ok(socket);
                     }
 
                     drop(current_enqueued_set);
@@ -377,6 +384,11 @@ async fn drive(
                 Ok(socket) => {
                     let peer_unique_id = socket.addr.unique_id;
                     let local_id = hole_puncher.get_unique_id();
+                    rebuilder
+                        .lock()
+                        .await
+                        .local_finished
+                        .insert(local_id, hole_puncher);
                     current_enqueued_set.lock().await.push(socket);
 
                     if let Some((required_local, required_remote)) = *commanded_winner.lock().await

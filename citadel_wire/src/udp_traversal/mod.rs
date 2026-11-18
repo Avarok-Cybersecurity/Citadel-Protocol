@@ -58,6 +58,8 @@ use std::fmt::{Display, Formatter};
 use uuid::Uuid;
 
 pub mod abort_on_drop;
+#[cfg(not(target_family = "wasm"))]
+mod candidate_bounds;
 pub mod hole_punch_config;
 pub mod hole_punched_socket;
 pub mod turn_relay;
@@ -68,6 +70,8 @@ pub mod linear;
 pub mod multi;
 #[cfg(not(target_family = "wasm"))]
 mod paired_attempts;
+#[cfg(not(target_family = "wasm"))]
+pub mod punch_budget;
 #[cfg(not(target_family = "wasm"))]
 pub mod udp_hole_puncher;
 

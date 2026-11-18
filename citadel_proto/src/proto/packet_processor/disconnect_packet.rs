@@ -92,16 +92,19 @@ pub async fn process_disconnect<R: Ratchet, T: PlatformOps>(
                 session.to_primary_stream.as_ref(),
                 "Primary stream not loaded"
             );
-            primary_stream.unbounded_send(packet)?;
             // Deterministically wait for FINAL to reach the socket BEFORE returning EndSession (which
             // drops the writer): queue a flush-barrier after FINAL and await its ack. The writer flushes
             // FINAL + acks; we cap the wait so a dead socket can't hang teardown. This replaces a fixed
             // 100ms sleep — the common case returns in microseconds (as soon as FINAL is on the wire),
             // and FINAL is no longer silently dropped if the writer is cancelled too early (the race
             // exposed by removing the sleep: the peer's disconnect().await would hang forever).
-            let (ack_tx, ack_rx) = citadel_io::tokio::sync::oneshot::channel();
-            if primary_stream.send_flush(ack_tx).is_ok() {
-                let _ = citadel_io::time::timeout(Duration::from_millis(100), ack_rx).await;
+            if let Ok(sent) = citadel_io::time::timeout(
+                Duration::from_millis(100),
+                primary_stream.send_and_flush(packet),
+            )
+            .await
+            {
+                sent?;
             }
             Ok(PrimaryProcessorResult::EndSession(SUCCESS_DISCONNECT))
         }

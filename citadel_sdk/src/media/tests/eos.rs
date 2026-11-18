@@ -38,9 +38,9 @@ async fn captured_stream(n: u32) -> (Vec<BytesMut>, BytesMut) {
     sender.end_of_stream(TrackId(0)).await.unwrap();
     let mut frames = Vec::new();
     while let Ok(d) = media_rx.try_recv() {
-        frames.push(d);
+        frames.push(d.buf);
     }
-    (frames, ctl_rx.try_recv().unwrap())
+    (frames, ctl_rx.try_recv().unwrap().buf)
 }
 
 fn replay_endpoint() -> (ReliableSink, ReliableSink, crate::media::MediaReceiver) {

@@ -51,7 +51,6 @@ use crate::constructor_opts::{ConstructorOpts, RecursiveChain};
 use crate::encryption::AeadModule;
 use crate::export::keys_to_aead_store;
 use crate::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
-use citadel_io::ThreadRng;
 use citadel_types::crypto::{
     CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm, AES_GCM_NONCE_LENGTH_BYTES,
     ASCON_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES, KYBER_NONCE_LENGTH_BYTES,
@@ -59,7 +58,6 @@ use citadel_types::crypto::{
 use citadel_types::errors::Error;
 use generic_array::GenericArray;
 use serde::{Deserialize, Serialize};
-use sha3::Digest;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::sync::Arc;
@@ -87,6 +85,13 @@ pub mod constructor_opts;
 pub mod libcrux_kem;
 
 pub mod wire;
+
+mod transfer_check;
+
+mod kdf;
+
+#[cfg(test)]
+mod hybrid_decrypt_fuzz_tests;
 
 pub const fn build_tag() -> &'static str {
     "ordered"
@@ -222,7 +227,7 @@ pub(crate) mod functions {
         // 0.9, while this workspace is on rand 0.8. Drawing the 32-byte seed ourselves and calling
         // `from_seed` (FIPS 204 Alg. 1, exactly what `key_gen` did internally) keeps keygen on the
         // workspace RNG and produces identically-distributed keys.
-        let mut rng = citadel_io::ThreadRng::default();
+        let mut rng = citadel_io::thread_rng();
         let mut seed = Seed::default();
         rng.fill_bytes(&mut seed[..]);
         let sk = ExpandedSigningKey::<MlDsa65>::from_seed(&seed);
@@ -349,6 +354,14 @@ pub(crate) struct KeyStore {
     params: CryptoParameters,
 }
 
+impl Drop for KeyStore {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.alice_key.as_mut_slice().zeroize();
+        self.bob_key.as_mut_slice().zeroize();
+    }
+}
+
 impl PostQuantumContainer {
     /// Creates a new [PostQuantumContainer] for Alice. This will panic if the algorithm is
     /// invalid
@@ -394,10 +407,11 @@ impl PostQuantumContainer {
 
         let chain = opts.chain;
 
+        transfer_check::check_alice_transfer(&params, &tx_params)?;
         let data =
             Self::create_new_bob(tx_params).map_err(|err| Error::generic(err.to_string()))?;
         // We must call the below to refresh the internal state to allow get_shared_secret to function
-        let ss = data.get_shared_secret().unwrap().clone();
+        let ss = data.get_shared_secret()?.clone();
         let kex = data.kex().clone();
         let sig = data.sig().cloned();
 
@@ -433,128 +447,30 @@ impl PostQuantumContainer {
         kex: PostQuantumMetaKex,
         psks: &[T],
     ) -> Result<(RecursiveChain, KeyStore), Error> {
-        let (chain, alice_key, bob_key) = if let Some(prev) = previous_chain {
-            // prev = C_n
-            // If a previous key, S_n, existed, we calculate S_(n+1)' = KDF(C_n || S_n || psks))
-            let mut hasher_temp = sha3::Sha3_512::new();
-            let mut hasher_alice = sha3::Sha3_256::new();
-            let mut hasher_bob = sha3::Sha3_256::new();
-            hasher_temp.update(
-                &prev
-                    .chain
-                    .iter()
-                    .chain(ss.iter())
-                    .chain(psks.iter().flat_map(|r| r.as_ref()))
-                    .copied()
-                    .collect::<Vec<u8>>()[..],
-            );
-
-            let temp_key = hasher_temp.finalize();
-
-            let (temp_alice_key, temp_bob_key) = temp_key.as_slice().split_at(32);
-            debug_assert_eq!(temp_alice_key.len(), 32);
-            debug_assert_eq!(temp_bob_key.len(), 32);
-
-            hasher_alice.update(
-                &prev
-                    .alice
-                    .iter()
-                    .zip(temp_alice_key.iter())
-                    .map(|(r1, r2)| *r1 ^ *r2)
-                    .collect::<Vec<u8>>()[..],
-            );
-            hasher_bob.update(
-                &prev
-                    .bob
-                    .iter()
-                    .zip(temp_bob_key.iter())
-                    .map(|(r1, r2)| *r1 ^ *r2)
-                    .collect::<Vec<u8>>()[..],
-            );
-
-            let alice_key = hasher_alice.finalize();
-            let bob_key = hasher_bob.finalize();
-
-            // create chain: C_n = KDF(A xor B)
-            let mut hasher = sha3::Sha3_256::new();
-            hasher.update(
-                &alice_key
-                    .into_iter()
-                    .zip(bob_key)
-                    .map(|(r1, r2)| r1 ^ r2)
-                    .collect::<Vec<u8>>()[..],
-            );
-            let chain = hasher.finalize();
-
-            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, false)
-                .ok_or(Error::invalid_length())?;
-
-            //log::trace!(target: "citadel", "Alice, Bob keys: {:?} || {:?}", alice_key, bob_key);
-
-            let alice_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
-                alice_key.as_slice().iter().cloned(),
-            )
-            .ok_or(Error::invalid_length())?;
-
-            let bob_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
-                bob_key.as_slice().iter().cloned(),
-            )
-            .ok_or(Error::invalid_length())?;
-
-            (chain, alice_key, bob_key)
-        } else {
-            // The first key, S_0', = KDF(S_0)
-            let mut hasher_temp = sha3::Sha3_512::new();
-            hasher_temp.update(
-                ss.iter()
-                    .chain(psks.iter().flat_map(|r| r.as_ref()))
-                    .copied()
-                    .collect::<Vec<u8>>(),
-            );
-            let temp_key = hasher_temp.finalize();
-            let (alice_key, bob_key) = temp_key.as_slice().split_at(32);
-
-            let mut hasher = sha3::Sha3_256::new();
-            hasher.update(
-                &alice_key
-                    .iter()
-                    .zip(bob_key.iter())
-                    .map(|(r1, r2)| *r1 ^ *r2)
-                    .collect::<Vec<u8>>()[..],
-            );
-            let chain = hasher.finalize();
-            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, true)
-                .ok_or(Error::invalid_length())?;
-
-            let alice_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
-                alice_key.iter().cloned(),
-            )
-            .ok_or(Error::invalid_length())?;
-
-            let bob_key = aes_gcm::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(
-                bob_key.iter().cloned(),
-            )
-            .ok_or(Error::invalid_length())?;
-
-            (chain, alice_key, bob_key)
+        let derived = kdf::derive_keys(&ss[..], previous_chain, psks)?;
+        // The keys go straight into the store (which wipes them on drop) rather than through
+        // stack copies.
+        let mut key_store = KeyStore {
+            alice_module: None,
+            bob_module: None,
+            alice_key: GenericArray::clone_from_slice(&derived.alice[..]),
+            bob_key: GenericArray::clone_from_slice(&derived.bob[..]),
+            sig,
+            kex,
+            pq_node,
+            params,
         };
-
-        let (alice_symmetric_key, bob_symmetric_key) =
-            keys_to_aead_store(&alice_key, &bob_key, &kex, params, sig.as_ref(), pq_node);
-
-        Ok((
-            chain,
-            KeyStore {
-                alice_module: alice_symmetric_key,
-                bob_module: bob_symmetric_key,
-                alice_key,
-                bob_key,
-                sig,
-                kex,
-                pq_node,
-                params,
-            },
-        ))
+        let (alice_module, bob_module) = keys_to_aead_store(
+            &key_store.alice_key,
+            &key_store.bob_key,
+            &key_store.kex,
+            params,
+            key_store.sig.as_ref(),
+            pq_node,
+        )?;
+        key_store.alice_module = alice_module;
+        key_store.bob_module = bob_module;
+        Ok((derived.chain, key_store))
     }
 
     fn get_encryption_key(&self) -> Option<&dyn AeadModule> {
@@ -635,8 +551,13 @@ impl PostQuantumContainer {
         }
     }
 
-    pub fn get_public_key_remote(&self) -> &Arc<Zeroizing<Vec<u8>>> {
-        self.data.get_public_key_remote().unwrap()
+    pub fn get_public_key_remote(&self) -> Result<&Arc<Zeroizing<Vec<u8>>>, Error> {
+        self.data.get_public_key_remote().ok_or_else(|| {
+            citadel_io::error!(
+                citadel_io::ErrorCode::KeyMaterialMissing,
+                "the remote public key"
+            )
+        })
     }
 
     /// Gets the public key
@@ -1031,7 +952,7 @@ impl PostQuantumMeta {
         let (ciphertext, shared_secret) = match kem_scheme {
             KemAlgorithm::MlKem => {
                 let (ciphertext, shared_secret) =
-                    kyber_pke::encapsulate(pk_alice, &mut ThreadRng::default()).map_err(
+                    kyber_pke::encapsulate(pk_alice, &mut citadel_io::thread_rng()).map_err(
                         |_err| citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed),
                     )?;
                 (ciphertext.to_vec(), shared_secret.to_vec())
@@ -1107,6 +1028,7 @@ impl PostQuantumMeta {
         &mut self,
         params: BobToAliceTransferParameters,
     ) -> Result<(), Error> {
+        transfer_check::check_bob_transfer(self.sig().is_some(), &params)?;
         // These functions should only be called once upon response back from Bob
         let bob_ciphertext = match &params {
             BobToAliceTransferParameters::PureSymmetric { bob_ciphertext, .. } => {
@@ -1151,8 +1073,14 @@ impl PostQuantumMeta {
             BobToAliceTransferParameters::MixedAsymmetric {
                 bob_pk_sig, bob_pk, ..
             } => {
+                let sig = self.get_sig_mut().ok_or_else(|| {
+                    citadel_io::error!(
+                        citadel_io::ErrorCode::KeyMaterialMissing,
+                        "the local signature keys"
+                    )
+                })?;
+                sig.remote_sig_public_key = Some(bob_pk_sig);
                 self.get_kex_mut().remote_public_key = Some(bob_pk);
-                self.get_sig_mut().unwrap().remote_sig_public_key = Some(bob_pk_sig);
                 Ok(())
             }
             BobToAliceTransferParameters::PureSymmetric { bob_pk, .. } => {
@@ -1523,7 +1451,7 @@ mod in_place_aead_tests {
         );
         // Key-material getters return non-empty material.
         assert!(!alice.get_public_key().is_empty());
-        assert!(!bob.get_public_key_remote().is_empty());
+        assert!(!bob.get_public_key_remote().unwrap().is_empty());
         assert!(alice.get_secret_key().is_ok());
         assert!(bob.get_ciphertext().is_ok());
         assert!(alice.get_chain().is_ok());

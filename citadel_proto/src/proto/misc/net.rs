@@ -28,6 +28,7 @@
 //! - `node.rs`: Node implementation
 
 use crate::error::NetworkError;
+use crate::proto::misc::accept_loop::{accept_forever, within_handshake_deadline};
 use crate::proto::node::TlsDomain;
 use crate::proto::peer::p2p_conn_handler::generic_error;
 use citadel_io::tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -36,7 +37,10 @@ use citadel_io::tokio_stream::{Stream, StreamExt};
 use citadel_user::serialization::SyncIO;
 use citadel_wire::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
 use citadel_wire::exports::{Connection, Endpoint, RecvStream, SendStream};
-use citadel_wire::quic::{accept_biconn, QuicEndpointListener, QuicNode, QUIC_LISTENER_DIED};
+use citadel_wire::quic::{
+    accept_biconn, QuicEndpointListener, QuicNode, QUIC_ACCEPT_DEADLINE, QUIC_LISTENER_DIED,
+    QUIC_MAX_CONCURRENT_ACCEPTS,
+};
 use citadel_wire::tls::TLSQUICInterop;
 use futures::{Future, TryStreamExt};
 use serde::{Deserialize, Serialize};
@@ -218,9 +222,7 @@ impl GenericNetworkListener {
         let tls_domain = redirect_to_quic.as_ref().and_then(|r| r.0.clone());
 
         let future = async move {
-            let redirect_to_quic = &redirect_to_quic;
-            loop {
-                let (stream, addr) = listener.accept().await?;
+            let on_accepted = move |stream: TcpStream, addr: SocketAddr| {
                 log::trace!(target: "citadel", "Received raw TCP stream from {addr:?}: {stream:?}");
 
                 // ensures that any errors do not terminate the listener as a whole
@@ -259,8 +261,14 @@ impl GenericNetworkListener {
                 let redirect_to_quic = redirect_to_quic.clone();
                 let inbound_streams_tx = inbound_streams_tx.clone();
                 let handle_stream = async move {
+                    let handshake = within_handshake_deadline(handle_stream_non_terminating(
+                        stream,
+                        addr,
+                        &redirect_to_quic,
+                    ))
+                    .await;
                     if let Err(err) = inbound_streams_tx
-                        .send(handle_stream_non_terminating(stream, addr, &redirect_to_quic).await)
+                        .send(handshake)
                         .await
                         .map_err(|err| generic_error(err.to_string()))
                     {
@@ -270,7 +278,8 @@ impl GenericNetworkListener {
 
                 // Spawn to prevent backpressure against pending inbound connections
                 spawn!(handle_stream);
-            }
+            };
+            accept_forever(|| listener.accept(), on_accepted).await
         };
 
         Ok(Self {
@@ -353,18 +362,25 @@ impl GenericNetworkListener {
         let (send, recv) = citadel_io::tokio::sync::mpsc::channel(1024);
 
         let future = async move {
-            loop {
-                let (tcp_stream, addr) = listener.accept().await?;
-                // Disable Nagle before the WebSocket upgrade: framed packets need low latency.
-                tcp_stream.set_nodelay(true)?;
+            let on_accepted = move |tcp_stream: TcpStream, addr: SocketAddr| {
                 let send = send.clone();
 
                 let handle_ws = async move {
-                    match tokio_tungstenite::accept_async(
-                        super::native_websocket::WsTransport::Plain(tcp_stream),
-                    )
-                    .await
-                    {
+                    // Disable Nagle before the WebSocket upgrade: framed packets need low
+                    // latency. A socket that refuses it is this connection's problem alone.
+                    if let Err(err) = tcp_stream.set_nodelay(true) {
+                        log::debug!(target: "citadel", "WebSocket connection from {addr} refused TCP_NODELAY: {err}");
+                        return Ok(());
+                    }
+                    let upgrade = within_handshake_deadline(async {
+                        tokio_tungstenite::accept_async(
+                            super::native_websocket::WsTransport::Plain(tcp_stream),
+                        )
+                        .await
+                        .map_err(std::io::Error::other)
+                    })
+                    .await;
+                    match upgrade {
                         Ok(ws_stream) => {
                             let byte_stream = super::native_websocket::WebSocketByteStream::new(
                                 ws_stream, addr, addr,
@@ -383,7 +399,8 @@ impl GenericNetworkListener {
 
                 // Spawn to prevent backpressure against pending inbound connections
                 spawn!(handle_ws);
-            }
+            };
+            accept_forever(|| listener.accept(), on_accepted).await
         };
 
         Ok(Self {
@@ -429,32 +446,51 @@ impl TlsListener {
         let tls_domain = domain.clone();
 
         let future = async move {
-            let tls_acceptor = &tls_acceptor;
-            let domain = &domain;
-            let send = &send;
+            async fn handle_stream_non_terminating(
+                stream: TcpStream,
+                addr: SocketAddr,
+                domain: TlsDomain,
+                is_self_signed: bool,
+                tls_acceptor: &TlsAcceptor,
+            ) -> std::io::Result<(TlsStream<TcpStream>, SocketAddr)> {
+                // Disable Nagle before the TLS upgrade: the encrypted data path carries small
+                // framed packets and needs low per-message latency.
+                stream.set_nodelay(true)?;
+                let serialized_first_packet = FirstPacket::OrderedReliableSecure {
+                    domain,
+                    external_addr: addr,
+                    is_self_signed,
+                }
+                .serialize_to_vector()
+                .map_err(|err| generic_error(err.into_string()))?;
+                let stream = super::write_one_packet(stream, serialized_first_packet)
+                    .await
+                    .map_err(|err| generic_error(err.into_string()))?;
+                // Upgrade TCP stream to TLS stream
+                tls_acceptor.accept(stream).await.map(|r| (r, addr))
+            }
 
-            let acceptor_stream = async_stream::stream! {
-                    loop {
-                        yield inner.accept().await
-                    }
-            };
-
-            acceptor_stream.try_for_each_concurrent(None, |(stream, addr)| async move {
+            let on_accepted = move |stream: TcpStream, addr: SocketAddr| {
                 log::trace!(target: "citadel", "TLs-listener RECV Raw TCP stream from {addr:?} : {stream:?}");
                 let domain = domain.clone();
-
-                async fn handle_stream_non_terminating(stream: TcpStream, addr: SocketAddr, domain: TlsDomain, is_self_signed: bool, tls_acceptor: &TlsAcceptor) -> std::io::Result<(TlsStream<TcpStream>, SocketAddr)> {
-                    // Disable Nagle before the TLS upgrade: the encrypted data path carries small
-                    // framed packets and needs low per-message latency.
-                    stream.set_nodelay(true)?;
-                    let serialized_first_packet = FirstPacket::OrderedReliableSecure { domain, external_addr: addr, is_self_signed }.serialize_to_vector().map_err(|err| generic_error(err.into_string()))?;
-                    let stream = super::write_one_packet(stream, serialized_first_packet).await.map_err(|err| generic_error(err.into_string()))?;
-                    // Upgrade TCP stream to TLS stream
-                    tls_acceptor.accept(stream).await.map(|r| (r, addr))
-                }
-
-                send.send(handle_stream_non_terminating(stream, addr, domain, is_self_signed, tls_acceptor).await).await.map_err(|err| generic_error(err.to_string()))
-            }).await
+                let tls_acceptor = tls_acceptor.clone();
+                let send = send.clone();
+                // Each handshake on its own task: one that stalls holds up no other.
+                spawn!(async move {
+                    let handshake = within_handshake_deadline(handle_stream_non_terminating(
+                        stream,
+                        addr,
+                        domain,
+                        is_self_signed,
+                        &tls_acceptor,
+                    ))
+                    .await;
+                    if let Err(err) = send.send(handshake).await {
+                        log::error!(target: "citadel", "Error sending inbound TLS stream from {addr} to listener: {err}");
+                    }
+                });
+            };
+            accept_forever(|| inner.accept(), on_accepted).await
         };
 
         Ok(Self {
@@ -513,12 +549,12 @@ impl QuicListener {
                 }
             };
 
-            // Each connection completes (or fails) on its own: one a peer
-            // abandons mid-handshake is dropped, and neither ends the listener
-            // nor holds up the connections behind it.
+            // Each connection completes (or fails) on its own, within its deadline: one a
+            // peer abandons mid-handshake is dropped, and neither ends the listener nor holds
+            // up the connections behind it for longer than that deadline.
             incoming_stream
-                .try_for_each_concurrent(None, |incoming| async move {
-                    match accept_biconn(incoming).await {
+                .try_for_each_concurrent(Some(QUIC_MAX_CONCURRENT_ACCEPTS), |incoming| async move {
+                    match accept_biconn(incoming, QUIC_ACCEPT_DEADLINE).await {
                         Ok((conn, tx, rx)) => {
                             let addr = conn.remote_address();
                             log::trace!(target: "citadel", "RECV {:?} from {:?}", conn, addr);

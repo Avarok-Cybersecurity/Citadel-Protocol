@@ -104,7 +104,8 @@ impl<const BLOCK_SIZE: usize> ScramCryptDictionary<BLOCK_SIZE> {
             let mut rand = rand::thread_rng();
             let mut zeroed_buffer = vec![0u8; diff];
             rand.fill_bytes(zeroed_buffer.as_mut_slice());
-            buf.extend_from_slice(zeroed_buffer.as_slice()).unwrap();
+            buf.extend_from_slice(zeroed_buffer.as_slice())
+                .map_err(|err| Error::generic(err.to_string()))?;
         }
 
         // The buffer was padded to a BLOCK_SIZE multiple above, so the remainder is empty.

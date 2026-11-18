@@ -8,7 +8,7 @@ use citadel_types::crypto::SecBuffer;
 use citadel_user::auth::pq::client::{ClientLogin, ClientProof, ClientRegistration};
 use citadel_user::auth::pq::kem::encapsulate;
 use citadel_user::auth::pq::login_transcript;
-use citadel_user::auth::pq::messages::LoginProof;
+use citadel_user::auth::pq::messages::{AuthChallenge, LoginProof};
 use citadel_user::auth::pq::oprf::{client_blind, server_evaluate, OprfSeed};
 use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
 use citadel_user::auth::pq::server::{
@@ -60,7 +60,11 @@ fn server_cost(c: &mut Criterion) {
                 let account = AccountAuth::PostQuantum(&record);
                 let (challenge, expectation) =
                     build_login_challenge(&settings, account, &start).unwrap();
-                let transcript = login_transcript(1, &start, &challenge);
+                let sent = AuthChallenge {
+                    challenge: challenge.clone(),
+                    ceremony: None,
+                };
+                let transcript = login_transcript(1, &start, &sent);
                 let proof = runtime
                     .block_on(client.respond(&challenge, &transcript, None))
                     .unwrap();

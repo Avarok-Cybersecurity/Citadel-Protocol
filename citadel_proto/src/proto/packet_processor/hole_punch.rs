@@ -73,12 +73,11 @@ pub fn process_hole_punch<R: Ratchet, T: PlatformOps>(
             log::trace!(target: "citadel", "Success forwarding hole-punch packet to hole-puncher");
         }
         None => {
-            log::trace!(target: "citadel", "Enqueuing early hole-punch packet for peer {peer_cid} (pipe not yet registered)");
-            state_container
-                .pending_hole_punch_packets
-                .entry(peer_cid)
-                .or_default()
-                .push(payload.freeze());
+            if state_container.hold_early_hole_punch_packet(peer_cid, payload.freeze()) {
+                log::trace!(target: "citadel", "Holding early hole-punch packet for peer {peer_cid} (pipe not yet registered)");
+            } else {
+                log::trace!(target: "citadel", "Dropping hole-punch packet for peer {peer_cid}: no exchange in progress, or its early packets are at the cap");
+            }
         }
     }
 

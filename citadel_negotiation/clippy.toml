@@ -1,0 +1,16 @@
+# The negotiation core does no I/O: time is an argument, never read (SBIO). These are the ways a
+# clock, a sleep, a thread, a file or a socket could get in; `cargo clippy -- -D warnings` refuses
+# them in this crate. (A wasm32 check alone cannot: `Instant::now()` compiles there and panics.)
+disallowed-methods = [
+    { path = "std::time::Instant::now", reason = "the core takes `now` as an input" },
+    { path = "std::time::SystemTime::now", reason = "the core takes `now` as an input" },
+    { path = "std::thread::sleep", reason = "the core never waits" },
+    { path = "std::thread::spawn", reason = "the core never spawns" },
+]
+disallowed-types = [
+    { path = "std::time::Instant", reason = "the core takes `now` as an input" },
+    { path = "std::time::SystemTime", reason = "the core takes `now` as an input" },
+    { path = "std::fs::File", reason = "the core does no I/O" },
+    { path = "std::net::TcpStream", reason = "the core does no I/O" },
+    { path = "std::net::UdpSocket", reason = "the core does no I/O" },
+]

@@ -302,6 +302,7 @@ pub mod prelude {
 }
 
 /// Store data to the backend using this library
+mod answer_wait;
 pub mod backend_kv_store;
 mod builder;
 /// Convenience functions for interacting with the remote encrypted virtual filesystem (RE-VFS)
@@ -333,6 +334,9 @@ pub(crate) mod macros;
 pub use citadel_logging as logging;
 /// Codec-agnostic media primitives used by [`media`]
 pub use citadel_media;
+/// The negotiation layer's pure core: settings, frames and the negotiator a connection's
+/// [`NegotiationLane`](crate::prelude::NegotiationLane) carries.
+pub use citadel_negotiation;
 /// Convenience for SDK users
 pub use citadel_proto::prelude::async_trait;
 pub use citadel_types as types;

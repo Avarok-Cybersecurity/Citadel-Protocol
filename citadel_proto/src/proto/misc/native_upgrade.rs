@@ -28,6 +28,64 @@ pub struct QuicRedirectSignal {
     pub is_self_signed: bool,
 }
 
+/// How many ephemeral TCP ports a server draws, for a `:0` bind, looking for one whose UDP twin
+/// is free too.
+const SERVER_PORT_DRAWS: usize = 8;
+
+fn bind_udp(addr: SocketAddr) -> io::Result<citadel_io::tokio::net::UdpSocket> {
+    citadel_wire::socket_helpers::get_udp_socket(addr)
+        .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::AddrNotAvailable))
+}
+
+/// The server's TCP signalling listener and QUIC socket, on one address: a client dials QUIC at
+/// the address it reached over TCP. TCP and UDP ports are allocated separately, so the port the
+/// OS hands the TCP listener can already be held by an unrelated UDP socket on this host. For an
+/// explicit port that is the caller's error to see; for `:0` the caller asked for any port, so
+/// the listener is dropped and another port drawn, a bounded number of times.
+fn server_socket_pair(
+    addr: SocketAddr,
+) -> io::Result<(
+    citadel_io::tokio::net::TcpListener,
+    citadel_io::tokio::net::UdpSocket,
+)> {
+    // The errno is kept (as `native_bind` keeps it): a caller retrying a reserved ephemeral
+    // port on Windows (WSAEACCES) reads it, and `to_string` left only its English.
+    let draws = if addr.port() == 0 {
+        SERVER_PORT_DRAWS
+    } else {
+        1
+    };
+    let mut last = None;
+    for _ in 0..draws {
+        let tcp = citadel_wire::socket_helpers::get_tcp_listener(addr)
+            .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::AddrNotAvailable))?;
+        match bind_udp(tcp.local_addr()?) {
+            Ok(udp) => return Ok((tcp, udp)),
+            Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
+                log::warn!(target: "citadel", "UDP twin of {:?} is held by another socket; drawing another port", tcp.local_addr());
+                last = Some(err);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    Err(last.expect("at least one draw"))
+}
+
+/// The client's QUIC socket, on the TCP signalling socket's address when UDP has it free, so one
+/// local address carries both (NAT and firewall state made for one serves the other). The two
+/// port spaces are allocated separately, and an unrelated UDP socket on this host may hold the
+/// TCP socket's port; the shared address is then a preference that cannot be met, and an
+/// ephemeral port on the same IP serves. The QUIC connection does not depend on it.
+fn client_quic_socket(signalling: SocketAddr) -> io::Result<citadel_io::tokio::net::UdpSocket> {
+    match bind_udp(signalling) {
+        Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
+            log::warn!(target: "citadel", "UDP port of {signalling} is held by another socket; QUIC uses an ephemeral port");
+            bind_udp(SocketAddr::new(signalling.ip(), 0))
+        }
+        res => res,
+    }
+}
+
 /// TCP-to-QUIC protocol upgrade.
 ///
 /// Sends a [`QuicRedirectSignal`] over a TCP signaling channel, then
@@ -87,10 +145,7 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
 
         // TCP signaling listener: sends redirect signal to each connecting client
         let redirect_info = Some((p2p_config.domain.clone(), p2p_config.is_self_signed));
-        // The errno is kept (as `native_bind` keeps it): a caller retrying a reserved ephemeral
-        // port on Windows (WSAEACCES) reads it, and `to_string` left only its English.
-        let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener(addr)
-            .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::AddrNotAvailable))?;
+        let (tcp_listener, udp_socket) = server_socket_pair(addr)?;
         let bind_addr = tcp_listener.local_addr()?;
         let tcp_gnl = GenericNetworkListener::new_tcp(tcp_listener, redirect_info)?;
 
@@ -100,8 +155,6 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
             domain,
             is_self_signed,
         } = p2p_config.clone();
-        let udp_socket = citadel_wire::socket_helpers::get_udp_socket(bind_addr)
-            .map_err(|e| super::io_error_from_anyhow(e, io::ErrorKind::AddrNotAvailable))?;
         let mut quic =
             QuicServer::create(udp_socket, crypto).map_err(|e| io::Error::other(e.to_string()))?;
         quic.tls_domain_opt = domain;
@@ -120,9 +173,7 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
         remote_addr: SocketAddr,
         client_config: &super::native_io::NativeClientConfig,
     ) -> io::Result<GenericNetworkStream> {
-        // Bind UDP to same local address for NAT/firewall compatibility
-        let udp_socket = citadel_wire::socket_helpers::get_udp_socket(local_addr)
-            .map_err(|e| io::Error::other(e.to_string()))?;
+        let udp_socket = client_quic_socket(local_addr)?;
 
         // Honor the local client policy: a peer must not be able to force the no-verification path
         // by advertising self-signed / omitting a domain when the client requires verification.
@@ -176,3 +227,7 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
         DualListener::merge_suppressing_signal(signal_listener, target_listener)
     }
 }
+
+#[cfg(test)]
+#[path = "native_upgrade_tests.rs"]
+mod tests;

@@ -43,6 +43,7 @@ blake3 = { workspace = true }
 auto_impl = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }
 citadel_types = { workspace = true }
+citadel_negotiation = { workspace = true }
 uuid = { version = "1.8.0", features = ["v4"] }
 atomic = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
