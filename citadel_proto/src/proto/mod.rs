@@ -59,6 +59,8 @@ pub(crate) mod packet_processor;
 pub(crate) mod path_policy;
 pub(crate) mod peer;
 pub(crate) mod pq_sign_in;
+/// Manages multiple sessions
+pub(crate) mod provisional_reservation;
 pub mod remote;
 mod reseal_tests;
 pub(crate) mod seal_identity;
@@ -66,7 +68,6 @@ pub(crate) mod seal_identity;
 pub mod server_probe;
 pub(crate) mod session;
 mod session_abandon;
-/// Manages multiple sessions
 pub(crate) mod session_ledger;
 pub(crate) mod session_manager;
 mod session_probe;
