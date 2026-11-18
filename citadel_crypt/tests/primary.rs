@@ -261,33 +261,28 @@ mod tests {
         }
     }
 
+    /// A mono ratchet holds one level, so every higher level is refused. Asserted as the
+    /// refusal itself, not a `should_panic`: a panic reaches the exiting hook another test
+    /// in this process installed with `setup_log`, and plain `cargo test` aborts.
     #[test]
-    #[should_panic(
-        expected = "Requested security level: Some(Reinforced). Resolved: Reinforced. Only have max 0 security levels"
-    )]
     fn mono_ratchets_fail() {
-        citadel_logging::should_panic_test();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 1..SecurityLevel::Extreme.value() {
-                let ratchet = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
+                let level = SecurityLevel::from(sec);
+                let (alice, bob) = handshake::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
                     KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
-                    Some(sec.into()),
+                    level,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
-
-                const MESSAGE: &[u8] = b"Hello, world!" as &[u8];
-                const HEADER_LEN: usize = 50;
-                let mut packet = BytesMut::with_capacity(MESSAGE.len() + HEADER_LEN);
-                packet.put(MESSAGE);
-
-                assert!(ratchet
-                    .protect_message_packet(
-                        Some(SecurityLevel::Custom(255)),
-                        HEADER_LEN,
-                        &mut packet
+                let refused = round_trip_at(&alice, &bob, level)
+                    .expect_err("a mono ratchet sealed above its only level");
+                assert_eq!(
+                    refused.to_string(),
+                    format!(
+                        "Requested security level: Some({level:?}). Resolved: {level:?}. Only have max 0 security levels"
                     )
-                    .is_err());
+                );
             }
         }
     }
@@ -324,10 +319,23 @@ mod tests {
         bob_psks: &[Vec<u8>],
         alice_psks: &[Vec<u8>],
     ) -> R {
+        let security_level = security_level.unwrap_or_default();
+        let (alice_ratchet, bob_ratchet) =
+            handshake::<R, Z>(algorithm, security_level, bob_psks, alice_psks);
+        round_trip_at(&alice_ratchet, &bob_ratchet, security_level).unwrap();
+        alice_ratchet
+    }
+
+    /// Alice's and Bob's ratchets after a completed key exchange.
+    fn handshake<R: Ratchet, Z: Into<CryptoParameters>>(
+        algorithm: Z,
+        security_level: SecurityLevel,
+        bob_psks: &[Vec<u8>],
+        alice_psks: &[Vec<u8>],
+    ) -> (R, R) {
         let algorithm = algorithm.into();
         log::trace!(target: "citadel", "Using {:?} with {:?} @ {:?} security level", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level);
         let algorithm = Some(algorithm);
-        let security_level = security_level.unwrap_or_default();
         let mut alice_ratchet = R::Constructor::new_alice(
             ConstructorOpts::new_vec_init(algorithm, security_level),
             99,
@@ -349,7 +357,15 @@ mod tests {
 
         let alice_ratchet = alice_ratchet.finish().unwrap();
         let bob_ratchet = bob_ratchet.finish().unwrap();
+        (alice_ratchet, bob_ratchet)
+    }
 
+    /// One message from Alice to Bob at `security_level`; the first refusal is the result.
+    fn round_trip_at<R: Ratchet>(
+        alice_ratchet: &R,
+        bob_ratchet: &R,
+        security_level: SecurityLevel,
+    ) -> Result<(), citadel_crypt::misc::CryptError> {
         const MESSAGE: &[u8] = b"Hello, world!" as &[u8];
         const HEADER_LEN: usize = 50;
 
@@ -363,20 +379,16 @@ mod tests {
 
         let plaintext_packet = packet.clone();
 
-        alice_ratchet
-            .protect_message_packet(Some(security_level), HEADER_LEN, &mut packet)
-            .unwrap();
+        alice_ratchet.protect_message_packet(Some(security_level), HEADER_LEN, &mut packet)?;
         assert_ne!(packet, plaintext_packet);
 
         let mut header = packet.split_to(HEADER_LEN);
-        bob_ratchet
-            .validate_message_packet(Some(security_level), &header[..], &mut packet)
-            .unwrap();
+        bob_ratchet.validate_message_packet(Some(security_level), &header[..], &mut packet)?;
 
         header.unsplit(packet);
 
         assert_eq!(header, plaintext_packet);
-        alice_ratchet
+        Ok(())
     }
 
     #[rstest]
@@ -510,6 +522,18 @@ mod tests {
         bob_psks: &[Vec<u8>],
         alice_psks: &[Vec<u8>],
     ) -> (R, R) {
+        try_gen(cid, version, sec, algorithm, bob_psks, alice_psks).unwrap()
+    }
+
+    /// `gen`, returning Alice's refusal of Bob's reply instead of panicking on it.
+    fn try_gen<R: Ratchet>(
+        cid: u64,
+        version: u32,
+        sec: SecurityLevel,
+        algorithm: CryptoParameters,
+        bob_psks: &[Vec<u8>],
+        alice_psks: &[Vec<u8>],
+    ) -> Result<(R, R), citadel_crypt::misc::CryptError> {
         let mut alice = R::Constructor::new_alice(
             ConstructorOpts::new_vec_init(Some(algorithm), sec),
             cid,
@@ -524,8 +548,8 @@ mod tests {
         )
         .unwrap();
         let stage0_bob = bob.stage0_bob().unwrap();
-        alice.stage1_alice(stage0_bob, alice_psks).unwrap();
-        (alice.finish().unwrap(), bob.finish().unwrap())
+        alice.stage1_alice(stage0_bob, alice_psks)?;
+        Ok((alice.finish().unwrap(), bob.finish().unwrap()))
     }
 
     #[rstest]
@@ -1078,7 +1102,7 @@ mod tests {
 
     // The pqcrypto AEAD failure surfaces here wrapped by the ratchet layer as
     // NetworkError { code: RekeyUpdate, detail: "Encryption failure" }; match the canonical text.
-    #[should_panic(expected = "Encryption failure")]
+    // Asserted as the refusal, not a `should_panic`, for the reason `mono_ratchets_fail` gives.
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
@@ -1090,17 +1114,22 @@ mod tests {
         #[case] kem: KemAlgorithm,
         #[case] sig: SigAlgorithm,
     ) {
-        citadel_logging::should_panic_test();
-        test_harness_with_psks(
-            enx + kem + sig,
-            &PRE_SHARED_KEYS,
-            &PRE_SHARED_KEYS2,
-            |alice, bob, _, data| {
-                let encrypted = alice.encrypt(data).unwrap();
-                let decrypted = bob.decrypt(encrypted).unwrap();
-                assert_eq!(decrypted, data);
-            },
-        );
+        for sec in 0..5 {
+            let refused = try_gen::<StackedRatchet>(
+                0,
+                0,
+                SecurityLevel::from(sec),
+                enx + kem + sig,
+                &PRE_SHARED_KEYS,
+                &PRE_SHARED_KEYS2,
+            )
+            .map(|_| ())
+            .expect_err("Alice accepted a key exchange under other PSKs");
+            assert_eq!(
+                refused.to_string(),
+                "Rekey update error: Encryption failure"
+            );
+        }
     }
 
     #[rstest]
