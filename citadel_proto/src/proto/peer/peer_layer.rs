@@ -146,7 +146,30 @@ pub struct CitadelNodePeerLayerExecutor {
 pub struct TrackedPosting {
     pub(crate) signal: PeerSignal,
     pub(crate) key: delay_queue::Key,
+    pub(crate) crossing: Crossing,
     pub(crate) on_timeout: Box<dyn PeerLayerTimeoutFunction>,
+}
+
+/// Whether a posted dial may be merged with the other side's crossing dial
+/// ([`CitadelNodePeerLayerInner::check_simultaneous_connect`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Crossing {
+    /// Made while the pair had no live link: a dial from the other side crosses it.
+    Open,
+    /// Made while the pair's link was live, so the receiver answers it from that link (it folds
+    /// it into the link, or refuses it). It is never merged: by the time the other side dials
+    /// again the link has ended, and the dialler of this one has moved on with it -- merging
+    /// would answer the new dial with an accept on behalf of a peer no longer dialling.
+    OverLiveLink,
+}
+
+/// How the receiver answered a posted request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// It accepted: for a dial, the pair's link is established now.
+    Accepts,
+    /// It declined, or the protocol refused for it.
+    Refuses,
 }
 
 impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
@@ -165,11 +188,13 @@ impl TrackedPosting {
     pub fn new(
         signal: PeerSignal,
         key: delay_queue::Key,
+        crossing: Crossing,
         on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements,
     ) -> Self {
         Self {
             signal,
             key,
+            crossing,
             on_timeout: Box::new(on_timeout),
         }
     }
@@ -621,6 +646,9 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
 
         self.check_simultaneous_event(peer_cid, |posting| if let PeerSignal::PostConnect { peer_conn_type: conn, .. } = &posting.signal {
             log::trace!(target: "citadel", "Checking if posting from conn={conn:?} ~ {session_cid:?}");
+            if posting.crossing != Crossing::Open {
+                return false;
+            }
             if let PeerConnectionType::LocalGroupPeer { session_cid: _, peer_cid: b } = conn {
                 *b == session_cid
             } else {
@@ -679,6 +707,7 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
             SIMULTANEOUS_DEREGISTER_WINDOW,
             ticket,
             PeerSignal::DeregistrationSuccess { peer_conn_type },
+            Crossing::Open,
             |_| {},
         )
         .await
@@ -734,6 +763,7 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         timeout: Duration,
         ticket: Ticket,
         signal: PeerSignal,
+        crossing: Crossing,
         on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements,
     ) {
         let mut this = self.inner.write();
@@ -741,7 +771,7 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         log::trace!(target: "citadel", "Creating TrackedPosting {session_cid} (Ticket: {ticket})");
 
         if let Some(map) = this.observed_postings.get_mut(&session_cid) {
-            let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
+            let tracked_posting = TrackedPosting::new(signal, delay_key, crossing, on_timeout);
             map.insert(ticket, tracked_posting);
 
             std::mem::drop(this);
@@ -751,9 +781,12 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
         }
     }
 
-    /// Consumes the tracked posting like [`Self::remove_tracked_posting_inner`], and — when the
-    /// consumed posting is a `PostConnect` — atomically purges EVERY remaining pending
-    /// `PostConnect` posting between the pair (both owners), in the same lock window.
+    /// Consumes the tracked posting `answer` answers, like [`Self::remove_tracked_posting_inner`].
+    /// When the answer accepts a `PostConnect`, it also atomically purges EVERY remaining pending
+    /// `PostConnect` posting between the pair (both owners), in the same lock window. A refusal
+    /// consumes only its own posting: the refuser's own dial to the dialler is still pending, and
+    /// the dialler's answer to it must still find it (two dials crossed over a live link are each
+    /// refused by the other side; purging on the first refusal left the second unanswerable).
     ///
     /// Rationale (CI reconnect-wedge root cause, part 2): consuming a `PostConnect` response IS
     /// the establishment commitment for the pair. Any other pending `PostConnect` between the
@@ -764,14 +797,15 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
     /// forge, requires no assumptions about client signal ordering — unlike the removed
     /// Disconnect-arm purge, which raced late channel-drop cleanup signals against fresh
     /// reconnect postings (client request queues do not guarantee cross-request wire order).
-    pub fn remove_tracked_posting_and_supersede_connect(
+    pub fn remove_answered_posting(
         &mut self,
         session_cid: u64,
         ticket: Ticket,
         peer_cid: u64,
+        answer: Answer,
     ) -> Option<PeerSignal> {
         let consumed = self.remove_tracked_posting_inner(session_cid, ticket)?;
-        if matches!(consumed, PeerSignal::PostConnect { .. }) {
+        if answer == Answer::Accepts && matches!(consumed, PeerSignal::PostConnect { .. }) {
             self.remove_pending_post_connect_owned_by(session_cid, peer_cid);
             self.remove_pending_post_connect_owned_by(peer_cid, session_cid);
         }
@@ -805,9 +839,10 @@ impl<R: Ratchet> CitadelNodePeerLayerInner<R> {
     /// Purges any pending `PostConnect` tracked-posting between `session_cid` and `peer_cid`
     /// (both directions). Called when a P2P virtual connection is torn down.
     ///
-    /// A forwarded `PostConnect` that the receiving peer's client-side CID tiebreaker drops
-    /// (the higher-CID side returns `Void` without responding) leaves its server-side posting
-    /// un-consumed; it then lingers (only the 1-hour timeout would clear it). If such a stale
+    /// A forwarded `PostConnect` that the receiving peer's client folds into a link without
+    /// answering (the higher-CID tiebreak, or an exchange in progress) leaves its server-side
+    /// posting un-consumed until its TTL; one made over the pair's live route is therefore
+    /// [`Crossing::OverLiveLink`] and never merged. If such a stale
     /// posting survives into a subsequent *simultaneous* reconnect of the same pair,
     /// [`Self::check_simultaneous_connect`] matches it and fires the simulate-accept path with a
     /// dead ticket — the KEM never completes, `PeerChannelCreated` is never emitted, and the
@@ -1176,20 +1211,30 @@ mod tests {
                 .insert((a, ticket_a), std::time::Duration::from_secs(65));
             shared.observed_postings.entry(a).or_default().insert(
                 ticket_a,
-                TrackedPosting::new(post_connect_signal(a, b, ticket_a), key_a, |_| {}),
+                TrackedPosting::new(
+                    post_connect_signal(a, b, ticket_a),
+                    key_a,
+                    Crossing::Open,
+                    |_| {},
+                ),
             );
             let key_b = shared
                 .delay_queue
                 .insert((b, ticket_b), std::time::Duration::from_secs(65));
             shared.observed_postings.entry(b).or_default().insert(
                 ticket_b,
-                TrackedPosting::new(post_connect_signal(b, a, ticket_b), key_b, |_| {}),
+                TrackedPosting::new(
+                    post_connect_signal(b, a, ticket_b),
+                    key_b,
+                    Crossing::Open,
+                    |_| {},
+                ),
             );
         }
 
         // b's accept of a's request consumes a's posting = establishment...
         assert!(inner
-            .remove_tracked_posting_and_supersede_connect(a, ticket_a, b)
+            .remove_answered_posting(a, ticket_a, b, Answer::Accepts)
             .is_some());
 
         // ...and the voided companion (b's own init) is gone with it, atomically.
@@ -1217,11 +1262,21 @@ mod tests {
             let postings = shared.observed_postings.entry(a).or_default();
             postings.insert(
                 ticket_ab,
-                TrackedPosting::new(post_connect_signal(a, b, ticket_ab), k1, |_| {}),
+                TrackedPosting::new(
+                    post_connect_signal(a, b, ticket_ab),
+                    k1,
+                    Crossing::Open,
+                    |_| {},
+                ),
             );
             postings.insert(
                 ticket_ac,
-                TrackedPosting::new(post_connect_signal(a, c, ticket_ac), k2, |_| {}),
+                TrackedPosting::new(
+                    post_connect_signal(a, c, ticket_ac),
+                    k2,
+                    Crossing::Open,
+                    |_| {},
+                ),
             );
         }
 
@@ -1254,7 +1309,12 @@ mod tests {
                 .insert((b, ticket_b), std::time::Duration::from_secs(65));
             shared.observed_postings.entry(b).or_default().insert(
                 ticket_b,
-                TrackedPosting::new(post_connect_signal(b, a, ticket_b), key, |_| {}),
+                TrackedPosting::new(
+                    post_connect_signal(b, a, ticket_b),
+                    key,
+                    Crossing::Open,
+                    |_| {},
+                ),
             );
         }
 
@@ -1278,3 +1338,7 @@ mod incarnation_tests;
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "peer_layer_bounds_tests.rs"]
 mod bounds_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "peer_layer_crossing_tests.rs"]
+mod crossing_tests;

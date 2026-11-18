@@ -35,6 +35,7 @@ use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::includes::VirtualConnectionType;
 use crate::proto::packet_processor::peer::peer_cmd_packet::route_signal_response;
 use crate::proto::packet_processor::PrimaryProcessorResult;
+use crate::proto::peer::peer_layer::Answer;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
@@ -72,7 +73,7 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet, T: PlatformOp
         session_security_settings: endpoint_security_level,
         udp_mode: udp_enabled,
         session_password: None,
-    }, session_cid, target_cid, timestamp, ticket, session.clone(), sess_ratchet,
+    }, session_cid, target_cid, timestamp, ticket, if accepted { Answer::Accepts } else { Answer::Refuses }, session.clone(), sess_ratchet,
                           |this_sess, peer_sess, _original_tracked_posting| {
                               // when the route finishes, we need to update both sessions to allow high-level message-passing
                               // In other words, forge a virtual connection
