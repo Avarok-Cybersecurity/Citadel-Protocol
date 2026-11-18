@@ -209,3 +209,22 @@ fn past_the_grace_a_resumed_link_reseals_instead_of_reattaching() {
     assert_ne!(last.punch, PunchReuse::Reattached);
     assert_eq!(last.incarnation.unwrap().n, 2);
 }
+
+#[test]
+fn a_half_open_link_heals_when_the_peer_redials_into_it() {
+    let mut w = up(ALL);
+    let LinkState::Up { incarnation, .. } = *w.state(Side::A) else {
+        panic!();
+    };
+    // Only A sees the drop; B learns of it from A's redial alone.
+    w.step(
+        Side::A,
+        citadel_link::LinkInput::LinkLost {
+            incarnation,
+            cause: LossCause::Transient,
+        },
+    );
+    w.run_to_quiescence(500).unwrap();
+    w.check().unwrap();
+    assert_eq!(degraded(&w, Side::B), [LossCause::Transient]);
+}
