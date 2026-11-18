@@ -14,6 +14,7 @@ use citadel_types::proto::{
     effective_plan, EffectivePlan, PairFeasibility, PathKind, PathOffer, PathPolicy,
     PathRestrictions,
 };
+use citadel_wire::nat_identification::NatType;
 use citadel_wire::udp_traversal::turn_relay::{TurnPolicy, TurnRelayConfig};
 use serde::{Deserialize, Serialize};
 
@@ -62,6 +63,16 @@ pub(crate) fn stamp(
         _ => None,
     };
     Some(path)
+}
+
+/// Server: the pair's feasibility from the NATs the two sessions reported. Every build decides
+/// it the same way; a test build that called every pair direct would stamp that plan for
+/// production clients too.
+pub(crate) fn pair_feasibility(sender: &NatType, target: &NatType) -> PairFeasibility {
+    PairFeasibility {
+        direct: sender.stun_compatible(target),
+        forwarder: None,
+    }
 }
 
 /// Peer: the plan to execute from a received stage, if the server stamped one and the peer that

@@ -10,7 +10,6 @@
 //!
 //! - Secure packet encryption/decryption
 //! - Zero-copy packet handling
-//! - Localhost testing mode
 //! - Thread-safe design
 //!
 //! # Examples
@@ -32,7 +31,7 @@
 //!
 //! # Important Notes
 //!
-//! - Encryption is disabled in localhost testing mode
+//! - The provided functions are used in every build, `localhost-testing` included
 //! - Functions must be Send + Sync for thread safety
 //! - Packet encryption is zero-copy optimized
 //! - Custom encryption schemes can be injected
@@ -59,20 +58,10 @@ pub struct HolePunchConfigContainer {
 type CryptFunction<T> = Arc<dyn for<'a> Fn(&'a [u8]) -> T + Send + Sync + 'static>;
 
 impl HolePunchConfigContainer {
-    /// Wraps the provided functions into a portable abstraction.
-    /// In localhost-testing mode, encryption is disabled (identity functions used).
+    /// Wraps the provided functions into a portable abstraction. Every build uses them:
+    /// a test build that swapped in identity functions would never run the sealed punch
+    /// that production runs.
     pub fn new(
-        generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
-        decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
-    ) -> Self {
-        if cfg!(feature = "localhost-testing") {
-            return Self::default();
-        }
-        Self::sealed_with(generate_packet, decrypt_packet)
-    }
-
-    /// Wraps the provided functions, whatever the build's features.
-    pub(crate) fn sealed_with(
         generate_packet: impl Fn(&[u8]) -> BytesMut + Send + Sync + 'static,
         decrypt_packet: impl Fn(&[u8]) -> Option<BytesMut> + Send + Sync + 'static,
     ) -> Self {

@@ -62,6 +62,7 @@
 //! [`UserIdentifier`]: crate::prelude::UserIdentifier
 //! [`GroupInitRequestType`]: crate::prefabs::client::broadcast::GroupInitRequestType
 
+use crate::prefabs::client::broadcast_owner::{while_accepting, RegisterRoute};
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
 use citadel_io::tokio::sync::Mutex;
@@ -267,8 +268,10 @@ where
 
         log::trace!(target: "citadel", "Peer {session_cid} is attempting to join group");
         let acceptor_task = if creator_only_accept_inbound_registers {
-            shared.route_registers.store(true, Ordering::Relaxed);
-            let mut reg_rx = shared.register_rx.lock().take().unwrap();
+            let mut reg_rx = RegisterRoute::open(
+                &shared.route_registers,
+                shared.register_rx.lock().take().unwrap(),
+            );
             let remote = connect_success.remote_ref().clone();
             Box::pin(async move {
                 let mut subscription = subscription.lock().await.take().unwrap();
@@ -307,9 +310,9 @@ where
                         let _ = responses::peer_register(post_register, true, &remote).await?;
                     }
                 }
-                // Never reached: the loop ends only by returning an error.
-                #[allow(unreachable_code)]
-                Ok::<(), NetworkError>(())
+
+                // The loop ends only by `?`: the acceptor serves the owner until it is dropped.
+                Ok::<_, NetworkError>(())
             })
                 as Pin<
                     Box<
@@ -351,20 +354,7 @@ where
                     // Drop the lock to allow the acceptor task to gain access to the subscription
                     drop(lock);
                     return if is_owner {
-                        // The owner's handler decides when it is done. The acceptor runs
-                        // alongside it and never ends on its own: it ends at once when the owner
-                        // accepts no registrations, or by failing.
-                        let handler = fx(channel, connect_success);
-                        citadel_io::tokio::pin!(handler);
-                        let outcome = citadel_io::tokio::select! {
-                            done = &mut handler => done,
-                            accepting = acceptor_task => match accepting {
-                                Ok(()) => (&mut handler).await,
-                                Err(err) => Err(err),
-                            },
-                        };
-                        shared.route_registers.store(false, Ordering::Relaxed);
-                        outcome.map(|_| ())
+                        while_accepting(fx(channel, connect_success), acceptor_task).await
                     } else {
                         fx(channel, connect_success).await.map(|_| ())
                     };
@@ -417,8 +407,8 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for BroadcastKernel<'_, F, Fut, R> {
             ..
         }) = &message
         {
-            // Once the acceptor has ended, its requests go to the application like any other.
-            if self.shared.route_registers.load(Ordering::Relaxed)
+            // A failed send means the acceptor has just ended; the inner kernel takes it.
+            if self.shared.route_registers.load(Ordering::Acquire)
                 && self.shared.register_tx.send(ps.clone()).is_ok()
             {
                 return Ok(());

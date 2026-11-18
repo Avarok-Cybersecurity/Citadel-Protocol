@@ -155,7 +155,7 @@ mod tests {
                 .unwrap();
             let mut ptr = &mut ciphertext[..];
 
-            let decrypted = bob_container.decrypt(&mut ptr, nonce).unwrap();
+            let decrypted = bob_container.decrypt(&mut ptr, nonce)?;
             assert_eq!(plaintext.as_slice(), decrypted);
 
             let mut ciphertext = bob_container.encrypt(plaintext.as_slice(), nonce).unwrap();
@@ -475,18 +475,22 @@ mod tests {
         .unwrap()
     }
 
-    #[should_panic(expected = "EncryptionFailure")]
+    /// Asserted as the refusal, not a `should_panic`: a panic reaches the exiting hook another
+    /// test in this process installed with `setup_log`, and plain `cargo test` aborts.
     #[test]
     fn test_kyber_bad_psks() {
-        citadel_logging::should_panic_test();
-        run::<Vec<u8>>(
+        let refused = run::<Vec<u8>>(
             KemAlgorithm::MlKem.as_u8(),
             EncryptionAlgorithm::AES_GCM_256,
             SigAlgorithm::MlDsa65,
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS2,
         )
-        .unwrap();
+        .expect_err("Bob opened a message sealed under other PSKs");
+        assert!(
+            format!("{refused:?}").contains("EncryptionFailure"),
+            "refused for another reason: {refused:?}"
+        );
     }
 
     #[test]

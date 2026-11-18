@@ -8,7 +8,7 @@ const SEAL_TAG: u8 = 0xC1;
 /// A stand-in for the session's packet crypto: it refuses any input the sealer did not
 /// produce, as the real decryptor refuses plaintext.
 fn sealing_container() -> HolePunchConfigContainer {
-    HolePunchConfigContainer::sealed_with(
+    HolePunchConfigContainer::new(
         |plaintext| {
             let mut sealed = BytesMut::from(&[SEAL_TAG][..]);
             sealed.extend(plaintext.iter().map(|byte| byte ^ 0x5A));

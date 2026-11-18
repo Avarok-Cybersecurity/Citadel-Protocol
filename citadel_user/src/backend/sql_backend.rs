@@ -129,6 +129,8 @@ impl From<&'_ SqlConnectionOptions> for AnyPoolOptions {
         ret = ret.idle_timeout(this.idle_timeout);
         ret = ret.max_lifetime(this.max_lifetime);
 
+        // A compile-time choice only: an environment variable here put test pooling into
+        // release binaries whose environment happened to set it.
         if cfg!(feature = "localhost-testing") {
             log::trace!(target: "citadel", "Reducing connection pool");
             ret = ret.max_connections(1);
@@ -1158,6 +1160,10 @@ pub fn i64_into_u64(x: i64) -> u64 {
 pub fn u64_into_i64(x: u64) -> i64 {
     x.wrapping_sub(u64::MAX / 2 + 1) as i64
 }
+
+#[cfg(all(test, not(feature = "localhost-testing")))]
+#[path = "sql_pool_options_tests.rs"]
+mod pool_options_tests;
 
 #[cfg(test)]
 mod tests {

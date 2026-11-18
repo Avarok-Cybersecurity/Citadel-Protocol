@@ -163,3 +163,13 @@ fn the_path_is_appended_to_the_kex_and_absent_from_an_older_nodes() {
     let from_older = PeerSignal::deserialize_from_vector(legacy).unwrap();
     assert_eq!(path_of(from_older), None);
 }
+
+/// A pair the NAT model rules out is stamped infeasible in this build too. Under
+/// `localhost-testing` the decision used to read "direct" for every pair, so a test server
+/// stamped direct plans for production clients and the TURN-first branches never ran in CI.
+#[test]
+fn a_pair_of_unpredictable_nats_is_not_direct_in_any_build() {
+    let unpredictable = NatType::unidentified(None);
+    assert!(!pair_feasibility(&unpredictable, &unpredictable).direct);
+    assert!(pair_feasibility(&NatType::offline(), &unpredictable).direct);
+}

@@ -52,6 +52,8 @@ use uuid::Uuid;
 pub mod broadcast;
 /// How a broadcast joiner waits for its owner's group
 pub(crate) mod broadcast_join;
+/// How a broadcast owner runs its closure while accepting registrations
+pub(crate) mod broadcast_owner;
 /// A kernel that assists in allowing multiple possible peer-to-peer connections
 pub mod peer_connection;
 /// Internal kernel for serverless browser-to-browser connections
