@@ -39,6 +39,13 @@ lto = "fat"
 codegen-units = 1
 strip = true
 
+# Argon2 runs at the shipped cost (64 MiB, 10 passes, 8 lanes) in every build. Unoptimised it costs
+# ~4.3 s of CPU per hash instead of ~0.3 s, which pushed debug test jobs past their time limits.
+# Optimising only the hashing crate keeps the same settings and code; `test` inherits `dev`, and
+# release builds are untouched. (Its blake2b_simd dependency measured no further gain.)
+[profile.dev.package.rust-argon2]
+opt-level = 3
+
 [workspace.lints.clippy]
 await_holding_lock = "warn"
 
