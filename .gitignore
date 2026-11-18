@@ -6,7 +6,7 @@
 .idea/workspace.xml
 /logs/
 /*/report.json
-Cargo.lock
+# Cargo.lock is committed: CI builds with --locked, and ci/lockfile_age_gate.py judges each change.
 target_ide/
 .vscode/
 .ci_logs/
