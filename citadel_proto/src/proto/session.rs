@@ -501,6 +501,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .map(|r| r.peer_only_connect_proto.clone())
             .into();
         let hold = session_init_params.hold;
+        let ledger = hold.ledger();
         let local_bind_addr = session_init_params.local_bind_addr;
         let local_node_type = session_init_params.local_node_type;
         let remote_node_type = None;
@@ -569,6 +570,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 is_server,
                 TransferStats::new(timestamp, 0),
                 udp_mode,
+                ledger,
             ),
             to_primary_stream: DualLateInit::default(),
             state,

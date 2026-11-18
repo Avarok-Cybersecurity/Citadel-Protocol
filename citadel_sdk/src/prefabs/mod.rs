@@ -60,15 +60,16 @@
 
 use crate::impl_remote;
 use crate::prefabs::client::peer_connection::FileTransferHandleRx;
+use crate::prefabs::inbox::InboxClaim;
 use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
-use citadel_io::Mutex;
 use citadel_proto::prelude::*;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
 
 /// Kernels for clients
 pub mod client;
+/// Event inboxes for receivers an application may never take
+pub mod inbox;
 /// Kernels for servers
 pub mod server;
 /// Shared utilities between client and server kernels
@@ -82,8 +83,8 @@ use crate::remote_ext::ProtocolRemoteExt;
 #[derive(Clone)]
 pub struct ClientServerRemote<R: Ratchet> {
     pub(crate) inner: NodeRemote<R>,
-    pub(crate) unprocessed_signals_rx: Arc<Mutex<Option<UnboundedReceiver<NodeResult<R>>>>>,
-    pub(crate) file_transfer_handle_rx: Arc<Mutex<Option<FileTransferHandleRx>>>,
+    unprocessed_signals: Option<InboxClaim<NodeResult<R>>>,
+    incoming_file_transfers: Option<InboxClaim<ObjectTransferHandler>>,
     conn_type: VirtualTargetType,
     session_security_settings: SessionSecuritySettings,
 }
@@ -104,38 +105,46 @@ impl<R: Ratchet> DerefMut for ClientServerRemote<R> {
 impl_remote!(ClientServerRemote);
 
 impl<R: Ratchet> ClientServerRemote<R> {
-    /// constructs a new [`ClientServerRemote`] from a [`ClientServerRemote`] and a [`VirtualTargetType`]
+    /// constructs a new [`ClientServerRemote`] from a [`ClientServerRemote`] and a [`VirtualTargetType`].
+    /// `unprocessed_signals` and `incoming_file_transfers` are the inboxes the kernel fills for
+    /// this connection, if it has any; see [`inbox`].
     pub fn new(
         conn_type: VirtualTargetType,
         remote: NodeRemote<R>,
         session_security_settings: SessionSecuritySettings,
-        unprocessed_signals_rx: Option<UnboundedReceiver<NodeResult<R>>>,
-        file_transfer_handle_rx: Option<FileTransferHandleRx>,
+        unprocessed_signals: Option<InboxClaim<NodeResult<R>>>,
+        incoming_file_transfers: Option<InboxClaim<ObjectTransferHandler>>,
     ) -> Self {
-        // TODO: Add handles, only the server calls this
         Self {
             inner: remote,
-            unprocessed_signals_rx: Arc::new(Mutex::new(unprocessed_signals_rx)),
-            file_transfer_handle_rx: Arc::new(Mutex::new(file_transfer_handle_rx)),
+            unprocessed_signals,
+            incoming_file_transfers,
             conn_type,
             session_security_settings,
         }
     }
-    /// Can only be called once per remote. Allows receiving events
-    pub fn get_unprocessed_signals_receiver(
-        &self,
-    ) -> Option<citadel_io::tokio::sync::mpsc::UnboundedReceiver<NodeResult<R>>> {
-        self.unprocessed_signals_rx.lock().take()
+    /// Can only be called once per remote. Allows receiving events.
+    ///
+    /// Until it is called, events wait in a bounded backlog; once every clone of this remote is
+    /// dropped without calling it, events are disposed of as they arrive (see [`inbox`]).
+    pub fn get_unprocessed_signals_receiver(&self) -> Option<UnboundedReceiver<NodeResult<R>>> {
+        self.unprocessed_signals.as_ref()?.take()
     }
 
-    /// Obtains a receiver which yields incoming file/object transfer handles
+    /// Obtains a receiver which yields incoming file/object transfer handles. Offers that
+    /// arrive while nobody can take it are declined (see [`inbox`]).
     pub fn get_incoming_file_transfer_handle(&self) -> Result<FileTransferHandleRx, NetworkError> {
-        self.file_transfer_handle_rx
-            .lock()
-            .take()
+        let inner = self
+            .incoming_file_transfers
+            .as_ref()
+            .and_then(InboxClaim::take)
             .ok_or(citadel_io::error!(
                 citadel_io::ErrorCode::RemoteFunctionAlreadyCalled
-            ))
+            ))?;
+        Ok(FileTransferHandleRx {
+            inner,
+            conn_type: self.conn_type,
+        })
     }
 }
 

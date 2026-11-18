@@ -64,10 +64,11 @@
 //! [`UserIdentifier`]: crate::prelude::UserIdentifier
 //! [`SessionSecuritySettings`]: crate::prelude::SessionSecuritySettings
 
+use crate::prefabs::inbox::{inbox, InboxSender};
 use crate::prelude::results::PeerConnectSuccess;
 use crate::prelude::*;
 use crate::test_common::wait_for_peers;
-use citadel_io::tokio::sync::mpsc::{Receiver, UnboundedSender};
+use citadel_io::tokio::sync::mpsc::Receiver;
 use citadel_io::{tokio, Mutex};
 use citadel_proto::prelude::async_trait;
 use citadel_user::hypernode_account::UserIdentifierExt;
@@ -97,7 +98,7 @@ pub struct Shared {
 struct PeerContext {
     #[allow(dead_code)]
     conn_type: PeerConnectionType,
-    send_file_transfer_tx: UnboundedSender<ObjectTransferHandler>,
+    incoming_file_transfers: InboxSender<ObjectTransferHandler>,
 }
 
 #[derive(Debug)]
@@ -161,7 +162,7 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for PeerConnectionKernel<'_, F, Fut, R> {
     async fn on_node_event_received(&self, message: NodeResult<R>) -> Result<(), NetworkError> {
         match message {
             NodeResult::ObjectTransferHandle(ObjectTransferHandle {
-                ticket: _,
+                ticket,
                 handle,
                 session_cid,
             }) => {
@@ -169,7 +170,6 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for PeerConnectionKernel<'_, F, Fut, R> {
                     handle.metadata.transfer_type,
                     TransferType::RemoteEncryptedVirtualFilesystem { .. }
                 );
-                let active_peers = self.shared.active_peer_conns.lock();
                 let v_conn = if is_revfs {
                     let peer_cid = if session_cid != handle.source {
                         handle.source
@@ -197,15 +197,56 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for PeerConnectionKernel<'_, F, Fut, R> {
                     }
                 };
 
-                if let Some(peer_ctx) = active_peers.get(&v_conn) {
-                    if let Err(err) = peer_ctx.send_file_transfer_tx.send(handle) {
-                        log::warn!(target: "citadel", "Error forwarding file transfer handle: {:?}", err.to_string());
+                let unrouted = match self.shared.active_peer_conns.lock().get(&v_conn) {
+                    Some(peer_ctx) => {
+                        peer_ctx.incoming_file_transfers.deliver(handle);
+                        None
                     }
-                } else {
-                    log::warn!(target: "citadel", "Unable to find key for inbound file transfer handle: {:?}\n Active Peers: {:?} \n handle_source = {}, handle_receiver = {}", v_conn, active_peers.keys().cloned().collect::<Vec<_>>(), handle.source, handle.receiver);
-                }
+                    None => Some(handle),
+                };
+                let Some(handle) = unrouted else {
+                    return Ok(());
+                };
+                // No connection this kernel made: a transfer from the server, or from a peer
+                // connected again by other means. It goes to the session's own inbox
+                // (`ClientServerRemote::get_incoming_file_transfer_handle`).
+                self.inner_kernel
+                    .on_node_event_received(NodeResult::ObjectTransferHandle(
+                        ObjectTransferHandle {
+                            ticket,
+                            handle,
+                            session_cid,
+                        },
+                    ))
+                    .await
+            }
 
-                Ok(())
+            // A peer that disconnected no longer has the connection this kernel made: its later
+            // transfers go to the session's inbox instead of the ended connection's.
+            disconnect @ NodeResult::PeerEvent(PeerEvent {
+                event: PeerSignal::Disconnect { .. },
+                ..
+            }) => {
+                if let NodeResult::PeerEvent(PeerEvent {
+                    event: PeerSignal::Disconnect { peer_conn_type, .. },
+                    session_cid,
+                    ..
+                }) = &disconnect
+                {
+                    let session_cid = *session_cid;
+                    let peer_cid = if peer_conn_type.get_original_session_cid() == session_cid {
+                        peer_conn_type.get_original_target_cid()
+                    } else {
+                        peer_conn_type.get_original_session_cid()
+                    };
+                    let _ = self.shared.active_peer_conns.lock().remove(
+                        &PeerConnectionType::LocalGroupPeer {
+                            session_cid,
+                            peer_cid,
+                        },
+                    );
+                }
+                self.inner_kernel.on_node_event_received(disconnect).await
             }
 
             // Note: NodeResult::Disconnect is for C2S connections only.
@@ -472,8 +513,7 @@ where
 
             let task = async move {
                 let inner_task = async move {
-                    let (file_transfer_tx, file_transfer_rx) =
-                        citadel_io::tokio::sync::mpsc::unbounded_channel();
+                    let (incoming_file_transfers, file_transfers_claim) = inbox();
 
                     // Get the actual peer CID from the mutual registration info if available
                     let peer_cid = if let Some(mutual_peer) = &mutually_registered {
@@ -525,7 +565,7 @@ where
                     };
                     let peer_context = PeerContext {
                         conn_type: peer_conn,
-                        send_file_transfer_tx: file_transfer_tx.clone(),
+                        incoming_file_transfers,
                     };
                     log::debug!(target: "citadel", "Early registering peer connection: {peer_conn:?}");
                     let _ = shared
@@ -556,11 +596,8 @@ where
                                     let _ = active_peers.insert(actual_peer_conn, peer_ctx);
                                 }
                             }
-                            // Update the existing entry with the file transfer receiver
-                            success.incoming_object_transfer_handles = Some(FileTransferHandleRx {
-                                inner: file_transfer_rx,
-                                conn_type: actual_peer_conn.as_virtual_connection(),
-                            });
+                            success.incoming_object_transfer_handles =
+                                Some(file_transfers_claim);
                             success
                         })
                         .inspect_err(|_err| {
@@ -601,6 +638,10 @@ where
         }
     }
 }
+
+#[cfg(all(test, feature = "localhost-testing"))]
+#[path = "peer_connection_unclaimed_tests.rs"]
+mod unclaimed_tests;
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
@@ -960,7 +1001,7 @@ mod tests {
                             const STATUS_BUDGET: std::time::Duration =
                                 std::time::Duration::from_secs(60);
 
-                            let mut handles = conn.incoming_object_transfer_handles.take().unwrap();
+                            let mut handles = conn.get_incoming_file_transfer_handle().unwrap();
                             let mut handle = match citadel_io::tokio::time::timeout(
                                 HANDLE_BUDGET,
                                 handles.recv(),

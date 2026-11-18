@@ -41,6 +41,11 @@ impl<T: ContextRequirements> DualLateInit<T> {
             panic!("[DualLateInit] Value already set")
         }
     }
+
+    /// The value, once it has been set.
+    pub fn get(&self) -> Option<&T> {
+        self.inner.get()
+    }
 }
 
 impl<T: ContextRequirements> Deref for DualLateInit<T> {

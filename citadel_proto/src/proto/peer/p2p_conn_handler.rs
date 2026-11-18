@@ -505,17 +505,7 @@ pub(crate) mod native_p2p {
             if route_end == RouteEnd::FellBack {
                 log::info!(target: "citadel", "[P2P-stream] Direct route to peer {peer_cid} ended; the channel continues over the server relay");
             } else if is_current_connection {
-                state_container.remove_udp_channel(peer_cid);
-
-                if let Some(ratchet) = state_container
-                    .active_virtual_connections
-                    .get(&peer_cid)
-                    .and_then(|vconn| vconn.get_endpoint_ratchet(None))
-                {
-                    state_container.stale_p2p_ratchets.insert(peer_cid, ratchet);
-                }
-
-                state_container.active_virtual_connections.remove(&peer_cid);
+                let _ = state_container.end_virtual_connection(peer_cid);
                 // While C2S is up, dropping the vconn sends a Disconnect over it (the notifier
                 // above), and the server answers down that same connection -- behind whatever
                 // the peer relayed first, such as the final ack of a transfer it has stored.

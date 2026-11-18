@@ -273,7 +273,6 @@ where
             Box::pin(async move {
                 let mut subscription = subscription.lock().await.take().unwrap();
                 // Merge the reg_rx stream and the subscription stream
-                let mut count_registered = 0;
                 loop {
                     let post_register = citadel_io::tokio::select! {
                         reg_request = reg_rx.recv() => {
@@ -306,17 +305,11 @@ where
                         }
 
                         let _ = responses::peer_register(post_register, true, &remote).await?;
-                        if cfg!(feature = "localhost-testing") {
-                            count_registered += 1;
-                            if count_registered == crate::test_common::num_local_test_peers() - 1 {
-                                // wait_for_peers().await;
-                                break;
-                            }
-                        }
                     }
                 }
-
-                Ok::<_, NetworkError>(())
+                // Never reached: the loop ends only by returning an error.
+                #[allow(unreachable_code)]
+                Ok::<(), NetworkError>(())
             })
                 as Pin<
                     Box<
@@ -358,8 +351,20 @@ where
                     // Drop the lock to allow the acceptor task to gain access to the subscription
                     drop(lock);
                     return if is_owner {
-                        citadel_io::tokio::try_join!(fx(channel, connect_success), acceptor_task)
-                            .map(|_| ())
+                        // The owner's handler decides when it is done. The acceptor runs
+                        // alongside it and never ends on its own: it ends at once when the owner
+                        // accepts no registrations, or by failing.
+                        let handler = fx(channel, connect_success);
+                        citadel_io::tokio::pin!(handler);
+                        let outcome = citadel_io::tokio::select! {
+                            done = &mut handler => done,
+                            accepting = acceptor_task => match accepting {
+                                Ok(()) => (&mut handler).await,
+                                Err(err) => Err(err),
+                            },
+                        };
+                        shared.route_registers.store(false, Ordering::Relaxed);
+                        outcome.map(|_| ())
                     } else {
                         fx(channel, connect_success).await.map(|_| ())
                     };
@@ -412,12 +417,11 @@ impl<F, Fut, R: Ratchet> NetKernel<R> for BroadcastKernel<'_, F, Fut, R> {
             ..
         }) = &message
         {
-            if self.shared.route_registers.load(Ordering::Relaxed) {
-                return self
-                    .shared
-                    .register_tx
-                    .send(ps.clone())
-                    .map_err(|err| NetworkError::generic(err.to_string()));
+            // Once the acceptor has ended, its requests go to the application like any other.
+            if self.shared.route_registers.load(Ordering::Relaxed)
+                && self.shared.register_tx.send(ps.clone()).is_ok()
+            {
+                return Ok(());
             }
         }
 

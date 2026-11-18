@@ -17,6 +17,12 @@ pub struct SessionFootprint {
     pub sessions: usize,
     /// Disconnect records kept for those sessions.
     pub disconnect_records: usize,
+    /// Session passwords held: one per connected session, plus one per P2P connection that is
+    /// open or being set up.
+    pub session_passwords: usize,
+    /// Ratchets of ended P2P connections, kept for a short while so packets already in flight
+    /// still open.
+    pub stale_p2p_ratchets: usize,
 }
 
 /// Where a [`SessionFootprint`] is read from.
@@ -31,6 +37,8 @@ impl FootprintSource {
         SessionFootprint {
             sessions: self.ledger.held(),
             disconnect_records: self.disconnect_tracker.records(),
+            session_passwords: self.ledger.counted(Counted::SessionPassword),
+            stale_p2p_ratchets: self.ledger.counted(Counted::StaleP2pRatchet),
         }
     }
 }
@@ -45,11 +53,36 @@ pub(crate) struct SessionLedger {
 struct LedgerInner {
     held: AtomicUsize,
     released: Notify,
+    session_passwords: AtomicUsize,
+    stale_p2p_ratchets: AtomicUsize,
 }
 
 /// One session's place in the [`SessionLedger`], given back on drop.
 pub(crate) struct SessionHold {
     inner: Arc<LedgerInner>,
+}
+
+/// What a session keeps per connection that the ledger also counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Counted {
+    SessionPassword,
+    StaleP2pRatchet,
+}
+
+/// One counted item's place in the [`SessionLedger`], given back on drop. Kept inside the entry it
+/// counts, so the count cannot disagree with what is held.
+pub(crate) struct CountedHold {
+    inner: Arc<LedgerInner>,
+    what: Counted,
+}
+
+impl LedgerInner {
+    fn counter(&self, what: Counted) -> &AtomicUsize {
+        match what {
+            Counted::SessionPassword => &self.session_passwords,
+            Counted::StaleP2pRatchet => &self.stale_p2p_ratchets,
+        }
+    }
 }
 
 impl SessionLedger {
@@ -58,6 +91,18 @@ impl SessionLedger {
         SessionHold {
             inner: self.inner.clone(),
         }
+    }
+
+    pub(crate) fn count(&self, what: Counted) -> CountedHold {
+        let _ = self.inner.counter(what).fetch_add(1, Ordering::SeqCst);
+        CountedHold {
+            inner: self.inner.clone(),
+            what,
+        }
+    }
+
+    pub(crate) fn counted(&self, what: Counted) -> usize {
+        self.inner.counter(what).load(Ordering::SeqCst)
     }
 
     /// Sessions held right now.
@@ -77,6 +122,21 @@ impl SessionLedger {
             }
             released.await;
         }
+    }
+}
+
+impl SessionHold {
+    /// The ledger this hold belongs to, for counting what the session keeps.
+    pub(crate) fn ledger(&self) -> SessionLedger {
+        SessionLedger {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl Drop for CountedHold {
+    fn drop(&mut self) {
+        let _ = self.inner.counter(self.what).fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -103,6 +163,19 @@ mod tests {
         assert_eq!(ledger.held(), 1);
         drop(second);
         assert_eq!(ledger.held(), 0);
+    }
+
+    #[test]
+    fn a_counted_item_counts_until_it_is_dropped() {
+        let ledger = SessionLedger::default();
+        let password = ledger.count(Counted::SessionPassword);
+        let ratchet = ledger.count(Counted::StaleP2pRatchet);
+        assert_eq!(ledger.counted(Counted::SessionPassword), 1);
+        assert_eq!(ledger.counted(Counted::StaleP2pRatchet), 1);
+        drop(password);
+        assert_eq!(ledger.counted(Counted::SessionPassword), 0);
+        drop(ratchet);
+        assert_eq!(ledger.counted(Counted::StaleP2pRatchet), 0);
     }
 
     #[tokio::test]

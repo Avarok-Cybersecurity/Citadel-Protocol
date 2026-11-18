@@ -200,17 +200,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 disconnect_token: *disconnect_token,
                                 reason,
                             };
-                            state_container.remove_udp_channel(target);
-                            // Preserve ratchet for in-flight packet decryption,
-                            // then remove the vconn cleanly.
-                            if let Some(ratchet) = state_container
-                                .active_virtual_connections
-                                .get(&target)
-                                .and_then(|vconn| vconn.get_endpoint_ratchet(None))
-                            {
-                                state_container.stale_p2p_ratchets.insert(target, ratchet);
-                            }
-                            state_container.active_virtual_connections.remove(&target);
+                            let _ = state_container.end_virtual_connection(target);
                             let _ = state_container
                                 .fail_transfers_with_peer(target, "the peer disconnected");
 
@@ -1545,8 +1535,8 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     peer_cid: target_cid,
                 } => {
                     let session_cid = header.session_cid.get();
-                    const TIMEOUT: Duration = Duration::from_secs(60 * 60); // 1 hour
-                                                                            // if the peer response is some, then HyperLAN Client B responded
+                    const TIMEOUT: Duration = crate::constants::PEER_POSTING_TIMEOUT;
+                    // if the peer response is some, then HyperLAN Client B responded
                     if let Some(peer_response) = peer_response {
                         // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
                         super::server::post_register::handle_response_phase_post_register(

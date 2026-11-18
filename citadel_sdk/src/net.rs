@@ -15,7 +15,8 @@
 //!
 //! let stun_servers: StunServers =
 //!     "stun1.example.com:3478,stun2.example.com:3478,stun3.example.com:3478".parse()?;
-//! let conn = BrowserConnection::new(config, stun_servers).await?;
+//! let mut conn = BrowserConnection::new(config, stun_servers).await?;
+//! // `conn` must outlive the halves: dropping it shuts the node down.
 //! let (tx, mut rx) = conn.split();
 //! tx.send_message(SecBuffer::from("hello peer")).await?;
 //! while let Some(msg) = rx.next().await {
@@ -89,12 +90,15 @@ impl<R: Ratchet> BrowserConnection<R> {
         })
     }
 
-    /// Split into independent send/receive halves (like `TcpStream::into_split`).
+    /// Split the channel into independent send/receive halves (like `TcpStream::into_split`).
+    ///
+    /// The connection itself stays with the caller: dropping it shuts the node down, and the
+    /// halves with it, so keep it for as long as the halves are used.
     ///
     /// # Panics
     ///
-    /// Panics if the channel has already been taken via [`Self::take_channel`].
-    pub fn split(mut self) -> (PeerChannelSendHalf<R>, PeerChannelRecvHalf<R>) {
+    /// Panics if the channel has already been taken via [`Self::take_channel`] or this method.
+    pub fn split(&mut self) -> (PeerChannelSendHalf<R>, PeerChannelRecvHalf<R>) {
         self.channel.take().expect("Channel already taken").split()
     }
 

@@ -613,7 +613,7 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Run WASM integration tests
         working-directory: citadel_sdk
-        run: wasm-pack test --node --release -- --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend
+        run: wasm-pack test --node --release -- --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend --test wasm_browser_connection_split
       - name: The wasm32 test artifact imports only wasm-bindgen host functions
         run: python3 ci/wasm-imports-are-bindgen-only.py target/wasm32-unknown-unknown/release/deps/wasm_basic_p2p-*.wasm
       - name: Run citadel_media WASM tests

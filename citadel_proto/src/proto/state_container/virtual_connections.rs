@@ -424,7 +424,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         // Clear any stale ratchet for this peer — the new connection
         // supersedes it and provides a fresh ratchet via the new vconn.
-        self.stale_p2p_ratchets.remove(&target_cid);
+        self.peer_keys.forget_stale_ratchet(target_cid);
 
         self.active_virtual_connections.insert(target_cid, vconn);
 

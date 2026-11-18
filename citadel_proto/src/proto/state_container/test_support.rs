@@ -50,5 +50,6 @@ pub(crate) async fn state_container(
         is_server,
         crate::proto::transfer_stats::TransferStats::new(time_tracker.get_global_time_ns(), 0),
         UdpMode::Disabled,
+        Default::default(),
     )
 }

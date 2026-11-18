@@ -74,6 +74,7 @@ use crate::proto::peer::peer_layer::{
     CitadelNodePeerLayer, CitadelNodePeerLayerInner, MailboxTransfer, PeerConnectionType,
     PeerResponse, PeerSignal,
 };
+use crate::proto::provisional_reservation::ProvisionalReservation;
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::{
     CitadelSession, ClientOnlySessionInitSettings, HdpSessionInitMode,
@@ -157,6 +158,9 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     /// released on commit/failure and auto-expire as a safety net so a dropped attempt cannot
     /// permanently block the CID.
     provisional_cid_reservations: HashMap<u64, Instant>,
+    /// Client side: provisional keys whose connect is between admission and registration in
+    /// `provisional_connections` (see `provisional_reservation`).
+    pub(crate) provisional_reservations: std::collections::HashSet<ProvisionalKey>,
     kernel_tx: UnboundedSender<NodeResult<R>>,
     time_tracker: TimeTracker,
     /// Every session this node holds in memory, until its last handle drops.
@@ -233,6 +237,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             account_manager,
             provisional_connections: HashMap::new(),
             provisional_cid_reservations: HashMap::new(),
+            provisional_reservations: Default::default(),
             kernel_tx,
             time_tracker,
             client_config,
@@ -538,6 +543,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 stun_servers,
                 turn_servers,
                 provisional_key,
+                reservation,
             ) = {
                 let (
                     remote,
@@ -552,6 +558,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     stun_servers,
                     turn_servers,
                     provisional_key,
+                    reservation,
                 ) = {
                     let (peer_addr, cnac, proposed_credentials, endpoint) = {
                         match &init_mode {
@@ -669,6 +676,19 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                             ));
                         }
                     }
+                    // Connects run concurrently: claimed here, in the same step as the check, so
+                    // a second connect for this account is refused until this one registers.
+                    let reservation = ProvisionalReservation::claim(
+                        &mut this.provisional_reservations,
+                        self,
+                        &provisional_key,
+                    )
+                    .ok_or_else(|| {
+                        error!(
+                            ErrorCode::SessionManagerProvisionalConnectionExists,
+                            peer_addr
+                        )
+                    })?;
 
                     (
                         remote,
@@ -683,6 +703,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         stun_servers,
                         turn_servers,
                         provisional_key,
+                        reservation,
                     )
                 };
 
@@ -723,6 +744,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     stun_servers,
                     turn_servers,
                     provisional_key,
+                    reservation,
                 )
             };
 
@@ -774,6 +796,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 log::warn!(target: "citadel", "Found a previous lingering connection to {peer_addr}. Dropping it ...");
                 lingering_session.shutdown();
             }
+            // Registered: the provisional entry itself now refuses a second connect.
+            drop(reservation);
 
             (
                 session_manager_clone,

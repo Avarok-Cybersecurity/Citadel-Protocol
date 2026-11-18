@@ -115,14 +115,7 @@ pub(super) fn on_datachannel_established<
         {
             return;
         }
-        if let Some(ratchet) = state
-            .active_virtual_connections
-            .get(&peer_cid)
-            .and_then(|v| v.get_endpoint_ratchet(None))
-        {
-            state.stale_p2p_ratchets.insert(peer_cid, ratchet);
-        }
-        state.active_virtual_connections.remove(&peer_cid);
+        let _ = state.end_virtual_connection(peer_cid);
     });
 
     if let Some(udp_dc) = udp_dc {

@@ -197,6 +197,9 @@ pub const RAW_UDP_SAFE_DATAGRAM_LEN: usize = 1280 - 40 - 8;
 pub const CODEC_BUFFER_CAPACITY: usize = u16::MAX as usize;
 /// The minimum number of bytes allocated in the codec
 pub const CODEC_MIN_BUFFER: usize = 8192;
+/// How long the server holds a registration invite for its target to answer, before answering
+/// it as timed out. (A deregistration's posting lasts only `SIMULTANEOUS_DEREGISTER_WINDOW`.)
+pub const PEER_POSTING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 /// After the time defined below, any incomplete packet groups will be discarded
 pub const GROUP_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(60000);
 /// After this time, the registration state is invalidated
