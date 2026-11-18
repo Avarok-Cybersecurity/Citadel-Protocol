@@ -2,9 +2,9 @@ name: Validate PR
 on:
   workflow_call:
 
-# The pipeline is three tiers joined by `needs:`. Each tier starts only when every job of the tier
-# before it passed, so a formatting slip or a wasm-only warning costs minutes, not the hours the
-# OS matrix and coverage take. A job skipped because an earlier tier failed shows as skipped and
+# Tier 0 gates everything: tiers 1 and 2 each need only the tier-0 jobs, so they start together
+# once tier 0 passes (owner, 2026-11-18), and a formatting slip or a wasm-only warning costs
+# minutes, not the hours the OS matrix and coverage take. A job skipped because an earlier tier failed shows as skipped and
 # the run as failed; `All checks` at the end fails unless every job it lists succeeded, so it is
 # the one name branch protection needs.
 #
@@ -329,7 +329,7 @@ jobs:
 
   core_os:
     name: core crates (${{ matrix.os }})
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     strategy:
       # One flaky leg must not cancel its siblings — each leg is an independent OS
       # with no cross-leg dependency, and cancelling destroys which leg actually failed.
@@ -362,7 +362,7 @@ jobs:
 
   citadel_proto:
     name: citadel_proto (${{ matrix.os }})
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     strategy:
       fail-fast: false
       matrix:
@@ -387,7 +387,7 @@ jobs:
         run: cargo nextest run --locked --features="localhost-testing$VENDORED" --package citadel_proto
 
   citadel_sdk:
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     strategy:
       # One flaky leg must not cancel its siblings — each leg is an independent OS/thread model
       # with no cross-leg dependency, and cancelling destroys which leg actually failed.
@@ -446,7 +446,7 @@ jobs:
     # far green. Each leg now compiles and runs one feature set, about half the work, under
     # the same budget; the budget is not raised.
     name: citadel_sdk_release (${{ matrix.threading }})
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     strategy:
       fail-fast: false
       matrix:
@@ -496,7 +496,7 @@ jobs:
     # io_uring_setup(2), the backend falls back to the standard tokio path, so these still pass — the
     # job then asserts "no regression with the feature enabled" rather than io_uring-specific behavior.
     name: io_uring UDP backend (Linux)
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     runs-on: ubuntu-latest
     timeout-minutes: 65
     steps:
@@ -519,7 +519,7 @@ jobs:
     # OS, so its platform code (Windows elevation, Linux udev) is checked, and its tests run our key
     # channel and cancellation logic; none needs a key. The browser one is linted in wasm_lint.
     name: Security key backend (${{ matrix.os }})
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     strategy:
       fail-fast: false
       matrix:
@@ -546,12 +546,12 @@ jobs:
         run: cargo check --locked --package citadel_sdk --features=localhost-testing,security-key --test pq_sign_in_security_key
 
   coverage:
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     uses: ./.github/workflows/coverage.yml
     secrets: inherit
 
   docker_nat_client_server:
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     runs-on: ubuntu-latest
     strategy:
       # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
@@ -573,7 +573,7 @@ jobs:
       - run: docker compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a
 
   docker_nat_p2p:
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     runs-on: ubuntu-latest
     strategy:
       # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
@@ -606,7 +606,7 @@ jobs:
       - run: docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
 
   docker_wasm_p2p:
-    needs: [core, wire, doc_tests, wasm_tests, stability-test]
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

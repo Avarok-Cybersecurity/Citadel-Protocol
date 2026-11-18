@@ -54,7 +54,7 @@ ignore = [
     { id = "RUSTSEC-2021-0127", reason = "serde_cbor is unmaintained, with no known vulnerability. Only `authenticator` (citadel_proto's opt-in `security-key` feature) uses it, to parse a security key's CTAP2 responses." },
     # Reviewed 2026-11-18; the owner chose to keep MySQL support and document this exception.
     { id = "RUSTSEC-2023-0071", reason = "Reviewed 2026-11-18. rsa 0.9 arrives only through citadel_user's opt-in `sql` feature (sqlx all-databases -> sqlx-mysql). sqlx-mysql 0.8.6 (src/connection/auth.rs, encrypt_rsa) parses the server's RSA public key and calls RsaPublicKey::encrypt with OAEP to send the password; it holds no private key and never decrypts or signs. The Marvin attack is a timing side channel in private-key operations, which this path never performs. Remove when sqlx moves to rsa 0.10." },
-    { id = "RUSTSEC-2016-0007", reason = "Reviewed 2026-11-18. jwt is unmaintained, with no known vulnerability. It arrives only through citadel_user's opt-in `google-services` feature, which signs Firebase service tokens; no default build links it." },
+    { id = "RUSTSEC-2016-0007", reason = "Reviewed and accepted by the owner 2026-11-18. jwt is unmaintained, with no known vulnerability. It arrives only through citadel_user's opt-in `google-services` feature, which signs Firebase service tokens; no default build links it." },
     # Each entry below has no release that fits the dependency graph; the
     # reason says why the advisory does not reach what this workspace ships.
     { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 arrives only through elliptic-curve 0.13 (^0.5) under voprf 0.5, the newest stable voprf. The OPRF uses the ristretto255 ciphersuite: its group arithmetic is curve25519-dalek, and the one elliptic-curve item it calls is ExpandMsgXmd, a digest construction with no crypto-bigint code. No crypto-bigint operation runs on a secret." },
@@ -104,10 +104,10 @@ exceptions = [
     { allow = ["MPL-2.0"], name = "attohttpc", version = "*" },
     # this is for testing only, which is not part of the SDK
     { allow = ["MPL-2.0", "CDLA-Permissive-2.0"], name = "webpki-roots", version = "*" },
-    # The same Mozilla root-certificate data as webpki-roots, under the same data license; reached
+    # Accepted by the owner 2026-11-18. The same Mozilla root-certificate data as webpki-roots, under the same data license; reached
     # through quinn-proto -> rustls-platform-verifier on targets with no platform verifier.
     { allow = ["CDLA-Permissive-2.0"], name = "webpki-root-certs", version = "*" },
-    # dirs-sys 0.4's helper, under the opt-in `opfs` feature (opfs -> dirs 5). MPL-2.0 is
+    # Accepted by the owner 2026-11-18. dirs-sys 0.4's helper, under the opt-in `opfs` feature (opfs -> dirs 5). MPL-2.0 is
     # file-level copyleft: used unmodified, it places nothing on this code.
     { allow = ["MPL-2.0"], name = "option-ext", version = "*" },
     # transitive via quinn-proto -> fastbloom. Zlib is a permissive, OSI-approved,
