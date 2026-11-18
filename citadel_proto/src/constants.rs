@@ -60,7 +60,9 @@ pub const MINOR_VERSION: u8 = 12;
 // effective plan into the pair's key exchange (see `PATH_POLICY_SINCE`). Additive: a node below it
 // neither sends nor reads either, and its peers plan their paths as before. In the same patch,
 // servers honour a group's relay options (see `GROUP_RELAY_OPTIONS_SINCE`).
-pub const PATCH_VERSION: u8 = 2;
+// Bumped 2 -> 3: P2P connections carry a negotiation lane, and a deliberate disconnect carries its
+// reason (see `NEGOTIATION_SINCE`). Additive: each side uses them only with a node at or above it.
+pub const PATCH_VERSION: u8 = 3;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -113,6 +115,14 @@ pub const PATH_POLICY_SINCE: (u8, u8, u8) = (0, 12, 2);
 /// version; an older sender gets the `MessageResponse { success: false }` it understands). A
 /// server below it would ignore both options, so a client refuses to create such a group there.
 pub const GROUP_RELAY_OPTIONS_SINCE: (u8, u8, u8) = (0, 12, 2);
+
+/// The first protocol version whose P2P connections carry a negotiation lane: control frames on
+/// the reliable stream, beginning with each side's `Hello`, that the SDK takes out before the
+/// application sees them (`proto::peer::negotiation::lane`). Its server copies a deliberate
+/// disconnect's `reason` into the `PeerSignal::Disconnect` it sends on. A peer below it, or of
+/// unknown version, is sent no lane frame and its Hello reads as empty: every setting is legacy
+/// toward it. A server below it drops the reason, which the lane then carries instead.
+pub const NEGOTIATION_SINCE: (u8, u8, u8) = (0, 12, 3);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.
@@ -201,6 +211,18 @@ mod tests {
 
     fn version(major: usize, minor: usize, patch: usize) -> Option<u32> {
         Some(Semver::new(major, minor, patch).to_u32().unwrap())
+    }
+
+    #[test]
+    fn this_node_carries_the_negotiation_lane_and_the_previous_patch_does_not() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            NEGOTIATION_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 12, 2),
+            NEGOTIATION_SINCE
+        ));
     }
 
     #[test]

@@ -20,7 +20,7 @@ mod path_policy_error;
 #[cfg(test)]
 mod path_policy_tests;
 pub use group_limits::{GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal};
-pub use offer_strength::stronger_offer;
+pub use offer_strength::{falls_short_of, stronger_offer};
 pub use path_plan::{
     effective_plan, EffectivePlan, PairFeasibility, PathOffer, PathRestrictions, PlannedPath,
 };

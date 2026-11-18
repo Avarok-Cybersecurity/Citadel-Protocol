@@ -27,6 +27,13 @@ pub fn test_media_config() -> MediaTransportConfig {
         send_queue_frames: 2048,
         udp_payload_budget: RECOMMENDED_UDP_PAYLOAD_BUDGET,
         udp_wait: Duration::from_secs(10),
+        // Test bound (PCND): generous for a loaded CI runner; an answer comes on receipt
+        negotiation: citadel_sdk::citadel_negotiation::NegotiationPolicy {
+            proposal_deadline: Duration::from_secs(30),
+            apply_deadline: Duration::from_secs(30),
+            max_apply_attempts: 1,
+            udp_retire_grace: None,
+        },
     };
     cfg.validate().expect("test media config must be valid");
     cfg

@@ -833,16 +833,10 @@ impl futures::Future for CitadelNodePeerLayerExecutor {
     }
 }
 
-/// Reads a field appended after a signal's original fields. A signal from a node that predates
-/// the field ends where it would begin, which bincode reports as an error; that means the field
-/// is absent, so it reads as `None`.
-fn appended_field<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Ok(Option::<T>::deserialize(deserializer).ok().flatten())
-}
+/// Reads a field appended after a signal's original fields: a signal from a node that predates
+/// the field ends where it would begin and reads as `None`. One definition, the negotiation
+/// crate's, for every appended field.
+use citadel_negotiation::frame::appended_field;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[allow(variant_size_differences)]
@@ -877,6 +871,13 @@ pub enum PeerSignal {
         /// a connection that has one; that connection's own end follows, named.
         #[serde(default)]
         disconnect_token: Option<DisconnectToken>,
+        /// Why the connection was closed, when it was closed on purpose (see
+        /// [`DisconnectReason`](super::negotiation::reason::DisconnectReason)). Appended last, so
+        /// an older node ignores it and one from an older node reads as `None`. The server
+        /// rebuilds this signal rather than relaying its bytes, so a server below
+        /// `NEGOTIATION_SINCE` drops it; the negotiation lane carries it past such a server.
+        #[serde(default, deserialize_with = "appended_field")]
+        reason: Option<super::negotiation::reason::DisconnectReason>,
     },
     DisconnectUDP {
         peer_conn_type: PeerConnectionType,

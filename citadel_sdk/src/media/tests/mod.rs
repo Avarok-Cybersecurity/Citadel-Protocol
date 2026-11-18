@@ -32,6 +32,13 @@ pub(super) const CFG: MediaTransportConfig = MediaTransportConfig {
     send_queue_frames: 2,
     udp_payload_budget: RECOMMENDED_UDP_PAYLOAD_BUDGET,
     udp_wait: Duration::from_millis(10),
+    // Test bound (PCND): these tests assemble endpoints directly and never negotiate
+    negotiation: crate::citadel_negotiation::NegotiationPolicy {
+        proposal_deadline: Duration::from_secs(5),
+        apply_deadline: Duration::from_secs(5),
+        max_apply_attempts: 1,
+        udp_retire_grace: None,
+    },
 };
 
 pub(super) fn run<F: std::future::Future<Output = ()>>(f: F) {

@@ -59,6 +59,13 @@ pub fn transport_config() -> MediaTransportConfig {
         send_queue_frames: 256, // ~5 s of 20 ms audio frames before the drop policy engages
         udp_payload_budget: RECOMMENDED_UDP_PAYLOAD_BUDGET,
         udp_wait: Duration::from_secs(3), // then fall back to the ordered-reliable channel
+        // the peer answers a proposal on receipt; ten seconds of silence is a broken lane
+        negotiation: citadel_sdk::citadel_negotiation::NegotiationPolicy {
+            proposal_deadline: Duration::from_secs(10),
+            apply_deadline: Duration::from_secs(10),
+            max_apply_attempts: 1,
+            udp_retire_grace: None,
+        },
     };
     cfg.validate().expect("example media config is valid");
     cfg

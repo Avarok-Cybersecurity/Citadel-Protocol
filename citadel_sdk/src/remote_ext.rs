@@ -1308,6 +1308,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                         peer_conn_type: peer_conn,
                         disconnect_response: None,
                         disconnect_token: None,
+                        reason: None,
                     },
                 });
 

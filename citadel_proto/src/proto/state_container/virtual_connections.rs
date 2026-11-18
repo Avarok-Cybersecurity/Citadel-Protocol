@@ -4,6 +4,7 @@
 use super::includes::*;
 use crate::proto::peer::direct_journal::{DirectJournal, JournaledMessage};
 use crate::proto::peer::direct_route;
+use crate::proto::peer::negotiation::reason::PeerClosing;
 use crate::proto::peer::p2p_path::P2pPathCell;
 use bytes::BytesMut;
 use citadel_io::{error, ErrorCode};
@@ -334,6 +335,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             }
             _ => (None, None),
         };
+        let peer_closing = PeerClosing::default();
         let peer_channel = PeerChannel::new(
             self.node_remote.clone(),
             target_cid,
@@ -346,6 +348,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             p2p_path.clone(),
             peer_protocol_version,
             restored_udp,
+            peer_closing.clone(),
         );
 
         CitadelSession::spawn_message_sender_function(
@@ -368,6 +371,10 @@ impl<R: Ratchet> StateContainerInner<R> {
             p2p_disconnect_notifier: None,
             udp_restored,
         });
+        if let VirtualConnectionType::LocalGroupPeer { .. } = virtual_connection_type {
+            self.peer_closings
+                .insert(target_cid, (p2p_connection_id, peer_closing));
+        }
 
         // For C2S connections, get the adjacent NAT type from the session
         // For P2P connections, this will be updated later during hole punching
@@ -418,6 +425,19 @@ impl<R: Ratchet> StateContainerInner<R> {
     /// in `peer_kem_states` -- which holds the sender of its UDP channel offer and its hole
     /// punch's cancel handle -- must then be left alone: replacing it withdraws that offer for
     /// good, and the application reads that as "this connection will never carry UDP".
+    /// What the peer said on a connection's lane about why it is closing it: its latest
+    /// connection, or the one `connection` names (`None` if a later one has replaced it).
+    pub(crate) fn peer_closing_of(
+        &self,
+        peer_cid: u64,
+        connection: Option<Ticket>,
+    ) -> Option<PeerClosing> {
+        let (latest, closing) = self.peer_closings.get(&peer_cid)?;
+        connection
+            .is_none_or(|connection| connection == *latest)
+            .then(|| closing.clone())
+    }
+
     pub(crate) fn has_live_peer_connection(&self, peer_cid: u64) -> bool {
         self.active_virtual_connections
             .get(&peer_cid)

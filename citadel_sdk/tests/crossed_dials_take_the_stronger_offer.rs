@@ -9,9 +9,12 @@
 //! Two places decide a crossing, and each scenario reaches one of them:
 //! - the server merge, when the second dial reaches the server while the first is pending
 //!   (both orders: the stronger offer first, and second);
-//! - the client tiebreak, when an offer reaches a client whose own bid for the link the server
-//!   no longer holds. Here that bid is an accept the server refused because the offer it
-//!   answered had been superseded by a redial; the lower CID then holds it when the redial lands.
+//! - the client tiebreak, when an offer reaches the lower CID while it holds a dial of its own.
+//!   On one server that dial always reaches the server first (it precedes the tiebreak's accept
+//!   on the lower CID's ordered stream), the server merges the crossing, and the tiebreak's
+//!   accept is refused: the link is the server merge's. The tiebreak's own result can decide a
+//!   link only through a bid the server no longer holds, and a bid the server refused is no
+//!   longer held (`order_b`), so on one server that is unreachable.
 //!
 //! Ordering is by events and barriers, never by sleeps.
 
@@ -26,7 +29,9 @@ mod dials;
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
-    use crate::dials::{channel_from, next_offer, post_connect, settings, DEADLINE};
+    use crate::dials::{
+        channel_from, next_offer, offer_put_to_kernel, post_connect, settings, DEADLINE,
+    };
     use crate::group::{register_connect_and_befriend, Events, GroupTestKernel};
     use citadel_io::tokio;
     use citadel_sdk::prefabs::server::empty::EmptyKernel;
@@ -42,8 +47,8 @@ mod tests {
             first: SecurityLevel,
             second: SecurityLevel,
         },
-        /// The lower CID's refused accept at `bid`; the higher CID's redial at `redial`.
-        ClientTiebreak {
+        /// The lower CID's accept at `bid`, refused; the higher CID's next dial at `redial`.
+        RefusedBid {
             bid: SecurityLevel,
             redial: SecurityLevel,
         },
@@ -72,7 +77,7 @@ mod tests {
                     channel_from(Some(dial(second)), &mut events).await
                 }
             }
-            Scenario::ClientTiebreak { bid, redial } => {
+            Scenario::RefusedBid { bid, redial } => {
                 let command = |signal| {
                     NodeRequest::PeerCommand(PeerCommand {
                         session_cid: conn.cid,
@@ -118,6 +123,9 @@ mod tests {
                         .await
                         .expect("the server refuses the stale accept");
                     wait_for_peers().await;
+                    // The refused bid is not a dial: the next one is put to this kernel.
+                    let offer = offer_put_to_kernel(&mut events).await;
+                    citadel_sdk::responses::peer_connect(offer, true, &remote, None).await?;
                     channel_from(None::<std::future::Pending<_>>, &mut events).await
                 } else {
                     remote.send(command(post_connect(link, redial))).await?;
@@ -190,12 +198,15 @@ mod tests {
         .await;
     }
 
+    /// The lower CID's refused accept leaves nothing behind: the higher CID's next dial is put
+    /// to the lower CID's kernel, which accepts it, and the link takes that dial's offer -- not
+    /// the stronger bid the server refused.
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-    async fn order_b_the_lower_cid_holds_the_stronger_bid() {
+    async fn order_b_a_refused_bid_is_not_held() {
         let (bid, redial) = (SecurityLevel::Extreme, SecurityLevel::Standard);
         run(
-            Scenario::ClientTiebreak { bid, redial },
-            SecurityLevel::Extreme,
+            Scenario::RefusedBid { bid, redial },
+            SecurityLevel::Standard,
         )
         .await;
     }

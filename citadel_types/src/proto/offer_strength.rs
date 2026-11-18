@@ -38,6 +38,15 @@ pub fn stronger_offer(
     }
 }
 
+/// R-DIAL 3, the client's check: whether `stamped` -- the settings a client is told to build a
+/// link with, by the server's merge or the peer's accept -- gives up anything of `own`, the offer
+/// the client made for that link. Servers stamp, clients verify: a stamp [`stronger_offer`] could
+/// have produced from `own` and any other offer never falls short, so an honest server or peer
+/// is never refused, and a client is never connected below its own offer.
+pub fn falls_short_of(stamped: SessionSecuritySettings, own: SessionSecuritySettings) -> bool {
+    leading_key(&stronger_offer(stamped, own)) != leading_key(&stamped)
+}
+
 fn secrecy_rank(mode: SecrecyMode) -> u8 {
     match mode {
         SecrecyMode::BestEffort => 0,
@@ -147,6 +156,42 @@ mod tests {
         for result in both_orders(strong, weak) {
             assert_eq!(result, fingerprint(strong));
         }
+    }
+
+    #[test]
+    fn a_merged_or_echoed_stamp_never_falls_short_of_either_offer() {
+        let mut strong_suite = offer(SecurityLevel::High, SecrecyMode::BestEffort);
+        strong_suite.crypto_params.kem_algorithm = KemAlgorithm::MlKem1024Fips203;
+        let offers = [
+            offer(SecurityLevel::Standard, SecrecyMode::BestEffort),
+            offer(SecurityLevel::Extreme, SecrecyMode::BestEffort),
+            offer(SecurityLevel::Standard, SecrecyMode::Perfect),
+            offer(SecurityLevel::Custom(9), SecrecyMode::Perfect),
+            strong_suite,
+        ];
+        for a in offers {
+            assert!(!falls_short_of(a, a), "an echoed offer is its own stamp");
+            for b in offers {
+                let merged = stronger_offer(a, b);
+                assert!(!falls_short_of(merged, a) && !falls_short_of(merged, b));
+            }
+        }
+    }
+
+    #[test]
+    fn a_stamp_below_the_clients_own_offer_falls_short() {
+        let extreme = offer(SecurityLevel::Extreme, SecrecyMode::BestEffort);
+        let standard = offer(SecurityLevel::Standard, SecrecyMode::BestEffort);
+        assert!(falls_short_of(standard, extreme));
+        let perfect = offer(SecurityLevel::Standard, SecrecyMode::Perfect);
+        assert!(falls_short_of(standard, perfect), "secrecy is ordered too");
+        let mut mine = offer(SecurityLevel::High, SecrecyMode::BestEffort);
+        mine.header_obfuscator_settings = HeaderObfuscatorSettings::EnabledWithKey(3);
+        let other_suite = offer(SecurityLevel::High, SecrecyMode::BestEffort);
+        assert!(
+            falls_short_of(other_suite, mine),
+            "at equal strength the suite is the merge's, and this one loses the tie"
+        );
     }
 
     #[test]

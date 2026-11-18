@@ -57,13 +57,17 @@ use crate::error::NetworkError;
 use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::node_request::{NodeRequest, PeerCommand};
 use crate::proto::outbound_sender::{OutboundUdpSender, UnboundedReceiver};
+use crate::proto::peer::negotiation::driver::{Driver, SharedMessengerTx};
+use crate::proto::peer::negotiation::lane::NegotiationLane;
+use crate::proto::peer::negotiation::reason::PeerClosing;
+use crate::proto::peer::negotiation::shared::LaneShared;
 use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
 use crate::proto::peer::p2p_rearm::PathControl;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
 use crate::proto::session::UserMessage;
 use crate::proto::state_container::VirtualConnectionType;
-use crate::{ProtocolMessenger, ProtocolMessengerRx, ProtocolMessengerTx};
+use crate::{ProtocolMessenger, ProtocolMessengerRx};
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Pin;
@@ -86,6 +90,8 @@ pub struct PeerChannel<R: Ratchet> {
     peer_protocol_version: Option<u32>,
     restored_udp: Option<RestoredUdpChannels<R>>,
     security_settings: SessionSecuritySettings,
+    /// The negotiation lane; `None` on a client-server channel.
+    lane: Option<Arc<LaneShared<R>>>,
 }
 
 /// Every UDP channel a P2P path recovery restores, in order (see `PeerChannel::upgrade`).
@@ -105,10 +111,23 @@ impl<R: Ratchet> PeerChannel<R> {
         path: P2pPathCell,
         peer_protocol_version: Option<u32>,
         restored_udp: Option<RestoredUdpChannels<R>>,
+        closing: PeerClosing,
     ) -> Self {
         let session_cid = vconn_type.get_session_cid();
 
         let (to_outbound_stream, from_inbound_stream) = messenger.split();
+        let to_outbound_stream: SharedMessengerTx<R> =
+            Arc::new(citadel_io::tokio::sync::Mutex::new(to_outbound_stream));
+        let (receiver, lane) = Self::start_lane(
+            &node_remote,
+            vconn_type,
+            security_settings.security_level,
+            disconnect_token,
+            peer_protocol_version,
+            closing,
+            &to_outbound_stream,
+            from_inbound_stream,
+        );
 
         let send_half = PeerChannelSendHalf {
             to_outbound_stream,
@@ -123,9 +142,7 @@ impl<R: Ratchet> PeerChannel<R> {
 
         let recv_half = PeerChannelRecvHalf {
             node_remote,
-            receiver: ReceiverType::OrderedReliable {
-                rx: Box::new(from_inbound_stream),
-            },
+            receiver,
             target_cid,
             vconn_type,
             channel_id,
@@ -140,7 +157,85 @@ impl<R: Ratchet> PeerChannel<R> {
             peer_protocol_version,
             restored_udp,
             security_settings,
+            lane,
         }
+    }
+
+    /// On a P2P channel, starts the lane's driver over the reliable stream and receives the
+    /// application's messages from it; a client-server channel reads the stream directly.
+    #[allow(clippy::too_many_arguments)]
+    fn start_lane(
+        node_remote: &NodeRemote<R>,
+        vconn_type: VirtualConnectionType,
+        security_level: SecurityLevel,
+        disconnect_token: Option<DisconnectToken>,
+        peer_protocol_version: Option<u32>,
+        closing: PeerClosing,
+        tx: &SharedMessengerTx<R>,
+        inbound: ProtocolMessengerRx<R>,
+    ) -> (ReceiverType<R>, Option<Arc<LaneShared<R>>>) {
+        let token = match (vconn_type, disconnect_token) {
+            (VirtualConnectionType::LocalGroupPeer { .. }, Some(token)) => token,
+            _ => {
+                let rx = Box::new(inbound);
+                return (ReceiverType::OrderedReliable { rx }, None);
+            }
+        };
+        let capable = crate::constants::protocol_version_at_least(
+            peer_protocol_version,
+            crate::constants::NEGOTIATION_SINCE,
+        );
+        let legacy_peer = (!capable).then(|| citadel_negotiation::Hello {
+            protocol: peer_protocol_version.unwrap_or(0),
+            settings: Vec::new(),
+        });
+        let (outbound_tx, outbound_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
+        let shared = Arc::new(LaneShared::new(
+            citadel_negotiation::ConnectionId(token.connection_id.0),
+            capable,
+            legacy_peer,
+            outbound_tx,
+            closing,
+            node_remote.clone(),
+            vconn_type,
+            Some(token),
+        ));
+        let (app_tx, app_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
+        let driver = Driver {
+            shared: shared.clone(),
+            tx: tx.clone(),
+            target: vconn_type,
+            security_level,
+        };
+        spawn!(driver.run(inbound, app_tx, outbound_rx));
+        (ReceiverType::Lane { rx: app_rx }, Some(shared))
+    }
+
+    /// Opens this connection's negotiation lane and sends `local` as this side's Hello: the
+    /// settings it negotiates in band. Once per channel, before [`Self::split`]; a channel split
+    /// without it sends an empty Hello. Toward a peer below
+    /// [`NEGOTIATION_SINCE`](crate::constants::NEGOTIATION_SINCE) nothing is sent and the peer's
+    /// Hello reads as empty. Refused on a client-server channel.
+    pub fn open_negotiation(
+        &mut self,
+        local: citadel_negotiation::Hello,
+    ) -> Result<NegotiationLane<R>, NetworkError> {
+        let shared = self
+            .lane
+            .clone()
+            .ok_or_else(|| NetworkError::msg("only a P2P channel has a negotiation lane"))?;
+        if shared.local.borrow().is_some() {
+            return Err(NetworkError::msg("the negotiation lane is already open"));
+        }
+        shared.local.send_replace(Some(local));
+        Ok(NegotiationLane { shared })
+    }
+
+    /// The lane [`Self::open_negotiation`] opened, if it did.
+    pub fn negotiation_lane(&self) -> Option<NegotiationLane<R>> {
+        let shared = self.lane.clone()?;
+        let opened = shared.local.borrow().is_some();
+        opened.then_some(NegotiationLane { shared })
     }
 
     /// The security settings this connection was established with. On a P2P channel these are
@@ -262,12 +357,24 @@ impl<R: Ratchet> PeerChannel<R> {
     /// an asynchronous interface. The SendHalf implements Sink, whereas the RecvHalf implements
     /// Stream
     pub fn split(self) -> (PeerChannelSendHalf<R>, PeerChannelRecvHalf<R>) {
+        if let Some(lane) = &self.lane {
+            lane.local.send_if_modified(|local| {
+                let unopened = local.is_none();
+                if unopened {
+                    *local = Some(citadel_negotiation::Hello {
+                        protocol: *crate::constants::PROTOCOL_VERSION,
+                        settings: Vec::new(),
+                    });
+                }
+                unopened
+            });
+        }
         (self.send_half, self.recv_half)
     }
 }
 
 pub struct PeerChannelSendHalf<R: Ratchet> {
-    to_outbound_stream: ProtocolMessengerTx<R>,
+    to_outbound_stream: SharedMessengerTx<R>,
     target_cid: u64,
     #[allow(dead_code)]
     session_cid: u64,
@@ -302,6 +409,8 @@ impl<R: Ratchet> PeerChannelSendHalf<R> {
         };
 
         self.to_outbound_stream
+            .lock()
+            .await
             .send(request)
             .await
             .map_err(|err| NetworkError::generic(err.to_string()))
@@ -379,6 +488,10 @@ enum ReceiverType<R: Ratchet> {
     OrderedReliable {
         rx: Box<ProtocolMessengerRx<R>>,
     },
+    /// A P2P channel's application messages, after the lane's driver took its frames out.
+    Lane {
+        rx: UnboundedReceiver<SecBuffer>,
+    },
     UnorderedUnreliable {
         rx: UnboundedReceiver<SecBuffer>,
         /// False once the connection's UDP slot holds another channel (a recovery restored
@@ -402,6 +515,14 @@ impl<R: Ratchet> Stream for ReceiverType<R> {
                 }
             }
 
+            ReceiverType::Lane { rx } => match futures::ready!(rx.poll_recv(cx)) {
+                Some(data) => Poll::Ready(Some(data)),
+                None => {
+                    log::trace!(target: "citadel", "[PeerChannelRecvHalf] ending for Lane");
+                    Poll::Ready(None)
+                }
+            },
+
             ReceiverType::UnorderedUnreliable { rx, .. } => {
                 match futures::ready!(Pin::new(rx).poll_recv(cx)) {
                     Some(data) => Poll::Ready(Some(data)),
@@ -419,6 +540,7 @@ impl<R: Ratchet> Debug for ReceiverType<R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let receiver_type = match self {
             Self::OrderedReliable { .. } => "OrderedReliable",
+            Self::Lane { .. } => "Lane",
             Self::UnorderedUnreliable { .. } => "UnorderedUnreliable",
         };
         write!(f, "{receiver_type}")
@@ -455,7 +577,7 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
             log::trace!(target: "citadel", "[PeerChannelRecvHalf] Dropping {:?} type. Will maybe set is_alive to false if this is a tcp p2p connection", self.receiver);
 
             let command = match &self.receiver {
-                ReceiverType::OrderedReliable { .. } => {
+                ReceiverType::OrderedReliable { .. } | ReceiverType::Lane { .. } => {
                     self.is_alive.store(false, Ordering::SeqCst);
                     NodeRequest::PeerCommand(PeerCommand {
                         session_cid: local_cid,
@@ -466,6 +588,7 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
                             },
                             disconnect_response: None,
                             disconnect_token: self.disconnect_token,
+                            reason: None,
                         },
                     })
                 }

@@ -959,6 +959,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                     peer_conn_type,
                                     disconnect_response: Some(PeerResponse::Disconnected(format!("{peer_cid} disconnected from {session_cid} forcibly"))),
                                     disconnect_token: None,
+                                    reason: None,
                                 };
                                 if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_ratchet| {
                                     super::packet_crafter::peer_cmd::craft_peer_signal(peer_ratchet, signal, Ticket(0), timestamp, security_level)

@@ -54,6 +54,7 @@ mimalloc = ["dep:mimalloc"]
 
 [dependencies]
 citadel_proto = { workspace = true }
+citadel_negotiation = { workspace = true }
 citadel_io = { workspace = true }
 citadel_user = { workspace = true }
 embed-doc-image = { workspace = true, optional = true }
