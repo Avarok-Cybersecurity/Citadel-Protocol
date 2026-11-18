@@ -1,24 +1,13 @@
 //! The session queue worker: its keys stay unique, a replaced entry leaves nothing behind, and a
 //! worker owned by its session's task releases the session's state when that task is dropped.
 
-use crate::kernel::kernel_communicator::{
-    KernelAsyncCallbackHandler, KernelAsyncCallbackHandlerInner,
-};
-use crate::proto::outbound_sender::{unbounded, BoundedSender};
-use crate::proto::remote::NodeRemote;
 use crate::proto::session::SessionState;
 use crate::proto::session_queue_handler::{
     QueueWorkerResult, QueueWorkerTicket, SessionQueueWorker,
 };
-use crate::proto::state_container::{StateContainer, StateContainerInner};
-use crate::proto::transfer_stats::TransferStats;
+use crate::proto::state_container::{test_support, StateContainer, StateContainerInner};
 use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_io::tokio;
-use citadel_types::proto::UdpMode;
-use citadel_user::account_manager::AccountManager;
-use citadel_user::backend::BackendType;
-use citadel_wire::hypernode_type::NodeType;
-use netbeam::time_tracker::TimeTracker;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,36 +15,7 @@ use std::time::Duration;
 type R = StackedRatchet;
 
 async fn state_container() -> StateContainer<R> {
-    let (requests, _) = BoundedSender::new(1);
-    let account_manager = AccountManager::<R, R>::new(BackendType::InMemory, None, None, None)
-        .await
-        .unwrap();
-    let remote = NodeRemote::new(
-        requests,
-        KernelAsyncCallbackHandler {
-            inner: Arc::new(citadel_io::Mutex::new(KernelAsyncCallbackHandlerInner {
-                map: Default::default(),
-            })),
-        },
-        account_manager,
-        NodeType::default(),
-        crate::proto::misc::local_rebind::LocalRebinder::new(),
-        Default::default(),
-        Default::default(),
-    );
-    let (kernel_tx, _) = unbounded();
-    StateContainerInner::create(
-        kernel_tx,
-        remote,
-        0,
-        SessionState::Connected.into(),
-        None,
-        TimeTracker::new(),
-        None,
-        false,
-        TransferStats::new(0, 0),
-        UdpMode::Disabled,
-    )
+    test_support::state_container(false, 0).await
 }
 
 /// A worker over `state`, with no entries of its own. The shutdown channel's receiver is kept

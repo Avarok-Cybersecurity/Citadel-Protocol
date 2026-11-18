@@ -35,6 +35,7 @@ pub(crate) async fn state_container(
         NodeType::default(),
         crate::proto::misc::local_rebind::LocalRebinder::new(),
         Default::default(),
+        Default::default(),
     );
     let (kernel_tx, _) = unbounded();
     let time_tracker = TimeTracker::new();
