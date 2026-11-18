@@ -1208,32 +1208,32 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             }))
             .await?;
 
-        while let Some(status) = stream.next().await {
-            if let NodeResult::PeerEvent(PeerEvent {
-                event:
-                    PeerSignal::PostRegister {
-                        peer_conn_type: _,
-                        inviter_username: _,
-                        invitee_username: _,
-                        ticket_opt: _,
-                        invitee_response: Some(resp),
-                    },
-                ..
-            }) = status.into_result()?
-            {
-                match resp {
-                    PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
-                    PeerResponse::Decline => return Ok(PeerRegisterStatus::Declined),
-                    PeerResponse::Timeout => return Ok(PeerRegisterStatus::Failed { reason: Some("Timeout on register request. Peer did not accept in time. Try again later".to_string()) }),
-                    _ => {}
-                }
-            }
-        }
-
-        Err(citadel_io::error!(
-            citadel_io::ErrorCode::RemoteKernelStreamDied,
-            format!("register_to_peer: {:?}", stream.callback_key())
-        ))
+        // The server answers a request its target never does when the posting expires.
+        let within = citadel_proto::constants::PEER_POSTING_TIMEOUT
+            + crate::answer_wait::SERVER_ANSWER_TIMEOUT;
+        crate::answer_wait::await_answer(
+            &mut stream,
+            within,
+            "register_to_peer",
+            || citadel_io::error!(citadel_io::ErrorCode::RemoteKernelStreamDied, "register_to_peer"),
+            |status| match status {
+                NodeResult::PeerEvent(PeerEvent {
+                    event:
+                        PeerSignal::PostRegister {
+                            invitee_response: Some(resp),
+                            ..
+                        },
+                    ..
+                }) => match resp {
+                    PeerResponse::Accept(..) => Some(Ok(PeerRegisterStatus::Accepted)),
+                    PeerResponse::Decline => Some(Ok(PeerRegisterStatus::Declined)),
+                    PeerResponse::Timeout => Some(Ok(PeerRegisterStatus::Failed { reason: Some("Timeout on register request. Peer did not accept in time. Try again later".to_string()) })),
+                    _ => None,
+                },
+                _ => None,
+            },
+        )
+        .await
     }
 
     /// Deregisters the currently locked target. If the target is a client to server
@@ -1251,15 +1251,23 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
             });
 
             let mut subscription = self.remote().send_callback_subscription(request).await?;
-            while let Some(result) = subscription.next().await {
-                if let NodeResult::PeerEvent(PeerEvent {
-                    event: PeerSignal::DeregistrationSuccess { .. },
-                    ..
-                }) = result.into_result()?
-                {
-                    return Ok(());
-                }
-            }
+            crate::answer_wait::await_answer(
+                &mut subscription,
+                crate::answer_wait::SERVER_ANSWER_TIMEOUT,
+                "deregister from peer",
+                || citadel_io::error!(citadel_io::ErrorCode::RemoteDeregisterEndedUnexpectedly),
+                |result| {
+                    matches!(
+                        result,
+                        NodeResult::PeerEvent(PeerEvent {
+                            event: PeerSignal::DeregistrationSuccess { .. },
+                            ..
+                        })
+                    )
+                    .then_some(Ok(()))
+                },
+            )
+            .await
         } else {
             // c2s conn
             let cid = self.user().get_session_cid();
@@ -1268,31 +1276,23 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 v_conn_type: *self.user(),
             });
             let mut subscription = self.remote().send_callback_subscription(request).await?;
-            while let Some(result) = subscription.next().await {
-                match result.into_result()? {
-                    NodeResult::DeRegistration(DeRegistration {
-                        session_cid: _,
-                        ticket_opt: _,
-                        success: true,
-                    }) => return Ok(()),
-                    NodeResult::DeRegistration(DeRegistration {
-                        session_cid: _,
-                        ticket_opt: _,
-                        success: false,
-                    }) => {
-                        return Err(citadel_io::error!(
-                            citadel_io::ErrorCode::RemoteDeregisterFailed
-                        ))
+            crate::answer_wait::await_answer(
+                &mut subscription,
+                crate::answer_wait::SERVER_ANSWER_TIMEOUT,
+                "deregister from server",
+                || citadel_io::error!(citadel_io::ErrorCode::RemoteDeregisterEndedUnexpectedly),
+                |result| match result {
+                    NodeResult::DeRegistration(DeRegistration { success: true, .. }) => {
+                        Some(Ok(()))
                     }
-
-                    _ => {}
-                }
-            }
+                    NodeResult::DeRegistration(DeRegistration { success: false, .. }) => Some(Err(
+                        citadel_io::error!(citadel_io::ErrorCode::RemoteDeregisterFailed),
+                    )),
+                    _ => None,
+                },
+            )
+            .await
         }
-
-        Err(citadel_io::error!(
-            citadel_io::ErrorCode::RemoteDeregisterEndedUnexpectedly
-        ))
     }
 
     async fn disconnect(&self) -> Result<(), NetworkError> {
@@ -1312,25 +1312,26 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 });
 
                 let mut subscription = self.remote().send_callback_subscription(request).await?;
-
-                while let Some(event) = subscription.next().await {
-                    if let NodeResult::PeerEvent(PeerEvent {
-                        event:
-                            PeerSignal::Disconnect {
-                                peer_conn_type: _,
-                                disconnect_response: Some(_),
+                crate::answer_wait::await_answer(
+                    &mut subscription,
+                    crate::answer_wait::SERVER_ANSWER_TIMEOUT,
+                    "disconnect from peer",
+                    || citadel_io::error!(citadel_io::ErrorCode::RemoteDisconnectEventMissing),
+                    |event| {
+                        matches!(
+                            event,
+                            NodeResult::PeerEvent(PeerEvent {
+                                event: PeerSignal::Disconnect {
+                                    disconnect_response: Some(_),
+                                    ..
+                                },
                                 ..
-                            },
-                        ..
-                    }) = event.into_result()?
-                    {
-                        return Ok(());
-                    }
-                }
-
-                Err(citadel_io::error!(
-                    citadel_io::ErrorCode::RemoteDisconnectEventMissing
-                ))
+                            })
+                        )
+                        .then_some(Ok(()))
+                    },
+                )
+                .await
             } else {
                 Err(citadel_io::error!(
                     citadel_io::ErrorCode::RemoteExternalGroupPeerUnsupported
@@ -1343,82 +1344,30 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                 NodeRequest::DisconnectFromHypernode(DisconnectFromHypernode { session_cid: cid });
 
             let mut subscription = self.remote().send_callback_subscription(request).await?;
-            // Bounded, because this wait is otherwise the end of the line.
-            //
-            // The stream closing is handled below, but a subscription that
-            // stays OPEN and simply never carries the matching Disconnect
-            // parks here for ever. That is the reconnection suite's 240s
-            // timeout: with the phase markers reaching CI, both peers finish
-            // phase one and the disconnecting side never logs the line after
-            // this call, while the other blocks on the barrier it never
-            // reaches. The only await between those two markers is this one.
-            //
-            // The session is being torn down either way, so an unconfirmed
-            // disconnect is reported rather than waited on: a caller can retry
-            // or proceed, and neither is possible from inside an indefinite
-            // await.
-            const DISCONNECT_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(30);
-            let deadline = citadel_io::time::Instant::now() + DISCONNECT_CONFIRMATION_TIMEOUT;
-            // What the subscription DID carry, for the occasion when it does not
-            // carry a Disconnect.
-            //
-            // `RemoteDisconnectEventMissing` says only that nothing matched in
-            // thirty seconds, which cannot distinguish the two things it might
-            // mean. A NON-ZERO count says the subscription was alive and other
-            // events reached it, so the Disconnect was never emitted or was
-            // emitted under a key this subscription does not hold. ZERO says the
-            // subscription heard nothing at all, which points at the session
-            // rather than at the routing. Those want different fixes, and the
-            // error tells them apart not at all.
-            //
-            // This is the same instrument that localised the UDP one-shot race:
-            // an intermittent CI failure that no local run reproduces is only
-            // ever going to be solved by what it says about itself when it next
-            // happens.
-            let mut carried = 0usize;
-            loop {
-                let remaining =
-                    deadline.saturating_duration_since(citadel_io::time::Instant::now());
-                if remaining.is_zero() {
-                    log::warn!(target: "citadel", "[dc-wait] no Disconnect for cid {cid} within {DISCONNECT_CONFIRMATION_TIMEOUT:?}; the subscription carried {carried} other event(s)");
-                    return Err(citadel_io::error!(
-                        citadel_io::ErrorCode::RemoteDisconnectEventMissing
-                    ));
-                }
-                match citadel_io::time::timeout(remaining, subscription.next()).await {
-                    Ok(Some(event)) => {
-                        carried += 1;
-                        if let NodeResult::Disconnect(Disconnect {
-                            success, message, ..
-                        }) = event.into_result()?
-                        {
-                            return if success {
-                                Ok(())
-                            } else {
-                                Err(citadel_io::error!(
-                                    citadel_io::ErrorCode::RemoteDisconnected,
-                                    message
-                                ))
-                            };
-                        }
-                    }
-                    // The stream ended without ever carrying the event.
-                    Ok(None) => {
-                        log::warn!(target: "citadel", "[dc-wait] the subscription for cid {cid} closed without a Disconnect; it carried {carried} other event(s)");
-                        break;
-                    }
-                    Err(_elapsed) => {
-                        log::warn!(target: "citadel", "[dc-wait] timed out waiting for a Disconnect for cid {cid}; the subscription carried {carried} other event(s)");
-                        return Err(citadel_io::error!(
-                            citadel_io::ErrorCode::RemoteDisconnectEventMissing
-                        ));
-                    }
-                }
-            }
-
-            Err(citadel_io::error!(
-                citadel_io::ErrorCode::RemoteDisconnectEventMissing
-            ))
+            // Bounded, because this wait is otherwise the end of the line: a subscription that
+            // stays open and never carries the Disconnect parked here for ever (the reconnection
+            // suite's 240 s timeout). The session is being torn down either way, so an
+            // unconfirmed disconnect is reported rather than waited on.
+            crate::answer_wait::await_answer(
+                &mut subscription,
+                crate::answer_wait::SERVER_ANSWER_TIMEOUT,
+                &format!("disconnect of cid {cid}"),
+                || citadel_io::error!(citadel_io::ErrorCode::RemoteDisconnectEventMissing),
+                |event| match event {
+                    NodeResult::Disconnect(Disconnect {
+                        success, message, ..
+                    }) => Some(if success {
+                        Ok(())
+                    } else {
+                        Err(citadel_io::error!(
+                            citadel_io::ErrorCode::RemoteDisconnected,
+                            message
+                        ))
+                    }),
+                    _ => None,
+                },
+            )
+            .await
         }
     }
 

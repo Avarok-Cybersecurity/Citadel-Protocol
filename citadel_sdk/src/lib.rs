@@ -297,6 +297,7 @@ pub mod prelude {
 }
 
 /// Store data to the backend using this library
+mod answer_wait;
 pub mod backend_kv_store;
 mod builder;
 /// Convenience functions for interacting with the remote encrypted virtual filesystem (RE-VFS)

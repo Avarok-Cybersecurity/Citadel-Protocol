@@ -1459,8 +1459,8 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     peer_cid: target_cid,
                 } => {
                     let session_cid = header.session_cid.get();
-                    const TIMEOUT: Duration = Duration::from_secs(60 * 60); // 1 hour
-                                                                            // if the peer response is some, then HyperLAN Client B responded
+                    const TIMEOUT: Duration = crate::constants::PEER_POSTING_TIMEOUT;
+                    // if the peer response is some, then HyperLAN Client B responded
                     if let Some(peer_response) = peer_response {
                         // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
                         super::server::post_register::handle_response_phase_post_register(
@@ -1622,7 +1622,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                 peer_layer_lock
                                     .insert_tracked_posting(
                                         session_cid,
-                                        Duration::from_secs(60 * 60),
+                                        crate::constants::PEER_POSTING_TIMEOUT,
                                         ticket,
                                         PeerSignal::DeregistrationSuccess { peer_conn_type },
                                         |_| {},
