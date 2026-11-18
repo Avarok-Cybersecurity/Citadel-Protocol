@@ -61,6 +61,7 @@ pub(crate) mod peer;
 pub(crate) mod pq_sign_in;
 pub mod remote;
 mod reseal_tests;
+pub(crate) mod seal_identity;
 /// Each CID gets a session
 pub mod server_probe;
 pub(crate) mod session;

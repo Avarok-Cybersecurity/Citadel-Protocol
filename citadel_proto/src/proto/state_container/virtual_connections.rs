@@ -273,7 +273,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         let psks = self
             .get_session_password(password_cid_index)
             .cloned()
-            .expect("The PSK was not found!");
+            .ok_or_else(|| error!(ErrorCode::StateVconnNoSessionPassword, target_cid))?;
 
         let (tx_to_ratchet_manager_inbound, rx_for_ratchet_manager) = unbounded_channel();
 

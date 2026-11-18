@@ -63,6 +63,7 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet, T: PlatformOp
     sess_ratchet: &R,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
+    let accepted = forges_routes(&peer_response);
     // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
     route_signal_response(PeerSignal::PostConnect {
         peer_conn_type,
@@ -77,6 +78,10 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet, T: PlatformOp
                               // In other words, forge a virtual connection
                               // In order for routing of packets to be fast, we need to get the direct handles of the stream
                               // placed into the state_containers
+                              if !accepted {
+                                  log::trace!(target: "citadel", "{session_cid} did not accept {target_cid}'s connect request; no route forged");
+                                  return;
+                              }
                               if let Some(this_tcp_sender) = this_sess.to_primary_stream.clone() {
                                   if let Some(peer_tcp_sender) = peer_sess.to_primary_stream.clone() {
                                       let mut this_sess_state_container = inner_mut_state!(this_sess.state_container);
@@ -104,4 +109,29 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet, T: PlatformOp
                                   }
                               }
                           }, security_level).await
+}
+
+/// Whether a response to a connect request makes the server forge the pair's relay routes: only
+/// an acceptance does. A declined or failed request leaves the pair with no route.
+fn forges_routes(response: &PeerResponse) -> bool {
+    matches!(response, PeerResponse::Accept(_))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_an_accepted_request_forges_the_pairs_routes() {
+        assert!(forges_routes(&PeerResponse::Accept(None)));
+        for refused in [
+            PeerResponse::Decline,
+            PeerResponse::Err(None),
+            PeerResponse::Timeout,
+            PeerResponse::None,
+            PeerResponse::Disconnected(String::new()),
+        ] {
+            assert!(!forges_routes(&refused), "{refused:?} forged a route");
+        }
+    }
 }

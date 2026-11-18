@@ -60,8 +60,11 @@ pub const MINOR_VERSION: u8 = 12;
 // effective plan into the pair's key exchange (see `PATH_POLICY_SINCE`). Additive: a node below it
 // neither sends nor reads either, and its peers plan their paths as before. In the same patch,
 // servers honour a group's relay options (see `GROUP_RELAY_OPTIONS_SINCE`).
-// Bumped 2 -> 3: P2P connections carry a negotiation lane, and a deliberate disconnect carries its
-// reason (see `NEGOTIATION_SINCE`). Additive: each side uses them only with a node at or above it.
+// Bumped 2 -> 3 (one release, several additive changes, each with its own gate at 0.12.3):
+// P2P connections carry a negotiation lane, and a deliberate disconnect carries its reason (see
+// `NEGOTIATION_SINCE`); a P2P connection's keys are derived from the pair it joins and the
+// connection's id (see `IDENTITY_BOUND_SEAL_SINCE`). Additive: each side uses them only with a
+// node at or above the gate, and with an older peer behaves as before.
 pub const PATCH_VERSION: u8 = 3;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
@@ -123,6 +126,14 @@ pub const GROUP_RELAY_OPTIONS_SINCE: (u8, u8, u8) = (0, 12, 2);
 /// unknown version, is sent no lane frame and its Hello reads as empty: every setting is legacy
 /// toward it. A server below it drops the reason, which the lane then carries instead.
 pub const NEGOTIATION_SINCE: (u8, u8, u8) = (0, 12, 3);
+
+/// The first protocol version whose P2P key exchange binds the keys to the connection they are
+/// for: both peers mix the initiator's CID, the responder's CID and the connection's id into the
+/// exchange (`proto::peer::p2p_seal_binding`), so a packet is accepted only under the connection
+/// it was sealed for. Both peers must agree: each binds only when the other's key-exchange signal
+/// names a version at or above it, and a pair with an older or unknown peer derives its keys as
+/// before.
+pub const IDENTITY_BOUND_SEAL_SINCE: (u8, u8, u8) = (0, 12, 3);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.
@@ -222,6 +233,18 @@ mod tests {
         assert!(!protocol_version_at_least(
             version(0, 12, 2),
             NEGOTIATION_SINCE
+        ));
+    }
+
+    #[test]
+    fn this_node_binds_p2p_keys_and_the_previous_patch_does_not() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            IDENTITY_BOUND_SEAL_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 12, 2),
+            IDENTITY_BOUND_SEAL_SINCE
         ));
     }
 

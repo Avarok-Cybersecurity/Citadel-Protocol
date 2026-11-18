@@ -275,6 +275,12 @@ impl<B: HdpBuffer> HdpPacket<B> {
         self.packet.as_ref()
     }
 
+    /// The received bytes, header first, for binding the header to its session before the AEAD
+    /// check (`proto::seal_identity`).
+    pub(crate) fn as_bytes_mut(&mut self) -> &mut [u8] {
+        self.packet.as_mut()
+    }
+
     /// Parses the zerocopy header
     pub fn parse(&self) -> Option<ParsedPacket<'_>> {
         Ref::new_from_prefix(self.packet.as_ref())

@@ -1229,4 +1229,10 @@ pub enum ErrorCode {
     /// The peer refused a steered key round: it had not agreed to that epoch's profile (epoch).
     #[form = "The peer refused the key round for epoch {}"]
     KeyEpochRefused = 403,
+
+    // --- citadel_proto: identity-bound connections ---
+    /// A P2P connection was to be created for a peer this node holds no session password for: it
+    /// neither asked to connect to the peer nor accepted the peer's request (peer cid).
+    #[form = "No connection request with peer {}; its connection was not created"]
+    StateVconnNoSessionPassword = 410,
 }

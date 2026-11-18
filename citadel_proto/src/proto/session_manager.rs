@@ -42,6 +42,7 @@ use std::sync::atomic::Ordering;
 use bytes::BytesMut;
 
 use crate::proto::misc::local_rebind::LocalRebinder;
+use crate::proto::misc::panic_future::catch_panic;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ServerMode;
@@ -811,7 +812,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         log::trace!(target: "citadel", "Beginning pre-execution of session");
         let mut err = None;
         let init_time = new_session.init_time;
-        let res = new_session.execute(tcp_stream, peer_addr).await;
+        let res = catch_panic(new_session.execute(tcp_stream, peer_addr))
+            .await
+            .unwrap_or_else(|panic| {
+                log::error!(target: "citadel", "Session to {peer_addr} panicked; tearing it down: {panic}");
+                Err((NetworkError::msg(panic), new_session.session_cid.get()))
+            });
         new_session.state.set(SessionState::Disconnecting);
 
         match &res {
