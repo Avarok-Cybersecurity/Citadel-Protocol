@@ -1,13 +1,12 @@
 //! The client's side of sign-in management.
 
-use super::login::{
-    relying_party, ClientLogin, ClientProof, SecurityKeyAnswer, SecurityKeyCeremony,
-    SecurityKeyRequest,
-};
+use super::key_request::{RelyingParty, SecurityKeyCeremony, SecurityKeyRequest};
+use super::login::{ClientLogin, ClientProof, SecurityKeyAnswer};
 use crate::auth::pq::kem::FactorKeypair;
 use crate::auth::pq::messages::{
-    transcript_bytes, ChallengeBody, EnrolChallenge, EnrolProof, LoginFinish, LoginProof,
-    ManagementBegin, ManagementChallenge, ManagementCommit, NewSecurityKey,
+    key_binding, transcript_bytes, ChallengeBody, CommitCeremony, EnrolChallenge, EnrolProof,
+    LoginFinish, LoginProof, ManagementBegin, ManagementChallenge, ManagementCommit, ManagementOp,
+    NewSecurityKey, SignInLayout,
 };
 use crate::auth::pq::proof::{factor_tag, TranscriptHash, TranscriptPurpose, ENROL_LABEL};
 use crate::auth::pq::recovery::RecoveryCode;
@@ -45,7 +44,7 @@ impl ClientManagement {
             })
             .collect::<Result<_, _>>()?;
         let begin = ManagementBegin {
-            op,
+            op: op.into(),
             step_up,
             recovery_eks,
         };
@@ -63,7 +62,10 @@ impl ClientManagement {
     pub fn step_up_key_request(
         challenge: &ManagementChallenge,
     ) -> Result<Option<SecurityKeyRequest>, AccountError> {
-        ClientLogin::security_key_request(&challenge.step_up)
+        ClientLogin::security_key_request(
+            &challenge.step_up,
+            RelyingParty::of_management(challenge),
+        )
     }
 
     /// `AddSecurityKey`: the credential to create, now that the challenge has given the relying
@@ -72,20 +74,26 @@ impl ClientManagement {
         &self,
         challenge: &ManagementChallenge,
     ) -> Result<Option<SecurityKeyRequest>, AccountError> {
-        let SignInManagementOp::AddSecurityKey { .. } = &self.begin.op else {
+        let ManagementOp::AddSecurityKey { .. } = &self.begin.op else {
             return Ok(None);
         };
         let ChallengeBody::Factors(factors) = &challenge.step_up.body else {
             return Ok(None);
         };
+        let rp_id = RelyingParty::of_management(challenge).for_register()?;
+        let exclude_credential_ids = challenge
+            .ceremony
+            .as_ref()
+            .map(|ceremony| ceremony.exclude_credentials.clone())
+            .unwrap_or_default();
         Ok(Some(SecurityKeyRequest {
-            rp_id: relying_party(factors)?,
+            rp_id: Some(rp_id),
             prf_eval_salt: factors.prf_eval_salt,
             ceremony: SecurityKeyCeremony::Register {
                 // A random handle: the credential is not discoverable, so nothing looks it up.
                 user_id: random_32().to_vec(),
                 user_name: self.begin.step_up.username.clone(),
-                exclude_credential_ids: challenge.exclude_credentials.clone(),
+                exclude_credential_ids,
             },
         }))
     }
@@ -97,24 +105,47 @@ impl ClientManagement {
         step_up_key: Option<SecurityKeyAnswer>,
         new_key: Option<SecurityKeyAnswer>,
     ) -> Result<(ManagementCommit, ClientCommitted), AccountError> {
+        let layout = challenge.layout();
+        if self
+            .begin
+            .op
+            .layout()
+            .is_some_and(|needed| needed != layout)
+        {
+            return Err(error!(
+                ErrorCode::PqSignInMalformed,
+                "a challenge in another layout than the change"
+            ));
+        }
         let new_key = match (&self.begin.op, new_key) {
-            (SignInManagementOp::AddSecurityKey { .. }, Some(answer)) => {
+            (ManagementOp::AddSecurityKey { .. }, Some(answer)) => {
                 let seed = security_key_seed(&answer.prf, &answer.credential_id);
                 Some((answer.credential_id, FactorKeypair::derive(&seed)?))
             }
-            (SignInManagementOp::AddSecurityKey { .. }, None) => {
+            (ManagementOp::AddSecurityKey { .. }, None) => {
                 return Err(error!(ErrorCode::PqSignInFactorMissing, "the new key"))
             }
             _ => None,
         };
-        let new_key_commit = new_key
-            .as_ref()
-            .map(|(credential_id, keypair)| NewSecurityKey {
-                credential_id: credential_id.clone(),
-                ek: keypair.encapsulation_key().clone(),
-            });
-        let transcript =
-            management_transcript(cid, &self.begin, challenge, new_key_commit.as_ref());
+        let ceremony = match layout {
+            SignInLayout::V0_12_2 => None,
+            SignInLayout::SecurityKeyCeremony => Some(CommitCeremony {
+                new_key: new_key
+                    .as_ref()
+                    .map(|(credential_id, keypair)| NewSecurityKey {
+                        credential_id: credential_id.clone(),
+                        ek: keypair.encapsulation_key().clone(),
+                    }),
+            }),
+        };
+        // A key is only added in the ceremony layout, which carries it in `ceremony`.
+        let new_key_ek = None;
+        let transcript = management_transcript(
+            cid,
+            &self.begin,
+            challenge,
+            &key_binding(&new_key_ek, ceremony.as_ref()),
+        );
         let challenged = match &challenge.step_up.body {
             ChallengeBody::Factors(factors) => !factors.challenges.is_empty(),
             ChallengeBody::Legacy { .. } => true,
@@ -137,7 +168,8 @@ impl ClientManagement {
         };
         let commit = ManagementCommit {
             step_up,
-            new_key: new_key_commit,
+            new_key_ek,
+            ceremony,
         };
         let committed = ClientCommitted {
             transcript,

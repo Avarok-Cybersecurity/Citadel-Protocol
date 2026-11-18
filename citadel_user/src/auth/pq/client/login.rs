@@ -1,3 +1,4 @@
+use super::key_request::{RelyingParty, SecurityKeyCeremony, SecurityKeyRequest};
 use super::ksf::{password_input, password_keypair};
 use super::register::ClientRegistration;
 use crate::auth::pq::kem::{FactorKeypair, SharedSecret};
@@ -15,39 +16,6 @@ use citadel_io::{error, ErrorCode};
 use citadel_types::auth::FactorKind;
 use citadel_types::crypto::SecBuffer;
 use zeroize::Zeroizing;
-
-/// What the embedding application must ask a security key for: a WebAuthn ceremony for relying
-/// party `rp_id`, with the PRF extension evaluated at `prf_eval_salt`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SecurityKeyRequest {
-    pub rp_id: String,
-    pub prf_eval_salt: [u8; 32],
-    pub ceremony: SecurityKeyCeremony,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SecurityKeyCeremony {
-    /// A WebAuthn `get` with these `allowCredentials`.
-    Authenticate { credential_ids: Vec<Vec<u8>> },
-    /// A WebAuthn `create` of a non-discoverable credential with the PRF extension enabled, for
-    /// the account `user_name`, on an authenticator holding none of `exclude_credential_ids`; then
-    /// the new credential's PRF output.
-    Register {
-        user_id: Vec<u8>,
-        user_name: String,
-        exclude_credential_ids: Vec<Vec<u8>>,
-    },
-}
-
-/// The relying party a challenge's security keys are scoped to. Without one, no key can be asked.
-pub(crate) fn relying_party(factors: &FactorChallenges) -> Result<String, AccountError> {
-    factors.rp_id.clone().ok_or_else(|| {
-        error!(
-            ErrorCode::PqSignInUnavailable,
-            "this server has not enabled security keys"
-        )
-    })
-}
 
 /// The application's answer: which credential the user touched, and its PRF output.
 #[derive(Debug)]
@@ -107,6 +75,7 @@ impl ClientLogin {
     /// Whether answering `challenge` needs a security key, and what to ask it for.
     pub fn security_key_request(
         challenge: &LoginChallenge,
+        relying_party: RelyingParty<'_>,
     ) -> Result<Option<SecurityKeyRequest>, AccountError> {
         let ChallengeBody::Factors(factors) = &challenge.body else {
             return Ok(None);
@@ -121,7 +90,7 @@ impl ClientLogin {
             return Ok(None);
         }
         Ok(Some(SecurityKeyRequest {
-            rp_id: relying_party(factors)?,
+            rp_id: relying_party.for_authenticate()?,
             prf_eval_salt: factors.prf_eval_salt,
             ceremony: SecurityKeyCeremony::Authenticate { credential_ids },
         }))

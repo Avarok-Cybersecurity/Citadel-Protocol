@@ -36,6 +36,14 @@ mod reason {
     pub(super) const ALREADY_ENROLLED: &str =
         "This security key is already enrolled on this account.";
     pub(super) const CANCELLED: &str = "Cancelled.";
+    const UNNAMED_RELYING_PARTY: &str =
+        "This server is too old to name the site its security keys belong to; update the server.";
+
+    /// The relying party a request is scoped to. Only a 0.12.2 server names none, and neither
+    /// backend guesses one for it.
+    pub(super) fn relying_party(request: &super::SecurityKeyRequest) -> Result<&str, &'static str> {
+        request.rp_id.as_deref().ok_or(UNNAMED_RELYING_PARTY)
+    }
 }
 #[cfg(all(feature = "security-key", not(target_family = "wasm")))]
 pub use native::{SecurityKey, SecurityKeyPrompt};
@@ -160,7 +168,7 @@ mod tests {
             challenges.recv().await.unwrap().decline(reason);
         }));
         let request = SecurityKeyRequest {
-            rp_id: "localhost".into(),
+            rp_id: Some("localhost".into()),
             prf_eval_salt: [0u8; 32],
             ceremony: SecurityKeyCeremony::Authenticate {
                 credential_ids: vec![b"credential".to_vec()],

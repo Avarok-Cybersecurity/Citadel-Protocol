@@ -2,7 +2,7 @@
 //! CTAP2 client Firefox uses. It runs WebAuthn's PRF extension itself, salt transform included, so
 //! a key gives the same output here as in a browser for the same credential.
 
-use super::reason::{ALREADY_ENROLLED, CANCELLED, NO_PRF};
+use super::reason::{relying_party, ALREADY_ENROLLED, CANCELLED, NO_PRF};
 use super::{
     security_key_channel, SecurityKeyChallenge, SecurityKeyPrf, SecurityKeyPurpose,
     KEY_PRESENCE_WINDOW,
@@ -149,13 +149,14 @@ impl Session {
         user_name: &str,
         exclude_credential_ids: &[Vec<u8>],
     ) -> Result<Vec<u8>, String> {
+        let rp = relying_party(request)?;
         let args = RegisterArgs {
             client_data_hash: UNSIGNED_CLIENT_DATA,
             relying_party: RelyingParty {
-                id: request.rp_id.clone(),
+                id: rp.to_owned(),
                 name: None,
             },
-            origin: origin(&request.rp_id),
+            origin: origin(rp),
             user: PublicKeyCredentialUserEntity {
                 id: user_id.to_vec(),
                 name: Some(user_name.to_string()),
@@ -205,6 +206,7 @@ impl Session {
         request: &SecurityKeyRequest,
         credential_ids: &[Vec<u8>],
     ) -> Outcome {
+        let rp = relying_party(request)?;
         let prf = AuthenticationExtensionsPRFInputs {
             eval: Some(AuthenticationExtensionsPRFValues {
                 first: request.prf_eval_salt.to_vec(),
@@ -214,8 +216,8 @@ impl Session {
         };
         let args = SignArgs {
             client_data_hash: UNSIGNED_CLIENT_DATA,
-            origin: origin(&request.rp_id),
-            relying_party_id: request.rp_id.clone(),
+            origin: origin(rp),
+            relying_party_id: rp.to_owned(),
             allow_list: descriptors(credential_ids),
             user_verification_req: UserVerificationRequirement::Required,
             user_presence_req: true,
@@ -391,7 +393,7 @@ mod tests {
     async fn a_challenge_the_sdk_stops_waiting_for_is_cancelled() {
         let (prf, mut challenges) = security_key_channel();
         let request = SecurityKeyRequest {
-            rp_id: "localhost".into(),
+            rp_id: Some("localhost".into()),
             prf_eval_salt: [0u8; 32],
             ceremony: SecurityKeyCeremony::Authenticate {
                 credential_ids: vec![b"credential".to_vec()],

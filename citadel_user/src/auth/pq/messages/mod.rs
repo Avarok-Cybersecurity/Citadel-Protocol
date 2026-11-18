@@ -10,14 +10,26 @@ mod manage;
 mod register;
 
 pub use login::{
-    ChallengeBody, FactorChallenge, FactorChallenges, FactorTag, LoginChallenge, LoginFinish,
-    LoginProof, LoginStart,
+    AuthChallenge, ChallengeBody, ChallengeCeremony, FactorChallenge, FactorChallenges, FactorTag,
+    LoginChallenge, LoginFinish, LoginProof, LoginStart,
 };
+pub(crate) use manage::key_binding;
 pub use manage::{
-    EnrolChallenge, EnrolProof, ManagementBegin, ManagementChallenge, ManagementCommit,
-    ManagementDone, ManagementMessage, NewSecurityKey, ServerOutcome,
+    CommitCeremony, EnrolChallenge, EnrolProof, ManagementBegin, ManagementCeremony,
+    ManagementChallenge, ManagementCommit, ManagementDone, ManagementMessage, ManagementOp,
+    NewSecurityKey, ServerOutcome,
 };
 pub use register::{RegFinish, RegReply, RegStart, RegStartReply};
+
+/// Which layout of the sign-in messages a peer reads. Every message is 0.12.2's; the security-key
+/// ceremony's fields ride appended after it ([`AuthChallenge`], [`ManagementChallenge`],
+/// [`ManagementCommit`]), sent only to a peer that reads them, so a 0.12.2 peer is sent, and
+/// hashes, exactly the bytes it always did.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SignInLayout {
+    V0_12_2,
+    SecurityKeyCeremony,
+}
 
 /// The serialization both sides hash into a transcript. bincode is deterministic, so the two
 /// sides hash the same bytes for the same message.

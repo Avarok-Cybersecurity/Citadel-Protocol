@@ -65,8 +65,10 @@ pub const MINOR_VERSION: u8 = 12;
 // `NEGOTIATION_SINCE`); a P2P connection's keys are derived from the pair it joins and the
 // connection's id (see `IDENTITY_BOUND_SEAL_SINCE`); the coordination endpoints pair
 // subscriptions by an exchanged id within a named topic, and time a synchronized start by a
-// relative delay (see `EXCHANGED_SUBSCRIPTIONS_SINCE`). Additive: each side uses them only with a
-// node at or above the gate, and with an older peer behaves as before.
+// relative delay (see `EXCHANGED_SUBSCRIPTIONS_SINCE`); a server names its security-key relying
+// party and a client creates the credential it enrols (see `SECURITY_KEY_CEREMONY_SINCE`).
+// Additive: each side uses them only with a node at or above the gate, and with an older peer
+// behaves as before.
 pub const PATCH_VERSION: u8 = 3;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
@@ -141,6 +143,15 @@ pub const IDENTITY_BOUND_SEAL_SINCE: (u8, u8, u8) = (0, 12, 3);
 /// `netbeam::sync::wire::WireRevision::Exchanged`. Both ends pick the revision from the other's
 /// version, so a pair with either below it, or of unknown version, speaks the count-paired wire.
 pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
+
+/// The first protocol version whose sign-in messages carry the security-key ceremony: a server
+/// names the WebAuthn relying party its keys are scoped to and the keys an enrolment must avoid,
+/// and a client enrolling a key creates its credential after the challenge, rather than naming
+/// one it created before. Each field rides appended after the 0.12.2 layout
+/// (`citadel_user::auth::pq::messages::SignInLayout`). A peer below it, or of unknown version, is
+/// sent exactly the 0.12.2 bytes and hashes the 0.12.2 transcript; a client cannot enrol a key at
+/// a server below it.
+pub const SECURITY_KEY_CEREMONY_SINCE: (u8, u8, u8) = (0, 12, 3);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.
@@ -255,6 +266,18 @@ mod tests {
         assert!(!protocol_version_at_least(
             version(0, 12, 2),
             IDENTITY_BOUND_SEAL_SINCE
+        ));
+    }
+
+    #[test]
+    fn this_node_runs_the_security_key_ceremony_and_the_previous_patch_does_not() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            SECURITY_KEY_CEREMONY_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 12, 2),
+            SECURITY_KEY_CEREMONY_SINCE
         ));
     }
 

@@ -38,6 +38,7 @@ parking_lot = { workspace = true, features = ["serde"] }
 log = { workspace = true }
 sha3 = { workspace = true }
 citadel_crypt = { workspace = true }
+citadel_negotiation = { workspace = true }
 serde_json = { workspace = true, features = ["alloc"] }
 bytes = { workspace = true }
 bstr = { workspace = true, features = ["alloc", "unicode"] }
