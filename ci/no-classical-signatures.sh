@@ -11,7 +11,7 @@ BANNED='^(p256|p384|p521|ecdsa|ed25519|ed25519-dalek|ed25519-compact|rsa|ring|we
 TARGET="${TARGET:-wasm32-unknown-unknown}"
 PACKAGE="${PACKAGE:-citadel_sdk}"
 
-graph="$(cargo tree --package "$PACKAGE" --target "$TARGET" --edges normal --prefix none --format '{p}')"
+graph="$(cargo tree --locked --package "$PACKAGE" --target "$TARGET" --edges normal --prefix none --format '{p}')"
 crates="$(printf '%s\n' "$graph" | awk '{print $1}' | sort -u)"
 if [ -z "$crates" ]; then
     echo "cargo tree printed no crates for $PACKAGE on $TARGET; refusing to pass an empty graph" >&2
@@ -22,7 +22,7 @@ if [ -n "$found" ]; then
     echo "Classical signature crates in the $PACKAGE $TARGET build graph:" >&2
     printf '  %s\n' $found >&2
     for crate in $found; do
-        cargo tree --package "$PACKAGE" --target "$TARGET" --edges normal --invert "$crate" >&2 || true
+        cargo tree --locked --package "$PACKAGE" --target "$TARGET" --edges normal --invert "$crate" >&2 || true
     done
     exit 1
 fi
