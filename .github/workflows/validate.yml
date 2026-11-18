@@ -321,12 +321,24 @@ jobs:
         uses: actions/cache@v4
         with:
           path: target/media_fixtures
-          key: media-fixtures-b3726eac-be112703
+          key: media-fixtures-${{ hashFiles('citadel_sdk/tests/common/fixtures.rs') }}
+      # The suite reads the media fixtures from disk only (CITADEL_OFFLINE); this step fetches
+      # them, so a network failure fails here and never inside a media test (run 44263624976).
+      - name: Fetch media test fixtures
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }} --test media_fixtures --run-ignored only
+      - name: Fetch media test fixtures (windows only)
+        if: startsWith(matrix.os, 'windows')
+        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }},vendored --test media_fixtures --run-ignored only
       - name: ${{ matrix.threading }} testing
         if: ${{ !startsWith(matrix.os, 'windows') }}
+        env:
+          CITADEL_OFFLINE: "1"
         run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }}
       - name: ${{ matrix.threading }} testing (windows only)
         if: startsWith(matrix.os, 'windows')
+        env:
+          CITADEL_OFFLINE: "1"
         run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }},vendored
 
   io_uring:
@@ -513,7 +525,17 @@ jobs:
           key: citadel-sdk-release-${{ matrix.threading }}
           cache-on-failure: true
         continue-on-error: true  # Don't fail if cache service is unavailable
+      - name: Cache media test fixtures
+        uses: actions/cache@v4
+        with:
+          path: target/media_fixtures
+          key: media-fixtures-${{ hashFiles('citadel_sdk/tests/common/fixtures.rs') }}
+      # As in the citadel_sdk job: fetched here, read from disk by the suite.
+      - name: Fetch media test fixtures
+        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }} --release --test media_fixtures --run-ignored only
       - name: ${{ matrix.threading }} testing
+        env:
+          CITADEL_OFFLINE: "1"
         run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }} --release
 
   misc_checks:

@@ -20,7 +20,7 @@ env:
   # 40 MiB stack
   RUST_MIN_STACK: 40971520
   RUST_LOG: "citadel=warn"
-  # The packages and features coverage measures.
+  # One build serves both steps, so both pass the same packages and features.
   COV_ARGS: "--features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip -p citadel_treekem -p citadel_types -p citadel_io"
 
 jobs:
@@ -48,10 +48,21 @@ jobs:
         with:
           cache-on-failure: true
         continue-on-error: true  # Don't fail if cache service is unavailable
+      - name: Cache media test fixtures
+        uses: actions/cache@v4
+        with:
+          path: target/media_fixtures
+          key: media-fixtures-${{ hashFiles('citadel_sdk/tests/common/fixtures.rs') }}
+      # The suite reads the fixtures from disk only (CITADEL_OFFLINE below); fetching them is
+      # this step's job, so a network failure fails here and never inside a media test.
+      # `--no-report` keeps the build for the next step, which runs with `--no-clean`.
+      - name: Fetch media test fixtures
+        run: cargo llvm-cov nextest --no-report $COV_ARGS --test media_fixtures --run-ignored only
       - name: Run llvm-cov nextest (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
         env:
           SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest $COV_ARGS --partition hash:${{ matrix.shard }}/${{ strategy.job-total }} --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/standard/upnp_handler.rs"
+          CITADEL_OFFLINE: "1"
+        run: cargo llvm-cov nextest --no-clean $COV_ARGS --partition hash:${{ matrix.shard }}/${{ strategy.job-total }} --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/standard/upnp_handler.rs"
       - uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

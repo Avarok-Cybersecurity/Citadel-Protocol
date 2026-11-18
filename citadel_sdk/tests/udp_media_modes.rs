@@ -1,6 +1,6 @@
 //! UDP media transport mode/robustness tests: C2S streaming over the server's raw-UDP path,
-//! oversized-datagram containment, explicit per-channel security levels, and the fixture
-//! download-and-cache mechanism itself.
+//! oversized-datagram containment and explicit per-channel security levels. The fixture
+//! download-and-cache mechanism is tested in `media_fixtures.rs`.
 #![cfg(not(target_family = "wasm"))]
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -8,9 +8,7 @@ mod common;
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
-    use crate::common::fixtures::{
-        ensure, ensure_bytes, Fixture, FixtureError, FIXTURE_DIR_ENV, OFFLINE_ENV,
-    };
+    use crate::common::fixtures::{ensure_bytes, Fixture};
     use crate::common::media::*;
     use bytes::BytesMut;
     use citadel_io::tokio;
@@ -253,87 +251,5 @@ mod tests {
         assert!(result.expect("timed out").is_ok());
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::SeqCst));
-    }
-
-    // ── Fixture mechanism (no network) ──────────────────────────────────
-
-    struct EnvGuard(&'static str);
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            std::env::remove_var(self.0);
-        }
-    }
-
-    #[test]
-    fn fixture_sha256_mismatch_is_an_error_not_a_redownload() {
-        let dir =
-            std::env::temp_dir().join(format!("citadel_fixture_mismatch_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join(Fixture::Wav.file_name()),
-            b"definitely not the wav",
-        )
-        .unwrap();
-        let _guard = EnvGuard(FIXTURE_DIR_ENV);
-        std::env::set_var(FIXTURE_DIR_ENV, &dir);
-        let err = ensure(Fixture::Wav).unwrap_err();
-        assert!(
-            matches!(
-                err,
-                FixtureError::Sha256Mismatch {
-                    fixture: Fixture::Wav,
-                    ..
-                }
-            ),
-            "{err}"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// Several nextest processes (or `cargo test` threads) may find the cache cold at once. Each
-    /// must come back with the verified fixture: none may fail because another one's download
-    /// replaced, removed or renamed the file it was writing.
-    #[test]
-    fn concurrent_cold_cache_fetches_all_return_the_verified_fixture() {
-        const FETCHERS: usize = 8;
-        let dir = std::env::temp_dir().join(format!("citadel_fixture_race_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let _guard = EnvGuard(FIXTURE_DIR_ENV);
-        std::env::set_var(FIXTURE_DIR_ENV, &dir);
-        let start = std::sync::Arc::new(std::sync::Barrier::new(FETCHERS));
-        let fetchers: Vec<_> = (0..FETCHERS)
-            .map(|_| {
-                let start = start.clone();
-                std::thread::spawn(move || {
-                    start.wait();
-                    ensure(Fixture::Vp8Ivf).map_err(|err| err.to_string())
-                })
-            })
-            .collect();
-        let failures: Vec<String> = fetchers
-            .into_iter()
-            .filter_map(|fetcher| match fetcher.join().unwrap() {
-                Ok(Some(_)) => None,
-                Ok(None) => Some("offline despite a cold cache".to_string()),
-                Err(err) => Some(err),
-            })
-            .collect();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(
-            failures.is_empty(),
-            "concurrent fetches failed: {failures:?}"
-        );
-    }
-
-    #[test]
-    fn fixture_offline_and_absent_returns_none() {
-        let dir =
-            std::env::temp_dir().join(format!("citadel_fixture_offline_{}", std::process::id()));
-        let _guard = EnvGuard(FIXTURE_DIR_ENV);
-        let _offline = EnvGuard(OFFLINE_ENV);
-        std::env::set_var(FIXTURE_DIR_ENV, &dir);
-        std::env::set_var(OFFLINE_ENV, "1");
-        assert!(ensure(Fixture::Vp8Ivf).unwrap().is_none());
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }
