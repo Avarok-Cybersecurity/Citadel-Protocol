@@ -89,6 +89,8 @@ pub(crate) mod direct_route;
 
 pub(crate) mod p2p_campaign;
 
+pub(crate) mod coordination;
+
 pub(crate) mod p2p_rearm;
 
 pub(crate) mod p2p_retry;

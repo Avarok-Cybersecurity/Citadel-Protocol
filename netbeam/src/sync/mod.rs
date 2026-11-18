@@ -40,7 +40,9 @@ pub mod subscription;
 
 pub mod network_application;
 pub mod network_endpoint;
+pub mod pairing;
 pub mod sync_start;
+pub mod wire;
 
 pub mod channel;
 
@@ -77,6 +79,7 @@ pub mod test_utils {
     use crate::reliable_conn::{ConnAddr, ReliableOrderedStreamToTarget};
     use crate::sync::network_application::NetworkApplication;
     use crate::sync::network_endpoint::NetworkEndpoint;
+    use crate::sync::wire::WireRevision;
     use crate::sync::RelativeNodeType;
     use std::net::SocketAddr;
 
@@ -143,7 +146,12 @@ pub mod test_utils {
         TcpStream::from_std(std_stream).unwrap()
     }
 
+    /// A connected pair on the current wire.
     pub async fn create_streams() -> (NetworkApplication, NetworkApplication) {
+        create_streams_on(WireRevision::Exchanged).await
+    }
+
+    pub async fn create_streams_on(wire: WireRevision) -> (NetworkApplication, NetworkApplication) {
         let (tx, rx) = citadel_io::tokio::sync::oneshot::channel();
         let server = async move {
             let listener = create_listener("127.0.0.1:0");
@@ -151,6 +159,7 @@ pub mod test_utils {
             NetworkApplication::register(
                 RelativeNodeType::Receiver,
                 NetworkConnSimulator::new(0, codec(listener.accept().await.unwrap().0)),
+                wire,
             )
             .await
             .unwrap()
@@ -161,6 +170,7 @@ pub mod test_utils {
             NetworkApplication::register(
                 RelativeNodeType::Initiator,
                 NetworkConnSimulator::new(0, codec(create_connect(addr))),
+                wire,
             )
             .await
             .unwrap()
@@ -179,6 +189,7 @@ pub mod test_utils {
             NetworkEndpoint::register(
                 RelativeNodeType::Receiver,
                 NetworkConnSimulator::new(min, codec(listener.accept().await.unwrap().0)),
+                WireRevision::Exchanged,
             )
             .await
             .unwrap()
@@ -189,6 +200,7 @@ pub mod test_utils {
             NetworkEndpoint::register(
                 RelativeNodeType::Initiator,
                 NetworkConnSimulator::new(min, codec(create_connect(addr))),
+                WireRevision::Exchanged,
             )
             .await
             .unwrap()

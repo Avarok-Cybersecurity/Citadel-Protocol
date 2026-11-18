@@ -40,6 +40,7 @@
 use crate::reliable_conn::{ConnAddr, ReliableOrderedConnectionToTarget};
 use crate::sync::network_application::NetworkApplication;
 use crate::sync::subscription::Subscribable;
+use crate::sync::wire::WireRevision;
 use crate::sync::RelativeNodeType;
 use std::net::SocketAddr;
 use std::ops::Deref;
@@ -70,12 +71,14 @@ impl Deref for NetworkEndpoint {
 }
 
 impl NetworkEndpoint {
+    /// Both ends must pass the same `wire` (see [`NetworkApplication::register`]).
     pub async fn register<T: ReliableOrderedConnectionToTarget + 'static>(
         relative_node_type: RelativeNodeType,
         conn: T,
+        wire: WireRevision,
     ) -> Result<Self, anyhow::Error> {
         let (local_addr, peer_addr) = (conn.local_addr()?, conn.peer_addr()?);
-        let endpoint = NetworkApplication::register(relative_node_type, conn).await?;
+        let endpoint = NetworkApplication::register(relative_node_type, conn, wire).await?;
         Ok(Self {
             endpoint,
             local_addr,
@@ -85,6 +88,15 @@ impl NetworkEndpoint {
 
     pub fn is_initiator(&self) -> bool {
         self.node_type() == RelativeNodeType::Initiator
+    }
+
+    /// This endpoint with its subscriptions opened on `topic` (see [`NetworkApplication::on`]).
+    pub fn on(&self, topic: crate::sync::wire::Topic) -> Self {
+        Self {
+            endpoint: self.endpoint.on(topic),
+            local_addr: self.local_addr,
+            peer_addr: self.peer_addr,
+        }
     }
 }
 

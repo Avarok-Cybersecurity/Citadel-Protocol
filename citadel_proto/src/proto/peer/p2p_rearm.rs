@@ -15,6 +15,7 @@
 //! [`PATH_REARM_SINCE`]: crate::constants::PATH_REARM_SINCE
 
 use crate::constants::{protocol_version_at_least, PATH_REARM_SINCE};
+use crate::proto::peer::coordination::{PARKED, RETRY_RENDEZVOUS};
 use crate::proto::peer::p2p_campaign::RECOVERY_ATTEMPTS;
 use crate::proto::peer::p2p_path::P2pPathCell;
 use citadel_io::tokio::sync::Notify;
@@ -70,7 +71,7 @@ pub(crate) fn peer_parks(peer_protocol_version: Option<u32>) -> bool {
 /// Waits, parked, until either peer asks for an upgrade. `false` when the coordination endpoint
 /// failed, which ends the campaign.
 pub(crate) async fn park(app: &NetworkEndpoint, slot: &RearmSlot) -> bool {
-    match app.net_select(slot.requested()).await {
+    match app.on(PARKED).net_select(slot.requested()).await {
         Ok(_) => true,
         Err(err) => {
             log::warn!(target: "citadel", "P2P campaign could not stay parked: {err}");
@@ -126,6 +127,7 @@ pub(crate) async fn rendezvous(
     original: UdpMode,
     budget: u32,
 ) -> Result<Retry, anyhow::Error> {
+    let app = app.on(RETRY_RENDEZVOUS);
     if !rearmable {
         app.sync().await?;
         return Ok(Retry {

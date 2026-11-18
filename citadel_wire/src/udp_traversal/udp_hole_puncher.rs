@@ -38,6 +38,7 @@ use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigCon
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
 pub use crate::udp_traversal::paired_attempts::PAIRED_ATTEMPTS_HELLO;
 use crate::udp_traversal::paired_attempts::{self, AttemptCoordinator, AttemptLane};
+pub use crate::udp_traversal::punch_budget::PunchBudget;
 use citadel_io::tokio::net::UdpSocket;
 use futures::Future;
 use netbeam::reliable_conn::{
@@ -45,6 +46,7 @@ use netbeam::reliable_conn::{
 };
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::subscription::Subscribable;
+use netbeam::sync::wire::{Topic, WireRevision};
 use netbeam::sync::RelativeNodeType;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
@@ -67,32 +69,25 @@ pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
-const DEFAULT_TIMEOUT: Duration =
+/// An attempt long enough for NAT identification and a punch over a slow coordination path, for
+/// a punch with no deadline of its own to fit (C2S).
+pub const STANDALONE_ATTEMPT_TIMEOUT: Duration =
     Duration::from_millis((IDENTIFY_TIMEOUT.as_millis() + 17000) as u64);
+
+/// The topic of the control stream a punch opens on its endpoint, so that a punch one side never
+/// starts cannot take the subscription of whatever the other side does next on that endpoint.
+pub const HOLE_PUNCH_CONTROL: Topic = Topic::new(0x4850_0001);
 
 impl<'a> UdpHolePuncher<'a> {
     pub fn new(
         conn: &'a NetworkEndpoint,
         encrypted_config_container: HolePunchConfigContainer,
         stun_servers: StunServers,
-    ) -> Self {
-        Self::new_timeout(
-            conn,
-            encrypted_config_container,
-            stun_servers,
-            DEFAULT_TIMEOUT,
-        )
-    }
-
-    pub fn new_timeout(
-        conn: &'a NetworkEndpoint,
-        encrypted_config_container: HolePunchConfigContainer,
-        stun_servers: StunServers,
-        timeout: Duration,
+        budget: PunchBudget,
     ) -> Self {
         Self {
             driver: Box::pin(async move {
-                driver(conn, encrypted_config_container, &stun_servers, timeout).await
+                driver(conn, encrypted_config_container, &stun_servers, budget).await
             }),
         }
     }
@@ -106,7 +101,7 @@ impl Future for UdpHolePuncher<'_> {
     }
 }
 
-const MAX_RETRIES: usize = 3;
+pub const MAX_RETRIES: usize = 3;
 
 #[cfg_attr(
     feature = "localhost-testing",
@@ -116,14 +111,14 @@ async fn driver(
     conn: &NetworkEndpoint,
     encrypted_config_container: HolePunchConfigContainer,
     stun_servers: &StunServers,
-    timeout: Duration,
+    budget: PunchBudget,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    let control = citadel_io::time::timeout(
-        timeout.saturating_mul(MAX_RETRIES as u32),
-        conn.initiate_subscription(),
-    )
-    .await
-    .map_err(|_| anyhow::Error::msg("Peer never opened the hole-punch control stream"))??;
+    let deadline = citadel_io::time::Instant::now() + budget.total();
+    let timeout = budget.attempt();
+    let control = conn.on(HOLE_PUNCH_CONTROL);
+    let control = citadel_io::time::timeout(remaining(deadline), control.initiate_subscription())
+        .await
+        .map_err(|_| anyhow::Error::msg("Peer never opened the hole-punch control stream"))??;
     paired_attempts::greet(&control).await?;
     let attempts = AttemptCoordinator::new(control, conn.local_addr()?, conn.peer_addr()?);
 
@@ -137,6 +132,7 @@ async fn driver(
                 lane,
                 attempt,
                 conn.node_type(),
+                conn.wire_revision(),
                 encrypted_config_container.clone(),
                 stun_servers,
             );
@@ -167,10 +163,24 @@ async fn driver(
         }
     };
 
-    citadel_io::tokio::select! {
-        res = run => res,
-        err = attempts.route_inbound() => Err(anyhow::Error::msg(format!("Hole-punch control stream failed: {err}"))),
-    }
+    let bounded = async {
+        citadel_io::tokio::select! {
+            res = run => res,
+            err = attempts.route_inbound() => Err(anyhow::Error::msg(format!("Hole-punch control stream failed: {err}"))),
+        }
+    };
+    citadel_io::time::timeout(remaining(deadline), bounded)
+        .await
+        .map_err(|_| {
+            anyhow::Error::msg(format!(
+                "Hole punch exceeded its budget of {:?}",
+                budget.total()
+            ))
+        })?
+}
+
+fn remaining(deadline: citadel_io::time::Instant) -> Duration {
+    deadline.saturating_duration_since(citadel_io::time::Instant::now())
 }
 
 enum AttemptOutcome {
@@ -181,11 +191,13 @@ enum AttemptOutcome {
 
 /// Runs `attempt` once the peer is on it too, and ends it as soon as the peer
 /// abandons it.
+#[allow(clippy::too_many_arguments)]
 async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
     attempts: &AttemptCoordinator<S>,
     lane: AttemptLane<S>,
     attempt: usize,
     node_type: RelativeNodeType,
+    wire: WireRevision,
     encrypted_config_container: HolePunchConfigContainer,
     stun_servers: &StunServers,
 ) -> AttemptOutcome {
@@ -195,7 +207,7 @@ async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
     }
 
     let punch = async {
-        let endpoint = NetworkEndpoint::register(node_type, lane).await?;
+        let endpoint = NetworkEndpoint::register(node_type, lane, wire).await?;
         driver_inner(&endpoint, encrypted_config_container, stun_servers).await
     };
 
@@ -485,11 +497,12 @@ pub fn get_optimal_bind_socket(
 
 pub trait EndpointHolePunchExt {
     /// Punches a hole to the peer on the other end of this endpoint, learning the local NAT
-    /// and each socket's reflexive address from `stun_servers`.
+    /// and each socket's reflexive address from `stun_servers`, within `budget`.
     fn begin_udp_hole_punch(
         &self,
         encrypted_config_container: HolePunchConfigContainer,
         stun_servers: StunServers,
+        budget: PunchBudget,
     ) -> UdpHolePuncher<'_>;
 }
 
@@ -498,8 +511,9 @@ impl EndpointHolePunchExt for NetworkEndpoint {
         &self,
         encrypted_config_container: HolePunchConfigContainer,
         stun_servers: StunServers,
+        budget: PunchBudget,
     ) -> UdpHolePuncher<'_> {
-        UdpHolePuncher::new(self, encrypted_config_container, stun_servers)
+        UdpHolePuncher::new(self, encrypted_config_container, stun_servers, budget)
     }
 }
 
@@ -525,6 +539,7 @@ mod tests {
                 .begin_udp_hole_punch(
                     Default::default(),
                     crate::stun_servers::unanswered_loopback(),
+                    super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
                 .await;
             log::trace!(target: "citadel", "Server res: {res:?}");
@@ -536,6 +551,7 @@ mod tests {
                 .begin_udp_hole_punch(
                     Default::default(),
                     crate::stun_servers::unanswered_loopback(),
+                    super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
                 .await;
             log::trace!(target: "citadel", "Client res: {res:?}");
@@ -608,6 +624,7 @@ mod tests {
                 .begin_udp_hole_punch(
                     Default::default(),
                     crate::stun_servers::unanswered_loopback(),
+                    super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
                 .await
                 .map_err(|e| e.to_string())
@@ -617,17 +634,19 @@ mod tests {
                 .begin_udp_hole_punch(
                     Default::default(),
                     crate::stun_servers::unanswered_loopback(),
+                    super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
                 .await
                 .map_err(|e| e.to_string())
         };
         // One attempt's budget: a punch that needed the retry path has already
         // failed in the way this test is about.
-        let (res0, res1) = citadel_io::tokio::time::timeout(super::DEFAULT_TIMEOUT, async move {
-            citadel_io::tokio::join!(server, client)
-        })
-        .await
-        .expect("a hole punch attempt hung until its timeout");
+        let (res0, res1) =
+            citadel_io::tokio::time::timeout(super::STANDALONE_ATTEMPT_TIMEOUT, async move {
+                citadel_io::tokio::join!(server, client)
+            })
+            .await
+            .expect("a hole punch attempt hung until its timeout");
         staller.abort();
         let (s0, s1) = (
             res0.expect("server punch err"),
@@ -646,18 +665,18 @@ mod tests {
     /// Regression test for the hole-punch consensus under high coordination-channel lag — and, since
     /// the retry-desync fix, for the RETRY-RECOVERY path itself. `NetworkConnSimulator` adds a random
     /// 1x..2x delay per message, so 450 ms here means up to 900 ms/msg. That puts a single consensus
-    /// attempt right at the production per-attempt timeout (`DEFAULT_TIMEOUT = IDENTIFY_TIMEOUT + 17s
+    /// attempt right at the production per-attempt timeout (`STANDALONE_ATTEMPT_TIMEOUT = IDENTIFY_TIMEOUT + 17s
     /// = 20s`), so the unlucky-tail runs exceed it and trigger a RETRY.
     ///
     /// Previously a retry was fatal: re-running the driver re-created the multiplex subscriptions,
     /// and because each attempt consumes a *variable* number of ids, a cancelled attempt left the two
     /// peers' subscription counters skewed — every later subscription then paired on mismatched ids,
-    /// the consensus never agreed, the punched paths mismatched, and the exchange deadlocked. The fix
-    /// (netbeam: hole-punch conns disable the local pre-reserve fast-path + `subscribe` catches up to
-    /// the peer-driven id instead of panicking on a gap) lets a retry RECOVER: the Initiator simply
-    /// re-pairs on the Receiver's next id. So at 450 ms this now passes by *succeeding on retry* —
-    /// which is exactly what we want to guard. The budget below is sized to absorb a 20s attempt
-    /// timeout + the recovering retry.
+    /// the consensus never agreed, the punched paths mismatched, and the exchange deadlocked. Each
+    /// attempt now runs on a fresh endpoint over its own numbered lane (`paired_attempts`), and the
+    /// endpoints pair every subscription by an id the receiver proposes and the initiator answers
+    /// (`netbeam::sync::wire::WireRevision::Exchanged`), so a retry RECOVERS. At 450 ms this passes
+    /// by *succeeding on retry*, which is what it guards. The budget below is sized to absorb a 20s
+    /// attempt timeout + the recovering retry.
     #[cfg(not(target_os = "windows"))]
     // Skipped under coverage: llvm-cov instrumentation slows the consensus past the
     // (production) per-attempt timeout, deadlocking this lag-calibrated test in the
@@ -670,12 +689,12 @@ mod tests {
         const LAG_MS: usize = 450;
         const ITERS: usize = 5;
         // Derive the per-iter budget from the production retry envelope (SSOT) rather than a magic
-        // literal that silently drifts if DEFAULT_TIMEOUT/MAX_RETRIES change: a full run is at most
+        // literal that silently drifts if STANDALONE_ATTEMPT_TIMEOUT/MAX_RETRIES change: a full run is at most
         // MAX_RETRIES attempt-timeouts, plus slack for the post-consensus datagram round-trip. This
         // is exactly the production worst case — NOT inflated — so a genuine consensus deadlock still
         // trips it. (The actual flake fix is running this job in --release; see validate.yml.)
         const DATAGRAM_EXCHANGE_SLACK: Duration = Duration::from_secs(15);
-        let per_iter_timeout = super::DEFAULT_TIMEOUT
+        let per_iter_timeout = super::STANDALONE_ATTEMPT_TIMEOUT
             .saturating_mul(super::MAX_RETRIES as u32)
             .saturating_add(DATAGRAM_EXCHANGE_SLACK);
 
@@ -688,6 +707,7 @@ mod tests {
                         .begin_udp_hole_punch(
                             Default::default(),
                             crate::stun_servers::unanswered_loopback(),
+                            super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                         )
                         .await
                         .map_err(|e| e.to_string())
@@ -697,6 +717,7 @@ mod tests {
                         .begin_udp_hole_punch(
                             Default::default(),
                             crate::stun_servers::unanswered_loopback(),
+                            super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                         )
                         .await
                         .map_err(|e| e.to_string())

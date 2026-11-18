@@ -13,6 +13,7 @@ use citadel_io::tokio;
 use citadel_io::tokio::sync::{mpsc, Mutex};
 use netbeam::reliable_conn::ReliableOrderedStreamToTarget;
 use netbeam::sync::network_application::NetworkApplication;
+use netbeam::sync::wire::WireRevision;
 use netbeam::sync::RelativeNodeType;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
@@ -88,6 +89,8 @@ async fn an_unforwardable_packet_is_logged_without_its_backtrace() {
         ScriptedPeer {
             inbound: Mutex::new(rx),
         },
+        // Either wire: an undecodable packet fails before any revision-specific handling.
+        WireRevision::Exchanged,
     )
     .await
     .unwrap();

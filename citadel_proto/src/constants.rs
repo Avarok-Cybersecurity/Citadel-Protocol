@@ -63,7 +63,9 @@ pub const MINOR_VERSION: u8 = 12;
 // Bumped 2 -> 3 (one release, several additive changes, each with its own gate at 0.12.3):
 // P2P connections carry a negotiation lane, and a deliberate disconnect carries its reason (see
 // `NEGOTIATION_SINCE`); a P2P connection's keys are derived from the pair it joins and the
-// connection's id (see `IDENTITY_BOUND_SEAL_SINCE`). Additive: each side uses them only with a
+// connection's id (see `IDENTITY_BOUND_SEAL_SINCE`); the coordination endpoints pair
+// subscriptions by an exchanged id within a named topic, and time a synchronized start by a
+// relative delay (see `EXCHANGED_SUBSCRIPTIONS_SINCE`). Additive: each side uses them only with a
 // node at or above the gate, and with an older peer behaves as before.
 pub const PATCH_VERSION: u8 = 3;
 
@@ -134,6 +136,11 @@ pub const NEGOTIATION_SINCE: (u8, u8, u8) = (0, 12, 3);
 /// names a version at or above it, and a pair with an older or unknown peer derives its keys as
 /// before.
 pub const IDENTITY_BOUND_SEAL_SINCE: (u8, u8, u8) = (0, 12, 3);
+
+/// The first protocol version whose hole-punch and P2P coordination endpoints speak
+/// `netbeam::sync::wire::WireRevision::Exchanged`. Both ends pick the revision from the other's
+/// version, so a pair with either below it, or of unknown version, speaks the count-paired wire.
+pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

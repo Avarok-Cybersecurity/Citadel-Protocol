@@ -11,7 +11,9 @@
 use citadel_io::tokio;
 use citadel_wire::nat_identification::NatType;
 use citadel_wire::stun_servers::StunServers;
-use citadel_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
+use citadel_wire::udp_traversal::udp_hole_puncher::{
+    PunchBudget, UdpHolePuncher, HOLE_PUNCH_CONTROL,
+};
 use netbeam::reliable_conn::ReliableOrderedStreamToTargetExt;
 use netbeam::sync::subscription::Subscribable;
 use netbeam::sync::test_utils::create_streams_with_addrs;
@@ -26,7 +28,11 @@ async fn a_peer_on_the_unpaired_protocol_is_refused_without_waiting_on_a_timer()
     let (local, remote) = create_streams_with_addrs().await;
 
     let unpaired_peer = async {
-        let stream = remote.initiate_subscription().await.unwrap();
+        let stream = remote
+            .on(HOLE_PUNCH_CONTROL)
+            .initiate_subscription()
+            .await
+            .unwrap();
         stream.send_serialized(NatType::default()).await.unwrap();
         // The unpaired driver now waits for the peer's NAT type, and holds
         // its subscription while it does.
@@ -36,7 +42,12 @@ async fn a_peer_on_the_unpaired_protocol_is_refused_without_waiting_on_a_timer()
 
     // Loopback endpoints nothing answers on: under localhost-testing none is contacted.
     let stun = StunServers::new(["127.0.0.1:3478", "127.0.0.1:3479", "127.0.0.1:3480"]).unwrap();
-    let punch = UdpHolePuncher::new_timeout(&local, Default::default(), stun, ATTEMPT_TIMEOUT);
+    let punch = UdpHolePuncher::new(
+        &local,
+        Default::default(),
+        stun,
+        PunchBudget::per_attempt(ATTEMPT_TIMEOUT),
+    );
     let result = tokio::select! {
         result = tokio::time::timeout(HANG_GUARD, punch) => {
             result.expect("the punch kept waiting on a peer that cannot pair its attempts")
