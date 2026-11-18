@@ -55,6 +55,7 @@ use citadel_types::proto::{stronger_offer, UdpMode};
 use citadel_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
+use super::server::relay_consent::unconsented_relay;
 use crate::error::NetworkError;
 use crate::proto::node_result::{PeerChannelCreated, PeerEvent};
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
@@ -2265,6 +2266,16 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                 }))?;
 
             let peer_cid = peer_connection_type.get_original_target_cid();
+            // Only along the pair's accepted route, as for a key exchange: every refusal a peer
+            // sends answers a dial or an accept, and the accept forged the route.
+            if !admits_key_exchange(
+                &inner_state!(session.state_container).active_virtual_connections,
+                peer_cid,
+            ) {
+                log::warn!(target: "citadel", "Not relaying an error from {authenticated_cid} to {peer_cid}: the pair has no accepted connection");
+                let refusal = unconsented_relay(authenticated_cid, peer_cid, ticket);
+                return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+            }
             // If this was a simultaneous connect, we need to remap the ticket
             let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
             let ticket = peer_layer
@@ -2344,6 +2355,16 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                 payload,
             };
             let sess_mgr = inner!(session.session_manager);
+            // Only along the pair's accepted route, as for a key exchange (and under the same lock).
+            if !admits_key_exchange(
+                &inner_state!(session.state_container).active_virtual_connections,
+                peer_cid,
+            ) {
+                drop(sess_mgr);
+                log::warn!(target: "citadel", "Not relaying WebRTC signalling from {authenticated_cid} to {peer_cid}: the pair has no accepted connection");
+                let refusal = unconsented_relay(authenticated_cid, peer_cid, ticket);
+                return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+            }
             let res = sess_mgr.send_signal_to_peer_direct(peer_cid, move |peer_ratchet| {
                 packet_crafter::peer_cmd::craft_peer_signal(
                     peer_ratchet,
