@@ -1926,6 +1926,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         if session_cid == target_cid {
             return Err("Target CID cannot be equal to the implicated CID".to_string());
         }
+        peer_layer
+            .admit_posting(session_cid)
+            .map_err(|err| err.into_string())?;
 
         let (account_manager, peer_sess) = {
             let this = inner!(self);
@@ -1957,22 +1960,20 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
                 }).map_err(|err| err.into_string())?
             } else {
-                // session is not active, but user is registered (thus offline). Setup return ticket tracker on session_cid
-                // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: external svc route, if available
-                {
-                    peer_layer
-                        .insert_tracked_posting(
-                            session_cid,
-                            timeout,
-                            ticket,
-                            signal.clone(),
-                            on_timeout,
-                        )
-                        .await;
-                }
-                CitadelNodePeerLayer::try_add_mailbox(&pers, target_cid, signal)
-                    .await
-                    .map_err(|err| err.into_string())
+                // The target is registered but offline. The signal is held for its next connect
+                // only if `mailbox` allows it; the return ticket is tracked only once it is held.
+                crate::proto::peer::mailbox::mail_from(
+                    &pers,
+                    target_cid,
+                    session_cid,
+                    signal.clone(),
+                )
+                .await
+                .map_err(|err| err.into_string())?;
+                peer_layer
+                    .insert_tracked_posting(session_cid, timeout, ticket, signal, on_timeout)
+                    .await;
+                Ok(())
             }
         } else {
             Err(format!("CID {target_cid} is not registered locally"))

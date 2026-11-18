@@ -164,7 +164,7 @@ rand = { workspace = true }
 rstest = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-# The queue worker's tests drive its timers on paused time.
+# Paused time: the queue worker's timers and the minute-scale expiry deadlines run in milliseconds.
 tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
 
 [lib]

@@ -1687,7 +1687,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     let mut register_event = false;
 
                     let dereg_result = if peer_layer_lock
-                        .check_simultaneous_deregister(session_cid, target_cid)
+                        .take_simultaneous_deregister(session_cid, target_cid)
                         .is_some()
                     {
                         // if the other peer is simultaneously deregistering, mark as Ok(())
@@ -1706,13 +1706,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             if register_event {
                                 log::trace!(target: "citadel", "Registering dereg event");
                                 peer_layer_lock
-                                    .insert_tracked_posting(
-                                        session_cid,
-                                        Duration::from_secs(60 * 60),
-                                        ticket,
-                                        PeerSignal::DeregistrationSuccess { peer_conn_type },
-                                        |_| {},
-                                    )
+                                    .post_deregistration(session_cid, ticket, peer_conn_type)
                                     .await;
                             }
                             drop(peer_layer_lock);

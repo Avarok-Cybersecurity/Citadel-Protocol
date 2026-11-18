@@ -1235,4 +1235,20 @@ pub enum ErrorCode {
     /// neither asked to connect to the peer nor accepted the peer's request (peer cid).
     #[form = "No connection request with peer {}; its connection was not created"]
     StateVconnNoSessionPassword = 410,
+
+    // --- citadel_proto: bounded peer inputs ---
+    /// A peer announced a group while it already had the most groups it may hold open here
+    /// (peer cid, limit).
+    #[form = "Peer {} already has {} groups open; this group was not accepted"]
+    InboundGroupLimitReached = 430,
+    /// A connect request named a peer that is offline; connect requests are not held (peer cid).
+    #[form = "Peer {} is offline; a connect request is not held for an offline peer"]
+    PeerConnectTargetOffline = 431,
+    /// A sender already holds the most signals it may in an offline peer's mailbox
+    /// (sender cid, limit, peer cid).
+    #[form = "{} already holds {} signals for offline peer {}; this one was not held"]
+    MailboxSenderAtCap = 432,
+    /// A session already has the most routed requests awaiting an answer it may have (cid, limit).
+    #[form = "Session {} already has {} requests awaiting an answer; this one was not routed"]
+    PendingRequestsAtCap = 433,
 }

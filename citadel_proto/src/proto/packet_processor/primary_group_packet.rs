@@ -38,11 +38,9 @@ use crate::prelude::InternalServerError;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::OutboundRequestRejected;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
-use crate::proto::session_queue_handler::QueueWorkerResult;
-use crate::proto::state_container::{FileKey, GroupKey, StateContainerInner};
+use crate::proto::state_container::{GroupKey, StateContainerInner};
 use crate::proto::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
 use citadel_crypt::ratchets::Ratchet;
-use citadel_types::prelude::ObjectId;
 use citadel_types::proto::UdpMode;
 use std::ops::Deref;
 
@@ -269,56 +267,15 @@ pub fn process_primary_packet<R: Ratchet, T: PlatformOps>(
                                         let group_id = header.group.get();
                                         let peer_cid = header.session_cid.get();
 
-                                        session.queue_handle.insert_ordinary(peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
-                                            let key = GroupKey::new(peer_cid, group_id, object_id);
-                                            // Decide under a scoped `Ref`, then DROP it before any
-                                            // inbound_groups.remove (DashMap self-deadlock otherwise).
-                                            let (present, should_remove) =
-                                                match state_container.inbound_groups.get(&key) {
-                                                    None => (false, false),
-                                                    Some(group) => {
-                                                        let remove = group.has_begun
-                                                            && group
-                                                                .receiver
-                                                                .has_expired(GROUP_EXPIRE_TIME_MS)
-                                                            && state_container
-                                                                .meta_expiry_state
-                                                                .expired();
-                                                        (true, remove)
-                                                    }
-                                                };
-                                            if !present {
-                                                // has been removed, thus is complete
-                                                QueueWorkerResult::Complete
-                                            } else if should_remove {
-                                                log::warn!(target: "citadel", "Inbound group {group_id} has expired; removing for {peer_cid}.");
-                                                if let Some((_, group)) =
-                                                    state_container.inbound_groups.remove(&key)
-                                                {
-                                                    if group.object_id != ObjectId::zero() {
-                                                        // belongs to a file. Delete file; stop transmission
-                                                        let key = FileKey::new(group.object_id);
-                                                        if state_container
-                                                            .inbound_files
-                                                            .remove(&key)
-                                                            .is_some()
-                                                        {
-                                                            // dropping this drops the future streaming to HD
-                                                            log::warn!(target: "citadel", "File transfer expired");
-                                                            // TODO: Create file FIN
-                                                        }
-                                                        let _ = state_container
-                                                            .file_transfer_handles
-                                                            .remove(&key);
-                                                    }
-                                                }
-                                                QueueWorkerResult::Complete
-                                            } else {
-                                                // still receiving, or expired but other groups are
-                                                // processing — keep polling
-                                                QueueWorkerResult::Incomplete
-                                            }
-                                        });
+                                        session.queue_handle.insert_ordinary(
+                                            peer_cid,
+                                            GROUP_EXPIRE_TIME_MS,
+                                            move |state_container| {
+                                                state_container.reclaim_inbound_group_if_silent(
+                                                    GroupKey::new(peer_cid, group_id, object_id),
+                                                )
+                                            },
+                                        );
                                     }
 
                                     let group_header_ack =

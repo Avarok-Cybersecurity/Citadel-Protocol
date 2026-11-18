@@ -48,6 +48,8 @@ pub mod node;
 pub mod node_request;
 pub mod node_result;
 /// A cloneable handle for sending data through UDP ports
+pub(crate) mod outbound_budget;
+pub(crate) mod outbound_primary;
 pub(crate) mod outbound_sender;
 pub(crate) mod outbound_udp_sender;
 /// The fundamental packet types
