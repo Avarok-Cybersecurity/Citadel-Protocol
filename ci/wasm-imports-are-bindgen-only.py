@@ -5,6 +5,7 @@ A raw cargo artifact links its host functions through `__wbindgen_*` modules onl
 module (`wasi_snapshot_preview1`, `wasi:*`, `env`, ...) means a dependency expects a host the browser
 does not provide. Usage: wasm-imports-are-bindgen-only.py FILE.wasm...
 """
+import os
 import sys
 from collections import Counter
 
@@ -64,9 +65,18 @@ def import_modules(buf):
     return modules
 
 
-def main(paths):
+def require_files(paths):
     if not paths:
         raise SystemExit("no wasm files given; refusing to pass an empty set")
+    for path in paths:
+        if any(c in path for c in "*?["):
+            raise SystemExit(f"{path}: looks like a glob the shell did not expand; it matched no file")
+        if not os.path.isfile(path):
+            raise SystemExit(f"{path}: no such file")
+
+
+def main(paths):
+    require_files(paths)
     failed = False
     for path in paths:
         with open(path, "rb") as f:
