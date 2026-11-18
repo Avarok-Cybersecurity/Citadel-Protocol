@@ -20,6 +20,8 @@ pub mod mono;
 pub mod ratchet_manager;
 pub mod stacked;
 
+mod scramble_mappings;
+
 /// For allowing registration inside the toolset
 pub trait Ratchet:
     Debug + Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static

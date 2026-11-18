@@ -271,6 +271,14 @@ pub mod constructor {
             log::trace!(target: "citadel", "[BOB] Client {cid} creating container with {:?} security level", transfer.security_level);
             let count = transfer.security_level.value() as usize + 1;
             let params = transfer.params;
+            for nonce in [&transfer.msg_nonce, &transfer.scramble_nonce] {
+                if let Err(err) =
+                    EntropyBank::check_public_nonce(params.encryption_algorithm, nonce)
+                {
+                    log::warn!(target: "citadel", "[BOB] refusing the transfer: {err}");
+                    return None;
+                }
+            }
             let keys: Vec<MessageRatchetConstructorInner> = transfer
                 .params_txs
                 .into_iter()

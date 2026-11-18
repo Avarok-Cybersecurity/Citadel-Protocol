@@ -1236,6 +1236,38 @@ pub enum ErrorCode {
     #[form = "No connection request with peer {}; its connection was not created"]
     StateVconnNoSessionPassword = 410,
 
+    // --- citadel_pqcrypto / citadel_crypt / citadel_treekem: values received from a peer ---
+    /// A key-exchange transfer does not match the parameters it is used with (what differs).
+    #[form = "The key-exchange transfer does not match the negotiated parameters: {}"]
+    KeyTransferMismatch = 420,
+    /// A nonce has the wrong length for its algorithm (given len, required len).
+    #[form = "A nonce of {} bytes was given where {} bytes are required"]
+    NonceLengthMismatch = 421,
+    /// A public-key ciphertext is not of the shape its scheme produces (len).
+    #[form = "A public-key ciphertext of {} bytes is malformed"]
+    PkeCiphertextMalformed = 422,
+    /// Key material an operation needs has not been established (which).
+    #[form = "Key material is not established: {}"]
+    KeyMaterialMissing = 423,
+    /// An entropy bank's scramble mappings are not a permutation of the port range (why).
+    #[form = "The entropy bank's scramble mappings are invalid: {}"]
+    EntropyBankMappingsInvalid = 424,
+    /// A ratchet-tree node index is outside the tree (index, node count).
+    #[form = "Tree node index {} is outside a tree of {} nodes"]
+    TreeIndexOutOfRange = 425,
+    /// A ratchet tree is not well formed (why).
+    #[form = "The ratchet tree is malformed: {}"]
+    TreeMalformed = 426,
+    /// A commit's proposal cannot be applied to this tree (why).
+    #[form = "The commit cannot be applied: {}"]
+    CommitInvalid = 427,
+    /// Reading a transfer's source failed (reason).
+    #[form = "Reading the object source failed: {}"]
+    ObjectSourceReadFailed = 428,
+    /// Scrambling a group of a transfer failed (reason).
+    #[form = "Scrambling a group failed: {}"]
+    GroupScrambleFailed = 429,
+
     // --- citadel_proto: bounded peer inputs ---
     /// A peer announced a group while it already had the most groups it may hold open here
     /// (peer cid, limit).

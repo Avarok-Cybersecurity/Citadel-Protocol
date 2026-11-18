@@ -87,21 +87,23 @@ pub(crate) mod custom_serde {
         where
             D: Deserializer<'de>,
         {
-            Ok(KeyStore::from(
-                KeyStoreIntermediate::deserialize(d)
-                    .map_err(|_| serde::de::Error::custom("PQExport Deser err"))?,
-            ))
+            let intermediate = KeyStoreIntermediate::deserialize(d)
+                .map_err(|_| serde::de::Error::custom("PQExport Deser err"))?;
+            KeyStore::try_from(intermediate).map_err(serde::de::Error::custom)
         }
     }
 }
 
-/// Conversion implementation from KeyStoreIntermediate to KeyStore.
+/// Conversion from KeyStoreIntermediate to KeyStore.
 ///
-/// This implementation handles the conversion of the intermediate form
-/// back into a fully functional KeyStore, including the creation of
-/// appropriate AEAD modules based on the cryptographic parameters.
-impl From<KeyStoreIntermediate> for KeyStore {
-    fn from(int: KeyStoreIntermediate) -> Self {
+/// This handles the conversion of the intermediate form back into a fully
+/// functional KeyStore, including the creation of appropriate AEAD modules
+/// based on the cryptographic parameters. It fails when the parameters call
+/// for key material the intermediate form does not carry.
+impl TryFrom<KeyStoreIntermediate> for KeyStore {
+    type Error = citadel_types::errors::Error;
+
+    fn try_from(int: KeyStoreIntermediate) -> Result<Self, Self::Error> {
         let (alice_symmetric_key, bob_symmetric_key) = keys_to_aead_store(
             &int.alice_key,
             &int.bob_key,
@@ -109,9 +111,9 @@ impl From<KeyStoreIntermediate> for KeyStore {
             int.params,
             int.sig.as_ref(),
             int.pq_node,
-        );
+        )?;
 
-        KeyStore {
+        Ok(KeyStore {
             alice_module: alice_symmetric_key,
             bob_module: bob_symmetric_key,
             alice_key: int.alice_key,
@@ -120,7 +122,7 @@ impl From<KeyStoreIntermediate> for KeyStore {
             sig: int.sig,
             pq_node: int.pq_node,
             params: int.params,
-        }
+        })
     }
 }
 
@@ -141,7 +143,8 @@ pub type AeadStore = (Option<Box<dyn AeadModule>>, Option<Box<dyn AeadModule>>);
 /// * `pq_node` - Node type (Alice or Bob)
 ///
 /// # Returns
-/// A pair of optional AEAD modules for standard and local-user-only operations
+/// A pair of optional AEAD modules for standard and local-user-only operations, or an error when
+/// the hybrid scheme is chosen without the signature keys it needs
 pub(crate) fn keys_to_aead_store(
     alice: &GenericArray<u8, generic_array::typenum::U32>,
     bob: &GenericArray<u8, generic_array::typenum::U32>,
@@ -149,8 +152,8 @@ pub(crate) fn keys_to_aead_store(
     params: CryptoParameters,
     sig: Option<&PostQuantumMetaSig>,
     pq_node: PQNode,
-) -> AeadStore {
-    match params.encryption_algorithm {
+) -> Result<AeadStore, citadel_types::errors::Error> {
+    Ok(match params.encryption_algorithm {
         EncryptionAlgorithm::AES_GCM_256 => {
             let symmetric_key_local = Box::new(AesModule {
                 aead: aes_gcm::Aes256Gcm::new(alice),
@@ -193,6 +196,12 @@ pub(crate) fn keys_to_aead_store(
             let kem_alg = params.kem_algorithm;
             let sig_alg = params.sig_algorithm;
 
+            let sig = sig.cloned().ok_or_else(|| {
+                citadel_io::error!(
+                    citadel_io::ErrorCode::KeyMaterialMissing,
+                    "the signature keys the hybrid scheme requires"
+                )
+            })?;
             let (symmetric_key_local, symmetric_key_remote) =
                 generate_symmetric_aes_module(pq_node, alice, bob, kex);
 
@@ -200,7 +209,7 @@ pub(crate) fn keys_to_aead_store(
                 kem_alg,
                 sig_alg,
                 kex: kex.clone(),
-                sig: sig.cloned().unwrap(),
+                sig,
                 symmetric_key_local,
                 symmetric_key_remote,
             }) as Box<dyn AeadModule>;
@@ -210,7 +219,7 @@ pub(crate) fn keys_to_aead_store(
                 PQNode::Bob => (None, Some(keys)),
             }
         }
-    }
+    })
 }
 
 /// Generates symmetric AES modules for encryption/decryption.

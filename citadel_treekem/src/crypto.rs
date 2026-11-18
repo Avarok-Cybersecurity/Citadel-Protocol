@@ -1,14 +1,44 @@
 //! Crypto helpers for the ratchet tree: HPKE-style seal/open (ML-KEM + ChaCha20-Poly1305), node-key
 //! derivation from path secrets, and the key-schedule KDFs. All post-quantum (ML-KEM + SHA3/BLAKE3).
 
+use crate::tree::math::NodeIndex;
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
 use citadel_types::errors::Error;
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+use zeroize::Zeroize;
 
 /// Length of a path/node/epoch secret.
 pub const SECRET_LEN: usize = 32;
 /// A 32-byte secret (path secret, node secret, epoch-schedule secret).
 pub type Secret = [u8; SECRET_LEN];
+
+/// Path secrets by node. Every secret is wiped when the map is dropped, including when it is
+/// replaced by a newer one.
+#[derive(Clone, Default)]
+pub struct SecretMap(HashMap<NodeIndex, Secret>);
+
+impl Deref for SecretMap {
+    type Target = HashMap<NodeIndex, Secret>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SecretMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for SecretMap {
+    fn drop(&mut self) {
+        for secret in self.0.values_mut() {
+            secret.zeroize();
+        }
+    }
+}
 
 /// Derive the next path secret moving one step toward the root.
 pub fn derive_path_secret(ps: &Secret) -> Secret {

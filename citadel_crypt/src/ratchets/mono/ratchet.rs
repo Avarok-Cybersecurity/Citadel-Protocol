@@ -269,6 +269,12 @@ impl MonoRatchetConstructor {
         psks: &[T],
     ) -> Option<Self> {
         let params = transfer.params;
+        if let Err(err) =
+            EntropyBank::check_public_nonce(params.encryption_algorithm, &transfer.nonce)
+        {
+            log::warn!(target: "citadel", "[BOB] refusing the transfer: {err}");
+            return None;
+        }
         let pqc = PostQuantumContainer::new_bob(opts, transfer.transfer_params, psks).ok()?;
         let entropy_bank =
             EntropyBank::new(transfer.cid, transfer.version, params.encryption_algorithm).ok()?;

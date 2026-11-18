@@ -26,7 +26,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::ops::{Range, RangeBounds};
+use std::ops::Range;
 use std::time::Duration;
 
 use citadel_io::time::Instant;
@@ -817,7 +817,11 @@ impl GroupReceiver {
         }
     }
 
-    /// If a wave is complete, it gets decrypted and placed into the plaintext buffer
+    /// If a wave is complete, it gets decrypted and placed into the plaintext buffer.
+    ///
+    /// Everything a packet names (its sequence, its wave and the bytes it would occupy) is checked
+    /// before any state changes, and the packet is marked received only once it is in place, so a
+    /// refused packet never makes the genuine one for the same sequence read as already received.
     pub fn on_packet_received<T: AsRef<[u8]>, R: Ratchet>(
         &mut self,
         _group_id: u64,
@@ -827,161 +831,167 @@ impl GroupReceiver {
         packet: T,
     ) -> GroupReceiverStatus {
         let packet = packet.as_ref();
-        let is_received =
-            if let Some(mut is_received) = self.packets_received_order.get_mut(true_sequence) {
-                let is_recv = *is_received;
-                if !*is_received {
-                    *is_received = true;
-                }
+        match self
+            .packets_received_order
+            .get(true_sequence)
+            .map(|bit| *bit)
+        {
+            None => return GroupReceiverStatus::INVALID_PACKET,
+            Some(true) => {
+                log::trace!(target: "citadel", "Packet {true_sequence} (Parent Wave: {wave_id}) already received");
+                return GroupReceiverStatus::ALREADY_RECEIVED;
+            }
+            Some(false) => {}
+        }
+        if true_sequence.checked_div(self.max_packets_per_wave) != Some(wave_id as usize) {
+            log::trace!(target: "citadel", "Packet {true_sequence} does not belong to wave {wave_id}");
+            return GroupReceiverStatus::INVALID_PACKET;
+        }
+        let Some(wave_store) = self.temp_wave_store.get_mut(&wave_id) else {
+            log::trace!(target: "citadel", "Packet {true_sequence} (Parent wave: {wave_id}) does not have a wave store");
+            return GroupReceiverStatus::INVALID_PACKET;
+        };
+        let dest_bytes = Self::get_ciphertext_insertion_range(
+            true_sequence,
+            self.max_packets_per_wave,
+            self.packets_needed,
+            self.last_payload_size,
+            self.max_payload_size,
+            wave_store,
+        )
+        .and_then(|range| wave_store.ciphertext_buffer.get_mut(range))
+        .and_then(|window| window.get_mut(..packet.len()));
+        let Some(dest_bytes) = dest_bytes else {
+            log::error!(target: "citadel", "Packet {true_sequence} of {} bytes does not fit its place in wave {wave_id}", packet.len());
+            return GroupReceiverStatus::INVALID_PACKET;
+        };
+        dest_bytes.copy_from_slice(packet);
 
-                is_recv
-            } else {
-                return GroupReceiverStatus::INVALID_PACKET;
+        wave_store.packets_received += 1;
+        wave_store.bytes_written += packet.len();
+        wave_store.last_packet_recv_time = Some(Instant::now());
+        self.packets_received_order.set(true_sequence, true);
+        self.packets_received += 1;
+        log::trace!(target: "citadel", "[FILE TRANSFER] Packet {}/{} received", self.packets_received, self.packets_needed);
+        if wave_store.packets_received == wave_store.packets_in_wave {
+            let (msg_pqc, msg_entropy_bank) = match ratchet
+                .get_message_pqc_and_entropy_bank_at_layer(None)
+            {
+                Ok((msg_pqc, msg_entropy_bank)) => (msg_pqc, msg_entropy_bank),
+                Err(err) => {
+                    log::error!(target: "citadel", "Unable to get message pqc and entropy bank. Reason: {err:?}");
+                    return GroupReceiverStatus::CORRUPT_RATCHET(err.into_string());
+                }
             };
 
-        if !is_received {
-            self.packets_received += 1;
-            log::trace!(target: "citadel", "[FILE TRANSFER] Packet {}/{} received", self.packets_received, self.packets_needed);
-            // Now, take the ciphertext and place it into the buffer
-            let wave_store = self.temp_wave_store.get_mut(&wave_id);
-
-            if wave_store.is_none() {
-                log::trace!(target: "citadel", "Packet {true_sequence} (Parent wave: {wave_id}) does not have a wave store");
+            // Take ownership of the just-completed wave and decrypt its assembled ciphertext IN
+            // PLACE (the buffer is over-allocated to the wave size, so truncate to the bytes
+            // actually received first). This avoids the per-wave plaintext Vec allocation; the
+            // ciphertext buffer becomes the plaintext, which is then placed into the slab.
+            let Some(mut completed_wave) = self.temp_wave_store.remove(&wave_id) else {
                 return GroupReceiverStatus::INVALID_PACKET;
-            }
+            };
+            let wave_buffer_len = completed_wave.ciphertext_buffer.len();
+            completed_wave
+                .ciphertext_buffer
+                .truncate(completed_wave.bytes_written);
 
-            let wave_store = wave_store.unwrap();
+            match msg_entropy_bank.decrypt_in_place(msg_pqc, &mut completed_wave.ciphertext_buffer)
+            {
+                Ok(()) => {
+                    let plaintext = &completed_wave.ciphertext_buffer[..];
 
-            let insert_index = Self::get_ciphertext_insertion_range(
-                true_sequence,
-                self.max_packets_per_wave,
-                self.packets_needed,
-                self.last_payload_size,
-                self.max_payload_size,
-                wave_store,
-            );
-
-            if !check_bounds(&wave_store.ciphertext_buffer, insert_index.clone()) {
-                log::error!(target: "citadel", "Bad ciphertext buffer insertion index {insert_index:?} for buf of len {}", wave_store.ciphertext_buffer.len());
-                return GroupReceiverStatus::INVALID_PACKET;
-            }
-
-            let dest_bytes = &mut wave_store.ciphertext_buffer[insert_index];
-
-            if !check_bounds(&dest_bytes, ..packet.len()) {
-                log::error!(target: "citadel", "Bad dest buffer insertion index {:?} for buf of len {}", ..packet.len(), dest_bytes.len());
-                return GroupReceiverStatus::INVALID_PACKET;
-            }
-
-            let dest_bytes = &mut dest_bytes[..packet.len()];
-            let packet_bytes = packet;
-
-            debug_assert_eq!(packet_bytes.len(), dest_bytes.len());
-
-            dest_bytes.copy_from_slice(packet_bytes);
-
-            wave_store.packets_received += 1;
-            wave_store.bytes_written += packet_bytes.len();
-            wave_store.last_packet_recv_time = Some(Instant::now());
-            self.packets_received_order.set(true_sequence, true);
-            if wave_store.packets_received == wave_store.packets_in_wave {
-                let (msg_pqc, msg_entropy_bank) = match ratchet
-                    .get_message_pqc_and_entropy_bank_at_layer(None)
-                {
-                    Ok((msg_pqc, msg_entropy_bank)) => (msg_pqc, msg_entropy_bank),
-                    Err(err) => {
-                        log::error!(target: "citadel", "Unable to get message pqc and entropy bank. Reason: {err:?}");
-                        return GroupReceiverStatus::CORRUPT_RATCHET(err.into_string());
-                    }
-                };
-
-                // Take ownership of the just-completed wave and decrypt its assembled ciphertext IN
-                // PLACE (the buffer is over-allocated to the wave size, so truncate to the bytes
-                // actually received first). This avoids the per-wave plaintext Vec allocation; the
-                // ciphertext buffer becomes the plaintext, which is then placed into the slab.
-                let mut completed_wave = self
-                    .temp_wave_store
-                    .remove(&wave_id)
-                    .expect("the just-completed wave must be present");
-                completed_wave
-                    .ciphertext_buffer
-                    .truncate(completed_wave.bytes_written);
-
-                match msg_entropy_bank
-                    .decrypt_in_place(msg_pqc, &mut completed_wave.ciphertext_buffer)
-                {
-                    Ok(()) => {
-                        let plaintext = &completed_wave.ciphertext_buffer[..];
-
-                        // `max_plaintext_wave_length` is a peer-supplied field that `validate()`
-                        // does NOT bound, so a malicious/buggy config can place this wave's window
-                        // past the pre-sized plaintext slab. Compute the window with checked
-                        // arithmetic and reject an out-of-range result as a corrupt wave instead of
-                        // panicking on the slab slice (DoS hardening — mirrors the `check_bounds`
-                        // guard already applied to the ciphertext-buffer write above).
-                        let plaintext_insert_index =
-                            match Self::get_plaintext_buffer_insertion_range_by_wave_id(
-                                wave_id,
-                                plaintext.len(),
-                                self.max_plaintext_wave_length,
-                                self.unified_plaintext_slab.len(),
-                            ) {
-                                Some(range) => range,
-                                None => {
-                                    log::error!(target: "citadel", "Plaintext slab insertion window for wave {wave_id} (len {}, stride {}) is out of bounds for slab of len {}", plaintext.len(), self.max_plaintext_wave_length, self.unified_plaintext_slab.len());
-                                    return GroupReceiverStatus::CORRUPT_WAVE;
-                                }
-                            };
-                        let dest_bytes =
-                            &mut self.unified_plaintext_slab[plaintext_insert_index.clone()];
-                        debug_assert_eq!(
-                            plaintext_insert_index.end - plaintext_insert_index.start,
-                            dest_bytes.len()
-                        );
-                        dest_bytes.copy_from_slice(plaintext);
-                        self.plaintext_bytes_written =
-                            self.plaintext_bytes_written.saturating_add(plaintext.len());
-
-                        if self.temp_wave_store.is_empty() {
-                            // All waves decrypted. Verify the waves fully covered the plaintext slab
-                            // before declaring the group complete, so a config whose wave windows
-                            // leave gaps cannot yield a silently zero-padded "valid" object.
-                            if self.plaintext_bytes_written != self.unified_plaintext_slab.len() {
-                                log::error!(target: "citadel", "Group reassembly coverage mismatch: wrote {} of {} plaintext bytes", self.plaintext_bytes_written, self.unified_plaintext_slab.len());
+                    // `max_plaintext_wave_length` is a peer-supplied field that `validate()`
+                    // does NOT bound, so a malicious/buggy config can place this wave's window
+                    // past the pre-sized plaintext slab. Compute the window with checked
+                    // arithmetic and reject an out-of-range result as a corrupt wave instead of
+                    // panicking on the slab slice (DoS hardening — mirrors the `check_bounds`
+                    // guard already applied to the ciphertext-buffer write above).
+                    let plaintext_insert_index =
+                        match Self::get_plaintext_buffer_insertion_range_by_wave_id(
+                            wave_id,
+                            plaintext.len(),
+                            self.max_plaintext_wave_length,
+                            self.unified_plaintext_slab.len(),
+                        ) {
+                            Some(range) => range,
+                            None => {
+                                log::error!(target: "citadel", "Plaintext slab insertion window for wave {wave_id} (len {}, stride {}) is out of bounds for slab of len {}", plaintext.len(), self.max_plaintext_wave_length, self.unified_plaintext_slab.len());
                                 return GroupReceiverStatus::CORRUPT_WAVE;
                             }
-                            // We are entirely done! Return the bytes
-                            GroupReceiverStatus::GROUP_COMPLETE(wave_id)
-                        } else {
-                            // Now, set the next wave's timer so that it may potentially time-out
-                            if let Some(next_wave) = self.temp_wave_store.get_mut(&(wave_id + 1)) {
-                                next_wave.last_packet_recv_time = Some(Instant::now());
-                            }
+                        };
+                    let dest_bytes =
+                        &mut self.unified_plaintext_slab[plaintext_insert_index.clone()];
+                    debug_assert_eq!(
+                        plaintext_insert_index.end - plaintext_insert_index.start,
+                        dest_bytes.len()
+                    );
+                    dest_bytes.copy_from_slice(plaintext);
+                    self.plaintext_bytes_written =
+                        self.plaintext_bytes_written.saturating_add(plaintext.len());
 
-                            if wave_id as isize - 1 == self.lowest_sequential_wave_completed {
-                                self.lowest_sequential_wave_completed = wave_id as isize;
-                            }
-
-                            self.waves_received.set(wave_id as usize, true);
-                            // Should send a WAVE_ACK to send to the transmitter, thatway the transmitter can free memory on its end
-                            self.last_complete_wave = wave_id as isize;
-                            GroupReceiverStatus::WAVE_COMPLETE(wave_id)
+                    if self.temp_wave_store.is_empty() {
+                        // All waves decrypted. Verify the waves fully covered the plaintext slab
+                        // before declaring the group complete, so a config whose wave windows
+                        // leave gaps cannot yield a silently zero-padded "valid" object.
+                        if self.plaintext_bytes_written != self.unified_plaintext_slab.len() {
+                            log::error!(target: "citadel", "Group reassembly coverage mismatch: wrote {} of {} plaintext bytes", self.plaintext_bytes_written, self.unified_plaintext_slab.len());
+                            return GroupReceiverStatus::CORRUPT_WAVE;
                         }
-                    }
+                        // We are entirely done! Return the bytes
+                        GroupReceiverStatus::GROUP_COMPLETE(wave_id)
+                    } else {
+                        // Now, set the next wave's timer so that it may potentially time-out
+                        if let Some(next_wave) = self.temp_wave_store.get_mut(&(wave_id + 1)) {
+                            next_wave.last_packet_recv_time = Some(Instant::now());
+                        }
 
-                    Err(err) => {
-                        log::error!(target: "citadel", "Unable to decrypt wave {}. Reason: {} | ciphertext len: {}", wave_id, err.into_string(), completed_wave.bytes_written);
-                        GroupReceiverStatus::CORRUPT_WAVE
+                        if wave_id as isize - 1 == self.lowest_sequential_wave_completed {
+                            self.lowest_sequential_wave_completed = wave_id as isize;
+                        }
+
+                        self.waves_received.set(wave_id as usize, true);
+                        // Should send a WAVE_ACK to send to the transmitter, thatway the transmitter can free memory on its end
+                        self.last_complete_wave = wave_id as isize;
+                        GroupReceiverStatus::WAVE_COMPLETE(wave_id)
                     }
                 }
-            } else {
-                self.last_packet_recv_time = Instant::now();
-                GroupReceiverStatus::INSERT_SUCCESS
+
+                Err(err) => {
+                    log::error!(target: "citadel", "Unable to decrypt wave {}. Reason: {} | ciphertext len: {}", wave_id, err.into_string(), completed_wave.bytes_written);
+                    self.reset_wave(wave_id, completed_wave.packets_in_wave, wave_buffer_len);
+                    GroupReceiverStatus::CORRUPT_WAVE
+                }
             }
         } else {
-            log::trace!(target: "citadel", "Packet {true_sequence} (Parent Wave: {wave_id}) already received");
-            GroupReceiverStatus::ALREADY_RECEIVED
+            self.last_packet_recv_time = Instant::now();
+            GroupReceiverStatus::INSERT_SUCCESS
         }
+    }
+
+    /// A wave that failed to decrypt holds at least one packet that was not genuine. Rather than
+    /// dropping the wave for good, empty it and clear its packets' received marks, so the genuine
+    /// packets can still be accepted when they are sent again.
+    fn reset_wave(&mut self, wave_id: u32, packets_in_wave: usize, buffer_len: usize) {
+        let first = (wave_id as usize).saturating_mul(self.max_packets_per_wave);
+        for sequence in first..first.saturating_add(packets_in_wave) {
+            if let Some(mut bit) = self.packets_received_order.get_mut(sequence) {
+                if *bit {
+                    *bit = false;
+                    self.packets_received = self.packets_received.saturating_sub(1);
+                }
+            }
+        }
+        let _removed_above = self.temp_wave_store.insert(
+            wave_id,
+            TempWaveStore {
+                packets_received: 0,
+                packets_in_wave,
+                bytes_written: 0,
+                last_packet_recv_time: Some(Instant::now()),
+                ciphertext_buffer: BytesMut::zeroed(buffer_len),
+            },
+        );
     }
 
     /// Sometimes when sending multiple waves, a wave k > n may arrive first. This will return all c < k that have not yet arrived
@@ -1041,18 +1051,17 @@ impl GroupReceiver {
         last_payload_size: usize,
         max_payload_size: usize,
         store: &TempWaveStore,
-    ) -> Range<usize> {
-        let packet_idx_relative_to_wave = true_sequence % max_packets_per_wave;
-        if true_sequence == packets_needed - 1 {
+    ) -> Option<Range<usize>> {
+        let packet_idx_relative_to_wave = true_sequence.checked_rem(max_packets_per_wave)?;
+        if true_sequence == packets_needed.checked_sub(1)? {
             // This packet is the very last one
-            let len = store.ciphertext_buffer.capacity();
-            let start_idx = len - last_payload_size;
-            let end_idx = len;
-            start_idx..end_idx
+            let len = store.ciphertext_buffer.len();
+            let start_idx = len.checked_sub(last_payload_size)?;
+            Some(start_idx..len)
         } else {
-            let start_idx = max_payload_size * packet_idx_relative_to_wave;
-            let end_idx = max_payload_size + start_idx;
-            start_idx..end_idx
+            let start_idx = max_payload_size.checked_mul(packet_idx_relative_to_wave)?;
+            let end_idx = start_idx.checked_add(max_payload_size)?;
+            Some(start_idx..end_idx)
         }
     }
 
@@ -1295,11 +1304,6 @@ where
     {
         data.chunks(chunk_size).enumerate().flat_map(f).collect()
     }
-}
-
-fn check_bounds<T: AsRef<[u8]>, R: RangeBounds<usize>>(buf: T, range: R) -> bool {
-    let buf = buf.as_ref();
-    !range.contains(&buf.len())
 }
 
 #[cfg(test)]
