@@ -100,6 +100,8 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::prelude::ConnectionInfo;
 use crate::server_misc_settings::ServerMiscSettings;
 
+#[path = "account_manager_argon.rs"]
+mod argon;
 #[path = "account_manager_pq.rs"]
 mod pq;
 use citadel_crypt::argon::argon_container::{ArgonDefaultServerSettings, ArgonSettings};
@@ -129,8 +131,9 @@ pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatche
     /// concurrent registrations of the same username cannot both pass the existence check and race
     /// to save (last-writer-wins / duplicate account). Shared across clones via `Arc`.
     registration_lock: std::sync::Arc<citadel_io::tokio::sync::Mutex<()>>,
-    /// Serializes every read-modify-write of a post-quantum record, so a recovery code cannot be
-    /// spent twice by two logins that both verified it.
+    /// Serializes every read-modify-write of an account's sign-in record (a post-quantum record,
+    /// or the Argon2 hash a login replaces), so a recovery code cannot be spent twice by two
+    /// logins that both verified it.
     pq_record_lock: std::sync::Arc<citadel_io::tokio::sync::Mutex<()>>,
 }
 
@@ -208,11 +211,16 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         log::info!(target: "citadel", "Successfully established connection to backend {backend_type:?}...");
 
+        let node_argon_settings: ArgonSettings = server_argon_settings.unwrap_or_default().into();
+        if !node_argon_settings.meets_floor() {
+            log::warn!(target: "citadel", "This node's Argon2 settings are below the floor; suitable for tests only");
+        }
+
         let this = Self {
             backend_ty: backend_type,
             persistence_handler,
             services_handler,
-            node_argon_settings: server_argon_settings.unwrap_or_default().into(),
+            node_argon_settings,
             server_misc_settings: server_misc_settings.unwrap_or_default(),
             registration_lock: std::sync::Arc::new(citadel_io::tokio::sync::Mutex::new(())),
             pq_record_lock: std::sync::Arc::new(citadel_io::tokio::sync::Mutex::new(())),

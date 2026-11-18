@@ -424,15 +424,20 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     ) -> Result<(), AccountError> {
         let this_cid = self.inner.cid;
         let other_cid = other_orig.inner.cid;
+        if this_cid == other_cid {
+            return Err(citadel_io::error!(
+                citadel_io::ErrorCode::PeerRegisterSelf,
+                this_cid
+            ));
+        }
 
         let this_username = self.inner.auth_store.read().username().to_string();
         let other_username = other_orig.inner.auth_store.read().username().to_string();
 
-        let mut this = self.write();
-        let mut other = other_orig.write();
-
+        // One account lock at a time. Holding both, taken in argument order, lets a registration
+        // of (a, b) and one of (b, a) each hold the lock the other waits for.
         record_hyperlan_peer(
-            &mut this,
+            &mut self.write(),
             MutualPeer {
                 parent_icid: HYPERLAN_IDX,
                 cid: other_cid,
@@ -441,7 +446,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         );
 
         record_hyperlan_peer(
-            &mut other,
+            &mut other_orig.write(),
             MutualPeer {
                 parent_icid: HYPERLAN_IDX,
                 cid: this_cid,

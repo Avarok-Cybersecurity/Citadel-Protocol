@@ -99,17 +99,28 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FileIOBackend<R, Fc
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
-        let is_personal = self
-            .memory_backend
-            .clients
-            .read()
-            .get(&cid)
-            .ok_or(AccountError::account_client_non_exists(cid))?
-            .is_personal();
+        let (is_personal, peers) = {
+            let read = self.memory_backend.clients.read();
+            let cnac = read
+                .get(&cid)
+                .ok_or(AccountError::account_client_non_exists(cid))?;
+            (
+                cnac.is_personal(),
+                cnac.get_hyperlan_peer_list().unwrap_or_default(),
+            )
+        };
         self.memory_backend.delete_cnac_by_cid(cid).await?;
         let path = self.generate_cnac_local_save_path(cid, is_personal);
         let path_str = path.to_string_lossy();
-        self.file_io.remove_file(&path_str).await
+        self.file_io.remove_file(&path_str).await?;
+        // The memory backend removed the account from its peers' accounts; their files still
+        // list it until they are written again, and would bring it back at the next load.
+        for peer in peers {
+            if self.memory_backend.cid_is_registered(peer).await? {
+                self.save_cnac_by_cid(peer).await?;
+            }
+        }
+        self.remove_virtual_dir(cid).await
     }
 
     async fn purge(&self) -> Result<usize, AccountError> {
@@ -524,6 +535,25 @@ impl<R: Ratchet, Fcm: Ratchet> FileIOBackend<R, Fcm> {
             }
         }
         outcome
+    }
+
+    /// Removes the account's encrypted virtual filesystem, if it ever stored anything there.
+    async fn remove_virtual_dir(&self, cid: u64) -> Result<(), AccountError> {
+        let virtual_dir = self.directory_store.as_ref().unwrap().virtual_dir.as_str();
+        let name = cid.to_string();
+        let owned = self
+            .file_io
+            .read_dir(virtual_dir)
+            .await?
+            .into_iter()
+            .find(|entry| {
+                !entry.is_file
+                    && Path::new(&entry.path).file_name() == Some(std::ffi::OsStr::new(&name))
+            });
+        match owned {
+            Some(entry) => self.file_io.remove_dir_all(&entry.path).await,
+            None => Ok(()),
+        }
     }
 
     /// May a "nothing changed in memory" skip be trusted for this CID?

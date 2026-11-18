@@ -73,17 +73,16 @@ pub enum ProposedCredentials {
 
 // Clientside impls
 impl ProposedCredentials {
-    /// Generates the proper connect credentials. Does NOT trim the password (if trimming is needed, make sure the password is already trimmed before calling this function).
+    /// Generates the proper connect credentials. The password is normalized exactly as
+    /// [`Self::new_register`] normalizes it (see [`Self::password_transform`]).
     pub async fn new_connect<T: Into<String> + Send, R: Into<String> + Send>(
         full_name: T,
         username: R,
         password_raw: SecBuffer,
         settings: ArgonSettings,
     ) -> Result<Self, AccountError> {
-        let (username, full_name, password_hashed) =
-            Self::sanitize_and_prepare(username, full_name, password_raw.as_ref(), false);
-
-        let password_hashed = Self::argon_hash(password_hashed, settings).await?;
+        let (username, full_name) = Self::sanitize_names(username, full_name);
+        let password_hashed = Self::argon_hash(password_raw, settings).await?;
         Ok(Self::Enabled {
             username,
             password_hashed,
@@ -118,8 +117,7 @@ impl ProposedCredentials {
         username: R,
         password_unhashed: SecBuffer,
     ) -> Result<Self, AccountError> {
-        let (username, full_name, password_unhashed) =
-            Self::sanitize_and_prepare(username, full_name, password_unhashed.as_ref(), true);
+        let (username, full_name) = Self::sanitize_names(username, full_name);
 
         // the secret will be stored in the settings which is stored in the CNAC locally clientside
         let secret = &mut [0u8; 32];
@@ -144,7 +142,14 @@ impl ProposedCredentials {
     /// The password exactly as [`Self::new_register`] takes it (trimmed), for a post-quantum
     /// registration, which turns it into a key rather than hashing it.
     pub fn registration_password(password_unhashed: &SecBuffer) -> SecBuffer {
-        password_unhashed.as_ref().trim().into()
+        Self::normalized_password(password_unhashed.as_ref()).into()
+    }
+
+    /// The one rule for what of a typed password counts: everything but surrounding whitespace.
+    /// Registration and every login, legacy and post-quantum, apply it through
+    /// [`Self::password_transform`], so a password is accepted exactly as it was registered.
+    fn normalized_password(password: &[u8]) -> &[u8] {
+        password.trim()
     }
 
     async fn argon_hash(
@@ -167,24 +172,13 @@ impl ProposedCredentials {
         }
     }
 
-    fn sanitize_and_prepare<T: Into<String> + Send, R: Into<String> + Send>(
+    fn sanitize_names<T: Into<String> + Send, R: Into<String> + Send>(
         username: T,
         full_name: R,
-        maybe_hashed_password: &[u8],
-        do_password_trim: bool,
-    ) -> (String, String, SecBuffer) {
+    ) -> (String, String) {
         let username = username.into();
         let full_name = full_name.into();
-
-        let username = username.trim();
-        let password = if do_password_trim {
-            maybe_hashed_password.trim()
-        } else {
-            maybe_hashed_password
-        };
-        let full_name = full_name.trim();
-
-        (username.to_string(), full_name.to_string(), password.into())
+        (username.trim().to_string(), full_name.trim().to_string())
     }
 
     /// Gets all the internal values
@@ -205,10 +199,10 @@ impl ProposedCredentials {
         }
     }
 
-    /// SHA's the password before input into argon
+    /// SHA's the normalized password before input into argon (or the post-quantum OPRF)
     pub fn password_transform<T: AsRef<[u8]>>(password_raw: T) -> SecBuffer {
         let mut digest = sha3::Sha3_256::default();
-        digest.update(password_raw.as_ref());
+        digest.update(Self::normalized_password(password_raw.as_ref()));
         digest.finalize().to_vec().into()
     }
 
@@ -386,20 +380,19 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_trims_username_fullname_and_optional_password() {
-        // do_password_trim = false → password left untouched
-        let (u, f, p) = ProposedCredentials::sanitize_and_prepare(
-            "  alice  ",
-            "  Alice S  ",
-            b"  pwd  ",
-            false,
-        );
+    fn sanitize_trims_username_and_fullname() {
+        let (u, f) = ProposedCredentials::sanitize_names("  alice  ", "  Alice S  ");
         assert_eq!(u, "alice");
         assert_eq!(f, "Alice S");
-        assert_eq!(p.as_ref(), b"  pwd  ");
-        // do_password_trim = true → password trimmed too
-        let (_u, _f, p2) = ProposedCredentials::sanitize_and_prepare("a", "b", b"  pwd  ", true);
-        assert_eq!(p2.as_ref(), b"pwd");
+    }
+
+    #[test]
+    fn password_transform_ignores_only_surrounding_whitespace() {
+        let bare = ProposedCredentials::password_transform([7u8, 8, 9]);
+        let padded = ProposedCredentials::password_transform([b' ', 7, 8, 9, b'\t']);
+        let inner = ProposedCredentials::password_transform([7u8, b' ', 8, 9]);
+        assert_eq!(bare.as_ref(), padded.as_ref());
+        assert_ne!(bare.as_ref(), inner.as_ref());
     }
 
     #[test]

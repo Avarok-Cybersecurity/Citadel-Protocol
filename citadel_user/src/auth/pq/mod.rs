@@ -43,6 +43,8 @@ mod tests_factors;
 #[cfg(test)]
 mod tests_manage;
 #[cfg(test)]
+mod tests_password_whitespace;
+#[cfg(test)]
 mod tests_record;
 
 use messages::{

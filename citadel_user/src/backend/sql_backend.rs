@@ -129,9 +129,7 @@ impl From<&'_ SqlConnectionOptions> for AnyPoolOptions {
         ret = ret.idle_timeout(this.idle_timeout);
         ret = ret.max_lifetime(this.max_lifetime);
 
-        if cfg!(feature = "localhost-testing")
-            || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1"
-        {
+        if cfg!(feature = "localhost-testing") {
             log::trace!(target: "citadel", "Reducing connection pool");
             ret = ret.max_connections(1);
             ret = ret.max_lifetime(Duration::from_secs(60));
@@ -191,12 +189,17 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         // The following commands below allow us to remove entries and automatically remove corresponding values
         let cmd4 = match self.variant {
             SqlVariant::MySQL => {
-                let _ = conn
-                    .execute("DROP TRIGGER IF EXISTS post_cid_delete")
-                    .await
-                    .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
+                for trigger in ["post_cid_delete", "post_cid_delete_bytemap"] {
+                    let _ = conn
+                        .execute(&*format!("DROP TRIGGER IF EXISTS {trigger}"))
+                        .await
+                        .map_err(|e| {
+                            citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string())
+                        })?;
+                }
 
-                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid"
+                // One single-statement trigger per table, so no body needs BEGIN ... END.
+                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; CREATE TRIGGER post_cid_delete_bytemap AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM bytemap WHERE bytemap.cid = old.cid OR bytemap.peer_cid = old.cid"
             }
 
             SqlVariant::Sqlite => {
@@ -205,7 +208,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                     .await
                     .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
-                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; END"
+                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; DELETE FROM bytemap WHERE bytemap.cid = old.cid OR bytemap.peer_cid = old.cid; END"
             }
 
             SqlVariant::Postgre => {
@@ -218,7 +221,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                     .await
                     .map_err(|e| citadel_io::error!(citadel_io::ErrorCode::SqlOp, e.to_string()))?;
 
-                let create_function = "CREATE OR REPLACE FUNCTION post_cid_delete() RETURNS TRIGGER LANGUAGE PLPGSQL AS $$ BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; RETURN NULL; END; $$";
+                let create_function = "CREATE OR REPLACE FUNCTION post_cid_delete() RETURNS TRIGGER LANGUAGE PLPGSQL AS $$ BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; DELETE FROM bytemap WHERE bytemap.cid = old.cid OR bytemap.peer_cid = old.cid; RETURN NULL; END; $$";
                 let _ = conn
                     .execute(create_function)
                     .await
@@ -227,8 +230,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                 "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW EXECUTE PROCEDURE post_cid_delete()"
             }
         };
-
-        // TODO: Create trigger for byte_map
 
         let joined: String = [cmd, cmd2, cmd3, cmd4.to_string()].join(";");
         let _result = conn
@@ -1167,6 +1168,20 @@ mod tests {
     fn test_u64_into_i64() {
         assert_eq!(super::u64_into_i64(0), i64::MIN);
         assert_eq!(super::u64_into_i64(u64::MAX), i64::MAX);
+    }
+
+    /// Only the compile-time `localhost-testing` feature shrinks the pool; nothing set at run time
+    /// changes how a release build connects.
+    #[cfg(all(feature = "sql", not(coverage), not(feature = "localhost-testing")))]
+    #[test]
+    fn no_environment_variable_shrinks_the_pool() {
+        std::env::set_var("LOCALHOST_TESTING", "1");
+        let options = super::AnyPoolOptions::from(&crate::backend::SqlConnectionOptions {
+            max_connections: Some(8),
+            ..Default::default()
+        });
+        std::env::remove_var("LOCALHOST_TESTING");
+        assert_eq!(options.get_max_connections(), 8);
     }
 
     #[test]

@@ -225,10 +225,20 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
-        // TODO: delete bytemap entries
         let mut conn = self.get_conn().await?;
         redis_base::Script::new(&format!(
             r"
+            local function del_matching(pattern)
+                local cursor = '0'
+                repeat
+                    local page = redis.call('scan', cursor, 'match', pattern, 'count', 1000)
+                    cursor = page[1]
+                    for _,key in ipairs(page[2]) do
+                        redis.call('del', key)
+                    end
+                until cursor == '0'
+            end
+
             local username = redis.call('get', KEYS[4])
             local username_key = '{LOCAL_USERNAME_PREFIX}.' .. username
             local peer_cids = redis.call('hvals', KEYS[3])
@@ -246,7 +256,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
                 local hkey_username = '{PEER_USERNAME_PREFIX}.' .. peer_cid
                 redis.call('hdel', hkey_cid, username)
                 redis.call('hdel', hkey_username, KEYS[1])
+                del_matching('{BYTE_MAP_PREFIX}.' .. peer_cid .. '.' .. KEYS[1] .. '.*')
             end
+            del_matching('{BYTE_MAP_PREFIX}.' .. KEYS[1] .. '.*')
         ",
         ))
         .key(cid) // 1
