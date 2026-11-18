@@ -1,5 +1,29 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const CONSTANTS_PATH = path.join(__dirname, '../../citadel_proto/src/constants.rs');
+
+/**
+ * Reads `pub const <name>: u8 = <n>;` from citadel_proto's constants.rs, the source of the
+ * protocol version. Read here independently of scripts/inject-versions.js, so the test checks
+ * what the build injected against the source rather than against the injector itself.
+ */
+function u8Constant(source, name) {
+  const match = source.match(new RegExp(`pub const ${name}:\\s*u8\\s*=\\s*(\\d+);`));
+  if (!match) {
+    throw new Error(`${name} not found in ${CONSTANTS_PATH}`);
+  }
+  return match[1];
+}
+
+function protocolVersionFromConstants() {
+  const source = fs.readFileSync(CONSTANTS_PATH, 'utf-8');
+  return ['MAJOR_VERSION', 'MINOR_VERSION', 'PATCH_VERSION']
+    .map((name) => u8Constant(source, name))
+    .join('.');
+}
 
 describe('Citadel Protocol Types', () => {
   test('can import types module', async () => {
@@ -30,11 +54,7 @@ describe('Citadel Protocol Types', () => {
     assert.ok(pv.split('.').length === 3, 'protocol version should have 3 parts');
     assert.ok(sv.split('.').length === 3, 'SDK version should have 3 parts');
 
-    // Protocol version should be 0.12.2 based on constants.rs (minor bumped 10 -> 11 for the
-    // attempt-numbered hole-punch coordination frames, then 11 -> 12 for post-quantum sign-in,
-    // which reset the patch; patch 0 -> 1 for the C2S probe and the re-armable path campaign;
-    // 1 -> 2 for the server's path policy, its stamped per-pair plan, and group relay options).
-    assert.strictEqual(pv, '0.12.2', 'protocol version should match expected');
+    assert.strictEqual(pv, protocolVersionFromConstants(), 'protocol version should match constants.rs');
   });
 });
 
