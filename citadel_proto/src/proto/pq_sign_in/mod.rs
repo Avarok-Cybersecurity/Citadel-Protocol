@@ -12,6 +12,7 @@
 
 pub(crate) mod admission;
 pub(crate) mod admit;
+mod challenge;
 pub(crate) mod connect;
 pub(crate) mod manage;
 mod packets;
@@ -26,15 +27,18 @@ pub(crate) mod state;
 mod tests;
 #[cfg(test)]
 mod tests_challenge;
+#[cfg(test)]
+mod tests_wire_0_12_2;
 
 use crate::auth::AuthenticationRequest;
-use crate::constants::{protocol_version_at_least, PQ_SIGN_IN_SINCE};
+use crate::constants::{protocol_version_at_least, PQ_SIGN_IN_SINCE, SECURITY_KEY_CEREMONY_SINCE};
 use crate::error::NetworkError;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::session::HdpSessionInitMode;
 use crate::proto::state_container::StateContainerInner;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_user::auth::pq::admission::AdmissionToken;
+use citadel_user::auth::pq::messages::SignInLayout;
 use state::OfferedFactors;
 
 /// Whether the adjacent node runs post-quantum sign-in.
@@ -45,6 +49,16 @@ pub(crate) fn runs_with(adjacent_version: u32) -> bool {
 /// [`runs_with`] for a version that may not be known yet; an unknown one does not.
 pub(crate) fn runs_with_known(adjacent_version: Option<u32>) -> bool {
     adjacent_version.is_some_and(runs_with)
+}
+
+/// The layout of the sign-in messages the adjacent node reads (see `SECURITY_KEY_CEREMONY_SINCE`).
+/// An unknown version reads 0.12.2's.
+pub(crate) fn layout_of(adjacent_version: Option<u32>) -> SignInLayout {
+    if protocol_version_at_least(adjacent_version, SECURITY_KEY_CEREMONY_SINCE) {
+        SignInLayout::SecurityKeyCeremony
+    } else {
+        SignInLayout::V0_12_2
+    }
 }
 
 /// Client, at session start: the factors this session's login or registration offers.

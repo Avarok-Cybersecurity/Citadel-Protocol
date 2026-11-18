@@ -27,7 +27,7 @@ const PRF_EVAL_SALT: [u8; 32] = [0x2a; 32];
 
 fn request(ceremony: SecurityKeyCeremony) -> SecurityKeyRequest {
     SecurityKeyRequest {
-        rp_id: RP_ID.into(),
+        rp_id: Some(RP_ID.into()),
         prf_eval_salt: PRF_EVAL_SALT,
         ceremony,
     }
