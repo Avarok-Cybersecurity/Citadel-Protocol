@@ -71,8 +71,11 @@ pub enum LinkInput {
         setting: SettingId,
         agreed: LinkSettings,
     },
-    /// P2P: the peer healed first and dialled this side; `report` is the path it opened.
+    /// P2P: the peer healed first and dialled this side; `report` is the path it opened and
+    /// `incarnation` the one its handshake seals (the initiator names it, so both ends agree).
+    /// Naming the incarnation this side holds after a drop asks for a reattach of that seal.
     PeerOffer {
+        incarnation: Incarnation,
         report: PathReport,
     },
     /// P2P: the peer came online (an inbound PostRegister or PostConnect).

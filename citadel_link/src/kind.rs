@@ -67,3 +67,8 @@ impl Incarnation {
 /// adapter assigns it; the core only compares them.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RouteId(pub u64);
+
+impl RouteId {
+    /// The server relay a P2P link falls back to. Adapters never assign it to another route.
+    pub const RELAY: RouteId = RouteId(0);
+}

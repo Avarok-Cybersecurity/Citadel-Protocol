@@ -5,8 +5,9 @@
 
 mod disconnect;
 mod media;
+mod ring;
 
-pub use disconnect::{DroppedCounts, LinkDisconnect, UndeliveredTransfer};
+pub use disconnect::{DroppedCounts, LinkDisconnect, LossyCounts, UndeliveredTransfer};
 pub use media::{FramePoint, MediaLedger, MediaLoss, MediaStream};
 
 use std::collections::VecDeque;

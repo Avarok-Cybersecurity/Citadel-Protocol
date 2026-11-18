@@ -3,6 +3,33 @@
 //! [`Link::opened`] is the one entry, a `Sealed` link is made only by consuming a `Pathed` one,
 //! and a `Delivered` one only by consuming a `Sealed` one. The fields are private, so no other
 //! module can fabricate a later state.
+//!
+//! An unsealed link cannot be delivered:
+//!
+//! ```compile_fail,E0599
+//! use citadel_link::{Link, LinkEstablisher, Pathed};
+//! fn deliver_unsealed<E: LinkEstablisher>(link: Link<E, Pathed>) {
+//!     let _ = link.delivered();
+//! }
+//! ```
+//!
+//! A later state cannot be entered directly:
+//!
+//! ```compile_fail,E0599
+//! use citadel_link::{Incarnation, Link, LinkEstablisher, Millis, Sealed};
+//! fn skip_the_seal<E: LinkEstablisher>(path: E::Path, i: Incarnation) -> Link<E, Sealed> {
+//!     Link::<E, Sealed>::opened(path, i, Millis(0))
+//! }
+//! ```
+//!
+//! Nor built from its fields:
+//!
+//! ```compile_fail,E0451
+//! use citadel_link::{Incarnation, Link, LinkEstablisher, Millis, Sealed};
+//! fn forge<E: LinkEstablisher>(path: E::Path, seal: E::Seal, i: Incarnation) -> Link<E, Sealed> {
+//!     Link { path, seal, incarnation: i, opened_at: Millis(0), _s: std::marker::PhantomData }
+//! }
+//! ```
 
 use std::marker::PhantomData;
 

@@ -35,7 +35,11 @@ pub struct FlapPolicy {
     pub hold: Duration,
 }
 
-/// Every bound of one link. Each field must be given explicitly.
+/// Every bound of one link. Each field must be given explicitly: the type has no `Default`.
+///
+/// ```compile_fail
+/// let _ = citadel_link::LinkPolicy::default();
+/// ```
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct LinkPolicy {
     pub heal: HealPolicy,
@@ -67,4 +71,86 @@ pub enum PolicyError {
     ZeroMaxAttempts,
     ZeroFlapWindow,
     ZeroDeadline(&'static str),
+}
+
+impl Backoff {
+    /// The wait before retry `n` (0-based): `first_wait * factor^n`, capped at `max_wait`.
+    pub fn wait(&self, n: u32) -> Duration {
+        let first = self.first_wait.as_millis();
+        let grown = u128::from(self.factor)
+            .checked_pow(n)
+            .and_then(|scale| first.checked_mul(scale))
+            .unwrap_or(u128::MAX);
+        let capped = grown.min(self.max_wait.as_millis());
+        Duration::from_millis(u64::try_from(capped).unwrap_or(u64::MAX))
+    }
+
+    fn validate(&self, name: &'static str) -> Result<(), PolicyError> {
+        if self.first_wait.is_zero() {
+            return Err(PolicyError::ZeroWait(name));
+        }
+        if self.factor == 0 {
+            return Err(PolicyError::ZeroFactor(name));
+        }
+        if self.max_wait < self.first_wait {
+            return Err(PolicyError::MaxBelowFirst(name));
+        }
+        Ok(())
+    }
+}
+
+fn nonzero(span: Duration, err: PolicyError) -> Result<(), PolicyError> {
+    if span.is_zero() {
+        Err(err)
+    } else {
+        Ok(())
+    }
+}
+
+impl LinkPolicy {
+    /// Fails fast on a policy that would let a link wait forever, never wait, or never heal.
+    pub fn validate(&self) -> Result<(), PolicyError> {
+        self.heal.backoff.validate("heal")?;
+        self.rearm.validate("rearm")?;
+        if self.heal.max_attempts == Some(0) {
+            return Err(PolicyError::ZeroMaxAttempts);
+        }
+        if let Some(after) = self.heal.give_up_after {
+            nonzero(after, PolicyError::ZeroDeadline("give_up_after"))?;
+        }
+        nonzero(self.flap.window, PolicyError::ZeroFlapWindow)?;
+        nonzero(self.flap.hold, PolicyError::ZeroWait("flap.hold"))?;
+        nonzero(self.reattach_grace, PolicyError::ZeroWait("reattach_grace"))?;
+        nonzero(
+            self.loser_redial_wait,
+            PolicyError::ZeroWait("loser_redial_wait"),
+        )?;
+        if let Some(every) = self.probe_interval {
+            nonzero(every, PolicyError::ZeroWait("probe_interval"))?;
+        }
+        let deadlines = [
+            (self.direct_rendezvous_budget, "direct_rendezvous_budget"),
+            (self.rendezvous_deadline, "rendezvous_deadline"),
+            (self.seal_deadline, "seal_deadline"),
+            (self.settings_deadline, "settings_deadline"),
+        ];
+        for (span, name) in deadlines {
+            nonzero(span, PolicyError::ZeroDeadline(name))?;
+        }
+        Ok(())
+    }
+
+    /// The wait before heal attempt `attempt` (1-based) for a side with `role`: the first is
+    /// immediate for the Leader; every later one backs off; the Loser always waits the fixed
+    /// `loser_redial_wait` more, so the Leader's dial arrives first (§5.4, owner Q4).
+    pub fn heal_wait(&self, attempt: u32, role: crate::Role) -> Duration {
+        let backoff = match attempt {
+            0 | 1 => Duration::ZERO,
+            n => self.heal.backoff.wait(n - 2),
+        };
+        match role {
+            crate::Role::Leader => backoff,
+            crate::Role::Loser => backoff.saturating_add(self.loser_redial_wait),
+        }
+    }
 }

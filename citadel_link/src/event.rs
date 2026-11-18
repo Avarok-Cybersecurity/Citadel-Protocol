@@ -53,7 +53,8 @@ pub struct PathAttemptOutcome {
     pub route_id: Option<RouteId>,
     /// From the link going down to this establishment; `None` for the first one.
     pub downtime: Option<Duration>,
-    /// When each stage of `stages` that ran started, relative to the attempt's start.
+    /// When each stage of `stages` started, relative to the attempt's start; aligned with
+    /// `stages` (zero for a stage that was not tried).
     pub stage_started_at: Vec<Duration>,
 }
 

@@ -63,3 +63,121 @@ pub(super) struct StreamBook {
 pub struct MediaLedger {
     pub(super) streams: BTreeMap<TrackId, StreamBook>,
 }
+
+/// Whether `a` is at or before `b` in a stream's (wrapping) sequence space.
+fn at_or_before(a: u32, b: u32) -> bool {
+    (b.wrapping_sub(a) as i32) >= 0
+}
+
+impl StreamBook {
+    fn drop_frame(&mut self, frame: FramePoint) {
+        self.dropped += 1;
+        self.dropped_span = Some(match self.dropped_span {
+            None => (frame.timestamp, frame.timestamp),
+            Some((first, _)) => (first, frame.timestamp),
+        });
+    }
+
+    fn loss(&self) -> MediaLoss {
+        MediaLoss {
+            stream: self.stream,
+            route: self.route,
+            last_confirmed: self.last_confirmed,
+            last_handed: self.last_handed,
+            dropped: self.dropped,
+            dropped_span: self.dropped_span,
+            needs_resync: self.stream.kind == TrackKind::Video && self.dropped > 0,
+        }
+    }
+}
+
+impl MediaLedger {
+    /// A ledger with no stream yet.
+    pub fn empty() -> Self {
+        MediaLedger {
+            streams: BTreeMap::new(),
+        }
+    }
+
+    /// A stream started on this link. Opening a track again keeps its counts.
+    pub fn open(&mut self, stream: MediaStream) {
+        self.streams
+            .entry(stream.track)
+            .and_modify(|book| book.stream = stream)
+            .or_insert(StreamBook {
+                stream,
+                route: None,
+                last_confirmed: None,
+                last_handed: None,
+                pending: VecDeque::new(),
+                dropped: 0,
+                dropped_span: None,
+            });
+    }
+
+    /// Every open stream now rides `route`.
+    pub fn rode(&mut self, route: RouteKind) {
+        for book in self.streams.values_mut() {
+            book.route = Some(route);
+        }
+    }
+
+    /// A frame was handed to the SDK. `false` for a track that was never opened.
+    pub fn handed(&mut self, track: TrackId, frame: FramePoint) -> bool {
+        let Some(book) = self.streams.get_mut(&track) else {
+            return false;
+        };
+        book.last_handed = Some(frame);
+        book.pending.push_back(frame);
+        true
+    }
+
+    /// Every frame up to `upto` was confirmed delivered.
+    pub fn confirmed(&mut self, track: TrackId, upto: FramePoint) {
+        let Some(book) = self.streams.get_mut(&track) else {
+            return;
+        };
+        while let Some(front) = book.pending.front() {
+            if !at_or_before(front.sequence, upto.sequence) {
+                break;
+            }
+            book.pending.pop_front();
+        }
+        book.last_confirmed = Some(upto);
+    }
+
+    /// The queue or the pump dropped one frame.
+    pub fn dropped(&mut self, track: TrackId, sequence: u32) {
+        let Some(book) = self.streams.get_mut(&track) else {
+            return;
+        };
+        if let Some(i) = book.pending.iter().position(|f| f.sequence == sequence) {
+            if let Some(frame) = book.pending.remove(i) {
+                book.drop_frame(frame);
+            }
+        }
+    }
+
+    /// The path died: media is never replayed, so every frame in flight is dropped.
+    pub fn path_lost(&mut self) {
+        for book in self.streams.values_mut() {
+            while let Some(frame) = book.pending.pop_front() {
+                book.drop_frame(frame);
+            }
+        }
+    }
+
+    /// Frames dropped so far, over every stream.
+    pub fn dropped_total(&self) -> u64 {
+        self.streams.values().map(|b| b.dropped).sum()
+    }
+
+    /// A true close: one loss record per stream, every frame still in flight counted dropped.
+    pub fn close(&mut self) -> Vec<MediaLoss> {
+        self.path_lost();
+        std::mem::take(&mut self.streams)
+            .values()
+            .map(StreamBook::loss)
+            .collect()
+    }
+}

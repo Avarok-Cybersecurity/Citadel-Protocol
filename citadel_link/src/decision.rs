@@ -116,3 +116,51 @@ impl PartialEq for FloorChange {
 }
 
 impl Eq for FloorChange {}
+
+/// How the change from `from` (the live incarnation's settings) to `agreed` (the negotiator's
+/// merged value) is carried out, given what both ends support (§4.2). Total and pure: both ends
+/// hold the same three values, so both reach the same decision with no server round trip (§4.3).
+///
+/// The key-profile rule is the negotiator's own (`KeyProfile::path`, owner decision D3): a new
+/// KEM needs a fresh exchange; any other change to the profile is one steered ratchet round.
+pub fn decide(from: &LinkSettings, agreed: &LinkSettings, caps: PeerCaps) -> SettingsDecision {
+    use citadel_negotiation::{ApplyPath, Setting};
+    if from == agreed {
+        return SettingsDecision::NoAction;
+    }
+    let legacy = SettingsDecision::Reestablish {
+        why: ReestablishWhy::PeerLegacy,
+    };
+    if from.udp_mode != agreed.udp_mode {
+        return SettingsDecision::Reestablish {
+            why: ReestablishWhy::Transport,
+        };
+    }
+    let (was, now) = (&from.security, &agreed.security);
+    let (was_profile, now_profile) = (KeyProfile::of(was), KeyProfile::of(now));
+    let framing_changed = obfuscator_key(was.header_obfuscator_settings)
+        != obfuscator_key(now.header_obfuscator_settings);
+    if framing_changed || KeyProfile::path(&was_profile, &now_profile) == ApplyPath::Handshake {
+        return if caps.reseal {
+            SettingsDecision::ResealOnPath(SealParams { settings: *agreed })
+        } else {
+            legacy
+        };
+    }
+    if was_profile == now_profile {
+        return SettingsDecision::LocalOnly {
+            floor: FloorChange::None,
+        };
+    }
+    let same_suite = u8::from(was.crypto_params) == u8::from(now.crypto_params);
+    if same_suite && now.security_level.value() < was.security_level.value() {
+        return SettingsDecision::LocalOnly {
+            floor: FloorChange::Lower(now.security_level),
+        };
+    }
+    if caps.in_band {
+        SettingsDecision::InBandKeyEpoch(now_profile)
+    } else {
+        legacy
+    }
+}

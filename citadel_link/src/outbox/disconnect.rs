@@ -2,8 +2,8 @@
 
 use citadel_types::proto::ObjectId;
 
-use super::media::MediaLoss;
-use super::Undelivered;
+use super::media::{MediaLedger, MediaLoss};
+use super::{Drained, Undelivered};
 use crate::event::CloseSummary;
 use crate::kind::Ticket;
 
@@ -41,4 +41,44 @@ pub struct LinkDisconnect<P> {
     /// One record per media stream the link carried.
     pub media: Vec<MediaLoss>,
     pub dropped: DroppedCounts,
+}
+
+impl<P> LinkDisconnect<P> {
+    /// The one assembly of a close event, from the core's summary and the outbox's drain (SSOT):
+    /// what the retired incarnations' own queues returned joins the outbox's undelivered in send
+    /// order, and the media counts come from the ledger alone.
+    pub fn assemble(
+        summary: CloseSummary,
+        drained: Drained<P>,
+        retired: Vec<Undelivered<P>>,
+        media: &mut MediaLedger,
+        undelivered_transfers: Vec<UndeliveredTransfer>,
+        lossy: LossyCounts,
+    ) -> Self {
+        let mut undelivered = drained.undelivered;
+        undelivered.extend(retired);
+        undelivered.sort_by_key(|u| u.seq);
+        let media = media.close();
+        let media_frames = media.iter().map(|m| m.dropped).sum();
+        LinkDisconnect {
+            summary,
+            undelivered,
+            possibly_delivered: drained.possibly_delivered,
+            undelivered_transfers,
+            media,
+            dropped: DroppedCounts {
+                over_budget_bytes: drained.over_budget_bytes,
+                udp_datagrams: lossy.udp_datagrams,
+                media_frames,
+                control_frames: lossy.control_frames,
+            },
+        }
+    }
+}
+
+/// The counts of the queues the outbox does not own (UDP, negotiation lane), from the shell.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct LossyCounts {
+    pub udp_datagrams: u64,
+    pub control_frames: u64,
 }

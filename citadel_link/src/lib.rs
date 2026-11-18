@@ -21,6 +21,9 @@ pub mod plan;
 pub mod policy;
 pub mod typestate;
 
+#[cfg(any(test, feature = "harness"))]
+pub mod schedule;
+
 pub use crate::core::{
     BufferMode, ConfigError, LinkCommand, LinkConfig, LinkCore, LinkInput, LinkState, LiveRoute,
     RendezvousVia,
