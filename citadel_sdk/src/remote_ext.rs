@@ -1686,6 +1686,12 @@ pub mod results {
                     citadel_io::ErrorCode::RemoteFunctionAlreadyCalled
                 ))
         }
+
+        /// The security settings the link was established with; see
+        /// [`PeerChannel::session_security_settings`].
+        pub fn negotiated_security_settings(&self) -> SessionSecuritySettings {
+            self.channel.session_security_settings()
+        }
     }
 
     /// The peer's answer to a registration request.

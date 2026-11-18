@@ -69,6 +69,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::macros::support::Pin;
 use citadel_types::crypto::SecBuffer;
 use citadel_types::crypto::SecurityLevel;
+use citadel_types::proto::SessionSecuritySettings;
 use futures::task::{Context, Poll};
 use futures::Stream;
 use std::fmt::Debug;
@@ -84,6 +85,7 @@ pub struct PeerChannel<R: Ratchet> {
     path: P2pPathCell,
     peer_protocol_version: Option<u32>,
     restored_udp: Option<RestoredUdpChannels<R>>,
+    security_settings: SessionSecuritySettings,
 }
 
 /// Every UDP channel a P2P path recovery restores, in order (see `PeerChannel::upgrade`).
@@ -96,7 +98,7 @@ impl<R: Ratchet> PeerChannel<R> {
         target_cid: u64,
         vconn_type: VirtualConnectionType,
         channel_id: Ticket,
-        security_level: SecurityLevel,
+        security_settings: SessionSecuritySettings,
         is_alive: Arc<AtomicBool>,
         messenger: ProtocolMessenger<R>,
         disconnect_token: Option<DisconnectToken>,
@@ -115,7 +117,7 @@ impl<R: Ratchet> PeerChannel<R> {
             session_cid,
             channel_id,
             connection_id: disconnect_token.map(|token| token.connection_id),
-            security_level,
+            security_level: security_settings.security_level,
             path: path.clone(),
         };
 
@@ -137,7 +139,15 @@ impl<R: Ratchet> PeerChannel<R> {
             path,
             peer_protocol_version,
             restored_udp,
+            security_settings,
         }
+    }
+
+    /// The security settings this connection was established with. On a P2P channel these are
+    /// the settings the two ends agreed in their key exchange -- when both dialled at once, the
+    /// stronger of the two offers -- which need not be the ones this end asked for.
+    pub fn session_security_settings(&self) -> SessionSecuritySettings {
+        self.security_settings
     }
 
     /// Re-arms this connection's P2P path campaign; see [`PathControl::upgrade`].
