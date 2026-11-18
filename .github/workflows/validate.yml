@@ -110,11 +110,14 @@ jobs:
       - name: Date for the advisory database cache
         id: day
         run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      # cargo deny's checkouts (deny.toml db-path) and cargo audit's are separate directories.
       - uses: actions/cache@v5
         with:
-          path: ~/.cargo/advisory-db
-          key: advisory-db-${{ steps.day.outputs.day }}
-          restore-keys: advisory-db-
+          path: |
+            ~/.cargo/advisory-dbs
+            ~/.cargo/advisory-db
+          key: advisory-dbs-${{ steps.day.outputs.day }}
+          restore-keys: advisory-dbs-
       - run: cargo deny --locked check all
       - name: cargo audit (exceptions from deny.toml)
         run: ci/cargo-audit.sh

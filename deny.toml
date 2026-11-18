@@ -37,7 +37,10 @@ all-features = true
 # https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
 [advisories]
 # The path where the advisory database is cloned/fetched into
-db-path = "~/.cargo/advisory-db"
+# cargo-deny's own directory, one checkout per URL beneath it. It must not be cargo-audit's
+# ~/.cargo/advisory-db: deny wrote its checkout inside that directory, and audit then refused to
+# clone into a non-empty one (run 44415208817).
+db-path = "~/.cargo/advisory-dbs"
 # The url(s) of the advisory databases to use
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
