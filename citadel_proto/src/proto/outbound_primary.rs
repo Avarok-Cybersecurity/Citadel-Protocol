@@ -44,11 +44,24 @@ impl OutboundPrimaryStreamSender {
     /// Queue a flush-barrier: the writer flushes everything queued before this marker, then signals
     /// `ack`. See [`OutboundPacket::Flush`].
     #[inline]
-    pub fn send_flush(
+    fn send_flush(
         &self,
         ack: citadel_io::tokio::sync::oneshot::Sender<()>,
     ) -> Result<(), SendError<OutboundPacket>> {
         self.send(OutboundPacket::Flush(ack))
+    }
+
+    /// Queue `packet`, then wait until the writer has flushed it to the socket. A session that
+    /// ends once it has replied awaits this before it reads as ending: from then on its tasks
+    /// may stop and drop the writer with the reply still queued. Resolves early when the writer
+    /// is gone, since nothing queued would leave then.
+    pub async fn send_and_flush(&self, packet: BytesMut) -> Result<(), SendError<OutboundPacket>> {
+        let (ack_tx, ack_rx) = citadel_io::tokio::sync::oneshot::channel();
+        self.unbounded_send(packet)?;
+        self.send_flush(ack_tx)?;
+        // Err: the writer dropped the barrier unflushed, so its stream has ended.
+        let _ = ack_rx.await;
+        Ok(())
     }
 
     fn send(&self, packet: OutboundPacket) -> Result<(), SendError<OutboundPacket>> {
@@ -117,5 +130,55 @@ impl futures::Stream for BudgetedReceiver {
             budget.release(packet.body_len());
         }
         next
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::{FutureExt, StreamExt};
+
+    fn reply() -> BytesMut {
+        BytesMut::from(&b"final reply"[..])
+    }
+
+    #[citadel_io::tokio::test]
+    async fn a_reply_counts_as_sent_only_once_the_writer_has_flushed_it() {
+        let (tx, mut rx) = budgeted_primary_channel(1_000);
+        let mut sent = Box::pin(tx.send_and_flush(reply()));
+        assert!((&mut sent).now_or_never().is_none(), "queued is not sent");
+
+        let Some(OutboundPacket::Contiguous(packet)) = rx.0.next().await else {
+            panic!("the reply was not queued first");
+        };
+        assert_eq!(&packet[..], &reply()[..]);
+        assert!((&mut sent).now_or_never().is_none(), "taken is not flushed");
+
+        let Some(OutboundPacket::Flush(ack)) = rx.0.next().await else {
+            panic!("no flush-barrier followed the reply");
+        };
+        assert!(
+            (&mut sent).now_or_never().is_none(),
+            "written is not flushed"
+        );
+        ack.send(()).unwrap();
+        assert!(matches!(sent.now_or_never(), Some(Ok(()))));
+    }
+
+    #[citadel_io::tokio::test]
+    async fn a_writer_that_ends_before_flushing_does_not_hold_the_reply_wait() {
+        let (tx, mut rx) = budgeted_primary_channel(1_000);
+        let mut sent = Box::pin(tx.send_and_flush(reply()));
+        assert!((&mut sent).now_or_never().is_none());
+        assert!(rx.0.next().await.is_some());
+        drop(rx);
+        assert!(matches!(sent.now_or_never(), Some(Ok(()))));
+    }
+
+    #[citadel_io::tokio::test]
+    async fn a_reply_to_a_writer_already_gone_is_refused() {
+        let (tx, rx) = budgeted_primary_channel(1_000);
+        drop(rx);
+        assert!(tx.send_and_flush(reply()).await.is_err());
     }
 }

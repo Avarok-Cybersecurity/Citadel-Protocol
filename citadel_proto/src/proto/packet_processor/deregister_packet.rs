@@ -165,38 +165,32 @@ async fn deregister_client_from_self<R: Ratchet, T: PlatformOps>(
         (acc_manager, ticket)
     };
 
-    let (ret, success) = match acc_mgr.delete_client_by_cid(session_cid).await {
+    let success = match acc_mgr.delete_client_by_cid(session_cid).await {
         Ok(_) => {
             log::trace!(target: "citadel", "Successfully purged account {session_cid} locally!");
-            let stage_success_packet = packet_crafter::do_deregister::craft_final(
-                ratchet,
-                true,
-                timestamp,
-                security_level,
-            );
-            // At the end of the deregistration phase, the session also ends
-            (
-                PrimaryProcessorResult::ReplyToSender(stage_success_packet),
-                true,
-            )
+            true
         }
 
         Err(err) => {
             log::error!(target: "citadel", "Unable to locally purge account {session_cid}. Please report this to the HyperLAN Server admin ({err:?})");
-            let stage_failure_packet = packet_crafter::do_deregister::craft_final(
-                ratchet,
-                false,
-                timestamp,
-                security_level,
-            );
-            (
-                PrimaryProcessorResult::ReplyToSender(stage_failure_packet),
-                false,
-            )
+            false
         }
     };
+    let reply =
+        packet_crafter::do_deregister::craft_final(ratchet, success, timestamp, security_level);
 
-    let session = session_ref;
+    // This ensures no further packets are processed
+    session.state.set(SessionState::NeedsRegister);
+
+    // The reply is on the socket before the session reads as ending. The dc signal below marks
+    // it Disconnecting, and from then on the queue worker may end the session and drop its writer.
+    // Returned as ReplyToSender, the reply was only queued after that point, so it could be
+    // dropped unsent and the client's deregister then went unanswered.
+    let primary_stream = return_if_none!(
+        session.to_primary_stream.as_ref(),
+        "Primary stream not loaded"
+    );
+    primary_stream.send_and_flush(reply).await?;
 
     session.send_to_kernel(NodeResult::DeRegistration(DeRegistration {
         session_cid,
@@ -204,15 +198,14 @@ async fn deregister_client_from_self<R: Ratchet, T: PlatformOps>(
         success,
     }))?;
 
-    // This ensures no further packets are processed
-    session.state.set(SessionState::NeedsRegister);
+    // At the end of the deregistration phase, the session also ends
     session.send_session_dc_signal(
         ticket,
         success,
         "Deregistration occurred. Session disconnected",
     );
 
-    Ok(ret)
+    Ok(PrimaryProcessorResult::Void)
 }
 
 async fn deregister_from_hyperlan_server_as_client<R: Ratchet, T: PlatformOps>(
