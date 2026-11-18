@@ -833,3 +833,8 @@ mod routable_candidate_tests {
 #[cfg(all(test, feature = "localhost-testing"))]
 #[path = "attempt_pairing_tests.rs"]
 mod attempt_pairing_tests;
+
+// Loopback punches; the same localhost NAT model as `attempt_pairing_tests` above.
+#[cfg(all(test, feature = "localhost-testing"))]
+#[path = "sealed_punch_tests.rs"]
+mod sealed_punch_tests;
