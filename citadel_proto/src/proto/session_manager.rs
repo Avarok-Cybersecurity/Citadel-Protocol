@@ -1901,11 +1901,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     }
 
     /// Stores the `signal` inside the internal timed-queue for `session_cid`, and then sends `packet` to `target_cid`.
-    /// After `timeout`, the closure `on_timeout` is executed
+    /// After `timeout`, the closure `on_timeout` is executed.
+    ///
+    /// `target_registration` is the backend's answer to "is `target_cid` registered here?". The
+    /// caller resolves it before taking the peer-layer lock it passes in, so that lock is never
+    /// held across the backend round-trip.
     #[allow(clippy::too_many_arguments)]
     pub async fn route_signal_primary(
         &self,
         peer_layer: &mut CitadelNodePeerLayerInner<R>,
+        target_registration: Result<bool, String>,
         session_cid: u64,
         target_cid: u64,
         ticket: Ticket,
@@ -1926,12 +1931,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             )
         };
 
-        log::trace!(target: "citadel", "Checking if {target_cid} is registered locally ... {signal:?}");
-        if account_manager
-            .hyperlan_cid_is_registered(target_cid)
-            .await
-            .map_err(|err| err.into_string())?
-        {
+        if target_registration? {
             let pers = account_manager.get_persistence_handler().clone();
 
             // get the target cid's session
