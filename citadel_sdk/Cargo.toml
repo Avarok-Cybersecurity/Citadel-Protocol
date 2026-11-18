@@ -147,6 +147,18 @@ harness = false
 name = "udp_media_stream"
 harness = false
 
+# Relayed packet path: per-message StateContainer lock acquisitions and allocated bytes for a pair
+# the server keeps on its relay. Needs localhost-testing,multi-threaded,lock-profiling. Local only.
+[[bench]]
+name = "relayed_packet_path"
+harness = false
+
+# Peer signalling against a slow account backend: K pairs dial at once while the host SQL delays
+# the registration lookup. Needs localhost-testing,multi-threaded. Local only.
+[[bench]]
+name = "peer_signal_backend_latency"
+harness = false
+
 [package.metadata.cargo-all-features]
 # Features "foo" and "bar" are incompatible, so skip permutations including them
 skip_feature_sets = [["std", "wasm"]]

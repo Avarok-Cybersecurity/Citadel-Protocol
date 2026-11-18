@@ -2194,24 +2194,32 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
                 v_conn: VirtualConnectionType,
             ) -> Result<(), (NetworkError, Option<Ticket>, Option<SecBuffer>)> {
-                let mut attributed_ticket = None;
-                let mut original_payload: Option<SecBuffer> = None;
+                // The payload is handed back on a refusal by moving it out of the message we
+                // still own, never by copying it up front: a copy per message, kept only for the
+                // rare refusal, was the price of every send.
+                fn refuse(
+                    err: NetworkError,
+                    ratchet_message: RatchetMessage<MessengerLayerOrderedMessage<UserMessage>>,
+                ) -> (NetworkError, Option<Ticket>, Option<SecBuffer>) {
+                    match ratchet_message {
+                        RatchetMessage::JustMessage(MessengerLayerOrderedMessage {
+                            message: UserMessage { ticket, packet, .. },
+                            ..
+                        }) => (err, Some(ticket), Some(packet)),
+                        _other => (err, None, None),
+                    }
+                }
 
-                let (ticket, security_level) = match &ratchet_message {
+                let (attributed_ticket, ticket, security_level) = match &ratchet_message {
                     RatchetMessage::JustMessage(MessengerLayerOrderedMessage {
                         message:
                             UserMessage {
                                 ticket,
                                 security_level,
-                                packet,
                                 ..
                             },
                         ..
-                    }) => {
-                        attributed_ticket = Some(*ticket);
-                        original_payload = Some(packet.clone());
-                        (*ticket, *security_level)
-                    }
+                    }) => (Some(*ticket), *ticket, *security_level),
                     // A user message riding a rekey is sealed at its own level, as it would be
                     // alone: the receiver's level floor (§5.3 C5) applies to it as well.
                     RatchetMessage::AliceToBob {
@@ -2221,8 +2229,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                 ..
                             }),
                         ..
-                    } => (Ticket::default(), *security_level),
-                    _other => (Ticket::default(), SecurityLevel::default()),
+                    } => (None, Ticket::default(), *security_level),
+                    _other => (None, Ticket::default(), SecurityLevel::default()),
                 };
 
                 let preferred_stream = if let Some(stream) =
@@ -2230,10 +2238,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 {
                     stream
                 } else {
-                    return Err((
+                    return Err(refuse(
                         error!(ErrorCode::SessionConnectionUnavailable),
-                        attributed_ticket,
-                        original_payload,
+                        ratchet_message,
                     ));
                 };
                 let endpoint_container = if let Some(ep) =
@@ -2241,10 +2248,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 {
                     ep
                 } else {
-                    return Err((
+                    return Err(refuse(
                         error!(ErrorCode::SessionVconnCryptoMissing),
-                        attributed_ticket,
-                        original_payload,
+                        ratchet_message,
                     ));
                 };
 
@@ -2256,13 +2262,20 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         if matches!(v_conn, VirtualConnectionType::LocalGroupServer { .. }) {
                             session.shutdown();
                         }
-                        return Err((
+                        return Err(refuse(
                             error!(ErrorCode::SessionRatchetMissingForEndpoint),
-                            attributed_ticket,
-                            original_payload,
+                            ratchet_message,
                         ));
                     }
                 };
+                // A closed stream refuses the message while it is still whole; past this point
+                // it is consumed by the crafter, and only a close racing the send loses it.
+                if preferred_stream.is_closed() {
+                    return Err(refuse(
+                        error!(ErrorCode::GroupHeaderTransmitFailed, "the stream is closed"),
+                        ratchet_message,
+                    ));
+                }
 
                 let negotiated = state_container
                     .get_endpoint_container(v_conn.get_target_cid())
@@ -2289,7 +2302,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     v_conn,
                     state_container.direct_journal_for(v_conn.get_target_cid()),
                 )
-                .map_err(|err| (err, attributed_ticket, original_payload))?;
+                .map_err(|err| (err, attributed_ticket, None))?;
 
                 Ok(())
             }

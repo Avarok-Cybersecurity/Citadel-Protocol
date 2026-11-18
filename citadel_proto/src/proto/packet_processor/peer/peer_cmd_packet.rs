@@ -1573,6 +1573,13 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             peer_cid: target_cid,
                         };
 
+                        // Resolved before the peer-layer lock: holding it across a backend
+                        // round-trip would serialise every pair's signalling behind this one.
+                        let target_registration = session
+                            .account_manager
+                            .hyperlan_cid_is_registered(target_cid)
+                            .await
+                            .map_err(|err| err.into_string());
                         let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_register(session_cid, target_cid)
@@ -1645,6 +1652,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                 &sess_ratchet,
                                 security_level,
                                 &mut peer_layer,
+                                target_registration,
                             )
                             .await
                         }
@@ -1796,6 +1804,12 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
                         let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
                         let sess_mgr = session.session_manager.clone();
+                        // Resolved before the peer-layer lock (see PostRegister).
+                        let target_registration = session
+                            .account_manager
+                            .hyperlan_cid_is_registered(target_cid)
+                            .await
+                            .map_err(|err| err.into_string());
                         let peer_layer_arc = session.hypernode_peer_layer.inner.clone();
                         let mut peer_layer = peer_layer_arc.write().await;
                         // Self-supersede: any pending PostConnect this sender still has for the
@@ -1845,6 +1859,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                             // This prevents a race where two PostConnects slip through before either is registered.
                             route_signal_and_register_ticket_forwards_with_lock(
                                 &mut peer_layer,
+                                target_registration,
                                 PeerSignal::PostConnect {
                                     peer_conn_type,
                                     ticket_opt: Some(ticket),
@@ -2307,12 +2322,13 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, T: Pla
     sess_ratchet: &R,
     security_level: SecurityLevel,
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
+    target_registration: Result<bool, String>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_ratchet_2 = sess_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
     // Give the target_cid 10 seconds to respond
-    let res = sess_mgr.route_signal_primary(peer_layer, session_cid, target_cid, ticket, signal.clone(), move |peer_ratchet| {
+    let res = sess_mgr.route_signal_primary(peer_layer, target_registration, session_cid, target_cid, ticket, signal.clone(), move |peer_ratchet| {
         packet_crafter::peer_cmd::craft_peer_signal(peer_ratchet, signal.clone(), ticket, timestamp, security_level)
     }, timeout, move |stale_signal| {
         // on timeout, run this
@@ -2351,6 +2367,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
     T: PlatformOps,
 >(
     peer_layer: &mut CitadelNodePeerLayerInner<R>,
+    target_registration: Result<bool, String>,
     signal: PeerSignal,
     timeout: Duration,
     session_cid: u64,
@@ -2368,6 +2385,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
     let res = sess_mgr
         .route_signal_primary(
             peer_layer,
+            target_registration,
             session_cid,
             target_cid,
             ticket,

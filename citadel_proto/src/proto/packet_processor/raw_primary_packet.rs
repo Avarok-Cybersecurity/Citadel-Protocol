@@ -243,10 +243,10 @@ pub(crate) fn check_proxy<R: Ratchet, T: PlatformOps>(
                 log::trace!(target: "citadel", "Proxying {cmd_primary}:{cmd_aux} packet from {this_session_cid} to {target_cid}");
                 // Proxy will only occur if there exists a virtual connection, in which case, we get the TcpSender (since these are primary packets)
 
-                // `MetaExpiryState::on_event_confirmation` is interior-mutable now, so this proxy
-                // block no longer needs a `mut` binding (kept on the write lock pending the planned
-                // DashMap sharding of `active_virtual_connections`).
-                let state_container = inner_mut_state!(session.state_container);
+                // Everything this block touches is interior-mutable (the expiry stamp, the vconn's
+                // delivery stamp, the senders), so a read guard suffices: relayed packets of one
+                // session no longer serialise on its exclusive lock, nor block its C2S traffic.
+                let state_container = inner_state!(session.state_container);
                 state_container.meta_expiry_state.on_event_confirmation();
 
                 let vconn = state_container.active_virtual_connections.get(&target_cid);
