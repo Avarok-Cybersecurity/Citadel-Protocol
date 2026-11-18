@@ -17,6 +17,7 @@ members = [
     "citadel_treekem",
     "citadel_types",
     "citadel_media",
+    "citadel_negotiation",
     "example-library",
 ]
 
