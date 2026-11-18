@@ -68,7 +68,6 @@ use std::ops::{Deref, DerefMut};
 
 /// Kernels for clients
 pub mod client;
-/// Event inboxes for receivers an application may never take
 pub mod inbox;
 /// Kernels for servers
 pub mod server;
