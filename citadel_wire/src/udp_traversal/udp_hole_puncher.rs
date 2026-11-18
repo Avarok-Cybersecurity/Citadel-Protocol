@@ -32,6 +32,7 @@
 
 use crate::nat_identification::{NatType, IDENTIFY_TIMEOUT};
 use crate::stun_servers::StunServers;
+use crate::udp_traversal::abort_on_drop::AbortOnDrop;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
@@ -69,8 +70,8 @@ pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
-/// An attempt long enough for NAT identification and a punch over a slow coordination path, for
-/// a punch with no deadline of its own to fit (C2S).
+/// An attempt long enough for a punch over a slow coordination path, for a punch with no deadline
+/// of its own to fit (C2S).
 pub const STANDALONE_ATTEMPT_TIMEOUT: Duration =
     Duration::from_millis((IDENTIFY_TIMEOUT.as_millis() + 17000) as u64);
 
@@ -116,9 +117,16 @@ async fn driver(
     let deadline = citadel_io::time::Instant::now() + budget.total();
     let timeout = budget.attempt();
     let control = conn.on(HOLE_PUNCH_CONTROL);
+    // The local NAT is a fact about this host, not about one attempt: it is learned once, while
+    // the control stream opens, so that no attempt spends its own slice re-learning it.
+    let identify = AbortOnDrop::spawn(local_nat_type(stun_servers.clone()));
     let control = citadel_io::time::timeout(remaining(deadline), control.initiate_subscription())
         .await
         .map_err(|_| anyhow::Error::msg("Peer never opened the hole-punch control stream"))??;
+    let local_nat_type = &citadel_io::time::timeout(remaining(deadline), identify)
+        .await
+        .map_err(|_| anyhow::Error::msg("NAT identification exceeded the hole-punch budget"))?
+        .map_err(|err| anyhow::Error::msg(format!("NAT identification panicked: {err:?}")))?;
     paired_attempts::greet(&control).await?;
     let attempts = AttemptCoordinator::new(control, conn.local_addr()?, conn.peer_addr()?);
 
@@ -134,6 +142,7 @@ async fn driver(
                 conn.node_type(),
                 conn.wire_revision(),
                 encrypted_config_container.clone(),
+                local_nat_type,
                 stun_servers,
             );
             let next = match citadel_io::time::timeout(timeout, task).await {
@@ -179,6 +188,16 @@ async fn driver(
         })?
 }
 
+/// The local NAT for one hole punch. A failed identification is not fatal: the peers may still
+/// reach each other at their local addresses (same LAN or host, or no reachable STUN server), so
+/// the punch proceeds with an honest "unidentified" NAT carrying the real internal IP.
+async fn local_nat_type(stun_servers: StunServers) -> NatType {
+    log::trace!(target: "citadel", "[driver] Identifying local NAT type...");
+    let local_nat_type = NatType::identified_or_local(NatType::identify(&stun_servers).await).await;
+    log::trace!(target: "citadel", "[driver] local NAT type: {local_nat_type:?}");
+    local_nat_type
+}
+
 fn remaining(deadline: citadel_io::time::Instant) -> Duration {
     deadline.saturating_duration_since(citadel_io::time::Instant::now())
 }
@@ -199,6 +218,7 @@ async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
     node_type: RelativeNodeType,
     wire: WireRevision,
     encrypted_config_container: HolePunchConfigContainer,
+    local_nat_type: &NatType,
     stun_servers: &StunServers,
 ) -> AttemptOutcome {
     let peer = attempts.peer_reached(attempt).await;
@@ -208,7 +228,13 @@ async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
 
     let punch = async {
         let endpoint = NetworkEndpoint::register(node_type, lane, wire).await?;
-        driver_inner(&endpoint, encrypted_config_container, stun_servers).await
+        driver_inner(
+            &endpoint,
+            encrypted_config_container,
+            local_nat_type,
+            stun_servers,
+        )
+        .await
     };
 
     citadel_io::tokio::select! {
@@ -223,6 +249,7 @@ async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
 async fn driver_inner(
     conn: &NetworkEndpoint,
     encrypted_config_container: HolePunchConfigContainer,
+    local_nat_type: &NatType,
     stun_servers: &StunServers,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     log::trace!(target: "citadel", "[driver] Starting hole puncher ...");
@@ -241,14 +268,7 @@ async fn driver_inner(
     };
     let stream = &stream;
 
-    // Step 2: NAT type identification
-    log::trace!(target: "citadel", "[driver] Step 2: Identifying local NAT type...");
-    // A failed identification is not fatal: the peers may still reach each other at their
-    // local addresses (same LAN or host, or no reachable STUN server), so the punch proceeds
-    // with an honest "unidentified" NAT carrying the real internal IP.
-    let local_nat_type = NatType::identified_or_local(NatType::identify(stun_servers).await).await;
-    log::trace!(target: "citadel", "[driver] Step 2: local NAT type: {local_nat_type:?}");
-    let local_nat_type = &local_nat_type;
+    // Step 2, identifying the local NAT, ran once for the whole punch (see `driver`).
 
     // Step 3: Exchange NAT types with peer
     log::trace!(target: "citadel", "[driver] Step 3: Exchanging NAT types with peer...");

@@ -14,7 +14,7 @@
 #![cfg(not(feature = "localhost-testing"))]
 
 use citadel_io::tokio;
-use citadel_wire::nat_identification::NatType;
+use citadel_wire::nat_identification::{NatType, IDENTIFY_TIMEOUT};
 use citadel_wire::stun_servers::StunServers;
 use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use citadel_wire::udp_traversal::udp_hole_puncher::{
@@ -59,17 +59,36 @@ async fn a_failed_nat_identification_still_punches_using_local_candidates() {
         "precondition: with no STUN server answering, identification must fail"
     );
 
+    punch_and_exchange(servers, budget()).await;
+}
+
+/// An attempt only as long as one NAT identification still punches. The local NAT is a fact
+/// about the host, learned once per punch, so no attempt spends its own time re-learning it;
+/// and the reflexive probe asks every STUN server at once, so silent servers cost one probe
+/// window rather than one each. Before both, an attempt with no STUN server answering spent
+/// `IDENTIFY_TIMEOUT` identifying and then a window per server probing, so every attempt ran
+/// out before the peers exchanged a candidate.
+#[tokio::test]
+async fn an_attempt_does_not_have_to_hold_a_nat_identification() {
+    citadel_logging::setup_log();
+    let (_silent, servers) = silent_stun_servers();
+    punch_and_exchange(servers, PunchBudget::per_attempt(IDENTIFY_TIMEOUT)).await;
+}
+
+/// Punches between two local endpoints with `servers` and `budget` on both sides, then
+/// exchanges a datagram each way over the punched sockets.
+async fn punch_and_exchange(servers: StunServers, budget: PunchBudget) {
     let (server_stream, client_stream) = create_streams_with_addrs_and_lag(0).await;
     let (server_servers, client_servers) = (servers.clone(), servers);
     let server = tokio::task::spawn(async move {
         server_stream
-            .begin_udp_hole_punch(container(), server_servers, budget())
+            .begin_udp_hole_punch(container(), server_servers, budget)
             .await
             .map_err(|e| e.to_string())
     });
     let client = tokio::task::spawn(async move {
         client_stream
-            .begin_udp_hole_punch(container(), client_servers, budget())
+            .begin_udp_hole_punch(container(), client_servers, budget)
             .await
             .map_err(|e| e.to_string())
     });
