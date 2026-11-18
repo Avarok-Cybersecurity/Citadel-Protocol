@@ -33,6 +33,7 @@ use crate::prelude::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::peer::peer_cmd_packet::route_signal_response;
 use crate::proto::packet_processor::PrimaryProcessorResult;
+use crate::proto::peer::peer_layer::Answer;
 use crate::proto::peer::peer_layer::Username;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
@@ -68,7 +69,7 @@ pub async fn handle_response_phase_post_register<R: Ratchet, T: PlatformOps>(
         invitee_username: None,
         ticket_opt: Some(ticket),
         invitee_response: Some(peer_response),
-    }, session_cid, target_cid, timestamp, ticket, session.clone(), sess_ratchet,
+    }, session_cid, target_cid, timestamp, ticket, if decline { Answer::Refuses } else { Answer::Accepts }, session.clone(), sess_ratchet,
                           |this_sess, _peer_sess, _original_tracked_posting| {
                               if !decline {
                                   let account_manager = this_sess.account_manager.clone();

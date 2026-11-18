@@ -43,7 +43,8 @@ use bytes::BytesMut;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::peer::negotiation::reason::reported_reason;
 use crate::proto::peer::negotiation::refusal::{
-    end_attempt_refused_by, refuse_stamp, take_attempt_stamped_below,
+    decline_dial, end_attempt_refused_by, held_dial_password, refuse_accept, refuse_stamp,
+    take_attempt_stamped_below,
 };
 use citadel_crypt::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
 use citadel_crypt::prelude::ConstructorOpts;
@@ -68,7 +69,8 @@ use crate::proto::peer::hole_punch_compat_sink_stream::{
 use crate::proto::peer::p2p_seal_binding::{exchange_psks, P2pSealContext};
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
-    CitadelNodePeerLayerInner, ClientConnectionType, PeerConnectionType, PeerResponse, PeerSignal,
+    Answer, CitadelNodePeerLayerInner, ClientConnectionType, Crossing, PeerConnectionType,
+    PeerResponse, PeerSignal,
 };
 use crate::proto::pq_sign_in;
 use crate::proto::remote::Ticket;
@@ -370,6 +372,10 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         // connection: the peer's dial won. Starting a second
                                         // exchange would replace that connection's KEM state
                                         // below, withdrawing its UDP channel offer on both ends.
+                                        // The accept is refused back too: the peer (or, when the
+                                        // server merged two dials, the peer's own dial) is
+                                        // answered, and its attempt ends instead of being read
+                                        // as a dial.
                                         if state_container
                                             .has_live_peer_connection(*original_session_cid)
                                         {
@@ -377,30 +383,55 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 .outgoing_peer_connect_attempts
                                                 .remove(original_session_cid);
                                             drop(state_container);
-                                            let ticket = dial.map_or(ticket, |dial| dial.ticket);
+                                            let dial_ticket =
+                                                dial.map_or(ticket, |dial| dial.ticket);
+                                            let error = format!(
+                                                "Already connected to peer {original_session_cid}"
+                                            );
                                             log::info!(target: "citadel", "Dual-connect race: {original_target_cid} is already connected to {original_session_cid}; not starting a second exchange");
                                             session.send_to_kernel(NodeResult::PeerEvent(
                                                 PeerEvent {
                                                     event: PeerSignal::SignalError {
-                                                        ticket,
-                                                        error: format!("Already connected to peer {original_session_cid}"),
+                                                        ticket: dial_ticket,
+                                                        error: error.clone(),
                                                         peer_connection_type: conn.reverse(),
                                                     },
-                                                    ticket,
+                                                    ticket: dial_ticket,
                                                     session_cid,
                                                 },
                                             ))?;
-                                            return Ok(PrimaryProcessorResult::Void);
+                                            return refuse_accept(
+                                                &sess_ratchet,
+                                                session_cid,
+                                                *original_session_cid,
+                                                ticket,
+                                                error,
+                                                timestamp,
+                                                security_level,
+                                            );
                                         }
 
-                                        let session_password = state_container
-                                            .get_session_password(conn.get_original_session_cid())
-                                            .cloned();
-                                        if session_password.is_none() {
-                                            log::error!(target: "citadel", "The session password locally is set to None. This is a development issue, please report");
-                                        }
-
-                                        let session_password = session_password.unwrap_or_default();
+                                        // An accept answers a dial this side holds. Without one
+                                        // (the dial ended, or the server merged a dial of the
+                                        // peer's with a posting of ours that outlived it), there
+                                        // is no session password to seal the exchange with and
+                                        // nobody here waiting for it: refuse it back, and start
+                                        // and record nothing.
+                                        let Some(session_password) = held_dial_password(
+                                            &state_container,
+                                            *original_session_cid,
+                                        ) else {
+                                            drop(state_container);
+                                            return refuse_accept(
+                                                &sess_ratchet,
+                                                session_cid,
+                                                *original_session_cid,
+                                                ticket,
+                                                format!("No dial to peer {original_session_cid} is in progress"),
+                                                timestamp,
+                                                security_level,
+                                            );
+                                        };
                                         // Generate a unique connection ID for this P2P connection.
                                         // Exchanged during KEX so both peers share the same ID.
                                         let p2p_connection_id = Ticket::default();
@@ -1252,8 +1283,19 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 // Both sides dialled again over a live connection. Accepting
                                 // here would replace its KEM state (and UDP offer) below; the
                                 // live connection already won, so neither dial goes ahead.
-                                log::info!(target: "citadel", "Dual-connect race: {session_cid} ignoring PostConnect from {peer_cid}, already connected");
-                                return Ok(PrimaryProcessorResult::Void);
+                                // Nothing else would answer the peer's dial, so it is
+                                // declined: the peer hears now rather than at its timeout, and
+                                // the server drops the dial's posting.
+                                log::info!(target: "citadel", "Dual-connect race: {session_cid} declining PostConnect from {peer_cid}, already connected");
+                                return decline_dial(
+                                    &sess_ratchet,
+                                    *conn,
+                                    ticket,
+                                    *endpoint_security_settings,
+                                    *udp_enabled,
+                                    timestamp,
+                                    security_level,
+                                );
                             }
 
                             if has_outgoing && exchanging {
@@ -1262,7 +1304,12 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 // exchange's slot below, and the peer, already in it, drops
                                 // the second exchange this accept starts (first exchange
                                 // wins): neither would finish. The exchange in progress
-                                // connects the pair and answers the peer's dial too.
+                                // connects the pair and answers the peer's dial too: the
+                                // peer's channel takes over its dial's attempt. Declining it
+                                // would end that attempt under the exchange. Its posting can
+                                // outlive this, but it was made over the pair's live route, so
+                                // the server never merges it with a later dial
+                                // (`Crossing::OverLiveLink`).
                                 log::info!(target: "citadel", "Dual-connect race: {session_cid} ignoring PostConnect from {peer_cid}; a key exchange with it is in progress");
                                 return Ok(PrimaryProcessorResult::Void);
                             }
@@ -1315,7 +1362,12 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                                 } else {
                                     log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} deferring to {peer_cid} (lower CID)");
-                                    // Higher CID ignores - the lower CID side will handle it
+                                    // Higher CID defers: the lower CID auto-accepts our dial, and
+                                    // the link that makes answers the peer's dial (its channel
+                                    // takes over that dial's attempt). That accept reaches the
+                                    // server after the peer's dial (one ordered stream), so the
+                                    // server consumes the pair's postings with it. Declining
+                                    // here would end the peer's dial under that link.
                                     return Ok(PrimaryProcessorResult::Void);
                                 }
                             }
@@ -1815,6 +1867,17 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                         // a leaked posting from ever mis-firing `check_simultaneous_connect`
                         // for either side, without relying on a Disconnect to arrive.
                         peer_layer.remove_pending_post_connect_owned_by(session_cid, target_cid);
+                        // A dial over the pair's live link is answered from that link and is
+                        // never merged with a later dial (`Crossing::OverLiveLink`). Read under
+                        // the peer-layer lock, beside the check-and-insert it qualifies.
+                        let crossing = if admits_key_exchange(
+                            &inner_state!(session.state_container).active_virtual_connections,
+                            target_cid,
+                        ) {
+                            Crossing::OverLiveLink
+                        } else {
+                            Crossing::Open
+                        };
                         if let Some(ticket_new) =
                             peer_layer.check_simultaneous_connect(session_cid, target_cid)
                         {
@@ -1866,6 +1929,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                                     session_password,
                                 },
                                 TIMEOUT,
+                                crossing,
                                 session_cid,
                                 target_cid,
                                 timestamp,
@@ -1912,7 +1976,13 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     // hygiene is handled where no ordering assumptions are needed:
                     //  - establishment supersede (route_signal_response_primary consumes the
                     //    accept and atomically purges the pair's leftover postings), and
-                    //  - sender self-supersede on each new PostConnect initiation, and
+                    //  - sender self-supersede on each new PostConnect initiation,
+                    //  - a dial made over the pair's live route is never merged with a later
+                    //    dial (`Crossing::OverLiveLink`): that marks, at the dial's own
+                    //    processing, exactly the postings a purge here would have targeted,
+                    //    with no ordering assumption, and a fresh reconnect posting made after
+                    //    the route ended stays mergeable (R-DIAL's crossed redials),
+                    //  - a receiver's decline (or refusal) consumes the dial it answers, and
                     //  - the 65s posting TTL.
                     let mut state_container = inner_mut_state!(session.state_container);
                     state_container.remove_udp_channel(target_cid);
@@ -2313,7 +2383,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards<R: Ratchet, T: Pla
     // Give the target_cid 10 seconds to respond
     let res = sess_mgr.route_signal_primary(peer_layer, target_registration, session_cid, target_cid, ticket, signal.clone(), move |peer_ratchet| {
         packet_crafter::peer_cmd::craft_peer_signal(peer_ratchet, signal.clone(), ticket, timestamp, security_level)
-    }, timeout, move |stale_signal| {
+    }, timeout, Crossing::Open /* a registration, not a dial: never consulted */, move |stale_signal| {
         // on timeout, run this
         // TODO: Use latest ratchet, otherwise, may expire
         log::warn!(target: "citadel", "Running timeout closure. Sending error message to {session_cid}");
@@ -2353,6 +2423,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
     target_registration: Result<bool, String>,
     signal: PeerSignal,
     timeout: Duration,
+    crossing: Crossing,
     session_cid: u64,
     target_cid: u64,
     timestamp: i64,
@@ -2383,6 +2454,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards_with_lock<
                 )
             },
             timeout,
+            crossing,
             move |stale_signal| {
                 log::warn!(target: "citadel", "Running timeout closure. Sending error message to {session_cid}");
                 match packet_crafter::peer_cmd::craft_peer_signal(
@@ -2425,6 +2497,7 @@ pub(crate) async fn route_signal_response<R: Ratchet, T: PlatformOps>(
     target_cid: u64,
     timestamp: i64,
     ticket: Ticket,
+    answer: Answer,
     session: CitadelSession<R, T>,
     sess_ratchet: &R,
     on_route_finished: impl FnOnce(&CitadelSession<R, T>, &CitadelSession<R, T>, PeerSignal),
@@ -2439,6 +2512,7 @@ pub(crate) async fn route_signal_response<R: Ratchet, T: PlatformOps>(
             session_cid,
             target_cid,
             ticket,
+            answer,
             sess_ref,
             move |peer_ratchet| {
                 packet_crafter::peer_cmd::craft_peer_signal(

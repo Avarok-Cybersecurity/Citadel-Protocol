@@ -1,18 +1,19 @@
-//! A client's refusals around a dial: R-DIAL 3 (never build a link below its own offer), and
-//! the end of a dial or accept the server refused.
+//! A client's refusals around a dial: R-DIAL 3 (never build a link below its own offer), the end
+//! of a dial or accept the server refused, an accept for a dial this side no longer holds, and
+//! a dial this side will not otherwise answer.
 
 use crate::error::NetworkError;
 use crate::proto::node_result::NodeResult;
 use crate::proto::node_result::PeerEvent;
 use crate::proto::packet_crafter;
 use crate::proto::packet_processor::PrimaryProcessorResult;
-use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
+use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::{OutgoingPeerConnectionAttempt, StateContainerInner};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_negotiation::RejectReason;
-use citadel_types::crypto::SecurityLevel;
-use citadel_types::proto::{falls_short_of, SessionSecuritySettings};
+use citadel_types::crypto::{PreSharedKey, SecurityLevel};
+use citadel_types::proto::{falls_short_of, SessionSecuritySettings, UdpMode};
 
 /// R-DIAL 3. When this side made an offer for the link to `peer_cid` (a dial, or an accept), and
 /// the settings it is now told to build with fall short of it, the attempt ends here: it is
@@ -122,4 +123,82 @@ pub(crate) fn end_attempt_refused_by<R: Ratchet>(
             .outgoing_peer_connect_attempts
             .remove(&peer_cid);
     }
+}
+
+/// The session password of a dial this side holds toward `peer_cid`: `None` unless a dial (or an
+/// accept of the peer's) is in progress and its password is stored. An accept is answered only
+/// with it; without one there is no request of ours the accept answers.
+pub(crate) fn held_dial_password<R: Ratchet>(
+    state_container: &StateContainerInner<R>,
+    peer_cid: u64,
+) -> Option<PreSharedKey> {
+    if !state_container
+        .outgoing_peer_connect_attempts
+        .contains_key(&peer_cid)
+    {
+        return None;
+    }
+    state_container.get_session_password(peer_cid).cloned()
+}
+
+/// Refuses, back through the server, an accept this side will not build a link for. The server
+/// relays it on the ticket the accepting (or merged) dialler holds, so that dial ends now: it is
+/// answered, and its attempt is no longer read as a dial.
+pub(crate) fn refuse_accept<R: Ratchet>(
+    sess_ratchet: &R,
+    session_cid: u64,
+    peer_cid: u64,
+    ticket: Ticket,
+    error: String,
+    timestamp: i64,
+    security_level: SecurityLevel,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    log::warn!(target: "citadel", "Refusing an accept from {peer_cid} on {ticket}: {error}");
+    let refusal = PeerSignal::SignalError {
+        ticket,
+        error,
+        peer_connection_type: PeerConnectionType::LocalGroupPeer {
+            session_cid,
+            peer_cid,
+        },
+    };
+    let packet = packet_crafter::peer_cmd::craft_peer_signal(
+        sess_ratchet,
+        refusal,
+        ticket,
+        timestamp,
+        security_level,
+    )?;
+    Ok(PrimaryProcessorResult::ReplyToSender(packet))
+}
+
+/// Declines, on its own ticket, a dial this side will not answer otherwise. It is the decline an
+/// application sends, so every server and peer version handles it: the server consumes the
+/// dial's posting (no later dial is merged with it) and the dialler's dial ends with an answer
+/// instead of its timeout.
+pub(crate) fn decline_dial<R: Ratchet>(
+    sess_ratchet: &R,
+    dial: PeerConnectionType,
+    ticket: Ticket,
+    session_security_settings: SessionSecuritySettings,
+    udp_mode: UdpMode,
+    timestamp: i64,
+    security_level: SecurityLevel,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let decline = PeerSignal::PostConnect {
+        peer_conn_type: dial.reverse(),
+        ticket_opt: Some(ticket),
+        invitee_response: Some(PeerResponse::Decline),
+        session_security_settings,
+        udp_mode,
+        session_password: None,
+    };
+    let packet = packet_crafter::peer_cmd::craft_peer_signal(
+        sess_ratchet,
+        decline,
+        ticket,
+        timestamp,
+        security_level,
+    )?;
+    Ok(PrimaryProcessorResult::ReplyToSender(packet))
 }

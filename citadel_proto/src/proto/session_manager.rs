@@ -71,8 +71,8 @@ use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::group_commit_gate::Settled;
 use crate::proto::peer::group_relay::GroupBroadcastTargets;
 use crate::proto::peer::peer_layer::{
-    CitadelNodePeerLayer, CitadelNodePeerLayerInner, MailboxTransfer, PeerConnectionType,
-    PeerResponse, PeerSignal,
+    Answer, CitadelNodePeerLayer, CitadelNodePeerLayerInner, Crossing, MailboxTransfer,
+    PeerConnectionType, PeerResponse, PeerSignal,
 };
 use crate::proto::provisional_reservation::ProvisionalReservation;
 use crate::proto::remote::{NodeRemote, Ticket};
@@ -1950,6 +1950,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         signal: PeerSignal,
         packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
         timeout: Duration,
+        crossing: Crossing,
         on_timeout: impl Fn(PeerSignal) + SyncContextRequirements,
     ) -> Result<(), String> {
         if session_cid == target_cid {
@@ -1973,7 +1974,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             // get the target cid's session
             if let Some(ref sess_ref) = peer_sess {
                 peer_layer
-                    .insert_tracked_posting(session_cid, timeout, ticket, signal, on_timeout)
+                    .insert_tracked_posting(
+                        session_cid,
+                        timeout,
+                        ticket,
+                        signal,
+                        crossing,
+                        on_timeout,
+                    )
                     .await;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
                 let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
@@ -1995,7 +2003,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 .await
                 .map_err(|err| err.into_string())?;
                 peer_layer
-                    .insert_tracked_posting(session_cid, timeout, ticket, signal, on_timeout)
+                    .insert_tracked_posting(
+                        session_cid,
+                        timeout,
+                        ticket,
+                        signal,
+                        crossing,
+                        on_timeout,
+                    )
                     .await;
                 Ok(())
             }
@@ -2179,11 +2194,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Also returns the [TrackedPosting] that was posted when the signal initially crossed through
     /// the HyperLAN Server
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     pub async fn route_signal_response_primary(
         &self,
         session_cid: u64,
         target_cid: u64,
         ticket: Ticket,
+        answer: Answer,
         session: &CitadelSession<R, T>,
         packet: impl FnOnce(&R) -> Result<BytesMut, NetworkError>,
         post_send: impl FnOnce(
@@ -2198,7 +2215,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 .inner
                 .write()
                 .await
-                .remove_tracked_posting_and_supersede_connect(target_cid, ticket, session_cid)
+                .remove_answered_posting(target_cid, ticket, session_cid, answer)
         };
         if let Some(tracked_posting) = tracked_posting {
             // since the posting was valid, we just need to forward the signal to `session_cid`
