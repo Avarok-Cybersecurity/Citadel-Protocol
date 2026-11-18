@@ -20,27 +20,32 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: none
+          targets: ""
+          components: ""
+          tools: make
       - name: Compile documentation
         run: cargo make docs
       - name: Deploy documentation
         if: success()
-        uses: crazy-max/ghaction-github-pages@v2.6.0
+        uses: crazy-max/ghaction-github-pages@v5
         with:
           build_dir: target/doc
           target_branch: gh-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: success()
         with:
           ref: gh-pages
       - name: Ensure valid redirection
         run: |
-          mv ${GITHUB_WORKSPACE}/citadel_sdk ${GITHUB_WORKSPACE}/docs
-          echo "<meta http-equiv=\"refresh\" content=\"0; url=docs\">" > ${GITHUB_WORKSPACE}/index.html
+          mv "${GITHUB_WORKSPACE}/citadel_sdk" "${GITHUB_WORKSPACE}/docs"
+          echo "<meta http-equiv=\"refresh\" content=\"0; url=docs\">" > "${GITHUB_WORKSPACE}/index.html"
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
           git add .

@@ -75,19 +75,18 @@ jobs:
       # A PAT (CRATES_RELEASE_PAT) is used when present so that the version-bump commit can be
       # pushed to a protected default branch; otherwise the built-in token is used (sufficient
       # for tag-only 'none' releases and for repos whose default branch is not push-protected).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.CRATES_RELEASE_PAT || secrets.GITHUB_TOKEN }}
 
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      # Mirrors the toolchain/system deps used by CI so the verify build matches `validate.yml`.
-      - name: Setup system dependencies
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
+      # The toolchain CI uses, so the verify build matches `validate.yml`.
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: publish-linux
+          targets: ""
+          components: ""
+          tools: ""
 
       - name: Install cargo-workspaces
         run: cargo install cargo-workspaces --locked
@@ -101,7 +100,7 @@ jobs:
       # since unpublished sibling versions are not yet resolvable from the index). This step is
       # the safety net that catches a broken tree before anything is uploaded.
       - name: Verify workspace compiles
-        run: cargo check --workspace
+        run: cargo check --locked --workspace
 
       - name: Compute publish plan
         id: plan
@@ -202,7 +201,7 @@ jobs:
         if: ${{ inputs.dry_run == false && inputs.bump == 'none' }}
         run: |
           set -euo pipefail
-          V="$(cargo metadata --no-deps --format-version 1 \
+          V="$(cargo metadata --locked --no-deps --format-version 1 \
                 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="citadel_sdk"))')"
           if git rev-parse "v$V" >/dev/null 2>&1; then
             echo "Tag v$V already exists; leaving it as-is."

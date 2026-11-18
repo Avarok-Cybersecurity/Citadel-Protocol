@@ -20,21 +20,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: ./.github/actions/setup-rust
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          cache-key: none
+          targets: ""
           components: clippy
-
-      - name: Install cargo-make
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: --force cargo-make
+          tools: make
 
       - name: Create bump branch
         run: |
@@ -53,11 +46,11 @@ jobs:
           fi
 
       - name: Run clippy
-        run: cargo clippy --tests
+        run: cargo clippy --locked --tests
 
       - name: Commit changes
         run: |
-          VERSION=$(cargo pkgid --package citadel_sdk | cut -d# -f2 | cut -d: -f2)
+          VERSION=$(cargo pkgid --locked --package citadel_sdk | cut -d# -f2 | cut -d: -f2)
           git add .
           git commit -am "upgrade: protocol version ${VERSION} release (${{ github.event.inputs.version_type }})"
 
