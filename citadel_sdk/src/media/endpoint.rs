@@ -145,7 +145,11 @@ impl MediaEndpoint {
             ),
             None => Self::assemble(
                 MediaTransportKind::Reliable,
-                Box::new(control_sink.clone()),
+                // Room for one largest frame between the send queue and the pump.
+                Box::new(
+                    control_sink
+                        .media_lane(cfg.media.fragment_count_for(cfg.media.max_frame_bytes)),
+                ),
                 Box::new(control_sink),
                 control_src,
                 None,

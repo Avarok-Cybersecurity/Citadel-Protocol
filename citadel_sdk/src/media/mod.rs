@@ -36,4 +36,6 @@ pub use config::{
 pub use endpoint::{MediaEndpoint, MediaEndpointParts};
 pub use receiver::{MediaEvent, MediaReceiver};
 pub use sender::MediaSender;
-pub use transport::{MediaDatagramSink, MediaDatagramSource, MediaTransportKind, ReliableSink};
+pub use transport::{
+    MediaDatagramSink, MediaDatagramSource, MediaTransportKind, QueuedDatagram, ReliableSink,
+};

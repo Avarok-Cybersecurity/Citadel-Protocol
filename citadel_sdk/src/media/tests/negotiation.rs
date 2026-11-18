@@ -38,7 +38,7 @@ fn agree(
         outcome = Some(agree_on_udp(peer_version, local_udp, &mut sink, &mut src).await);
         drop(sink);
         while let Some(datagram) = sent_rx.recv().await {
-            match citadel_media::wire::parse(&datagram).unwrap() {
+            match citadel_media::wire::parse(&datagram.buf).unwrap() {
                 citadel_media::WireMessage::Control(body) => {
                     sent.push(ControlMessage::decode(body).unwrap())
                 }

@@ -28,6 +28,14 @@ impl MediaDatagramSink for FlakySink {
         }
         self.inner.send_datagram(buf)
     }
+
+    fn has_room(&self, datagrams: usize) -> bool {
+        self.inner.has_room(datagrams)
+    }
+
+    fn room_for(&self, datagrams: usize) -> futures::future::BoxFuture<'static, ()> {
+        self.inner.room_for(datagrams)
+    }
 }
 
 #[test]
@@ -126,7 +134,7 @@ fn out_of_order_delivery_and_gap_after_jitter_depth() {
         }
         let mut datagrams = Vec::new();
         while let Ok(d) = cap_rx.try_recv() {
-            datagrams.push(d);
+            datagrams.push(d.buf);
         }
         let mut m_sink = m_sink;
         m_sink.send_datagram(datagrams[0].clone()).unwrap();
@@ -196,4 +204,40 @@ fn oversized_frame_maps_to_frame_rejected() {
         )
         .unwrap_err();
     assert_eq!(err.code(), ErrorCode::MediaFrameRejected);
+}
+
+#[test]
+fn a_reliable_lane_its_pump_cannot_drain_drops_by_queue_policy_instead_of_growing() {
+    run(async {
+        // Nothing forwards: the pump is stalled, as under congestion.
+        let (ctl_sink, mut pump_rx) = ReliableSink::pair();
+        const LANE: usize = 4;
+        let mut tx = MediaSender::new(
+            MediaTransportKind::Reliable,
+            Box::new(ctl_sink.media_lane(LANE)),
+            Box::new(ctl_sink),
+            CFG.media,
+            CFG.send_queue_frames,
+        )
+        .unwrap();
+        let mut dropped = 0;
+        for i in 0..100u32 {
+            dropped += tx
+                .send_frame(
+                    TrackId(0),
+                    TrackKind::Video,
+                    i,
+                    FrameFlags::NONE,
+                    payload(0),
+                )
+                .unwrap();
+        }
+        let mut waiting = 0;
+        while pump_rx.try_recv().is_ok() {
+            waiting += 1;
+        }
+        assert_eq!(waiting, LANE, "the lane holds no more than its budget");
+        assert_eq!(dropped, 100 - LANE - CFG.send_queue_frames);
+        assert_eq!(tx.stats().frames_dropped_on_send as usize, dropped);
+    })
 }

@@ -1,7 +1,7 @@
 //! Sender/receiver/demux tests over an in-process datagram pair (harness +
 //! roundtrip coverage; drop-policy/gap/config cases live in `policy`).
 //!
-//! The only test double is the in-memory `BytesMut` channel: `ReliableSink`
+//! The only test double is the in-memory datagram channel: `ReliableSink`
 //! (production) feeds an `UnboundedReceiver` that a thin adapter exposes as a
 //! `MediaDatagramSource`. This exercises packetization, queue policy,
 //! reassembly, jitter ordering and control demux end-to-end without a
@@ -12,8 +12,8 @@ use super::config::{
 use super::endpoint::MediaEndpoint;
 use super::receiver::{MediaEvent, MediaReceiver};
 use super::sender::MediaSender;
-use super::transport::{BoxedSource, MediaTransportKind, ReliableSink};
-use bytes::{Bytes, BytesMut};
+use super::transport::{BoxedSource, MediaTransportKind, QueuedDatagram, ReliableSink};
+use bytes::Bytes;
 use citadel_io::time::{Duration, Instant};
 use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use citadel_media::{FrameFlags, MediaConfig, MediaTrackDescriptor, TrackId, TrackKind};
@@ -42,9 +42,10 @@ pub(super) fn run<F: std::future::Future<Output = ()>>(f: F) {
         .block_on(f)
 }
 
-pub(super) fn source(rx: UnboundedReceiver<BytesMut>) -> BoxedSource {
+pub(super) fn source(rx: UnboundedReceiver<QueuedDatagram>) -> BoxedSource {
     Box::pin(
-        citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(rx).map(SecBuffer::from),
+        citadel_io::tokio_stream::wrappers::UnboundedReceiverStream::new(rx)
+            .map(|queued| SecBuffer::from(queued.buf)),
     )
 }
 
@@ -57,7 +58,11 @@ pub(super) fn endpoint(kind: MediaTransportKind) -> (MediaSender, MediaReceiver)
             let (m_sink, m_rx) = ReliableSink::pair();
             (m_sink, source(m_rx), Some(source(ctl_rx)))
         }
-        MediaTransportKind::Reliable => (ctl_sink.clone(), source(ctl_rx), None),
+        MediaTransportKind::Reliable => (
+            ctl_sink.media_lane(CFG.media.fragment_count_for(CFG.media.max_frame_bytes)),
+            source(ctl_rx),
+            None,
+        ),
     };
     MediaEndpoint::assemble(
         kind,
