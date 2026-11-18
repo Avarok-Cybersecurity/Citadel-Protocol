@@ -597,6 +597,8 @@ jobs:
     name: WASM Build Check
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      SDK_WASM_TESTS: wasm_basic_p2p wasm_crypto wasm_backend wasm_browser_connection_split
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -628,9 +630,16 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Run WASM integration tests
         working-directory: citadel_sdk
-        run: wasm-pack test --node --release -- --no-default-features --test wasm_basic_p2p --test wasm_crypto --test wasm_backend --test wasm_browser_connection_split
-      - name: The wasm32 test artifact imports only wasm-bindgen host functions
-        run: python3 ci/wasm-imports-are-bindgen-only.py target/wasm32-unknown-unknown/release/deps/wasm_basic_p2p-*.wasm
+        run: wasm-pack test --node --release -- --no-default-features $(printf -- '--test %s ' $SDK_WASM_TESTS)
+      # Cargo, not a path guess, names the artifacts: the build-dir layout moved test binaries
+      # out of deps/. The same flags as wasm-pack's cargo call keep this a no-op rebuild.
+      - name: The wasm32 test artifacts import only wasm-bindgen host functions
+        working-directory: citadel_sdk
+        run: |
+          cargo test --target wasm32-unknown-unknown --release --no-default-features $(printf -- '--test %s ' $SDK_WASM_TESTS) --no-run --message-format=json > "$RUNNER_TEMP/sdk-wasm-tests.json"
+          artifacts=$(python3 ../ci/wasm-test-executables.py "$RUNNER_TEMP/sdk-wasm-tests.json" $SDK_WASM_TESTS)
+          mapfile -t paths <<< "$artifacts"
+          python3 ../ci/wasm-imports-are-bindgen-only.py "${paths[@]}"
       - name: Run citadel_media WASM tests
         working-directory: citadel_media
         run: wasm-pack test --node --release -- --test wasm_media
