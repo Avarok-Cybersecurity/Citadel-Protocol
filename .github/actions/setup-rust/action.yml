@@ -62,6 +62,23 @@ runs:
         done
         echo "list=$list" >> "$GITHUB_OUTPUT"
 
+    # The `vendored` feature builds OpenSSL from source on Windows, and openssl-src runs Perl's
+    # Configure. Under `shell: bash` (validate.yml's default) Git Bash puts its msys perl first on
+    # PATH, and Configure fails with it ("'perl' reported failure with exit code: 2", run
+    # 44415712499); the old pipeline's steps ran in pwsh, where the runner's Strawberry Perl came
+    # first. openssl-src reads OPENSSL_SRC_PERL before PATH, so the Perl is named, not inherited.
+    - name: Name the Perl openssl-src builds with (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        perl='C:/Strawberry/perl/bin/perl.exe'
+        if [ ! -f "$perl" ]; then
+          echo "setup-rust: Strawberry Perl not found at $perl; openssl-src cannot configure" >&2
+          exit 1
+        fi
+        echo "OPENSSL_SRC_PERL=$perl" >> "$GITHUB_ENV"
+
     - uses: dtolnay/rust-toolchain@stable
       with:
         targets: ${{ inputs.targets }}
