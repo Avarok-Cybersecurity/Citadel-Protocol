@@ -262,13 +262,23 @@ jobs:
       # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
       # with no cross-leg dependency, and cancelling destroys which leg actually failed.
       fail-fast: false
+      # One job per (OS, thread model), as citadel_sdk_release does. Both nextest passes in one
+      # job took 56 of 65 min on macOS at master (run 43621433190: 27 + 26) and ran out on
+      # #389 (run 44263624976: single-threaded 255/255 green in 30 min, multi-threaded cut off
+      # at 32). Each pass compiles its own test binaries, so splitting halves each job's work.
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
+        threading: [ single-threaded, multi-threaded ]
+        include:
+          - threading: single-threaded
+            features: localhost-testing
+          - threading: multi-threaded
+            features: multi-threaded,localhost-testing
+    name: citadel_sdk (${{ matrix.os }}, ${{ matrix.threading }})
     runs-on: ${{ matrix.os }}
-    # CI capacity budget, not a test timeout (the tests' own bounds are unchanged). On Windows
-    # each nextest pass compiles for ~25 min (00:38 -> 01:04 in run 36785646666's rerun) and the
-    # job runs two passes, single- then multi-threaded: the single-threaded pass went 156/156 green
-    # in 12 min, and the 65-min limit cut the multi-threaded pass off at 145/156 with 0 failures.
+    # CI capacity budget, not a test timeout (the tests' own bounds are unchanged). Windows'
+    # budget was sized for two passes (each compiles ~25 min, run 36785646666); a job now runs
+    # one, and neither budget is changed.
     timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 110 || 65 }}
     steps:
       - name: Setup dependencies
@@ -312,18 +322,12 @@ jobs:
         with:
           path: target/media_fixtures
           key: media-fixtures-b3726eac-be112703
-      - name: Single-threaded testing
-        run: cargo nextest run --package citadel_sdk --features=localhost-testing
+      - name: ${{ matrix.threading }} testing
         if: ${{ !startsWith(matrix.os, 'windows') }}
-      - name: Single-threaded testing (windows only)
-        run: cargo nextest run --package citadel_sdk --features=localhost-testing,vendored
+        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }}
+      - name: ${{ matrix.threading }} testing (windows only)
         if: startsWith(matrix.os, 'windows')
-      - name: Multi-threaded testing (windows only)
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,vendored
-        if: startsWith(matrix.os, 'windows')
-      - name: Multi-threaded testing
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing
+        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }},vendored
 
   io_uring:
     # Linux-only: validates the opt-in io_uring inbound-UDP backend. Compile-checks both thread models
