@@ -129,6 +129,12 @@ impl OutboundPacket {
 pub struct OutboundPrimaryStreamSender(UnboundedSender<OutboundPacket>);
 
 impl OutboundPrimaryStreamSender {
+    /// True once the stream's writer is gone: nothing sent now would leave.
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.0 .0.is_closed()
+    }
+
     #[inline]
     pub fn unbounded_send(&self, item: bytes::BytesMut) -> Result<(), SendError<OutboundPacket>> {
         self.0.unbounded_send(OutboundPacket::Contiguous(item))
