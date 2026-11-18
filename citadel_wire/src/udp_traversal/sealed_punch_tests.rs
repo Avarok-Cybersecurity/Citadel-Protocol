@@ -49,9 +49,20 @@ async fn punch(endpoint: &NetworkEndpoint, key: u8) -> Result<(), String> {
 fn the_container_uses_the_functions_it_was_given() {
     let container = sealed_with(0xC1);
     let sealed = container.generate_packet(b"syn");
-    assert_ne!(&sealed[..], b"syn", "the punch packet went out in plaintext");
-    assert_eq!(container.decrypt_packet(&sealed).as_deref(), Some(&b"syn"[..]));
-    assert_eq!(container.decrypt_packet(b"syn"), None, "plaintext was accepted");
+    assert_ne!(
+        &sealed[..],
+        b"syn",
+        "the punch packet went out in plaintext"
+    );
+    assert_eq!(
+        container.decrypt_packet(&sealed).as_deref(),
+        Some(&b"syn"[..])
+    );
+    assert_eq!(
+        container.decrypt_packet(b"syn"),
+        None,
+        "plaintext was accepted"
+    );
 }
 
 #[tokio::test]
