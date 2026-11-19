@@ -86,7 +86,7 @@ impl PqAuthRecord {
         prf_eval_salt: [u8; 32],
         ksf: KsfParams,
         password_ek: EncapsulationKey,
-        recovery_eks: Vec<EncapsulationKey>,
+        recovery: RecoverySecret,
         now_ms: u64,
     ) -> Self {
         let mut record = Self {
@@ -104,7 +104,7 @@ impl PqAuthRecord {
             label: String::from("Password"),
         };
         let _ = record.add(password, now_ms);
-        record.replace_recovery(RecoverySecret::Codes(recovery_eks), now_ms);
+        record.replace_recovery(recovery, now_ms);
         record
     }
 

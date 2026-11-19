@@ -12,7 +12,7 @@ mod tests {
     use crate::common::admission::*;
     use crate::common::half_open::{login_after_local_teardown, standard, SeveringProxy};
     use crate::common::pq::*;
-    use crate::common::recovery::{asking, regenerate, DOMAIN};
+    use crate::common::recovery::{asking, DOMAIN};
     use citadel_io::{tokio, ErrorCode};
     use citadel_sdk::prelude::*;
     use citadel_user::auth::pq::admission::AdmissionKind;
@@ -58,7 +58,7 @@ mod tests {
     }
 
     /// Recovery is the surface a guesser needs nothing for, so it is asked like a fresh sign-in.
-    /// Control: restore the recovery exemption in `admission::sign_in` and the code sign-in
+    /// Control: restore the recovery exemption in `admission::sign_in` and the phrase sign-in
     /// without a token is admitted.
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_recovery_is_asked_like_a_fresh_sign_in() {
@@ -70,15 +70,13 @@ mod tests {
         let seen = policy.clone();
         run(server, move |remote, _| async move {
             let reg = register(&remote, addr, &user, Some(GOOD)).await?;
-            let factors = SignInFactors::recovery_code(&reg.recovery_codes[0])?;
-            let missing = sign_in(&remote, &user, factors).await;
+            let words = reg.recovery_phrase.expect("a new account gets a phrase");
+            let phrase = RecoveryPhrase::new(RecoverySeed::parse(&words.join(" "))?, DOMAIN)?;
+            let factors = SignInFactors::recovery_phrase(phrase.clone());
+            let missing = sign_in(&remote, &user, factors.clone()).await;
             assert_eq!(code(&missing), Some(ErrorCode::PqSignInAdmissionRequired));
-            let factors = SignInFactors::recovery_code(&reg.recovery_codes[0])?;
-            let conn = sign_in(&remote, &user, factors.with_admission(GOOD)).await?;
-            let words = regenerate(&conn, SignInFactors::default()).await?;
-            conn.disconnect().await?;
-            let seed = RecoverySeed::parse(&words.join(" "))?;
-            let phrase = RecoveryPhrase::new(seed, DOMAIN)?;
+            let console = sign_in(&remote, &user, factors.with_admission(GOOD)).await?;
+            console.disconnect().await?;
 
             let device = device.await.unwrap();
             let ask = asking(&user, &phrase);

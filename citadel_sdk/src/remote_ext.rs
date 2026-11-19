@@ -220,8 +220,12 @@ impl<R: Ratchet> DerefMut for CitadelClientServerConnection<R> {
 pub struct RegisterSuccess {
     pub cid: u64,
     /// The recovery codes of a post-quantum registration, to show the user once (see
-    /// `RegisterOkay::recovery_codes`). Empty for a legacy registration.
+    /// `RegisterOkay::recovery_codes`). Empty for a legacy registration, and at a server that
+    /// recovers accounts.
     pub recovery_codes: Vec<String>,
+    /// The new account's recovery phrase, 24 words to show the user once (see
+    /// `RegisterOkay::recovery_phrase`).
+    pub recovery_phrase: Option<Vec<String>>,
 }
 
 /// Waits for the outcome of a registration request.
@@ -235,11 +239,13 @@ async fn await_registration<R: Ratchet, Rem: Remote<R>>(
             NodeResult::RegisterOkay(RegisterOkay {
                 cid,
                 recovery_codes,
+                recovery_phrase,
                 ..
             }) => {
                 return Ok(RegisterSuccess {
                     cid,
                     recovery_codes,
+                    recovery_phrase,
                 });
             }
             NodeResult::RegisterFailure(err) => {
@@ -310,12 +316,15 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             default_security_settings,
             server_password,
             None,
+            None,
         )
         .await
     }
 
     /// As [`register`](Self::register), carrying an admission token (a Turnstile response) for a
-    /// server that asks fresh registrations for one. A refusal is a `PqSignInAdmissionRequired`
+    /// server that asks fresh registrations for one, and the server's canonical domain for the new
+    /// account's recovery phrase (see `RegisterToHypernode::recovery_domain`; the phrase comes
+    /// back in [`RegisterSuccess::recovery_phrase`]). A refusal is a `PqSignInAdmissionRequired`
     /// or `PqSignInAdmissionFailed` error.
     #[allow(clippy::too_many_arguments)]
     async fn register_admitted<
@@ -332,6 +341,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
         admission: Option<String>,
+        recovery_domain: Option<String>,
     ) -> Result<RegisterSuccess, NetworkError> {
         let (creds, password) =
             registration_credentials(full_name, username, proposed_password).await?;
@@ -345,6 +355,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             endpoint: None,
             password: Some(password),
             admission,
+            recovery_domain,
         });
 
         await_registration(self, register_request).await
@@ -376,11 +387,13 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             default_security_settings,
             server_password,
             None,
+            None,
         )
         .await
     }
 
-    /// As [`register_to_endpoint`](Self::register_to_endpoint), carrying an admission token.
+    /// As [`register_to_endpoint`](Self::register_to_endpoint), carrying an admission token and
+    /// the recovery phrase's domain (see [`register_admitted`](Self::register_admitted)).
     #[cfg(not(target_family = "wasm"))]
     #[allow(clippy::too_many_arguments)]
     async fn register_to_endpoint_admitted<
@@ -396,6 +409,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
         admission: Option<String>,
+        recovery_domain: Option<String>,
     ) -> Result<RegisterSuccess, NetworkError> {
         let remote_addr = endpoint.resolve().await?;
         let (creds, password) =
@@ -408,6 +422,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             endpoint: Some(endpoint),
             password: Some(password),
             admission,
+            recovery_domain,
         });
 
         await_registration(self, register_request).await

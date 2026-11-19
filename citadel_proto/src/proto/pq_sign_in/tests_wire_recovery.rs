@@ -124,3 +124,42 @@ fn an_absent_password_change_appends_nothing() {
     let read = ManagementCeremony::deserialize_from_vector(&bytes(&with_reply)).unwrap();
     assert_eq!(read, with_reply);
 }
+
+/// A registration with no phrase is 0.12.3's `RegFinish`, byte for byte.
+#[test]
+fn a_registration_without_a_phrase_appends_nothing() {
+    let finish = RegFinish {
+        password_ek: ek(),
+        recovery_eks: vec![ek()],
+        recovery_phrase_ek: None,
+    };
+    let mut expected = bytes(&ek());
+    expected.extend(bytes(&vec![ek()]));
+    assert_eq!(bytes(&finish), expected);
+}
+
+/// Control: drop the version guard in `new_recovery` and the older server is sent a phrase.
+#[test]
+fn a_new_account_gets_a_phrase_only_from_a_server_that_recovers() {
+    use super::register::new_recovery;
+    use citadel_user::auth::pq::client::NewRecovery;
+    let current = *PROTOCOL_VERSION;
+    let phrase = new_recovery(current, Some("example.com"), "alice");
+    assert!(matches!(
+        phrase,
+        NewRecovery::Phrase {
+            canonical_domain: "example.com",
+            username: "alice"
+        }
+    ));
+    assert!(matches!(
+        new_recovery(current, None, "alice"),
+        NewRecovery::None
+    ));
+    let older = new_recovery(version(3), Some("example.com"), "alice");
+    assert!(matches!(older, NewRecovery::Codes));
+    assert!(matches!(
+        new_recovery(version(3), None, "alice"),
+        NewRecovery::Codes
+    ));
+}

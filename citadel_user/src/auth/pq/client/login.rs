@@ -1,6 +1,6 @@
 use super::key_request::{RelyingParty, SecurityKeyCeremony, SecurityKeyRequest};
 use super::ksf::{password_input, password_keypair};
-use super::register::ClientRegistration;
+use super::register::{ClientRegistration, NewRecovery};
 use crate::auth::pq::kem::{FactorKeypair, SharedSecret};
 use crate::auth::pq::messages::{
     ChallengeBody, FactorChallenges, FactorTag, LoginChallenge, LoginFinish, LoginProof,
@@ -125,7 +125,7 @@ impl ClientLogin {
                 let upgrade = match (upgrade, self.password) {
                     (Some(reply), Some((input, oprf))) => {
                         let registration = ClientRegistration::resume(input, oprf);
-                        Some(registration.finish(reply, false).await?.0)
+                        Some(registration.finish(reply, NewRecovery::None).await?.0)
                     }
                     _ => None,
                 };

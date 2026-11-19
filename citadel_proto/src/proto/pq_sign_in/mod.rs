@@ -89,9 +89,10 @@ pub(crate) fn store_offered<R: Ratchet>(
                 admission: factors.admission.clone().map(AdmissionToken::new),
             });
         }
-        HdpSessionInitMode::Register(_, _, _, password, admission) => {
+        HdpSessionInitMode::Register(_, _, _, password, admission, recovery_domain) => {
             state.register_state.pq.password = password.clone();
             state.register_state.pq.admission = admission.clone();
+            state.register_state.pq.recovery_domain = recovery_domain.clone();
         }
         HdpSessionInitMode::Recover(_, _, ask) => {
             state.register_state.pq.recover.ask = Some(recover::state::RecoverAsk {

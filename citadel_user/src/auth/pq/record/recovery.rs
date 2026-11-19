@@ -10,6 +10,16 @@ pub enum RecoverySecret {
     Phrase(EncapsulationKey),
 }
 
+impl RecoverySecret {
+    /// The keys it brings, in order.
+    pub fn keys(&self) -> &[EncapsulationKey] {
+        match self {
+            Self::Codes(eks) => eks,
+            Self::Phrase(ek) => std::slice::from_ref(ek),
+        }
+    }
+}
+
 impl PqAuthRecord {
     /// Replaces the account's recovery credentials, phrase and codes alike, used or not: an
     /// account has one recovery secret, and the one it had stops working here.

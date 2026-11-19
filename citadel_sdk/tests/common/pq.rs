@@ -102,6 +102,7 @@ pub async fn register_legacy(
         endpoint: None,
         password: None,
         admission: None,
+        recovery_domain: None,
     });
     let mut results = remote.send_callback_subscription(request).await?;
     while let Some(result) = results.next().await {

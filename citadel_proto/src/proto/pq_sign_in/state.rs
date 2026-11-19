@@ -80,8 +80,13 @@ pub(crate) struct PqRegisterState {
     pub client: Option<ClientRegistration>,
     /// Client: whether STAGE2 enrolled post-quantum factors, so the account is kept as one.
     pub registered: bool,
-    /// Client: the new account's recovery codes, for `RegisterOkay`.
+    /// Client: the domain the new account's recovery phrase is bound to, until `PQ_REPLY`.
+    pub recovery_domain: Option<String>,
+    /// Client: the new account's recovery codes (a server below the recovery release), for
+    /// `RegisterOkay`.
     pub recovery_codes: Vec<String>,
+    /// Client: the new account's recovery phrase, for `RegisterOkay`.
+    pub recovery_phrase: Option<Vec<String>>,
     /// Server: between `PQ_REPLY` and STAGE2.
     pub server: Option<PendingRegistration>,
     /// Client: the admission token, until `PQ_START` is sent.

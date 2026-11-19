@@ -519,6 +519,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     endpoint,
                     password,
                     admission,
+                    recovery_domain,
                 }) => {
                     let (session_manager, local_nat_type, listener_underlying_proto) = (
                         session_manager.clone(),
@@ -540,6 +541,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                                     endpoint,
                                     password,
                                     admission.map(AdmissionToken::new),
+                                    recovery_domain,
                                 ),
                                 ticket_id,
                                 None,

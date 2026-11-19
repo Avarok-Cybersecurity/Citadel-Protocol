@@ -90,6 +90,7 @@ pub async fn register(
             Default::default(),
             None,
             admission,
+            Some(crate::common::recovery::DOMAIN.to_string()),
         )
         .await
 }

@@ -10,7 +10,7 @@ use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_io::tokio;
 use citadel_types::crypto::SecBuffer;
 use citadel_user::account_manager::AccountManager;
-use citadel_user::auth::pq::client::ClientRegistration;
+use citadel_user::auth::pq::client::{ClientRegistration, NewRecovery};
 use citadel_user::auth::pq::oprf::OprfSeed;
 use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
 use citadel_user::auth::pq::server::{registration_reply, PqAuthServerSettings};
@@ -40,7 +40,7 @@ async fn record(username: &str) -> PqAuthRecord {
     let password = SecBuffer::from(b"pw-host-sql".to_vec());
     let (start, client) = ClientRegistration::start(username, &password).unwrap();
     let (reply, pending) = registration_reply(&settings(), &start).unwrap();
-    let (finish, _) = client.finish(&reply, true).await.unwrap();
+    let (finish, _) = client.finish(&reply, NewRecovery::Codes).await.unwrap();
     pending.finish(finish, 5).unwrap()
 }
 

@@ -54,6 +54,11 @@ pub struct RegisterToHypernode {
     /// The registration's admission token, for a server that asks for one (see
     /// `citadel_user::auth::pq::admission`). Sent only inside the post-quantum channel.
     pub admission: Option<String>,
+    /// The server's canonical domain, which the new account's recovery phrase is bound to. A
+    /// server at `RECOVERY_SINCE` or later gives a new account the phrase, and only with this;
+    /// `None` there registers an account with no recovery credential until the user makes a
+    /// phrase. A server below it is given ten recovery codes instead, as before.
+    pub recovery_domain: Option<String>,
 }
 
 /// Recovers an account on this device, which holds no bundle for it, with the account's recovery

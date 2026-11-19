@@ -1,7 +1,7 @@
 //! The whole exchange, client and server functions back to back, with no transport in between.
 
 use super::client::{
-    ClientLogin, ClientProof, ClientRegistration, RecoveryOffer, SecurityKeyAnswer,
+    ClientLogin, ClientProof, ClientRegistration, NewRecovery, RecoveryOffer, SecurityKeyAnswer,
 };
 use super::login_transcript;
 use super::messages::{
@@ -58,8 +58,8 @@ pub(crate) async fn register(pw: &str) -> (PqAuthRecord, Vec<RecoveryCode>) {
     let s = settings();
     let (start, client) = ClientRegistration::start("alice", &password(pw)).unwrap();
     let (reply, pending) = registration_reply(&s, &start).unwrap();
-    let (finish, codes) = client.finish(&reply, true).await.unwrap();
-    (pending.finish(finish, 1_000).unwrap(), codes)
+    let (finish, issued) = client.finish(&reply, NewRecovery::Codes).await.unwrap();
+    (pending.finish(finish, 1_000).unwrap(), issued.codes)
 }
 
 /// One login's messages, so a test can tamper with any of them.

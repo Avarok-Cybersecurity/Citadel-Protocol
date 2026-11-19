@@ -50,8 +50,12 @@ pub struct RegisterOkay {
     pub welcome_message: Vec<u8>,
     /// A post-quantum registration's recovery codes, formatted for display. Show them to the user
     /// now: the client generated them, the server holds only their keys, and nothing keeps them.
-    /// Empty for a legacy registration.
+    /// Empty for a legacy registration, and at a server that recovers accounts.
     pub recovery_codes: Vec<String>,
+    /// The new account's recovery phrase, 24 words, at a server that recovers accounts and was
+    /// given its domain (`RegisterToHypernode::recovery_domain`). Show it to the user now, like
+    /// the codes.
+    pub recovery_phrase: Option<Vec<String>>,
 }
 
 /// A recovery succeeded: this device now holds the account's only bundle. Sign in with the

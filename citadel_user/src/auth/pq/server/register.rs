@@ -2,7 +2,7 @@ use super::PqAuthServerSettings;
 use crate::auth::pq::messages::{RegFinish, RegReply, RegStart};
 use crate::auth::pq::oprf;
 use crate::auth::pq::random_32;
-use crate::auth::pq::record::{KsfParams, PqAuthRecord};
+use crate::auth::pq::record::{KsfParams, PqAuthRecord, RecoverySecret};
 use crate::auth::pq::recovery::RECOVERY_CODE_COUNT;
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
@@ -52,14 +52,24 @@ impl PendingRegistration {
     /// The new account record. No password hashing happens here: the client sent keys.
     pub fn finish(self, finish: RegFinish, now_ms: u64) -> Result<PqAuthRecord, AccountError> {
         let codes = finish.recovery_eks.len();
-        if codes != 0 && codes != RECOVERY_CODE_COUNT {
-            return Err(error!(
-                ErrorCode::PqSignInMalformed,
-                "the recovery code count"
-            ));
-        }
+        let recovery = match finish.recovery_phrase_ek {
+            Some(_) if codes != 0 => {
+                return Err(error!(
+                    ErrorCode::PqSignInMalformed,
+                    "a registration with both a phrase and codes"
+                ))
+            }
+            Some(phrase) => RecoverySecret::Phrase(phrase),
+            None if codes != 0 && codes != RECOVERY_CODE_COUNT => {
+                return Err(error!(
+                    ErrorCode::PqSignInMalformed,
+                    "the recovery code count"
+                ))
+            }
+            None => RecoverySecret::Codes(finish.recovery_eks),
+        };
         let mut seen = vec![finish.password_ek.fingerprint()];
-        for ek in &finish.recovery_eks {
+        for ek in recovery.keys() {
             let fp = ek.fingerprint();
             if seen.contains(&fp) {
                 return Err(error!(
@@ -74,7 +84,7 @@ impl PendingRegistration {
             self.prf_eval_salt,
             self.ksf,
             finish.password_ek,
-            finish.recovery_eks,
+            recovery,
             now_ms,
         ))
     }

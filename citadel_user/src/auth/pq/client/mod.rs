@@ -11,4 +11,4 @@ mod register;
 pub use key_request::{RelyingParty, SecurityKeyCeremony, SecurityKeyRequest};
 pub use login::{ClientLogin, ClientProof, RecoveryOffer, SecurityKeyAnswer};
 pub use manage::{ClientCommitted, ClientManagement};
-pub use register::ClientRegistration;
+pub use register::{ClientRegistration, IssuedRecovery, NewRecovery};

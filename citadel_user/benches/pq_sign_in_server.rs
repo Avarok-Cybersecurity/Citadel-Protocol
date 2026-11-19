@@ -5,7 +5,7 @@
 
 use citadel_io::tokio;
 use citadel_types::crypto::SecBuffer;
-use citadel_user::auth::pq::client::{ClientLogin, ClientProof, ClientRegistration};
+use citadel_user::auth::pq::client::{ClientLogin, ClientProof, ClientRegistration, NewRecovery};
 use citadel_user::auth::pq::kem::encapsulate;
 use citadel_user::auth::pq::login_transcript;
 use citadel_user::auth::pq::messages::{AuthChallenge, LoginProof};
@@ -30,7 +30,9 @@ fn record(runtime: &tokio::runtime::Runtime) -> PqAuthRecord {
     let password = SecBuffer::from(b"bench password".to_vec());
     let (start, client) = ClientRegistration::start("bench", &password).unwrap();
     let (reply, pending) = registration_reply(&settings(), &start).unwrap();
-    let (finish, _) = runtime.block_on(client.finish(&reply, false)).unwrap();
+    let (finish, _) = runtime
+        .block_on(client.finish(&reply, NewRecovery::None))
+        .unwrap();
     pending.finish(finish, 0).unwrap()
 }
 

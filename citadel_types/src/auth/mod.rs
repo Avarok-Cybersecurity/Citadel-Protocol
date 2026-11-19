@@ -66,8 +66,10 @@ pub struct SignInCredential {
 pub enum SessionScope {
     /// Everything the account may do.
     Full,
-    /// Signed in with the recovery phrase or a recovery code: the session may manage the account's
-    /// credentials (see [`SignInManagementOp::allowed_in_recovery`]) and nothing else.
+    /// The recovery console: signed in with the recovery phrase or a recovery code, the session
+    /// may manage the account's credentials (see [`SignInManagementOp::allowed_in_recovery`]) and
+    /// nothing else. An application shows it as a guided set of credential steps, not its
+    /// ordinary interface.
     Recovery,
 }
 

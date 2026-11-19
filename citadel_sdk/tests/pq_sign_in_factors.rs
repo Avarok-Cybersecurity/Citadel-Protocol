@@ -44,6 +44,21 @@ mod tests {
         }
     }
 
+    /// Gives `user` ten recovery codes from a full session, as a user still on codes has them.
+    async fn codes_for(
+        remote: &NodeRemote<StackedRatchet>,
+        user: &str,
+    ) -> Result<Vec<String>, NetworkError> {
+        let conn = login(remote, user, PASSWORD).await?;
+        let regenerated =
+            conn.manage_sign_in(SignInManagementOp::RegenerateRecoveryCodes, password());
+        let SignInManagementOutcome::RecoveryCodes(codes) = regenerated.await? else {
+            panic!("no codes")
+        };
+        conn.disconnect().await?;
+        Ok(codes)
+    }
+
     fn policy(policy: SignInPolicy) -> SignInManagementOp {
         SignInManagementOp::SetSignInPolicy { policy }
     }
@@ -57,7 +72,8 @@ mod tests {
             let reg = remote
                 .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
                 .await?;
-            assert_eq!(reg.recovery_codes.len(), 10);
+            // No domain was given, so no recovery credential: codes are no longer issued.
+            assert!(reg.recovery_codes.is_empty() && reg.recovery_phrase.is_none());
 
             let conn = login(&remote, &user, PASSWORD).await?;
             let added = conn.manage_sign_in(add_key(), password().with_security_key(key(7)));
@@ -113,10 +129,11 @@ mod tests {
         let (server, addr, _) = server(pq_settings(), Some(poisoned_argon()), None);
         let user = username("rec");
         run(server, move |remote, _| async move {
-            let reg = remote
+            let _ = remote
                 .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
                 .await?;
-            let code = &reg.recovery_codes[2];
+            let codes = codes_for(&remote, &user).await?;
+            let code = &codes[2];
 
             let recovery = sign_in(&remote, &user, SignInFactors::recovery_code(code)?).await?;
             let normal = recovery.get_local_group_peers(user.as_str(), None).await;
@@ -166,9 +183,10 @@ mod tests {
         let (server, addr, _) = server(pq_settings(), Some(poisoned_argon()), None);
         let user = username("mgmt");
         run(server, move |remote, _| async move {
-            let reg = remote
+            let _ = remote
                 .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
                 .await?;
+            let first = codes_for(&remote, &user).await?;
             let conn = login(&remote, &user, PASSWORD).await?;
             let SignInManagementOutcome::Credentials {
                 policy,
@@ -212,12 +230,7 @@ mod tests {
             };
             assert_eq!(fresh.len(), 10);
             conn.disconnect().await?;
-            let old = sign_in(
-                &remote,
-                &user,
-                SignInFactors::recovery_code(&reg.recovery_codes[0])?,
-            )
-            .await;
+            let old = sign_in(&remote, &user, SignInFactors::recovery_code(&first[0])?).await;
             assert!(old.is_err(), "a replaced recovery code signed in");
             let new = sign_in(&remote, &user, SignInFactors::recovery_code(&fresh[0])?).await?;
             new.shutdown_kernel().await

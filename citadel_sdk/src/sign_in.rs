@@ -2,7 +2,7 @@
 //! security key, rename, remove, set the policy, set the password, replace the recovery phrase.
 //!
 //! Every change carries a fresh step-up (the account's factors, proven again, bound to the change)
-//! except in a recovery session (signed in with the phrase or a code), which proves nothing again
+//! except in a recovery console session (signed in with the phrase or a code), which proves nothing again
 //! and may only manage credentials (`SignInManagementOp::allowed_in_recovery`).
 //!
 //! Security keys need the server to name its relying party, with
@@ -38,7 +38,7 @@ pub trait SignInManagementExt {
         step_up: SignInFactors,
     ) -> Result<SignInManagementOutcome, NetworkError>;
 
-    /// Sets the account's password: a forgotten one from a recovery session (`step_up` empty),
+    /// Sets the account's password: a forgotten one from the recovery console (`step_up` empty),
     /// or a change from a full one (`step_up` the factors the policy asks for, the current
     /// password among them). The new password never leaves this device; the server gets a fresh
     /// factor's key, and the old password stops working at once. Other sessions keep running.

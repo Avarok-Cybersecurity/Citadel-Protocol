@@ -1,7 +1,7 @@
 //! Shared steps for the recovery suites: an account with a phrase, a recovery from a device, a
 //! phrase sign-in, and the one failure every refused attempt reads as.
 
-use crate::common::pq::{login, PASSWORD};
+use crate::common::pq::PASSWORD;
 use citadel_io::ErrorCode;
 use citadel_sdk::prelude::*;
 use std::net::SocketAddr;
@@ -13,18 +13,31 @@ pub fn password() -> SignInFactors {
     SignInFactors::password(PASSWORD)
 }
 
-/// Registers `user` and replaces its codes with a phrase; returns the phrase.
+/// Registers `user`, which is given a recovery phrase in place of codes; returns the phrase.
 pub async fn with_phrase(
     remote: &NodeRemote<StackedRatchet>,
     addr: SocketAddr,
     user: &str,
 ) -> Result<RecoveryPhrase, NetworkError> {
-    let _ = remote
-        .register_with_defaults(addr, user, user, PASSWORD)
-        .await?;
-    let conn = login(remote, user, PASSWORD).await?;
-    let words = regenerate(&conn, password()).await?;
-    conn.disconnect().await?;
+    let domain = Some(DOMAIN.to_string());
+    let reg = remote.register_admitted(
+        addr,
+        user,
+        user,
+        PASSWORD,
+        Default::default(),
+        None,
+        None,
+        domain,
+    );
+    let reg = reg.await?;
+    assert!(
+        reg.recovery_codes.is_empty(),
+        "a new account was given codes"
+    );
+    let words = reg
+        .recovery_phrase
+        .expect("a new account was given no phrase");
     Ok(phrase(&words))
 }
 

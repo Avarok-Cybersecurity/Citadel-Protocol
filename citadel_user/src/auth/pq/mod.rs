@@ -57,6 +57,8 @@ mod tests_recovery_lane;
 #[cfg(test)]
 mod tests_recovery_manage;
 #[cfg(test)]
+mod tests_recovery_register;
+#[cfg(test)]
 mod tests_throttle;
 
 use messages::{

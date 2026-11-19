@@ -13,7 +13,7 @@ use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::pq::admission;
-use citadel_user::auth::pq::client::ClientRegistration;
+use citadel_user::auth::pq::client::{ClientRegistration, NewRecovery};
 use citadel_user::auth::pq::messages::RegFinish;
 use citadel_user::auth::pq::messages::{RegStart, RegStartReply};
 use citadel_user::auth::pq::server::{registration_reply, PendingRegistration};
@@ -135,26 +135,58 @@ async fn reply_to<R: Ratchet, T: PlatformOps>(
 pub(crate) async fn on_pq_reply<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     payload: &[u8],
+    server_version: u32,
 ) -> Result<Option<citadel_user::auth::pq::messages::RegFinish>, NetworkError> {
     let reply: RegStartReply = packets::read(payload)?;
-    let client = inner_mut_state!(session.state_container)
-        .register_state
-        .pq
-        .client
-        .take()
-        .ok_or_else(|| NetworkError::msg("PQ_REPLY without a registration in flight"))?;
+    let (client, domain, username) = {
+        let mut state = inner_mut_state!(session.state_container);
+        let username = state
+            .connect_state
+            .proposed_credentials
+            .as_ref()
+            .map(|creds| creds.username().to_string())
+            .ok_or_else(|| NetworkError::msg("PQ_REPLY without the registration's username"))?;
+        let pq = &mut state.register_state.pq;
+        let client = pq
+            .client
+            .take()
+            .ok_or_else(|| NetworkError::msg("PQ_REPLY without a registration in flight"))?;
+        (client, pq.recovery_domain.take(), username)
+    };
     match reply {
         RegStartReply::Accepted(reply) => {
-            let (finish, codes) = client.finish(&reply, true).await?;
+            let recovery = new_recovery(server_version, domain.as_deref(), &username);
+            let (finish, issued) = client.finish(&reply, recovery).await?;
             let mut state = inner_mut_state!(session.state_container);
-            state.register_state.pq.registered = true;
-            state.register_state.pq.recovery_codes = codes
+            let pq = &mut state.register_state.pq;
+            pq.registered = true;
+            pq.recovery_codes = issued
+                .codes
                 .iter()
                 .map(|code| code.display().to_string())
                 .collect();
+            pq.recovery_phrase = issued.phrase.map(|seed| seed.words());
             Ok(Some(finish))
         }
         RegStartReply::Unsupported => Ok(None),
+    }
+}
+
+/// What a new account is given: the phrase at a server that recovers accounts, given its domain
+/// (nothing without one), and the ten codes it always had at an older server, which could not
+/// store a phrase.
+pub(crate) fn new_recovery<'a>(
+    server_version: u32,
+    domain: Option<&'a str>,
+    username: &'a str,
+) -> NewRecovery<'a> {
+    match domain {
+        _ if !super::recover::server_recovers(Some(server_version)) => NewRecovery::Codes,
+        Some(canonical_domain) => NewRecovery::Phrase {
+            username,
+            canonical_domain,
+        },
+        None => NewRecovery::None,
     }
 }
 

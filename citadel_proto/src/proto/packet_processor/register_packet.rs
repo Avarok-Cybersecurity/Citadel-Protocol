@@ -370,7 +370,13 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     validation::aead::validate_custom(&ratchet, &header.bytes(), payload),
                     "Unable to validate PQ_REPLY"
                 );
-                let pq = match pq_sign_in::register::on_pq_reply(&session, &plaintext).await {
+                let pq = match pq_sign_in::register::on_pq_reply(
+                    &session,
+                    &plaintext,
+                    header.protocol_version.get(),
+                )
+                .await
+                {
                     Ok(pq) => pq,
                     Err(err) => {
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
@@ -585,10 +591,14 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             let session_crypto_state =
                                 initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
 
-                            let (registered_pq, recovery_codes) = {
+                            let (registered_pq, recovery_codes, recovery_phrase) = {
                                 let mut state_container = inner_mut_state!(session.state_container);
                                 let pq = &mut state_container.register_state.pq;
-                                (pq.registered, std::mem::take(&mut pq.recovery_codes))
+                                (
+                                    pq.registered,
+                                    std::mem::take(&mut pq.recovery_codes),
+                                    pq.recovery_phrase.take(),
+                                )
                             };
                             async move {
                                 let registered = if registered_pq {
@@ -643,6 +653,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                                     cid: new_cnac.get_cid(),
                                                     welcome_message: success_message,
                                                     recovery_codes,
+                                                    recovery_phrase,
                                                 },
                                             ))?;
                                             session.shutdown();
