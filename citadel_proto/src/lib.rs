@@ -538,6 +538,7 @@ pub mod prelude {
     pub use citadel_crypt::ratchets::mono::MonoRatchet;
     pub use citadel_crypt::ratchets::stacked::StackedRatchet;
     pub use citadel_crypt::ratchets::Ratchet;
+    pub use citadel_crypt::revfs_seal::{RevfsKey, RevfsKeySource, RevfsKeys};
     pub use citadel_types::crypto::AlgorithmsExt;
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_user::account_manager::AccountManager;
@@ -614,6 +615,7 @@ pub mod prelude {
     };
     pub use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
     pub use crate::proto::peer::p2p_rearm::PathControl;
+    pub use crate::proto::peer::peer_crypt::{IceCandidateData, WebRtcSignalingPayload};
     pub use crate::proto::peer::peer_layer::PeerResponse;
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, PEER_MAILBOX_MAP};
     pub use crate::proto::remote::Ticket;

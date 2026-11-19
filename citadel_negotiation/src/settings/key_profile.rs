@@ -4,7 +4,7 @@ use crate::ids::SettingId;
 use crate::merge::stronger_offer;
 use crate::setting::{ApplyPath, Setting};
 use citadel_types::crypto::{
-    CryptoParameters, HeaderObfuscatorSettings, SecrecyMode, SecurityLevel,
+    CryptoParameters, HeaderObfuscatorSettings, MaxSecurityLevel, SecrecyMode, SecurityLevel,
 };
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::utils::validate_crypto_params;
@@ -114,5 +114,13 @@ impl Setting for KeyProfile {
     /// signature ML-DSA or FN-DSA, so a valid suite is a post-quantum one (P6).
     fn is_supported(&self) -> bool {
         validate_crypto_params(&self.params).is_ok()
+    }
+
+    /// Every layer is a key exchange and one more seal on every packet: a profile above the
+    /// node's maximum security level is refused, from either side.
+    type Bound = MaxSecurityLevel;
+
+    fn exceeds(&self, bound: &MaxSecurityLevel) -> bool {
+        !bound.admits(self.level)
     }
 }

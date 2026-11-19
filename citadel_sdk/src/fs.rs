@@ -127,6 +127,10 @@ pub async fn delete<P: Into<PathBuf> + Send, R: Ratchet>(
         .await
 }
 
+#[path = "fs_reseal.rs"]
+mod reseal;
+pub use reseal::{reseal, RevfsPull};
+
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
@@ -250,6 +254,8 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel)
             .unwrap();
 
@@ -330,6 +336,8 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel)
             .unwrap();
 
@@ -411,6 +419,8 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel)
             .unwrap();
 
@@ -563,10 +573,14 @@ mod tests {
 
         let client0 = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel0)
             .unwrap();
         let client1 = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel1)
             .unwrap();
         let clients = futures::future::try_join(client0, client1);

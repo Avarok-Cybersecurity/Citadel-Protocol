@@ -63,7 +63,9 @@ mod tests {
     ) -> NodeFuture<'static, RemoteSlotKernel> {
         let bind_addr = listener.local_addr().unwrap();
         let mut builder = DefaultNodeBuilder::default();
-        let _ = builder.with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS);
+        let _ = builder
+            .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level());
         let _ = builder
             .with_node_type(NodeType::Server(bind_addr))
             .with_path_policy(citadel_sdk::test_common::localhost_path_policy())
@@ -243,10 +245,12 @@ mod tests {
 
         let owner = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(owner)
             .unwrap();
         let member = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(member)
             .unwrap();
         run_pair(server, owner, member).await;

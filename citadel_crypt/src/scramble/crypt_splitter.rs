@@ -41,6 +41,7 @@ use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
 use crate::ratchets::entropy_bank::EntropyBank;
 use crate::ratchets::Ratchet;
+use crate::revfs_seal::RevfsKey;
 pub use citadel_types::prelude::ObjectId;
 
 /// The maximum bytes per group
@@ -222,6 +223,13 @@ impl PacketCoordinate {
     }
 }
 
+/// The account key a RE-VFS group is sealed under, and the group's position in its object.
+#[derive(Copy, Clone, Debug)]
+pub struct RevfsGroupSeal<'a> {
+    pub key: &'a RevfsKey,
+    pub group_index: u64,
+}
+
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
 #[allow(clippy::too_many_arguments)]
@@ -229,7 +237,7 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>
     plain_text: T,
     security_level: SecurityLevel,
     ratchet: &R,
-    static_aux_ratchet: &R,
+    revfs_seal: Option<RevfsGroupSeal<'_>>,
     header_size_bytes: usize,
     target_cid: u64,
     object_id: ObjectId,
@@ -253,10 +261,19 @@ where
     }
 
     if let TransferType::RemoteEncryptedVirtualFilesystem { security_level, .. } = &transfer_type {
-        log::trace!(target: "citadel", "Detected REVFS. Locally encrypting object {object_id} w/level {security_level:?} | Ratchet used: {} w/version {}", static_aux_ratchet.get_cid(), static_aux_ratchet.version());
-        // pre-encrypt
-        let local_encrypted = static_aux_ratchet.local_encrypt(plain_text, *security_level)?;
-        plain_text = Cow::Owned(local_encrypted);
+        // Sealed under the account's own key before it leaves: no relay or server can open it.
+        let seal = revfs_seal.ok_or_else(|| {
+            citadel_io::error!(citadel_io::ErrorCode::RevfsKeyMissing, ratchet.get_cid())
+        })?;
+        log::trace!(target: "citadel", "Detected REVFS. Sealing object {object_id} group {} w/level {security_level:?} under {:?}", seal.group_index, seal.key);
+        let sealed = crate::revfs_seal::seal(
+            seal.key,
+            object_id.0,
+            seal.group_index,
+            *security_level,
+            &plain_text,
+        )?;
+        plain_text = Cow::Owned(sealed);
     }
 
     let (mut cfg, msg_entropy_bank, msg_pqc, scramble_entropy_bank) = get_scramble_encrypt_config(

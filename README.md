@@ -122,6 +122,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_node_type(NodeType::server("127.0.0.1:25021")?)
         // Required for every node: there is no built-in STUN list (see "STUN servers" below)
         .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+        // Required for every node: the most security layers it builds a link with
+        .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme)?)
         // Required for every server: which paths its peers may use (see "Path policy" below)
         .with_path_policy(every_path_in_order()?)
         .build(EmptyKernel::default())?;
@@ -176,6 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Execute the application
     NodeBuilder::default()
         .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+        .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme)?)
         .build(client_kernel)?
         .await?;
     Ok(())
@@ -276,10 +279,11 @@ The Remote Encrypted Virtual Filesystem (RE-VFS) is a unique feature that enable
 - Perfect for distributed secure storage solutions
 
 ### 🔒 Security Architecture
-- Data is encrypted locally using Kyber public key encryption
-- Decryption key is never stored with the data
-- Uses Kyber scramcryption for minimal ciphertext size
+- Each group of an object is sealed on the device (XChaCha20-Poly1305) under a key derived from the account's own seed (`RevfsKey::derive`), which no server or peer holds
+- The node takes keys from the application (`NodeBuilder::with_revfs_key_source`); with none, a push is refused
+- Each sealed group is bound to its object and position, so a group that is moved does not open
 - Optional multiple encryption layers for enhanced security
+- Objects stored before account keys are sealed again the first time they are read (`fs::reseal` does it for a list of paths)
 
 ### 🎯 Use Cases
 - Secure cloud storage alternatives

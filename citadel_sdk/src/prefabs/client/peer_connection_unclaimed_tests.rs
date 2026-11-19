@@ -63,6 +63,7 @@ async fn an_offer_to_a_connection_that_gave_up_its_receiver_is_declined() {
             });
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(kernel)
             .unwrap();
         kernels.push(async move { client.await.map(|_| ()) });

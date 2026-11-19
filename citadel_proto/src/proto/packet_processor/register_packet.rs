@@ -105,6 +105,26 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             ));
                         }
 
+                        // Every layer is a key exchange this server runs before anyone has
+                        // authenticated: a level above the node's maximum is refused unbuilt.
+                        if let Err(above) =
+                            session.max_security_level.check(transfer.security_level())
+                        {
+                            let reason = above.to_string();
+                            log::warn!(target: "citadel", "Refusing a registration: {reason}");
+                            let err = packet_crafter::do_register::craft_failure(
+                                algorithm,
+                                timestamp,
+                                &reason,
+                                header.session_cid.get(),
+                                ticket,
+                            );
+                            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+                                err,
+                                "registration above the node's maximum security level",
+                            ));
+                        }
+
                         let session_password = session.session_password.clone();
                         let cid = header.session_cid.get();
 

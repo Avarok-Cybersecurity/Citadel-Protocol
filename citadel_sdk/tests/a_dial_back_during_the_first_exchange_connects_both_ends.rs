@@ -171,6 +171,7 @@ mod tests {
         let node = |me: String, peer: String| {
             DefaultNodeBuilder::default()
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(GroupTestKernel::new(
                     move |remote: NodeRemote<StackedRatchet>, events: Events| {
                         one_end(remote, events, addr, me, peer)

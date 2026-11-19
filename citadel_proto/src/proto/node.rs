@@ -103,6 +103,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         client_config: Option<T::ClientConfig>,
         stun_servers: citadel_wire::stun_servers::StunServers,
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
+        max_security_level: citadel_types::crypto::MaxSecurityLevel,
+        revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
         websocket_listener: Option<citadel_io::WebSocketListen>,
         pre_built_listener: Option<T::Listener>,
@@ -151,6 +153,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             client_config.clone(),
             stun_servers.clone(),
             turn_servers,
+            max_security_level,
+            revfs_keys,
         );
 
         let nat_type = T::identify_nat_type(stun_servers).await?;

@@ -41,6 +41,7 @@ use std::sync::atomic::Ordering;
 use bytes::BytesMut;
 
 use crate::proto::misc::platform_ops::PlatformOps;
+use crate::proto::peer::negotiation::level_cap::{above_maximum_error, refuse_if_above_maximum};
 use crate::proto::peer::negotiation::reason::reported_reason;
 use crate::proto::peer::negotiation::refusal::{
     decline_dial, end_attempt_refused_by, held_dial_password, refuse_accept, refuse_stamp,
@@ -54,6 +55,7 @@ use citadel_types::proto::{stronger_offer, UdpMode};
 use citadel_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
+use super::server::relay_consent::unconsented_relay;
 use crate::error::NetworkError;
 use crate::proto::node_result::{PeerChannelCreated, PeerEvent};
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
@@ -326,6 +328,21 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         //let mut state_container = inner_mut!(session.state_container);
                                         //let peer_cid = conn.get_original_session_cid();
 
+                                        // Nor above this node's maximum.
+                                        if let Some(refused) = refuse_if_above_maximum(
+                                            session.max_security_level,
+                                            endpoint_security_settings.security_level,
+                                            &mut inner_mut_state!(session.state_container),
+                                            &session.kernel_tx,
+                                            session_cid,
+                                            *original_session_cid,
+                                            ticket,
+                                            &sess_ratchet,
+                                            timestamp,
+                                            security_level,
+                                        ) {
+                                            return refused;
+                                        }
                                         // R-DIAL 3: never build a link below our own offer.
                                         let stamped_below = take_attempt_stamped_below(
                                             &mut inner_mut_state!(session.state_container),
@@ -577,6 +594,20 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     //let mut state_container = inner_mut!(session.state_container);
                                     //let this_cid = conn.get_original_target_cid();
                                     let peer_cid = conn.get_original_session_cid();
+                                    if let Some(refused) = refuse_if_above_maximum(
+                                        session.max_security_level,
+                                        session_security_settings.security_level,
+                                        &mut inner_mut_state!(session.state_container),
+                                        &session.kernel_tx,
+                                        session_cid,
+                                        peer_cid,
+                                        ticket,
+                                        &sess_ratchet,
+                                        timestamp,
+                                        security_level,
+                                    ) {
+                                        return refused;
+                                    }
                                     let transfer_deser = return_if_none!(
                                         SyncIO::deserialize_from_vector(transfer).ok()
                                     );
@@ -1263,6 +1294,21 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             ..
                         } => {
                             let peer_cid = conn.get_original_session_cid();
+                            if let Err(above) = session
+                                .max_security_level
+                                .check(endpoint_security_settings.security_level)
+                            {
+                                log::warn!(target: "citadel", "Declining a dial from {peer_cid}: {above}");
+                                return decline_dial(
+                                    &sess_ratchet,
+                                    *conn,
+                                    ticket,
+                                    *endpoint_security_settings,
+                                    *udp_enabled,
+                                    timestamp,
+                                    security_level,
+                                );
+                            }
                             let (our_offer, connected, exchanging) = {
                                 let state_container = inner_state!(session.state_container);
                                 (
@@ -1824,6 +1870,22 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             udp_mode: udp_enabled,
             session_password,
         } => {
+            // A dial above this server's maximum is neither routed nor merged. An answer is
+            // relayed as it stands: the dialler, the side that builds from it, checks it.
+            if let (true, Err(above)) = (
+                peer_response.is_none(),
+                session
+                    .max_security_level
+                    .check(endpoint_security_level.security_level),
+            ) {
+                log::warn!(target: "citadel", "Refusing a connect signal: {above}");
+                let refusal = PeerSignal::SignalError {
+                    ticket,
+                    error: above_maximum_error(above),
+                    peer_connection_type: peer_conn_type,
+                };
+                return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+            }
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
                     session_cid,
@@ -2204,12 +2266,36 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                 }))?;
 
             let peer_cid = peer_connection_type.get_original_target_cid();
+            // Only along the pair's accepted route, as for a key exchange: every refusal a peer
+            // sends answers a dial or an accept, and the accept forged the route.
+            if !admits_key_exchange(
+                &inner_state!(session.state_container).active_virtual_connections,
+                peer_cid,
+            ) {
+                log::warn!(target: "citadel", "Not relaying an error from {authenticated_cid} to {peer_cid}: the pair has no accepted connection");
+                let refusal = unconsented_relay(authenticated_cid, peer_cid, ticket);
+                return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+            }
             // If this was a simultaneous connect, we need to remap the ticket
             let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
             let ticket = peer_layer
                 .take_mapped_ticket(peer_cid, ticket)
                 .unwrap_or(ticket);
             drop(peer_layer);
+            // The refusal names the request it refuses by the receiver's own ticket, so a
+            // crossed dial's refusal ends the receiver's attempt and not only its dial's wait.
+            let signal = match signal {
+                PeerSignal::SignalError {
+                    error,
+                    peer_connection_type,
+                    ..
+                } => PeerSignal::SignalError {
+                    ticket,
+                    error,
+                    peer_connection_type,
+                },
+                other => other,
+            };
 
             let res = inner!(session.session_manager).send_signal_to_peer_direct(
                 peer_cid,
@@ -2269,6 +2355,16 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                 payload,
             };
             let sess_mgr = inner!(session.session_manager);
+            // Only along the pair's accepted route, as for a key exchange (and under the same lock).
+            if !admits_key_exchange(
+                &inner_state!(session.state_container).active_virtual_connections,
+                peer_cid,
+            ) {
+                drop(sess_mgr);
+                log::warn!(target: "citadel", "Not relaying WebRTC signalling from {authenticated_cid} to {peer_cid}: the pair has no accepted connection");
+                let refusal = unconsented_relay(authenticated_cid, peer_cid, ticket);
+                return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+            }
             let res = sess_mgr.send_signal_to_peer_direct(peer_cid, move |peer_ratchet| {
                 packet_crafter::peer_cmd::craft_peer_signal(
                     peer_ratchet,

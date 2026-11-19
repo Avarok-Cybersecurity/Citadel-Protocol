@@ -68,6 +68,7 @@ impl Shell {
             peer: channel.get_peer_cid(),
             initial,
             minimum,
+            bound: handle.max_security_level(),
             support: PeerSupport::InBand,
             policy: policy(),
         };

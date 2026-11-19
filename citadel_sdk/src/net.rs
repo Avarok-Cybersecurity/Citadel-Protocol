@@ -15,7 +15,8 @@
 //!
 //! let stun_servers: StunServers =
 //!     "stun1.example.com:3478,stun2.example.com:3478,stun3.example.com:3478".parse()?;
-//! let mut conn = BrowserConnection::new(config, stun_servers).await?;
+//! let max_level = MaxSecurityLevel::new(SecurityLevel::Extreme)?;
+//! let mut conn = BrowserConnection::new(config, stun_servers, max_level).await?;
 //! // `conn` must outlive the halves: dropping it shuts the node down.
 //! let (tx, mut rx) = conn.split();
 //! tx.send_message(SecBuffer::from("hello peer")).await?;
@@ -52,11 +53,13 @@ impl<R: Ratchet> BrowserConnection<R> {
     /// Both peers call this with the same room token. One is automatically
     /// assigned the server role and the other the client role via the
     /// signaling service. The returned connection is fully established with
-    /// post-quantum encrypted channels ready for use. `stun_servers` is the node's required STUN
-    /// configuration (see `NodeBuilder::with_stun_servers`).
+    /// post-quantum encrypted channels ready for use. `stun_servers` and `max_security_level` are
+    /// the node's required configuration (see `NodeBuilder::with_stun_servers` and
+    /// `NodeBuilder::with_max_security_level`).
     pub async fn new(
         config: ServerlessConfig,
         stun_servers: StunServers,
+        max_security_level: citadel_types::crypto::MaxSecurityLevel,
     ) -> Result<Self, NetworkError> {
         let (conn_tx, conn_rx) = citadel_io::tokio::sync::oneshot::channel();
         let kernel = ServerlessKernel::<R>::new(conn_tx);
@@ -65,6 +68,7 @@ impl<R: Ratchet> BrowserConnection<R> {
             .with_no_central_server(config)
             .with_backend(BackendType::InMemory)
             .with_stun_servers(stun_servers)
+            .with_max_security_level(max_security_level)
             .build(kernel)
             .map_err(|err| {
                 citadel_io::error!(citadel_io::ErrorCode::NodeBuildFailed, err.to_string())

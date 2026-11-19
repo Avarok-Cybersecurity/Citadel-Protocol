@@ -136,6 +136,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 reception_complete_tx,
                 stream_to_hd,
                 local_encryption_level,
+                legacy_seal_reported: false,
             };
 
             let (start_recv_tx, start_recv_rx) = if !is_revfs_pull {
@@ -469,13 +470,15 @@ impl<R: Ratchet> StateContainerInner<R> {
                 log::trace!(target: "citadel", "GROUP {} COMPLETE. Total groups: {} | Plaintext len: {} | Received plaintext len: {}", group_id, total_groups, plaintext_length, chunk.len());
 
                 if let Some(local_encryption_level) = local_encryption_level {
-                    log::trace!(target: "citadel", "Detected REVFS. Locally decrypting object {object_id} with level {local_encryption_level:?} | Ratchet used: {} w/version {}", hr.get_cid(), hr.version());
-                    // which static hr do we need? Since we are receiving this chunk, always our local account's
-                    let static_aux_hr = self.cnac.as_ref().unwrap().get_static_auxiliary_ratchet();
-
-                    chunk = static_aux_hr
-                        .local_decrypt(chunk, local_encryption_level)
-                        .map_err(|err| (NetworkError::msg(err.into_string()), ticket, object_id))?;
+                    // Groups arrive in order, one at a time, so this is the group's position.
+                    let group_index = (groups_rendered - 1) as u64;
+                    let (opened, legacy) = self
+                        .open_revfs_group(object_id, group_index, local_encryption_level, chunk)
+                        .map_err(|err| (err, ticket, object_id))?;
+                    chunk = opened;
+                    if legacy {
+                        self.report_legacy_seal(file_key, local_encryption_level);
+                    }
                 }
 
                 stream_to_hd

@@ -304,6 +304,9 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) hypernode_peer_layer: CitadelNodePeerLayer<R>,
     pub(super) stun_servers: citadel_wire::stun_servers::StunServers,
     pub(super) turn_servers: Option<Vec<TurnServerConfig>>,
+    /// The most security layers this node builds a link with: every level read from the wire
+    /// is checked against it before anything is built.
+    pub(crate) max_security_level: citadel_types::crypto::MaxSecurityLevel,
     /// Server side: this server's path policy (see `proto::path_policy`). `None` on a client,
     /// and on a server built without one.
     pub(super) path_policy: Option<citadel_types::proto::PathPolicy>,
@@ -383,6 +386,8 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub client_only_settings: Option<ClientOnlySessionInitSettings<R>>,
     pub stun_servers: citadel_wire::stun_servers::StunServers,
     pub turn_servers: Option<Vec<TurnServerConfig>>,
+    pub max_security_level: citadel_types::crypto::MaxSecurityLevel,
+    pub revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
     pub init_time: Instant,
     pub session_password: PreSharedKey,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
@@ -525,6 +530,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
         let turn_servers = session_init_params.turn_servers;
+        let max_security_level = session_init_params.max_security_level;
+        let revfs_keys = session_init_params.revfs_keys;
         let path_policy = session_init_params
             .server_only_session_init_settings
             .as_ref()
@@ -572,6 +579,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 TransferStats::new(timestamp, 0),
                 udp_mode,
                 ledger,
+                revfs_keys,
             ),
             to_primary_stream: DualLateInit::default(),
             state,
@@ -582,6 +590,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             client_config,
             stun_servers,
             turn_servers,
+            max_security_level,
             path_policy,
             init_time,
             file_transfer_compatible: DualLateInit::default(),
@@ -1703,11 +1712,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         .unwrap_or_else(|| crypt_container.get_next_object_id());
                     let group_id_start = crypt_container.get_and_increment_group_file_transfer();
                     let latest_hr = crypt_container.get_ratchet(None).unwrap();
-                    let static_aux_ratchet = crypt_container
-                        .toolset()
-                        .read()
-                        .get_static_auxiliary_ratchet()
-                        .clone();
+                    let revfs_key =
+                        state_container.revfs_key_for_transfer(&transfer_type, session_cid)?;
 
                     let to_primary_stream = this.to_primary_stream.clone().unwrap();
                     let target_cid = 0;
@@ -1719,7 +1725,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         stop_rx,
                         security_level,
                         latest_hr.clone(),
-                        static_aux_ratchet,
+                        revfs_key,
                         HDP_HEADER_BYTE_LEN,
                         target_cid,
                         group_id_start,
@@ -1777,17 +1783,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     peer_cid: target_cid,
                 } => {
                     log::trace!(target: "citadel", "Sending HyperLAN peer ({session_cid}) <-> HyperLAN Peer ({target_cid})");
-                    // here, we don't use the base session's PQC. Instead, we use the c2s vconn's pqc to ensure the peer can't access the contents
-                    // of the file
-                    let ratchet_manager_c2s = &state_container
-                        .get_endpoint_container(C2S_IDENTITY_CID)?
-                        .ratchet_manager;
-                    let static_aux_ratchet = ratchet_manager_c2s
-                        .session_crypto_state()
-                        .toolset()
-                        .read()
-                        .get_static_auxiliary_ratchet()
-                        .clone();
+                    // A RE-VFS object is sealed under this account's own key, which the peer
+                    // storing it never holds.
+                    let revfs_key =
+                        state_container.revfs_key_for_transfer(&transfer_type, session_cid)?;
 
                     let endpoint_container = state_container.get_endpoint_container(target_cid)?;
 
@@ -1831,7 +1830,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         stop_rx,
                         security_level,
                         latest_usable_ratchet.clone(),
-                        static_aux_ratchet,
+                        revfs_key,
                         HDP_HEADER_BYTE_LEN,
                         target_cid,
                         start_group_id,

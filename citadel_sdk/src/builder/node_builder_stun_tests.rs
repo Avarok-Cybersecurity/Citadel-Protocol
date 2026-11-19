@@ -11,6 +11,7 @@ fn refusal(node_type: NodeType, stun: Option<&[&str]>) -> String {
     if node_type.is_server() {
         let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
     }
+    let _ = builder.with_max_security_level(crate::test_common::localhost_max_security_level());
     if let Some(stun) = stun {
         let _ = builder.with_stun_servers(stun.to_vec());
     }
@@ -76,7 +77,8 @@ fn a_builder_with_three_distinct_stun_servers_builds() {
         let mut builder = DefaultNodeBuilder::default();
         let _ = builder
             .with_node_type(node_type)
-            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS);
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level());
         if node_type.is_server() {
             let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
         }

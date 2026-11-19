@@ -209,6 +209,7 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
         let result = tokio::time::timeout(Duration::from_secs(180), async move {

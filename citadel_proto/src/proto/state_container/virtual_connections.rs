@@ -336,6 +336,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 ratchet_manager.clone(),
                 message_floor.clone(),
                 citadel_negotiation::ConnectionId(token.connection_id.0),
+                sess.max_security_level,
             )
         });
         let (udp_restored, restored_udp) = match virtual_connection_type {
