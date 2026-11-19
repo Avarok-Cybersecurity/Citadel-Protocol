@@ -56,7 +56,6 @@ ignore = [
     { id = "RUSTSEC-2025-0141", reason = "Bincode is unmaintained, with no known vulnerability; it is our serialization format, and it moves when a suitable replacement is identified." },
     { id = "RUSTSEC-2021-0127", reason = "serde_cbor is unmaintained, with no known vulnerability. Only `authenticator` (citadel_proto's opt-in `security-key` feature) uses it, to parse a security key's CTAP2 responses." },
     # Reviewed 2026-11-18; the owner chose to keep MySQL support and document this exception.
-    { id = "RUSTSEC-2023-0071", reason = "Reviewed 2026-11-18. rsa 0.9 arrives only through citadel_user's opt-in `sql` feature (sqlx all-databases -> sqlx-mysql). sqlx-mysql 0.8.6 (src/connection/auth.rs, encrypt_rsa) parses the server's RSA public key and calls RsaPublicKey::encrypt with OAEP to send the password; it holds no private key and never decrypts or signs. The Marvin attack is a timing side channel in private-key operations, which this path never performs. Remove when sqlx moves to rsa 0.10." },
     { id = "RUSTSEC-2016-0007", reason = "Reviewed and accepted by the owner 2026-11-18. jwt is unmaintained, with no known vulnerability. It arrives only through citadel_user's opt-in `google-services` feature, which signs Firebase service tokens; no default build links it." },
     # Each entry below has no release that fits the dependency graph; the
     # reason says why the advisory does not reach what this workspace ships.
