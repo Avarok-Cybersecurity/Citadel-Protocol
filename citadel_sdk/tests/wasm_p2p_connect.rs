@@ -144,6 +144,7 @@ async fn test_wasm_p2p_connect() {
         });
 
     let client_a = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::BROWSER_STUN_SERVERS)
         .with_node_type(NodeType::Peer)
         .build(kernel_a)
@@ -216,6 +217,7 @@ async fn test_wasm_p2p_connect() {
         });
 
     let client_b = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::BROWSER_STUN_SERVERS)
         .with_node_type(NodeType::Peer)
         .build(kernel_b)

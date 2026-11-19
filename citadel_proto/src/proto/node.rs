@@ -106,6 +106,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
         websocket_listener: Option<citadel_io::WebSocketListen>,
         pre_built_listener: Option<T::Listener>,
+        link_mode: crate::proto::link::LinkManagerMode,
     ) -> io::Result<(
         NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
@@ -144,6 +145,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
 
         let time_tracker = TimeTracker::new();
         let session_manager = CitadelSessionManager::new(
+            link_mode,
             local_node_type,
             to_kernel.clone(),
             account_manager.clone(),
@@ -153,6 +155,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             turn_servers,
         );
 
+        log::info!(target: "citadel", "Links: {:?}", session_manager.link_mode());
         let nat_type = T::identify_nat_type(stun_servers).await?;
 
         let inner = CitadelNodeInner {

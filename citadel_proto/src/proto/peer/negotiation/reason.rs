@@ -13,21 +13,9 @@
 //!   the `Disconnect` that follows with the reason it recorded.
 
 use citadel_io::Mutex;
-use citadel_negotiation::{RenegotiationReason, SettingId};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// Why a connection was closed on purpose. `None` in `PeerSignal::Disconnect.reason` means a
-/// lost link, an application that gave no reason, or a peer or server that predates the field.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum DisconnectReason {
-    /// A setting could not be changed on the live connection: the closing side redials at the
-    /// agreed value. The peer should wait to be dialled rather than redial itself.
-    Renegotiation {
-        setting: SettingId,
-        reason: RenegotiationReason,
-    },
-}
+pub use citadel_link::DisconnectReason;
 
 /// The reason the peer gave, over the lane, for closing one connection. Written by the lane's
 /// receive task and read by every path that reports that connection's end.
@@ -65,6 +53,7 @@ pub(crate) fn reported_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use citadel_negotiation::{RenegotiationReason, SettingId};
 
     const RENEGOTIATION: DisconnectReason = DisconnectReason::Renegotiation {
         setting: SettingId::KEY_PROFILE,

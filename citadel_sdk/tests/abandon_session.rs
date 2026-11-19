@@ -78,6 +78,7 @@ mod tests {
             },
         );
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .build(kernel)
             .unwrap();
@@ -149,10 +150,12 @@ mod tests {
         };
 
         let client_a = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .build(kernel_a)
             .unwrap();
         let client_b = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .build(kernel_b)
             .unwrap();

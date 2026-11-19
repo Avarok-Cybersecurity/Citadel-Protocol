@@ -53,6 +53,7 @@ mod tests {
 
     fn build_error(node_type: NodeType, with_policy: bool) -> Option<ErrorCode> {
         let mut builder = DefaultNodeBuilder::default();
+        let _ = builder.with_link_manager(crate::prelude::LinkManagerMode::Legacy);
         let _ = builder
             .with_node_type(node_type)
             .with_stun_servers(LOCALHOST_STUN_SERVERS);

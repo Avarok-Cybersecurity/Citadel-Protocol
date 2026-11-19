@@ -886,6 +886,9 @@ pub enum ErrorCode {
     /// A provisional outbound connection to the given peer is already in progress (peer addr).
     #[form = "Localhost is already trying to connect to {}"]
     SessionManagerProvisionalConnectionExists = 265,
+    /// A node was built without a link mode; there is no default one.
+    #[form = "A node requires a link mode (NodeBuilder::with_link_manager); there is no default"]
+    NodeLinkManagerMissing = 482,
 
     // --- citadel_sdk: builder / node ---
     /// A node could not be built from its configuration (reason).

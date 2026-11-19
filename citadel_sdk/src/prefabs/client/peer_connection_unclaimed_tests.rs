@@ -62,6 +62,7 @@ async fn an_offer_to_a_connection_that_gave_up_its_receiver_is_declined() {
                 remote.shutdown_kernel().await
             });
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .build(kernel)
             .unwrap();

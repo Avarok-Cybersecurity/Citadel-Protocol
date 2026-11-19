@@ -503,6 +503,7 @@ mod tests {
             );
 
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
                 .build(client_kernel)
                 .unwrap();
@@ -629,6 +630,7 @@ mod tests {
             );
 
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
                 .build(client_kernel)
                 .unwrap();
@@ -760,6 +762,7 @@ mod tests {
                 },
             );
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
                 .build(client_kernel)
                 .unwrap();

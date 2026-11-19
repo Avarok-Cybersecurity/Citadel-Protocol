@@ -25,6 +25,7 @@ fn test_p2p_type_construction() {
 #[wasm_bindgen_test]
 fn test_node_builder_construction() {
     let mut builder = DefaultNodeBuilder::default();
+    let _ = builder.with_link_manager(LinkManagerMode::Legacy);
     let _ = builder
         .with_node_type(NodeType::Peer)
         .with_backend(BackendType::InMemory)
@@ -83,6 +84,7 @@ async fn test_kernel_lifecycle_on_wasm() {
     };
 
     let mut builder = DefaultNodeBuilder::default();
+    let _ = builder.with_link_manager(LinkManagerMode::Legacy);
     let _ = builder.with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS);
     let _ = builder
         .with_node_type(NodeType::Peer)
@@ -180,6 +182,7 @@ fn test_hybrid_encryption_settings() {
 fn test_injected_listener_requires_a_server_node() {
     let (_injector, listener) = WasmListener::injected();
     let built = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
         .with_node_type(NodeType::Peer)
         .with_backend(BackendType::InMemory)
@@ -199,6 +202,7 @@ async fn test_a_server_ends_when_its_injector_is_dropped() {
     let (injector, listener) = WasmListener::injected();
     drop(injector);
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
         .with_node_type(NodeType::server("127.0.0.1:0").expect("addr"))
         .with_path_policy(citadel_sdk::test_common::localhost_path_policy())

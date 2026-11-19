@@ -36,6 +36,7 @@ async fn main() {
     };
 
     let _ = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_node_type(NodeType::Server(
             SocketAddr::from_str(addr.as_str()).unwrap(),
         ))

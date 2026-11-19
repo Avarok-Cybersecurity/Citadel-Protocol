@@ -109,6 +109,7 @@ mod tests {
         let (a, b) = (format!("a_{tag}"), format!("b_{tag}"));
         let node = |me: String, peer: String| {
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
                 .build(GroupTestKernel::new(move |remote, events| {
                     one_end(remote, events, addr, me, peer)

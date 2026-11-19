@@ -110,6 +110,7 @@ where
             remote.shutdown_kernel().await
         });
     DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
         .build(kernel)?
         .await?;

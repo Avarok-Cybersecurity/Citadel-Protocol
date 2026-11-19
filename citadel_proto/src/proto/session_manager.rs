@@ -41,6 +41,7 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
+use crate::proto::link::LinkManagerMode;
 use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::misc::panic_future::catch_panic;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -181,6 +182,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     local_rebinder: LocalRebinder,
     /// This node's traffic by class, counted by every session's streams.
     traffic: crate::proto::traffic::NodeTraffic,
+    /// How this node keeps its links (`proto::link`).
+    link_mode: LinkManagerMode,
 }
 
 /// The reason given to a login refused because the server already holds a session for the account.
@@ -215,7 +218,9 @@ const PROVISIONAL_CID_RESERVATION_TTL: Duration = Duration::from_secs(30);
 
 impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Creates a new [SessionManager] which handles individual connections
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        link_mode: LinkManagerMode,
         local_node_type: NodeType,
         kernel_tx: UnboundedSender<NodeResult<R>>,
         account_manager: AccountManager<R, R>,
@@ -249,6 +254,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             started: Instant::now(),
             local_rebinder: LocalRebinder::new(),
             traffic: Default::default(),
+            link_mode,
         };
 
         Self::from(inner)
@@ -260,6 +266,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let mut this = inner_mut!(self);
         this.server_remote = Some(server_remote);
         this.time_tracker
+    }
+
+    /// How this node keeps its links.
+    pub(crate) fn link_mode(&self) -> LinkManagerMode {
+        inner!(self).link_mode.clone()
     }
 
     /// Returns the disconnect signal tracker for ensuring at most 1 disconnect signal

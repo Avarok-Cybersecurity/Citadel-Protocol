@@ -76,6 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the server
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
         .with_path_policy(path_policy::every_path_in_order())
         .with_node_type(NodeType::server(server_addr)?)

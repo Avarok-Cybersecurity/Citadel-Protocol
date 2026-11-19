@@ -592,6 +592,11 @@ pub mod prelude {
 
     pub use crate::proto::misc::platform_ops::{DefaultTransport, PlatformOps, TransferMetadata};
 
+    /// The RobustConnectionManager's protocol side: the node's link mode and its clock.
+    pub use crate::proto::link;
+    pub use crate::proto::link::{
+        LinkManagerMode, ManagedLinks, ManagedLinksError, RuntimeClock,
+    };
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     #[doc(hidden)]
     pub use crate::proto::misc::safe_split_stream;

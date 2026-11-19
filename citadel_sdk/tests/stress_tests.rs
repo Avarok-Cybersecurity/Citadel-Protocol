@@ -312,6 +312,7 @@ mod tests {
 
         let client = spawner.spawn(
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
                 .build(client_kernel)
                 .unwrap(),
@@ -405,6 +406,7 @@ mod tests {
 
         let client = spawner.spawn(
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
                 .build(client_kernel)
                 .unwrap(),
@@ -550,10 +552,12 @@ mod tests {
         );
 
         let client0 = NodeBuilder::<R, NativeIO>::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .build(client_kernel0)
             .unwrap();
         let client1 = NodeBuilder::<R, NativeIO>::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .build(client_kernel1)
             .unwrap();
@@ -634,6 +638,7 @@ mod tests {
             );
 
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
                 .build(client_kernel)
                 .unwrap();

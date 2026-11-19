@@ -10,6 +10,7 @@
 //! - Customizable security settings (TLS, certificates)
 //! - Google services integration (optional)
 //! - STUN servers for NAT traversal: required for every node, with no default list
+//! - The link mode ([`NodeBuilder::with_link_manager`]): required for every node, with no default
 //! - Server authentication via pre-shared keys
 //!
 //! # Example
@@ -20,6 +21,7 @@
 //!
 //! // Create a basic server node
 //! let builder = DefaultNodeBuilder::default()
+//!     .with_link_manager(LinkManagerMode::Legacy)
 //!     .with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()))
 //!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
 //!     .with_backend(BackendType::InMemory);
@@ -66,6 +68,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     path_policy: Option<PathPolicy>,
     websocket_listener: Option<citadel_io::WebSocketListen>,
     injected_listener: Option<T::Listener>,
+    link_mode: Option<LinkManagerMode>,
     #[cfg(target_family = "wasm")]
     serverless_config: Option<ServerlessConfig>,
     _ratchet: PhantomData<R>,
@@ -95,6 +98,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             path_policy: None,
             websocket_listener: None,
             injected_listener: None,
+            link_mode: None,
             #[cfg(target_family = "wasm")]
             serverless_config: None,
             _ratchet: Default::default(),
@@ -174,6 +178,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         );
         let websocket_listener = self.websocket_listener.take();
         let injected_listener = self.injected_listener.take();
+        let link_mode = required_link_mode(self.link_mode.take())?;
         #[cfg(target_family = "wasm")]
         let serverless_config = self.serverless_config.take();
 
@@ -240,6 +245,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                     server_only_session_init_settings,
                     websocket_listener,
                     pre_built_listener,
+                    link_mode,
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
@@ -252,10 +258,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 
     /// Defines the node type. By default, Peer is used. If a server is desired, a bind address is expected
     /// ```
-    /// use citadel_sdk::prelude::DefaultNodeBuilder;
+    /// use citadel_sdk::prelude::{DefaultNodeBuilder, LinkManagerMode};
     /// use citadel_proto::prelude::NodeType;
     ///
-    /// DefaultNodeBuilder::default().with_node_type(NodeType::server("0.0.0.0:25021").unwrap());
+    /// DefaultNodeBuilder::default().with_link_manager(LinkManagerMode::Legacy).with_node_type(NodeType::server("0.0.0.0:25021").unwrap());
     /// ```
     pub fn with_node_type(&mut self, node_type: NodeType) -> &mut Self {
         self.hypernode_type = Some(node_type);
@@ -549,6 +555,7 @@ mod tests {
     #[cfg(feature = "google-services")]
     fn okay_config() {
         let _ = DefaultNodeBuilder::default()
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .with_google_realtime_database_config("123", "456")
             .with_google_services_json_path("abc")
             .build(EmptyKernel::default())
@@ -559,6 +566,7 @@ mod tests {
     #[cfg(feature = "google-services")]
     fn bad_config() {
         assert!(DefaultNodeBuilder::default()
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .with_google_realtime_database_config("123", "456")
             .build(EmptyKernel::default())
             .is_err());
@@ -582,6 +590,7 @@ mod tests {
         backend_type: BackendType,
     ) {
         let mut builder = DefaultNodeBuilder::default();
+        let _ = builder.with_link_manager(crate::prelude::LinkManagerMode::Legacy);
         let _ = builder
             .with_underlying_protocol(underlying_protocol.clone())
             .with_backend(backend_type.clone())
@@ -615,3 +624,7 @@ mod stun_tests;
 #[path = "node_builder_path_policy.rs"]
 mod path_policy;
 use path_policy::{check_path_policy, server_settings};
+
+#[path = "node_builder_link_mode.rs"]
+mod link_mode;
+use link_mode::required_link_mode;

@@ -170,6 +170,7 @@ mod tests {
 
         let node = |me: String, peer: String| {
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
                 .build(GroupTestKernel::new(
                     move |remote: NodeRemote<StackedRatchet>, events: Events| {

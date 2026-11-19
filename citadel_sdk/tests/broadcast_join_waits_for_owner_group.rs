@@ -98,10 +98,12 @@ mod tests {
         );
 
         let owner = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .build(owner_kernel)
             .unwrap();
         let joiner = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .build(joiner_kernel)
             .unwrap();
