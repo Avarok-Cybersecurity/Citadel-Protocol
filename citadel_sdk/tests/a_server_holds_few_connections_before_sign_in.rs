@@ -33,23 +33,23 @@ mod tests {
             });
         });
         let probe = async move {
-            let mut held = Vec::new();
-            for _ in 0..PER_ADDRESS {
-                held.push(tokio::net::TcpStream::connect(addr).await.unwrap());
-                // Accepted one at a time, in order.
-                tokio::time::sleep(Duration::from_millis(100)).await;
+            let mut streams = Vec::new();
+            for _ in 0..=PER_ADDRESS {
+                streams.push(tokio::net::TcpStream::connect(addr).await.unwrap());
             }
-            let mut extra = tokio::net::TcpStream::connect(addr).await.unwrap();
-            assert!(
-                closed_within(&mut extra, Duration::from_secs(5)).await,
-                "a connection past the limit was held"
+            // Whichever the server reaches last is the one past the limit. Those it holds stay
+            // open until sign-in expires (20 s), well past this wait.
+            let closed = futures::future::join_all(
+                streams
+                    .iter_mut()
+                    .map(|stream| closed_within(stream, Duration::from_secs(15))),
+            )
+            .await;
+            assert_eq!(
+                closed.iter().filter(|closed| **closed).count(),
+                1,
+                "the server did not close exactly the one connection past its limit: {closed:?}"
             );
-            for stream in &mut held {
-                assert!(
-                    !closed_within(stream, Duration::from_millis(500)).await,
-                    "a connection within the limit was closed"
-                );
-            }
         };
         tokio::select! {
             _ = server => panic!("the server ended"),
