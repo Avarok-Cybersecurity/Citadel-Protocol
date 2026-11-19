@@ -306,6 +306,8 @@ pub(crate) mod native_p2p {
             sink,
             header_obfuscator.clone(),
             meter.clone(),
+            // Its session ends it by dropping it, as before.
+            std::future::pending::<()>(),
         );
         let reader_future = CitadelSession::execute_inbound_stream(
             stream,

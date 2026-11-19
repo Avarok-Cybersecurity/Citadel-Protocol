@@ -90,6 +90,8 @@ pub(super) fn on_datachannel_established<
         sink,
         header_obfuscator.clone(),
         meter.clone(),
+        // Its session ends it by dropping it, as before.
+        std::future::pending::<()>(),
     );
     let reader = crate::proto::session::CitadelSession::execute_inbound_stream(
         source,
