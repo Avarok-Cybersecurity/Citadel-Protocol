@@ -20,6 +20,7 @@ mod path_policy;
 mod path_policy_error;
 #[cfg(test)]
 mod path_policy_tests;
+pub mod timing;
 pub use group_limits::{GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal};
 pub use nat_class::{IpTranslationClass, NatClass, PortTranslationClass};
 pub use offer_strength::{falls_short_of, stronger_offer};

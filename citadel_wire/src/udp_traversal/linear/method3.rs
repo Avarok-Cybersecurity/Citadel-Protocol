@@ -30,7 +30,11 @@
 //!     // Create socket and config
 //!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 //!     let target_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
-//!     let config = HolePunchConfigContainer::default();
+//!     // An identity cipher, for the example only: production passes the session's AEAD.
+//!     let config = HolePunchConfigContainer::new(
+//!         |p| bytes::BytesMut::from(p),
+//!         |p| Some(bytes::BytesMut::from(p)),
+//!     );
 //!     
 //!     // Create method3 instance
 //!     let method = Method3::new(

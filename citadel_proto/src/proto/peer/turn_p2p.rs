@@ -124,7 +124,7 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
     let stream = signalling.initiate_subscription().await.at(Signalling)?;
     let hole_punched_like = TargettedSocketAddr::new_invariant;
 
-    if local_cid < v_conn.get_target_cid() {
+    if crate::proto::peer::pair_role::leads(local_cid, v_conn.get_target_cid()) {
         let allocation = match allocate_first_usable(&config, tls, false).await {
             Ok(a) => a,
             Err(err) => {

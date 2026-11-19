@@ -233,7 +233,8 @@ pub const REKEY_UPDATE_FREQUENCY_EXTREME: u64 = 480 * 1_000_000_000;
 pub const HOLE_PUNCH_SYNC_TIME_MULTIPLIER: f64 = 2.0f64;
 /// the preconnect + connect stage will be limited by this duration
 pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from_secs(20);
-pub const TCP_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+pub const TCP_CONN_TIMEOUT: std::time::Duration =
+    citadel_types::proto::timing::TRANSPORT_CONNECT_TIMEOUT;
 
 pub const MAX_OUTGOING_UNPROCESSED_REQUESTS: usize = 512;
 

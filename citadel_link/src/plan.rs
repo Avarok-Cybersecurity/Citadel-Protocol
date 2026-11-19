@@ -12,8 +12,8 @@ use crate::path::{PathPlanKind, PathStage, StageFailure, StageOutcome};
 
 /// The attempt timeout of each stage of a plan made without a stamped plan (an older peer or
 /// server): the hole punch with its QUIC handshake, and one relay attempt.
-pub const LEGACY_DIRECT_TIMEOUT: Duration = Duration::from_secs(30);
-pub const LEGACY_TURN_TIMEOUT: Duration = Duration::from_secs(30);
+pub const LEGACY_DIRECT_TIMEOUT: Duration = citadel_types::proto::timing::P2P_STAGE_TIMEOUT;
+pub const LEGACY_TURN_TIMEOUT: Duration = citadel_types::proto::timing::P2P_STAGE_TIMEOUT;
 
 /// A stage and how long it may take.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

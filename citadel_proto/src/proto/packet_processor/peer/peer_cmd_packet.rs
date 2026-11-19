@@ -641,7 +641,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 drop(state_container);
                                                 return Ok(PrimaryProcessorResult::Void);
                                             }
-                                            if our_cid < peer_cid {
+                                            if crate::proto::peer::pair_role::leads(
+                                                our_cid, peer_cid,
+                                            ) {
                                                 log::info!(target: "citadel",
                                                     "Simultaneous P2P KEX race: dropping \
                                                      Stage0 from {peer_cid} (our exchange as \
@@ -844,7 +846,10 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         // now, register the loaded PQC + toolset into the virtual conn
                                         // Use CID comparison as deterministic tie-breaker for is_initiator
                                         // This ensures consistent behavior even under race conditions
-                                        let local_is_initiator = this_cid > peer_cid;
+                                        let local_is_initiator =
+                                            crate::proto::peer::pair_role::follows(
+                                                this_cid, peer_cid,
+                                            );
                                         log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
                                         let peer_crypto =
                                             PeerSessionCrypto::new(toolset, local_is_initiator);
@@ -1094,7 +1099,10 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             Toolset::new(this_cid, endpoint_ratchet.clone());
                                         // Use CID comparison as deterministic tie-breaker for is_initiator
                                         // This ensures consistent behavior even under race conditions
-                                        let local_is_initiator = this_cid > peer_cid;
+                                        let local_is_initiator =
+                                            crate::proto::peer::pair_role::follows(
+                                                this_cid, peer_cid,
+                                            );
                                         log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
                                         let peer_crypto =
                                             PeerSessionCrypto::new(toolset, local_is_initiator);
@@ -1317,7 +1325,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             if let Some(our_offer) = our_offer {
                                 // Both sides are trying to connect to each other.
                                 // Use CID-based tiebreaker: lower CID auto-accepts.
-                                let we_are_lower = session_cid < peer_cid;
+                                let we_are_lower =
+                                    crate::proto::peer::pair_role::leads(session_cid, peer_cid);
                                 if we_are_lower {
                                     log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} auto-accepting incoming PostConnect from {peer_cid}");
                                     // Nobody was asked to accept: both dialled. The link
@@ -1829,11 +1838,10 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     session_cid,
                     peer_cid: target_cid,
                 } => {
-                    // Server-side pending-connect TTL. The SDK's `connect_to_peer` gives up
-                    // after 60s (RemoteP2pConnectTimeout, remote_ext.rs), so a posting older
-                    // than that can only ever mis-route a future handshake; expire it just
-                    // after the client's own deadline.
-                    const TIMEOUT: Duration = Duration::from_secs(65);
+                    // Server-side pending-connect TTL: just after the dialler's own wait
+                    // (`P2P_CONNECT_TIMEOUT`), past which a posting can only ever mis-route a
+                    // future handshake.
+                    const TIMEOUT: Duration = citadel_types::proto::timing::POSTING_TTL;
                     if let Some(peer_response) = peer_response {
                         super::server::post_connect::handle_response_phase_post_connect(
                             peer_conn_type,
@@ -1983,7 +1991,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     //    with no ordering assumption, and a fresh reconnect posting made after
                     //    the route ended stays mergeable (R-DIAL's crossed redials),
                     //  - a receiver's decline (or refusal) consumes the dial it answers, and
-                    //  - the 65s posting TTL.
+                    //  - the posting TTL (`timing::POSTING_TTL`).
                     let mut state_container = inner_mut_state!(session.state_container);
                     state_container.remove_udp_channel(target_cid);
                     // Mark vconn inactive but do NOT remove from HashMap.

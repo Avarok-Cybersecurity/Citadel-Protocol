@@ -14,8 +14,6 @@
 use super::reason::DisconnectReason;
 use super::shared::{LaneFrame, LaneShared, Route};
 use crate::error::NetworkError;
-use crate::proto::node_request::{NodeRequest, PeerCommand};
-use crate::proto::peer::peer_layer::PeerSignal;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc;
 use citadel_negotiation::ports::{BoxFuture, SendError, SignalPort};
@@ -140,15 +138,11 @@ impl<R: Ratchet> NegotiationLane<R> {
             .vconn_type
             .try_as_peer_connection()
             .ok_or_else(|| NetworkError::msg("a negotiation lane is always a P2P connection"))?;
-        let request = NodeRequest::PeerCommand(PeerCommand {
-            session_cid: shared.vconn_type.get_session_cid(),
-            command: PeerSignal::Disconnect {
-                peer_conn_type,
-                disconnect_response: None,
-                disconnect_token: shared.disconnect_token,
-                reason: Some(reason),
-            },
-        });
+        let request = crate::proto::peer::disconnect_request::p2p_disconnect_request(
+            peer_conn_type,
+            shared.disconnect_token,
+            Some(reason),
+        );
         shared.node_remote.send(request).await.map(|_| ())
     }
 }

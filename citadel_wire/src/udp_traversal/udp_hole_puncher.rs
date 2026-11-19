@@ -557,7 +557,7 @@ mod tests {
         let server = async move {
             let res = server_stream
                 .begin_udp_hole_punch(
-                    Default::default(),
+                    crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                     crate::stun_servers::unanswered_loopback(),
                     super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
@@ -569,7 +569,7 @@ mod tests {
         let client = async move {
             let res = client_stream
                 .begin_udp_hole_punch(
-                    Default::default(),
+                    crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                     crate::stun_servers::unanswered_loopback(),
                     super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
@@ -642,7 +642,7 @@ mod tests {
         let server = async move {
             server_stream
                 .begin_udp_hole_punch(
-                    Default::default(),
+                    crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                     crate::stun_servers::unanswered_loopback(),
                     super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
@@ -652,7 +652,7 @@ mod tests {
         let client = async move {
             client_stream
                 .begin_udp_hole_punch(
-                    Default::default(),
+                    crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                     crate::stun_servers::unanswered_loopback(),
                     super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
@@ -725,7 +725,7 @@ mod tests {
                 let server = citadel_io::tokio::task::spawn(async move {
                     server_stream
                         .begin_udp_hole_punch(
-                            Default::default(),
+                            crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                             crate::stun_servers::unanswered_loopback(),
                             super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                         )
@@ -735,7 +735,7 @@ mod tests {
                 let client = citadel_io::tokio::task::spawn(async move {
                     client_stream
                         .begin_udp_hole_punch(
-                            Default::default(),
+                            crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                             crate::stun_servers::unanswered_loopback(),
                             super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                         )

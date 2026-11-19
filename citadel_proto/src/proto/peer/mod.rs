@@ -86,6 +86,8 @@ pub(crate) mod p2p_outcome_context;
 pub(crate) mod direct_journal;
 
 pub(crate) mod direct_route;
+pub(crate) mod disconnect_request;
+pub(crate) mod pair_role;
 
 pub(crate) mod p2p_campaign;
 

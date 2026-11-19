@@ -68,7 +68,7 @@ pub(crate) const RECOVERY_BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// A route that stayed up this long resets the retry budget and backoff.
 pub(crate) const STABLE_ROUTE: Duration = Duration::from_secs(300);
 /// How long a retry waits for the peer to meet it on the coordination endpoint.
-pub(crate) const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const RENDEZVOUS_TIMEOUT: Duration = citadel_types::proto::timing::P2P_STAGE_TIMEOUT;
 
 pub(crate) struct Campaign<R: Ratchet, T: PlatformOps> {
     pub(crate) session: CitadelSession<R, T>,
