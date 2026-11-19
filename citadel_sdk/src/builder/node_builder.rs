@@ -640,6 +640,10 @@ mod tests {
 #[path = "node_builder_stun_tests.rs"]
 mod stun_tests;
 
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "node_builder_link_manager_tests.rs"]
+mod link_manager_tests;
+
 #[path = "node_builder_path_policy.rs"]
 mod path_policy;
 use path_policy::{check_path_policy, server_settings};

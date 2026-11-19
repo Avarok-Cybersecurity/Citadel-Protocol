@@ -8,8 +8,8 @@ use citadel_io::ErrorCode;
 
 impl<R: Ratchet, T: PlatformOps> NodeBuilder<R, T> {
     /// How this node keeps its links: [`LinkManagerMode::Legacy`], or
-    /// [`LinkManagerMode::Managed`] with the clock its deadlines read and the reattach grace it
-    /// holds a dropped session's seal for. Required.
+    /// [`LinkManagerMode::Managed`] with the clock its deadlines read and the `LinkPolicy` its
+    /// links are kept under (the reattach grace among them). Required.
     pub fn with_link_manager(&mut self, mode: LinkManagerMode) -> &mut Self {
         self.link_mode = Some(mode);
         self

@@ -6,7 +6,6 @@
 
 use super::SingleUDPHolePuncher;
 use crate::socket_helpers::get_udp_socket;
-use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use citadel_io::tokio;
 use citadel_io::ErrorCode;
@@ -18,7 +17,7 @@ fn puncher_aimed_at_silence() -> (SingleUDPHolePuncher, std::net::UdpSocket) {
     let silent_peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let puncher = SingleUDPHolePuncher::new(
         RelativeNodeType::Initiator,
-        HolePunchConfigContainer::default(),
+        crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
         get_udp_socket("127.0.0.1:0").unwrap(),
         vec![silent_peer.local_addr().unwrap()],
     )

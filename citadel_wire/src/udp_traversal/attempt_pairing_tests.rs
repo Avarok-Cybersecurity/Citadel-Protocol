@@ -25,7 +25,7 @@ const SKEW: Duration = Duration::from_millis(3400);
 async fn punch(endpoint: &netbeam::sync::network_endpoint::NetworkEndpoint) -> Result<(), String> {
     UdpHolePuncher::new(
         endpoint,
-        Default::default(),
+        crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
         crate::stun_servers::unanswered_loopback(),
         PunchBudget::per_attempt(ATTEMPT),
     )

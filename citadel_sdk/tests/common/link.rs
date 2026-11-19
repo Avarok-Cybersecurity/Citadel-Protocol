@@ -155,14 +155,12 @@ pub async fn saw(events: &mut mpsc::UnboundedReceiver<Seen>, want: Seen) {
     panic!("the proxy ended before {want:?}");
 }
 
-/// The owner's reattach grace (Q2, 5 minutes). These tests never reach it; a managed node
-/// requires one.
-pub const REATTACH_GRACE: Duration = Duration::from_secs(300);
-
-/// A managed node's mode, on `clock`.
+/// A managed node's mode, on `clock`, under the test link policy (whose reattach grace, the
+/// owner's 5 minutes, these tests never reach).
 pub fn managed(clock: Arc<ManualClock>) -> citadel_sdk::prelude::LinkManagerMode {
     use citadel_sdk::prelude::{LinkManagerMode, ManagedLinks};
-    LinkManagerMode::Managed(ManagedLinks::new(clock, REATTACH_GRACE).unwrap())
+    let policy = citadel_sdk::test_common::localhost_link_policy();
+    LinkManagerMode::Managed(ManagedLinks::new(clock, policy).unwrap())
 }
 
 /// Runs `handler` on a client node of `mode` beside a test server; a hang guard, not a

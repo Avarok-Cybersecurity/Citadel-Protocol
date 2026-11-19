@@ -896,6 +896,9 @@ pub enum ErrorCode {
     /// A node was built without a link mode; there is no default one.
     #[form = "A node requires a link mode (NodeBuilder::with_link_manager); there is no default"]
     NodeLinkManagerMissing = 482,
+    /// A managed node's `LinkPolicy` failed validation (the policy's error).
+    #[form = "A managed node's LinkPolicy is invalid: {}"]
+    LinkPolicyInvalid = 483,
 
     // --- citadel_sdk: builder / node ---
     /// A node could not be built from its configuration (reason).

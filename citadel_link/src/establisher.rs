@@ -14,32 +14,34 @@ use crate::typestate::{
     Delivered, Link, PathFailure, Pathed, RetireReason, SealFailure, Sealed, Unpathed,
 };
 
-/// `Send` where futures cross threads; nothing on `wasm32-unknown-unknown`, where the browser's
-/// handles are single-threaded (a `BrowserP2pEstablisher` holds JS values).
-#[cfg(not(target_arch = "wasm32"))]
+/// `Send` where futures cross threads: with the `send` feature (the protocol's `multi-threaded`
+/// mode) on a native target. Nothing on `wasm32-unknown-unknown`, where the browser's handles
+/// are single-threaded (a `BrowserP2pEstablisher` holds JS values), nor in the protocol's
+/// single-threaded mode, whose session is `Rc`-shared.
+#[cfg(all(feature = "send", not(target_arch = "wasm32")))]
 pub trait MaybeSend: Send {}
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "send", not(target_arch = "wasm32")))]
 impl<T: Send + ?Sized> MaybeSend for T {}
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(not(feature = "send"), target_arch = "wasm32"))]
 pub trait MaybeSend {}
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(not(feature = "send"), target_arch = "wasm32"))]
 impl<T: ?Sized> MaybeSend for T {}
 
-/// `Sync` where futures cross threads; nothing on `wasm32-unknown-unknown`.
-#[cfg(not(target_arch = "wasm32"))]
+/// `Sync` where futures cross threads (as [`MaybeSend`]).
+#[cfg(all(feature = "send", not(target_arch = "wasm32")))]
 pub trait MaybeSync: Sync {}
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "send", not(target_arch = "wasm32")))]
 impl<T: Sync + ?Sized> MaybeSync for T {}
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(not(feature = "send"), target_arch = "wasm32"))]
 pub trait MaybeSync {}
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(not(feature = "send"), target_arch = "wasm32"))]
 impl<T: ?Sized> MaybeSync for T {}
 
 /// The future every establisher step returns.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "send", not(target_arch = "wasm32")))]
 pub type Fut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// The future every establisher step returns.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(not(feature = "send"), target_arch = "wasm32"))]
 pub type Fut<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 /// A raw path, as the core needs to know it.

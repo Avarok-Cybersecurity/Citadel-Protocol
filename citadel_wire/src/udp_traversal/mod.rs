@@ -73,6 +73,8 @@ mod paired_attempts;
 #[cfg(not(target_family = "wasm"))]
 pub mod punch_budget;
 #[cfg(not(target_family = "wasm"))]
+pub mod punch_report;
+#[cfg(not(target_family = "wasm"))]
 pub mod udp_hole_puncher;
 
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]

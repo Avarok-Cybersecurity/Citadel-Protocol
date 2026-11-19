@@ -629,6 +629,7 @@ pub mod prelude {
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::proto::traffic::{ByteCount, NodeTrafficSnapshot, PathBytesSnapshot};
     pub use citadel_io::ServerMode;
+    pub use citadel_link::{Backoff, FlapPolicy, HealPolicy, LinkPolicy, PolicyError};
     pub use citadel_link::{CloseReason, ShutdownReason};
     pub use citadel_types::crypto::SecrecyMode;
     pub use citadel_types::proto::ClientConnectionType;

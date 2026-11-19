@@ -10,16 +10,18 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
 
-use citadel_link::Clock;
+use citadel_io::ErrorCode;
+use citadel_link::{Clock, LinkPolicy, PolicyError};
 
 /// How this node keeps its links.
 #[derive(Clone)]
 pub enum LinkManagerMode {
-    /// Today's behaviour: a connect runs to its end once requested, and its deadlines read the
-    /// runtime's own timers.
+    /// Today's behaviour: a connect runs to its end once requested, its deadlines read the
+    /// runtime's own timers, and a P2P pair runs the campaign.
     Legacy,
     /// The RobustConnectionManager: a connect can be aborted by the ticket that started it
-    /// (`NodeRequest::AbortLink`), and the deadlines of a login read [`ManagedLinks::clock`].
+    /// (`NodeRequest::AbortLink`), the deadlines of a login read [`ManagedLinks::clock`], and a
+    /// P2P pair whose other end is `Managed` too is kept under [`ManagedLinks::policy`].
     Managed(ManagedLinks),
 }
 
@@ -41,41 +43,47 @@ impl Debug for LinkManagerMode {
     }
 }
 
-/// What a managed node is built with. Every field is required.
+/// What a managed node is built with. Every field is required. The policy is shared, not
+/// inlined: it is larger than every other mode, and a node clones its mode for each reader.
 #[derive(Clone)]
 pub struct ManagedLinks {
     clock: Arc<dyn Clock>,
-    reattach_grace: Duration,
+    policy: Arc<LinkPolicy>,
 }
 
 /// A managed configuration the node refuses.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ManagedLinksError {
-    /// A grace of zero would refuse every reattach while claiming to allow them.
-    ZeroReattachGrace,
+    /// The policy failed [`LinkPolicy::validate`]; a zero `reattach_grace` is one such policy,
+    /// since it would refuse every reattach while claiming to allow them.
+    Policy(PolicyError),
 }
 
 impl std::fmt::Display for ManagedLinksError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ManagedLinksError::ZeroReattachGrace => write!(f, "reattach_grace must be above zero"),
+            ManagedLinksError::Policy(err) => write!(f, "invalid LinkPolicy: {err:?}"),
         }
     }
 }
 
 impl std::error::Error for ManagedLinksError {}
 
+impl From<ManagedLinksError> for citadel_io::NetworkError {
+    fn from(err: ManagedLinksError) -> Self {
+        citadel_io::error!(ErrorCode::LinkPolicyInvalid, err.to_string())
+    }
+}
+
 impl ManagedLinks {
     /// `clock` is what every managed deadline reads ([`RuntimeClock`](super::RuntimeClock) in a
-    /// running node). `reattach_grace` is how long a server holds a dropped session's seal for a
-    /// reattach, and a client keeps its own (§5.2; the owner chose 5 minutes, Q2).
-    pub fn new(clock: Arc<dyn Clock>, reattach_grace: Duration) -> Result<Self, ManagedLinksError> {
-        if reattach_grace.is_zero() {
-            return Err(ManagedLinksError::ZeroReattachGrace);
-        }
+    /// running node). `policy` bounds every link the manager keeps, including the reattach grace
+    /// a server holds a dropped session's seal for (§5.2; the owner chose 5 minutes, Q2).
+    pub fn new(clock: Arc<dyn Clock>, policy: LinkPolicy) -> Result<Self, ManagedLinksError> {
+        policy.validate().map_err(ManagedLinksError::Policy)?;
         Ok(ManagedLinks {
             clock,
-            reattach_grace,
+            policy: Arc::new(policy),
         })
     }
 
@@ -83,15 +91,20 @@ impl ManagedLinks {
         &self.clock
     }
 
+    pub fn policy(&self) -> &LinkPolicy {
+        &self.policy
+    }
+
+    /// The policy's `reattach_grace`: read from the policy, so it has one source.
     pub fn reattach_grace(&self) -> Duration {
-        self.reattach_grace
+        self.policy.reattach_grace
     }
 }
 
 impl Debug for ManagedLinks {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ManagedLinks")
-            .field("reattach_grace", &self.reattach_grace)
+            .field("policy", &self.policy)
             .finish_non_exhaustive()
     }
 }
@@ -99,16 +112,39 @@ impl Debug for ManagedLinks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::proto::link::test_policy::policy;
     use crate::proto::link::RuntimeClock;
+
+    fn clock() -> Arc<dyn Clock> {
+        Arc::new(RuntimeClock::new())
+    }
 
     #[test]
     fn a_zero_reattach_grace_is_refused() {
-        let clock: Arc<dyn Clock> = Arc::new(RuntimeClock::new());
+        let zero = LinkPolicy {
+            reattach_grace: Duration::ZERO,
+            ..policy()
+        };
         assert_eq!(
-            ManagedLinks::new(clock.clone(), Duration::ZERO).err(),
-            Some(ManagedLinksError::ZeroReattachGrace)
+            ManagedLinks::new(clock(), zero).err(),
+            Some(ManagedLinksError::Policy(PolicyError::ZeroWait(
+                "reattach_grace"
+            )))
         );
-        let links = ManagedLinks::new(clock, Duration::from_secs(300)).unwrap();
-        assert_eq!(links.reattach_grace(), Duration::from_secs(300));
+        let links = ManagedLinks::new(clock(), policy()).unwrap();
+        assert_eq!(links.reattach_grace(), policy().reattach_grace);
+        assert_eq!(links.policy(), &policy());
+    }
+
+    #[test]
+    fn a_managed_node_needs_a_valid_policy() {
+        let mut invalid = policy();
+        invalid.heal.backoff.first_wait = Duration::ZERO;
+        assert!(matches!(
+            ManagedLinks::new(clock(), invalid),
+            Err(ManagedLinksError::Policy(PolicyError::ZeroWait("heal")))
+        ));
+        let err = citadel_io::NetworkError::from(ManagedLinks::new(clock(), invalid).unwrap_err());
+        assert_eq!(err.code(), ErrorCode::LinkPolicyInvalid);
     }
 }

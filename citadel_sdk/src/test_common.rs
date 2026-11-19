@@ -97,6 +97,41 @@ pub fn localhost_path_policy() -> PathPolicy {
     PathPolicy::new(rules, PathClasses::NONE).expect("the test policy is valid")
 }
 
+/// The link policy of managed nodes under test. `LinkPolicy` has no defaults, so every bound is
+/// explicit. The values are the campaign's own (2 s first retry, 60 s cap, 5 s rearm floor), so
+/// the two modes are timed alike, and the reattach grace is the owner's 5 minutes (Q2).
+pub fn localhost_link_policy() -> LinkPolicy {
+    let s = Duration::from_secs;
+    LinkPolicy {
+        heal: HealPolicy {
+            backoff: Backoff {
+                first_wait: s(2),
+                factor: 2,
+                max_wait: s(60),
+            },
+            max_attempts: Some(6),
+            give_up_after: None,
+        },
+        reattach_grace: s(300),
+        flap: FlapPolicy {
+            window: s(60),
+            max_transitions: 5,
+            hold: s(20),
+        },
+        direct_rendezvous_budget: s(5),
+        rendezvous_deadline: s(30),
+        seal_deadline: s(30),
+        probe_interval: None,
+        settings_deadline: s(30),
+        loser_redial_wait: s(2),
+        rearm: Backoff {
+            first_wait: s(5),
+            factor: 2,
+            max_wait: s(300),
+        },
+    }
+}
+
 #[cfg(not(target_family = "wasm"))]
 mod native {
     use super::*;

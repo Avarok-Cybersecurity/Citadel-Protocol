@@ -593,18 +593,14 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
             let command = match &self.receiver {
                 ReceiverType::OrderedReliable { .. } | ReceiverType::Lane { .. } => {
                     self.is_alive.store(false, Ordering::SeqCst);
-                    NodeRequest::PeerCommand(PeerCommand {
-                        session_cid: local_cid,
-                        command: PeerSignal::Disconnect {
-                            peer_conn_type: PeerConnectionType::LocalGroupPeer {
-                                session_cid: local_cid,
-                                peer_cid,
-                            },
-                            disconnect_response: None,
-                            disconnect_token: self.disconnect_token,
-                            reason: None,
+                    crate::proto::peer::disconnect_request::p2p_disconnect_request(
+                        PeerConnectionType::LocalGroupPeer {
+                            session_cid: local_cid,
+                            peer_cid,
                         },
-                    })
+                        self.disconnect_token,
+                        None,
+                    )
                 }
 
                 ReceiverType::UnorderedUnreliable { current, .. } => {

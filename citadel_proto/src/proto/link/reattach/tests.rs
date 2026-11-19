@@ -1,4 +1,5 @@
 use super::*;
+use crate::proto::link::test_policy::policy;
 use crate::proto::link::{ManagedLinks, Millis, RuntimeClock};
 use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use citadel_crypt::prelude::ConstructorOpts;
@@ -6,11 +7,9 @@ use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::{CryptoParameters, SecurityLevel};
 use std::sync::Arc;
-use std::time::Duration;
 
 type Constructor = <StackedRatchet as Ratchet>::Constructor;
 
-const GRACE: Duration = Duration::from_secs(300);
 const CID: u64 = 77;
 
 /// One C2S session's keys: the client's end, which seals, and the server's, which opens.
@@ -27,7 +26,7 @@ fn session_keys() -> (StackedRatchet, StackedRatchet) {
 }
 
 fn holds() -> ReattachHolds {
-    ReattachHolds::new(&ManagedLinks::new(Arc::new(RuntimeClock::new()), GRACE).unwrap())
+    ReattachHolds::new(&ManagedLinks::new(Arc::new(RuntimeClock::new()), policy()).unwrap())
 }
 
 fn binding(attempt: u64) -> ReattachBinding {
@@ -153,7 +152,7 @@ fn the_wrong_token_or_incarnation_is_not_held_and_is_never_proof_checked() {
 #[test]
 fn a_hold_ends_at_the_grace() {
     let (token, (r, _)) = (ResumeToken::generate(), session_keys());
-    let end = Millis(1_000).after(GRACE);
+    let end = Millis(1_000).after(policy().reattach_grace);
     let mut h = held(token);
     assert!(h
         .admit(&frame(token, &r, 1), Millis(end.0 - 1), |_| true)

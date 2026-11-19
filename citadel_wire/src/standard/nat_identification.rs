@@ -452,9 +452,6 @@ mod native {
     /// STUN servers to answer.
     pub const STUN_PROBE_WINDOW: Duration = Duration::from_millis(1500);
 
-    static LOCALHOST_TESTING_NAT_TYPE: citadel_io::Mutex<Option<NatType>> =
-        citadel_io::Mutex::new(None);
-
     impl NatType {
         /// Identifies the NAT which the local node is behind, within [`IDENTIFY_TIMEOUT`].
         ///
@@ -493,11 +490,7 @@ mod native {
             stun_servers: &StunServers,
         ) -> Result<Self, FirewallError> {
             match citadel_io::time::timeout(_timeout, get_nat_type(stun_servers)).await {
-                Ok(res) => res
-                    .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))
-                    .inspect(|nat_type| {
-                        *LOCALHOST_TESTING_NAT_TYPE.lock() = Some(nat_type.clone());
-                    }),
+                Ok(res) => res.map_err(|err| FirewallError::firewall_hole_punch(err.to_string())),
 
                 Err(_elapsed) => Err(citadel_io::error!(
                     citadel_io::ErrorCode::FirewallNatIdentTimeout
