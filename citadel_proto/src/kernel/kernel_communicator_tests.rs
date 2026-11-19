@@ -15,6 +15,7 @@ fn disconnect(ticket: u128, cid: Option<u64>) -> NodeResult<StackedRatchet> {
         conn_type: None,
         message: String::new(),
         disconnect_token: None,
+        reason: None,
     })
 }
 

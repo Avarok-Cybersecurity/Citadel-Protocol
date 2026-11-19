@@ -35,6 +35,8 @@
 //! direct client-server communication. For bidirectional client-server
 //! communication, use a `ClientConnectListenerKernel` instead.
 
+#[path = "../shared/max_level.rs"]
+mod max_level;
 #[path = "../shared/path_policy.rs"]
 mod path_policy;
 #[path = "../shared/server_limits.rs"]
@@ -66,7 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // a client attempts to register or connect, they must provide the password.
     // This "password" is effectively a pre-shared key (PSK)
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
+        .with_max_security_level(max_level::extreme())
         .with_path_policy(path_policy::every_path_in_order())
         .with_server_limits(server_limits::one_machine())
         .with_node_type(NodeType::server(server_addr)?)

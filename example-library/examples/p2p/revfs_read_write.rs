@@ -36,6 +36,10 @@
 //! Unlike the `revfs_take` example, reading a file does not remove it from
 //! the RE-VFS. The file remains available for multiple reads by authorized peers.
 
+#[path = "../shared/max_level.rs"]
+mod max_level;
+#[path = "../shared/revfs_keys.rs"]
+mod revfs_keys;
 #[path = "../shared/stun.rs"]
 mod stun;
 
@@ -132,7 +136,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the peer
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
+        .with_max_security_level(max_level::extreme())
+        .with_revfs_key_source(revfs_keys::per_run("localhost"))
         .build(kernel)?;
 
     // Run the peer

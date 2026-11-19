@@ -105,7 +105,7 @@ fn bench_scramble(c: &mut Criterion) {
                     &data[..],
                     sec,
                     &alice,
-                    &alice,
+                    None,
                     HEADER_LEN,
                     0,
                     ObjectId::zero(),

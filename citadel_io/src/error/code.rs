@@ -887,6 +887,19 @@ pub enum ErrorCode {
     /// A provisional outbound connection to the given peer is already in progress (peer addr).
     #[form = "Localhost is already trying to connect to {}"]
     SessionManagerProvisionalConnectionExists = 265,
+    /// A connect stopped because the ticket that requested it aborted it (`AbortLink`) (peer addr).
+    #[form = "The connect to {} was aborted by its requester"]
+    LinkConnectAborted = 480,
+    /// The server already holds a session for the account, and this login neither forced nor
+    /// proved itself that session's own client (the server's refusal).
+    #[form = "The server already holds a session for this account: {}"]
+    RemoteServerHoldsSession = 481,
+    /// A node was built without a link mode; there is no default one.
+    #[form = "A node requires a link mode (NodeBuilder::with_link_manager); there is no default"]
+    NodeLinkManagerMissing = 482,
+    /// A managed node's `LinkPolicy` failed validation (the policy's error).
+    #[form = "A managed node's LinkPolicy is invalid: {}"]
+    LinkPolicyInvalid = 483,
 
     // --- citadel_sdk: builder / node ---
     /// A node could not be built from its configuration (reason).
@@ -1284,6 +1297,9 @@ pub enum ErrorCode {
     /// A session already has the most routed requests awaiting an answer it may have (cid, limit).
     #[form = "Session {} already has {} requests awaiting an answer; this one was not routed"]
     PendingRequestsAtCap = 433,
+    /// A signal named a peer the sender has no accepted connection with (sender cid, peer cid).
+    #[form = "{} has no accepted connection with {}; the signal was not relayed"]
+    PeerRelayNotConsented = 434,
 
     // --- citadel_user: the account layer ---
     /// An account was asked to record itself as its own peer (cid).
@@ -1293,6 +1309,31 @@ pub enum ErrorCode {
     /// not UTF-8). Choose a backend explicitly.
     #[form = "No usable home directory for the default account store; choose a backend explicitly"]
     BackendHomeDirUnavailable = 461,
+
+    // --- security levels read from the wire ---
+    /// A node was built without a maximum security level; there is no default one.
+    #[form = "A node requires a maximum security level (NodeBuilder::with_max_security_level); there is no default"]
+    NodeMaxSecurityLevelMissing = 470,
+    /// A level read from a peer or server is above what this node builds (level, maximum).
+    #[form = "Security level {} is above this node's maximum, {}; nothing was built"]
+    SecurityLevelAboveMaximum = 471,
+
+    // --- RE-VFS objects sealed under the account's own key ---
+    /// A RE-VFS object was to be sealed or opened with no key configured for its account (cid).
+    #[form = "No RE-VFS key is configured for account {} (NodeBuilder::with_revfs_key_source); nothing was sealed or opened"]
+    RevfsKeyMissing = 490,
+    /// A RE-VFS group carries another key's id: another account or root sealed it.
+    #[form = "This RE-VFS object was sealed under another account's key"]
+    RevfsSealedUnderAnotherKey = 491,
+    /// A RE-VFS group failed to open: it was altered, truncated, or moved from another object or position.
+    #[form = "A RE-VFS group failed to open (object {}, group {}): it was altered, truncated or moved"]
+    RevfsSealBroken = 492,
+    /// A RE-VFS group names a level other than its object's (group level, object level).
+    #[form = "A RE-VFS group is sealed at level {}, its object at {}"]
+    RevfsSealLevelMismatch = 493,
+    /// A RE-VFS key was asked for with a domain that is empty or too long.
+    #[form = "A RE-VFS key needs a canonical server domain of 1 to 65535 bytes"]
+    RevfsKeyDomainInvalid = 494,
 
     // --- citadel_proto: before a connection proves anything (540-559) ---
     /// The server did not go on with a connect's first packet. It reads the same whatever the

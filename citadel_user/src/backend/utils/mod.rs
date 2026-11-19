@@ -46,6 +46,7 @@ use std::task::{Context, Poll};
 
 use crate::misc::AccountError;
 use citadel_io::tokio;
+use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{
     ObjectTransferOrientation, ObjectTransferStatus, VirtualObjectMetadata,
 };
@@ -66,6 +67,7 @@ pub struct ObjectTransferHandler {
     pub orientation: ObjectTransferOrientation,
     start_recv_tx: FileTransferStarter,
     pub inner: ObjectTransferHandlerInner,
+    legacy_seal_received: Option<SecurityLevel>,
 }
 
 #[derive(Debug)]
@@ -136,6 +138,7 @@ impl ObjectTransferHandler {
             start_recv_tx: FileTransferStarter {
                 inner: start_recv_tx,
             },
+            legacy_seal_received: None,
         };
 
         (this, tx)
@@ -155,6 +158,10 @@ impl ObjectTransferHandler {
                 }
                 ObjectTransferStatus::ReceptionComplete => {
                     return Ok(save_path);
+                }
+
+                ObjectTransferStatus::LegacySealReceived(level) => {
+                    self.legacy_seal_received = Some(level);
                 }
 
                 ObjectTransferStatus::TransferComplete => {
@@ -210,6 +217,13 @@ impl ObjectTransferHandler {
         } else {
             Ok(())
         }
+    }
+
+    /// The level of a pulled RE-VFS object, read through [`Self::exhaust_stream`], that held
+    /// groups sealed before account keys (a key its server also holds): it should be sealed
+    /// again. `None` for any other object.
+    pub fn legacy_seal_received(&self) -> Option<SecurityLevel> {
+        self.legacy_seal_received
     }
 
     /// When the local handle type is for a Receiver,

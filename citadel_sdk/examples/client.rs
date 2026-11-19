@@ -41,8 +41,10 @@ async fn main() {
         );
 
     let _ = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_node_type(NodeType::Peer)
         .with_stun_servers([stun0, stun1, stun2])
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .build(client)
         .unwrap()
         .await

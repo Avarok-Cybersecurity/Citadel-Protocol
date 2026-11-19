@@ -44,6 +44,9 @@ pub(crate) fn provisional_check<R: Ratchet>(
                 .insert_reserved(None, remaining, |state| provisional_check(&mut **state));
             QueueWorkerResult::Complete
         }
-        _ => QueueWorkerResult::EndSession,
+        _ => {
+            state.connect_state.login_deadline_passed = true;
+            QueueWorkerResult::EndSession
+        }
     }
 }

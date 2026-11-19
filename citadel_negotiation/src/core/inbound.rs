@@ -63,7 +63,10 @@ impl<S: Setting> Negotiator<S> {
             // Every proposal is answered on receipt, so the answer already given wins (§4.2(5)).
             Frame::Cancel { .. } => {}
             Frame::Renegotiate { reason, next } => {
-                let next = decode_value(&next).unwrap_or_else(|_| self.value.clone());
+                let next = decode_value(&next)
+                    .ok()
+                    .filter(|next: &S| next.is_supported() && !next.exceeds(&self.bound))
+                    .unwrap_or_else(|| self.value.clone());
                 let state = NegotiationState::FellBack {
                     reason,
                     next,
@@ -98,7 +101,7 @@ impl<S: Setting> Negotiator<S> {
             return self.fall_back(RenegotiationReason::Desync, self.value.clone(), true, out);
         }
         let theirs = match decode_value::<S>(&bytes) {
-            Ok(value) if value.is_supported() => value,
+            Ok(value) if value.is_supported() && !value.exceeds(&self.bound) => value,
             _ if matches!(self.phase, Phase::Proposing { .. }) => {
                 return self.fall_back(RenegotiationReason::Desync, self.value.clone(), true, out);
             }

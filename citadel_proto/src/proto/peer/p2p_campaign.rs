@@ -68,7 +68,7 @@ pub(crate) const RECOVERY_BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// A route that stayed up this long resets the retry budget and backoff.
 pub(crate) const STABLE_ROUTE: Duration = Duration::from_secs(300);
 /// How long a retry waits for the peer to meet it on the coordination endpoint.
-pub(crate) const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const RENDEZVOUS_TIMEOUT: Duration = citadel_types::proto::timing::P2P_STAGE_TIMEOUT;
 
 pub(crate) struct Campaign<R: Ratchet, T: PlatformOps> {
     pub(crate) session: CitadelSession<R, T>,
@@ -90,6 +90,9 @@ pub(crate) struct Campaign<R: Ratchet, T: PlatformOps> {
     /// Whether both NATs are unpredictable (no hole punch can work), as the plan was made from.
     pub(crate) direct_impossible: bool,
     pub(crate) guard: CampaignEndGuard,
+    /// The pair's manager, on a `Managed` node (WIRE-A: used only if the peer is Managed too).
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) managed: Option<crate::proto::link::p2p::start::ManagedPair<R, T>>,
 }
 
 /// Starts the campaign on its own task: the inbound packet processor that forged the connection
@@ -116,6 +119,8 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         plan,
         direct_impossible,
         guard,
+        #[cfg(not(target_family = "wasm"))]
+        managed,
     } = campaign;
     let started = Instant::now();
     let cell = guard.cell().clone();
@@ -198,6 +203,17 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
                 return;
             }
         };
+        #[cfg(not(target_family = "wasm"))]
+        let handed_over =
+            crate::proto::link::p2p::start::hand_over(managed, &app, peer_version).await;
+        // A browser node has no P2P manager: it takes part in the exchange as Legacy (WIRE-A), so
+        // a native peer at LINK_MODE_SINCE is never left waiting on the topic.
+        #[cfg(target_family = "wasm")]
+        let handed_over =
+            crate::proto::link::p2p::agree::agree_mode(&app, false, peer_version).await;
+        if handed_over {
+            return;
+        }
         if plan.is_server_only() {
             log::warn!(target: "citadel", "The P2P connection to {peer_cid} has no path to try (the NATs are incompatible and no TURN config was supplied, or the server's path policy allows none): staying server-relayed");
             let none = crate::proto::peer::p2p_outcome::AttemptReport::nothing_attached(vec![]);

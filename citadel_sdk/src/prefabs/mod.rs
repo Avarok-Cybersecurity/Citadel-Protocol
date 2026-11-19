@@ -33,7 +33,9 @@
 //!     );
 //!
 //!     let client = DefaultNodeBuilder::default()
+//!         .with_link_manager(LinkManagerMode::Legacy)
 //!         .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//!         .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme).unwrap())
 //!         .build(kernel)
 //!         .map_err(|err| NetworkError::generic(err.to_string()))?;
 //!

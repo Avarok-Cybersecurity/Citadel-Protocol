@@ -23,13 +23,15 @@ pub const REORDER_WINDOW: u64 = 64;
 
 /// Everything a negotiator needs; nothing has a default.
 #[derive(Clone, Debug)]
-pub struct NegotiatorConfig<S> {
+pub struct NegotiatorConfig<S: Setting> {
     pub local: Cid,
     pub peer: Cid,
     /// The value the channel opened with (the SDK getter's negotiated settings), epoch 0.
     pub initial: S,
     /// The local minimum for this peer: proposals below it are refused, from either side.
     pub minimum: S,
+    /// The local node's limit: proposals beyond it are refused, from either side.
+    pub bound: S::Bound,
     /// What the peer's `Hello` said about this setting.
     pub support: PeerSupport,
     pub policy: NegotiationPolicy,
@@ -41,6 +43,7 @@ pub enum ConfigError {
     Policy(PolicyError),
     UnsupportedInitial,
     InitialBelowMinimum,
+    InitialBeyondBound,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +77,7 @@ pub struct Negotiator<S: Setting> {
     support: PeerSupport,
     policy: NegotiationPolicy,
     minimum: S,
+    bound: S::Bound,
     epoch: Epoch,
     value: S,
     next_seq: u32,
@@ -94,11 +98,15 @@ impl<S: Setting> Negotiator<S> {
         if is_below(&config.minimum, &config.initial) {
             return Err(ConfigError::InitialBelowMinimum);
         }
+        if config.initial.exceeds(&config.bound) {
+            return Err(ConfigError::InitialBeyondBound);
+        }
         Ok(Self {
             role,
             support: config.support,
             policy: config.policy,
             minimum: config.minimum,
+            bound: config.bound,
             epoch: Epoch(0),
             value: config.initial,
             next_seq: 0,

@@ -41,7 +41,7 @@ use citadel_crypt::ratchets::Ratchet;
     skip_all,
     ret,
     err,
-    fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = session_ref.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_deregister<R: Ratchet, T: PlatformOps>(
@@ -203,6 +203,7 @@ async fn deregister_client_from_self<R: Ratchet, T: PlatformOps>(
         ticket,
         success,
         "Deregistration occurred. Session disconnected",
+        None,
     );
 
     Ok(PrimaryProcessorResult::Void)
@@ -251,6 +252,7 @@ async fn deregister_from_hyperlan_server_as_client<R: Ratchet, T: PlatformOps>(
         dereg_ticket,
         success,
         "Deregistration occurred. Session disconnected",
+        None,
     );
 
     session.shutdown();

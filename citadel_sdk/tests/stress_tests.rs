@@ -312,7 +312,9 @@ mod tests {
 
         let client = spawner.spawn(
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap(),
         );
@@ -405,7 +407,9 @@ mod tests {
 
         let client = spawner.spawn(
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap(),
         );
@@ -550,11 +554,15 @@ mod tests {
         );
 
         let client0 = NodeBuilder::<R, NativeIO>::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel0)
             .unwrap();
         let client1 = NodeBuilder::<R, NativeIO>::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel1)
             .unwrap();
         let clients = futures::future::try_join(client0, client1);
@@ -634,7 +642,9 @@ mod tests {
             );
 
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
             let task = async move { client.await.map(|_| ()) };

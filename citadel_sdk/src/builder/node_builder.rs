@@ -10,6 +10,7 @@
 //! - Customizable security settings (TLS, certificates)
 //! - Google services integration (optional)
 //! - STUN servers for NAT traversal: required for every node, with no default list
+//! - The link mode ([`NodeBuilder::with_link_manager`]): required for every node, with no default
 //! - Server authentication via pre-shared keys
 //!
 //! # Example
@@ -20,8 +21,10 @@
 //!
 //! // Create a basic server node
 //! let builder = DefaultNodeBuilder::default()
+//!     .with_link_manager(LinkManagerMode::Legacy)
 //!     .with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()))
 //!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//!     .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme).unwrap())
 //!     .with_backend(BackendType::InMemory);
 //! ```
 //!
@@ -65,8 +68,11 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     path_policy: Option<PathPolicy>,
     server_limits: Option<ServerLimits>,
+    max_security_level: Option<citadel_types::crypto::MaxSecurityLevel>,
+    revfs_keys: Option<citadel_proto::prelude::RevfsKeys>,
     websocket_listener: Option<citadel_io::WebSocketListen>,
     injected_listener: Option<T::Listener>,
+    link_mode: Option<LinkManagerMode>,
     #[cfg(target_family = "wasm")]
     serverless_config: Option<ServerlessConfig>,
     _ratchet: PhantomData<R>,
@@ -95,8 +101,11 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             local_only_server_settings: None,
             path_policy: None,
             server_limits: None,
+            max_security_level: None,
+            revfs_keys: None,
             websocket_listener: None,
             injected_listener: None,
+            link_mode: None,
             #[cfg(target_family = "wasm")]
             serverless_config: None,
             _ratchet: Default::default(),
@@ -154,6 +163,8 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         kernel: K,
     ) -> anyhow::Result<NodeFuture<'b, K>> {
         self.check()?;
+        let max_security_level = required_max_security_level(self.max_security_level)?;
+        let revfs_keys = self.revfs_keys.clone();
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let backend_type = match self.backend_type.take() {
             Some(backend_type) => backend_type,
@@ -179,6 +190,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         );
         let websocket_listener = self.websocket_listener.take();
         let injected_listener = self.injected_listener.take();
+        let link_mode = required_link_mode(self.link_mode.take())?;
         #[cfg(target_family = "wasm")]
         let serverless_config = self.serverless_config.take();
 
@@ -249,9 +261,12 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                     kernel_executor_settings,
                     stun_servers,
                     turn_servers,
+                    max_security_level,
+                    revfs_keys,
                     server_only_session_init_settings,
                     websocket_listener,
                     pre_built_listener,
+                    link_mode,
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
@@ -264,10 +279,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 
     /// Defines the node type. By default, Peer is used. If a server is desired, a bind address is expected
     /// ```
-    /// use citadel_sdk::prelude::DefaultNodeBuilder;
+    /// use citadel_sdk::prelude::{DefaultNodeBuilder, LinkManagerMode};
     /// use citadel_proto::prelude::NodeType;
     ///
-    /// DefaultNodeBuilder::default().with_node_type(NodeType::server("0.0.0.0:25021").unwrap());
+    /// DefaultNodeBuilder::default().with_link_manager(LinkManagerMode::Legacy).with_node_type(NodeType::server("0.0.0.0:25021").unwrap());
     /// ```
     pub fn with_node_type(&mut self, node_type: NodeType) -> &mut Self {
         self.hypernode_type = Some(node_type);
@@ -563,6 +578,8 @@ mod tests {
     #[cfg(feature = "google-services")]
     fn okay_config() {
         let _ = DefaultNodeBuilder::default()
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .with_google_realtime_database_config("123", "456")
             .with_google_services_json_path("abc")
             .build(EmptyKernel::default())
@@ -573,6 +590,8 @@ mod tests {
     #[cfg(feature = "google-services")]
     fn bad_config() {
         assert!(DefaultNodeBuilder::default()
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_google_realtime_database_config("123", "456")
             .build(EmptyKernel::default())
             .is_err());
@@ -596,6 +615,7 @@ mod tests {
         backend_type: BackendType,
     ) {
         let mut builder = DefaultNodeBuilder::default();
+        let _ = builder.with_link_manager(crate::prelude::LinkManagerMode::Legacy);
         let _ = builder
             .with_underlying_protocol(underlying_protocol.clone())
             .with_backend(backend_type.clone())
@@ -603,6 +623,7 @@ mod tests {
             .with_kernel_executor_settings(kernel_settings.clone())
             .with_insecure_skip_cert_verification()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_native_certs()
             .await
             .unwrap();
@@ -628,9 +649,22 @@ mod tests {
 #[path = "node_builder_stun_tests.rs"]
 mod stun_tests;
 
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "node_builder_link_manager_tests.rs"]
+mod link_manager_tests;
+
 #[path = "node_builder_path_policy.rs"]
 mod path_policy;
 #[path = "node_builder_server_limits.rs"]
 mod server_limits;
 use path_policy::{check_path_policy, server_settings};
 use server_limits::{check_server_limits, with_limits};
+
+#[path = "node_builder_level_cap.rs"]
+mod level_cap;
+#[path = "node_builder_revfs.rs"]
+mod revfs;
+use level_cap::required_max_security_level;
+#[path = "node_builder_link_mode.rs"]
+mod link_mode;
+use link_mode::required_link_mode;

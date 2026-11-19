@@ -14,6 +14,7 @@ license = "MIT OR Apache-2.0"
 citadel_types = { workspace = true }
 citadel_negotiation = { workspace = true }
 citadel_media = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 citadel_link = { path = ".", features = ["harness"] }
@@ -27,6 +28,10 @@ citadel_types = { workspace = true }
 # The deterministic two-link scheduler (`schedule`). Tests and downstream lanes' tests only; no
 # production build enables it.
 harness = []
+# The establisher contract's futures and handles are `Send` (native, multi-threaded protocol).
+# citadel_proto's `multi-threaded` enables it; without it the contract asks for nothing, as on
+# wasm32.
+send = []
 
 [lints.rust]
 unsafe_code = "forbid"

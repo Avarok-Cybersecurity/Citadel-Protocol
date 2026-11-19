@@ -16,8 +16,8 @@ use super::p2p_outcome::{PathPlanKind, PathStage};
 
 /// The attempt timeout of each stage of a plan made without a stamped plan: the hole punch with
 /// its QUIC handshake, and one relay attempt (allocation, signalling, probing and the handshake).
-pub(crate) const LEGACY_DIRECT_TIMEOUT: Duration = Duration::from_secs(30);
-pub(crate) const LEGACY_TURN_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const LEGACY_DIRECT_TIMEOUT: Duration = citadel_types::proto::timing::P2P_STAGE_TIMEOUT;
+pub(crate) const LEGACY_TURN_TIMEOUT: Duration = citadel_types::proto::timing::P2P_STAGE_TIMEOUT;
 
 /// One path to try.
 #[derive(Clone, Debug)]

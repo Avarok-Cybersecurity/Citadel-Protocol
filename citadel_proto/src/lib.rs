@@ -540,6 +540,7 @@ pub mod prelude {
     pub use citadel_crypt::ratchets::mono::MonoRatchet;
     pub use citadel_crypt::ratchets::stacked::StackedRatchet;
     pub use citadel_crypt::ratchets::Ratchet;
+    pub use citadel_crypt::revfs_seal::{RevfsKey, RevfsKeySource, RevfsKeys};
     pub use citadel_types::crypto::AlgorithmsExt;
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_user::account_manager::AccountManager;
@@ -594,6 +595,11 @@ pub mod prelude {
 
     pub use crate::proto::misc::platform_ops::{DefaultTransport, PlatformOps, TransferMetadata};
 
+    /// The RobustConnectionManager's protocol side: the node's link mode and its clock.
+    pub use crate::proto::link;
+    pub use crate::proto::link::{
+        AbortGuard, LinkManagerMode, ManagedLinks, ManagedLinksError, RuntimeClock,
+    };
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     #[doc(hidden)]
     pub use crate::proto::misc::safe_split_stream;
@@ -616,6 +622,7 @@ pub mod prelude {
     };
     pub use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
     pub use crate::proto::peer::p2p_rearm::PathControl;
+    pub use crate::proto::peer::peer_crypt::{IceCandidateData, WebRtcSignalingPayload};
     pub use crate::proto::peer::peer_layer::PeerResponse;
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, PEER_MAILBOX_MAP};
     pub use crate::proto::remote::Ticket;
@@ -624,6 +631,8 @@ pub mod prelude {
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::proto::traffic::{ByteCount, NodeTrafficSnapshot, PathBytesSnapshot};
     pub use citadel_io::ServerMode;
+    pub use citadel_link::{Backoff, FlapPolicy, HealPolicy, LinkPolicy, PolicyError};
+    pub use citadel_link::{CloseReason, ShutdownReason};
     pub use citadel_types::crypto::SecrecyMode;
     pub use citadel_types::proto::ClientConnectionType;
     pub use citadel_types::proto::ConnectMode;

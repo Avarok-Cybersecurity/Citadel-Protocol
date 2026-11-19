@@ -50,4 +50,11 @@ impl Setting for MediaTransport {
     fn is_supported(&self) -> bool {
         true
     }
+
+    /// Nothing about a transport is costly to build: there is no bound.
+    type Bound = ();
+
+    fn exceeds(&self, _bound: &()) -> bool {
+        false
+    }
 }

@@ -29,6 +29,8 @@
 //! - Interactive terminal I/O
 //! - Error handling and connection management
 
+#[path = "../shared/max_level.rs"]
+mod max_level;
 #[path = "../shared/stun.rs"]
 mod stun;
 
@@ -123,7 +125,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the peer
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
+        .with_max_security_level(max_level::extreme())
         .build(kernel)?;
 
     // Run the peer

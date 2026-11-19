@@ -37,6 +37,11 @@ pub trait Setting: Clone + Eq + Debug + Serialize + DeserializeOwned + Send + 's
     fn path(from: &Self, to: &Self) -> ApplyPath;
     /// Whether this value may be negotiated at all (for keys: post-quantum suites only).
     fn is_supported(&self) -> bool;
+    /// The local node's limit on the values it builds (for keys: its maximum security level).
+    type Bound: Clone + Debug + Send + 'static;
+    /// Whether this value is beyond what the local node builds. A value beyond `bound` is
+    /// refused from either side, like an unsupported one.
+    fn exceeds(&self, bound: &Self::Bound) -> bool;
 }
 
 /// A value that could not be encoded or decoded as the setting's wire bytes.

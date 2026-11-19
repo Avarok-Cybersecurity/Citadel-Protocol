@@ -166,6 +166,37 @@ impl std::fmt::Debug for PrimaryProcessorResult {
 }
 
 /// should only be called by the receiver of a packet
+/// The session and target CIDs `packet`'s header names, for a processor's tracing fields.
+/// `None` for a packet too short to hold a header: those fields unwrapped the parse, so a
+/// truncated packet panicked the processor before it could be refused (S-C6).
+#[cfg(feature = "localhost-testing")]
+pub(crate) fn header_cids(packet: &crate::proto::packet::HdpPacket) -> (Option<u64>, Option<u64>) {
+    packet
+        .parse()
+        .map(|(header, _)| (header.session_cid.get(), header.target_cid.get()))
+        .unzip()
+}
+
+#[cfg(all(test, feature = "localhost-testing"))]
+mod header_cids_tests {
+    use super::header_cids;
+    use crate::proto::packet::{HdpHeader, HdpPacket};
+    use bytes::BytesMut;
+
+    #[test]
+    fn a_packet_too_short_for_a_header_has_no_cids() {
+        let short =
+            HdpPacket::new_recv(BytesMut::from(&[7u8; 3][..]), ([127, 0, 0, 1], 1).into(), 1);
+        assert_eq!(header_cids(&short), (None, None));
+        let whole = HdpPacket::new_recv(
+            BytesMut::zeroed(std::mem::size_of::<HdpHeader>()),
+            ([127, 0, 0, 1], 1).into(),
+            1,
+        );
+        assert_eq!(header_cids(&whole), (Some(0), Some(0)));
+    }
+}
+
 pub(crate) fn header_to_response_vconn_type(header: &HdpHeader) -> VirtualConnectionType {
     let session_cid = header.session_cid.get();
     let target_cid = header.target_cid.get();

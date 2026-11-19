@@ -34,8 +34,7 @@ mod tests {
         run(server, move |remote, _| async move {
             let refused = register_legacy(&remote, addr, &username("legacy"))
                 .await
-                .err()
-                .expect("a legacy registration hashed with refused parameters succeeded");
+                .expect_err("a legacy registration hashed with refused parameters succeeded");
             let _ = tx.send(refused.into_string());
             remote.shutdown().await
         })

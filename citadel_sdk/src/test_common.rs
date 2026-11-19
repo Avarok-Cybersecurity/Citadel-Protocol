@@ -63,6 +63,22 @@ pub const LOCALHOST_STUN_SERVERS: [&str; 3] =
 pub const BROWSER_STUN_SERVERS: [&str; 3] =
     ["127.0.0.1:25530", "127.0.0.1:25531", "127.0.0.1:25532"];
 
+/// The maximum security level of nodes under test. A node requires one and there is no
+/// default; this one is the highest level any test builds a link at (`Custom(10)`, the browser
+/// pair's), so every test keeps the levels it used before nodes had a maximum.
+pub fn localhost_max_security_level() -> citadel_types::crypto::MaxSecurityLevel {
+    citadel_types::crypto::MaxSecurityLevel::new(SecurityLevel::Custom(10))
+        .expect("Custom(10) is a level a ratchet can carry")
+}
+
+/// The RE-VFS keys of clients under test: each account's key from one fixed root, as an
+/// application derives them from the account's seed. A node has no key unless it is given a
+/// source, so a test that stores objects passes this one.
+pub fn localhost_revfs_keys() -> impl crate::prelude::RevfsKeySource {
+    const TEST_ROOT: [u8; 32] = [0x5e; 32];
+    |cid: u64| crate::prelude::RevfsKey::derive(&TEST_ROOT, "localhost", cid).ok()
+}
+
 /// The path policy of servers under test: the owner's order (Direct, PeerRelay, Turn,
 /// ServerRelay), every path enabled for every class. A server requires a policy and there is no
 /// default; this one keeps the attempt timeouts the campaign used before policies existed (30 s
@@ -102,6 +118,41 @@ pub fn localhost_server_limits() -> ServerLimits {
     }
 }
 
+/// The link policy of managed nodes under test. `LinkPolicy` has no defaults, so every bound is
+/// explicit. The values are the campaign's own (2 s first retry, 60 s cap, 5 s rearm floor), so
+/// the two modes are timed alike, and the reattach grace is the owner's 5 minutes (Q2).
+pub fn localhost_link_policy() -> LinkPolicy {
+    let s = Duration::from_secs;
+    LinkPolicy {
+        heal: HealPolicy {
+            backoff: Backoff {
+                first_wait: s(2),
+                factor: 2,
+                max_wait: s(60),
+            },
+            max_attempts: Some(6),
+            give_up_after: None,
+        },
+        reattach_grace: s(300),
+        flap: FlapPolicy {
+            window: s(60),
+            max_transitions: 5,
+            hold: s(20),
+        },
+        direct_rendezvous_budget: s(5),
+        rendezvous_deadline: s(30),
+        seal_deadline: s(30),
+        probe_interval: None,
+        settings_deadline: s(30),
+        loser_redial_wait: s(2),
+        rearm: Backoff {
+            first_wait: s(5),
+            factor: 2,
+            max_wait: s(300),
+        },
+    }
+}
+
 #[cfg(not(target_family = "wasm"))]
 mod native {
     use super::*;
@@ -130,12 +181,14 @@ mod native {
         enable_websocket: bool,
     ) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
         let mut builder = NodeBuilder::default();
+        let _ = builder.with_link_manager(LinkManagerMode::Legacy);
         let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
             .expect("Failed to create TCP listener");
         let bind_addr = tcp_listener.local_addr().unwrap();
         let builder = builder
             .with_node_type(NodeType::Server(bind_addr))
             .with_stun_servers(LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_path_policy(localhost_path_policy())
             .with_server_limits(localhost_server_limits())
             .with_underlying_protocol(ServerMode::OrderedReliable(

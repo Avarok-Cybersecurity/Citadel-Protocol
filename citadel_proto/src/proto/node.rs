@@ -33,6 +33,7 @@ use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::proto::link::{until_aborted, InFlightConnects};
 use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::misc::platform_ops::PlatformOps;
 use citadel_crypt::ratchets::Ratchet;
@@ -103,9 +104,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         client_config: Option<T::ClientConfig>,
         stun_servers: citadel_wire::stun_servers::StunServers,
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
+        max_security_level: citadel_types::crypto::MaxSecurityLevel,
+        revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
         websocket_listener: Option<citadel_io::WebSocketListen>,
         pre_built_listener: Option<T::Listener>,
+        link_mode: crate::proto::link::LinkManagerMode,
     ) -> io::Result<(
         NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
@@ -148,6 +152,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             .and_then(|settings| settings.limits.clone())
             .map(crate::proto::server_limits::ServerLoad::new);
         let session_manager = CitadelSessionManager::new(
+            link_mode,
             local_node_type,
             to_kernel.clone(),
             account_manager.clone(),
@@ -155,9 +160,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             client_config.clone(),
             stun_servers.clone(),
             turn_servers,
+            max_security_level,
+            revfs_keys,
             server_load,
         );
 
+        log::info!(target: "citadel", "Links: {:?}", session_manager.link_mode());
         let nat_type = T::identify_nat_type(stun_servers).await?;
 
         let inner = CitadelNodeInner {
@@ -427,6 +435,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                 default_client_config,
             )
         };
+        let in_flight_connects =
+            InFlightConnects::new(session_manager.link_mode().managed().is_some());
 
         /// Report a synchronous rejection of an outbound request.
         ///
@@ -539,30 +549,32 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     );
                     let (default_client_config, to_kernel_tx) =
                         (default_client_config.clone(), to_kernel_tx.clone());
+                    let mut in_flight = in_flight_connects.register(ticket_id);
                     // Spawned, so one slow or unreachable server never holds up the requests
                     // queued behind it.
                     spawn!(async move {
-                        let initiated = session_manager
-                            .initiate_connection(
-                                local_node_type,
-                                local_nat_type,
-                                HdpSessionInitMode::Register(
-                                    peer_addr,
-                                    credentials,
-                                    endpoint,
-                                    password,
-                                    admission.map(AdmissionToken::new),
-                                ),
-                                ticket_id,
-                                None,
-                                listener_underlying_proto,
-                                None,
-                                None,
-                                security_settings,
-                                &default_client_config,
-                                session_password,
-                            )
-                            .await;
+                        let initiate = session_manager.initiate_connection(
+                            local_node_type,
+                            local_nat_type,
+                            HdpSessionInitMode::Register(
+                                peer_addr,
+                                credentials,
+                                endpoint,
+                                password,
+                                admission.map(AdmissionToken::new),
+                            ),
+                            ticket_id,
+                            None,
+                            listener_underlying_proto,
+                            None,
+                            None,
+                            security_settings,
+                            &default_client_config,
+                            session_password,
+                        );
+                        let Some(initiated) = until_aborted(&mut in_flight, initiate).await else {
+                            return;
+                        };
                         run_initiated(initiated, &to_kernel_tx, ticket_id, request_cid).await
                     });
                 }
@@ -582,24 +594,26 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     );
                     let (default_client_config, to_kernel_tx) =
                         (default_client_config.clone(), to_kernel_tx.clone());
+                    let mut in_flight = in_flight_connects.register(ticket_id);
                     // Spawned, so one slow or unreachable server never holds up the requests
                     // queued behind it.
                     spawn!(async move {
-                        let initiated = session_manager
-                            .initiate_connection(
-                                local_node_type,
-                                local_nat_type,
-                                HdpSessionInitMode::Connect(authentication_request),
-                                ticket_id,
-                                Some(connect_mode),
-                                listener_underlying_proto,
-                                Some(udp_mode),
-                                keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000),
-                                security_settings,
-                                &default_client_config,
-                                session_password,
-                            )
-                            .await;
+                        let initiate = session_manager.initiate_connection(
+                            local_node_type,
+                            local_nat_type,
+                            HdpSessionInitMode::Connect(authentication_request),
+                            ticket_id,
+                            Some(connect_mode),
+                            listener_underlying_proto,
+                            Some(udp_mode),
+                            keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000),
+                            security_settings,
+                            &default_client_config,
+                            session_password,
+                        );
+                        let Some(initiated) = until_aborted(&mut in_flight, initiate).await else {
+                            return;
+                        };
                         run_initiated(initiated, &to_kernel_tx, ticket_id, request_cid).await
                     });
                 }
@@ -743,6 +757,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                                     ),
                                     message: "Abandoned locally".to_string(),
                                     disconnect_token: None,
+                                    reason: Some(citadel_link::CloseReason::Local(
+                                        citadel_link::ShutdownReason::Abandon,
+                                    )),
                                 });
                             if to_kernel_tx.unbounded_send(done).is_err() {
                                 log::warn!(target: "citadel", "Kernel gone before abandon_session({session_cid}) could be answered");
@@ -751,6 +768,20 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     }
                     Err(err) => send_error(&to_kernel_tx, ticket_id, request_cid, err)?,
                 },
+
+                NodeRequest::AbortLink(crate::proto::node_request::AbortLink { ticket }) => {
+                    if !in_flight_connects.is_managed() {
+                        log::debug!(target: "citadel", "A legacy node does not abort connects; {ticket} runs on");
+                    } else {
+                        // The claim and the provisional entry go first, so the request read
+                        // after this one is admitted whatever stage the aborted task is in.
+                        let freed = session_manager.abort_connect(ticket);
+                        let signalled = in_flight_connects.abort(ticket);
+                        if !(freed || signalled) {
+                            log::debug!(target: "citadel", "AbortLink for {ticket}: no connect of it is in flight");
+                        }
+                    }
+                }
 
                 NodeRequest::GetActiveSessions => {
                     if let Err(err) =

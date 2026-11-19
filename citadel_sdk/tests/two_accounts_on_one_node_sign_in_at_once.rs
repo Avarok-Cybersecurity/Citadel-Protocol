@@ -29,7 +29,9 @@ mod tests {
         let (server, addr) = server_test_node(EmptyKernel::<StackedRatchet>::default(), |_| {});
         let tag = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, _: Events| async move {
                     let (a, b) = (format!("a_{tag}"), format!("b_{tag}"));

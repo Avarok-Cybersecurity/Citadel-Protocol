@@ -37,6 +37,9 @@ pub struct ConnectState {
     pub(crate) fail_time: Option<i64>,
     pub(crate) connect_mode: Option<ConnectMode>,
     pub(crate) pq: crate::proto::pq_sign_in::state::PqConnectState,
+    /// The provisional check ended this session at its login deadline (`LOGIN_EXPIRATION_TIME`),
+    /// so its end is reported as that timeout, not as the queue worker stopping.
+    pub(crate) login_deadline_passed: bool,
 }
 
 impl ConnectState {

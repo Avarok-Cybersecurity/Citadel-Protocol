@@ -59,6 +59,9 @@
 //! - Consider perfect secrecy mode for maximum security
 //! - Properly handle algorithm selection based on requirements
 
+mod level_cap;
+pub use level_cap::{check_structural, LevelAboveMaximum, MaxSecurityLevel, STRUCTURAL_MAX_LEVEL};
+
 use crate::utils;
 use crate::utils::validate_crypto_params;
 use bytes::{Bytes, BytesMut};

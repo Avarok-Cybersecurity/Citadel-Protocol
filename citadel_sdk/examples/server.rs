@@ -36,10 +36,12 @@ async fn main() {
     };
 
     let _ = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_node_type(NodeType::Server(
             SocketAddr::from_str(addr.as_str()).unwrap(),
         ))
         .with_stun_servers([stun0, stun1, stun2])
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_path_policy(every_path_in_order())
         .with_server_limits(lab_limits())
         .build(server)
