@@ -203,6 +203,7 @@ async fn deregister_client_from_self<R: Ratchet, T: PlatformOps>(
         ticket,
         success,
         "Deregistration occurred. Session disconnected",
+        None,
     );
 
     Ok(PrimaryProcessorResult::Void)
@@ -251,6 +252,7 @@ async fn deregister_from_hyperlan_server_as_client<R: Ratchet, T: PlatformOps>(
         dereg_ticket,
         success,
         "Deregistration occurred. Session disconnected",
+        None,
     );
 
     session.shutdown();

@@ -49,6 +49,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ServerMode;
 use citadel_io::WebSocketEndpoint;
 use citadel_io::{error, ErrorCode};
+use citadel_link::{CloseReason, ShutdownReason};
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::prelude::{ConnectProtocol, UserIdentifierExt};
@@ -1495,6 +1496,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     conn_type: Some(ClientConnectionType::Server { session_cid }),
                     message: "Already disconnected".to_string(),
                     disconnect_token: None,
+                    reason: Some(CloseReason::Local(ShutdownReason::Shutdown)),
                 }))?;
         }
 

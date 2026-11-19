@@ -737,6 +737,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                                     ),
                                     message: "Abandoned locally".to_string(),
                                     disconnect_token: None,
+                                    reason: Some(citadel_link::CloseReason::Local(
+                                        citadel_link::ShutdownReason::Abandon,
+                                    )),
                                 });
                             if to_kernel_tx.unbounded_send(done).is_err() {
                                 log::warn!(target: "citadel", "Kernel gone before abandon_session({session_cid}) could be answered");

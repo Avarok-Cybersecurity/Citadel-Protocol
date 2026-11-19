@@ -118,7 +118,15 @@ pub async fn process_disconnect<R: Ratchet, T: PlatformOps>(
             session.state.set(SessionState::Disconnecting);
             log::warn!(target: "citadel", "[DC_SIGNAL:disconnect_packet] Explicit disconnect packet | ticket: {} | cid: {:?}",
                 ticket.0, session.session_cid.get());
-            session.send_session_dc_signal(Some(ticket), true, SUCCESS_DISCONNECT);
+            // FINAL answers this node's own disconnect.
+            session.send_session_dc_signal(
+                Some(ticket),
+                true,
+                SUCCESS_DISCONNECT,
+                Some(citadel_link::CloseReason::Local(
+                    citadel_link::ShutdownReason::Shutdown,
+                )),
+            );
             Ok(PrimaryProcessorResult::EndSession(SUCCESS_DISCONNECT))
         }
 

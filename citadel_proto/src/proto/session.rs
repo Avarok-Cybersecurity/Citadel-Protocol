@@ -823,7 +823,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 // which is what `disconnect()` asked for. With no pending
                 // disconnect it falls to `(None, None)` and behaves exactly as
                 // before.
-                this_close.send_session_dc_signal(None, false, "Inbound stream ending");
+                this_close.send_session_dc_signal(None, false, "Inbound stream ending", None);
 
                 Err((err, cid))
             }
@@ -1296,7 +1296,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     // must resolve the caller's pending ticket, not the kernel's.
                     log::warn!(target: "citadel", "[DC_SIGNAL:handle_session_terminating_error] C2S terminating | session_cid: {} | reason: {} | strong_count: {} | is_provisional: {}",
                         session_cid, err_string.as_str(), session.strong_count(), session.is_provisional());
-                    session.send_session_dc_signal(None, false, err_string.as_str());
+                    session.send_session_dc_signal(None, false, err_string.as_str(), None);
                 }
 
                 SessionShutdownReason::Error(NetworkError::generic(err_string))
@@ -2927,11 +2927,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
         state != SessionState::Connected && state != SessionState::Disconnecting
     }
 
+    /// `deliberate` names the close when the caller knows it was one (this node's own
+    /// disconnect, answered by the server's FINAL); a session that ends under a pending
+    /// application disconnect is that disconnect too.
     pub(crate) fn send_session_dc_signal<S: Into<String>>(
         &self,
         ticket: Option<Ticket>,
         disconnect_success: bool,
         msg: S,
+        deliberate: Option<citadel_link::CloseReason>,
     ) {
         // Only send disconnect signal if we have a valid session CID
         // Sessions without a CID were never connected, so no disconnect is needed
@@ -2965,10 +2969,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
             // session ends abruptly (lost FINAL): the caller's `disconnect()` future is keyed by
             // that ticket, and from its perspective the outcome is success — the session is gone.
             let pending_dc = self.pending_c2s_disconnect_ticket.take();
-            let (ticket, disconnect_success) = match (ticket, pending_dc) {
-                (Some(explicit), _) => (explicit, disconnect_success),
-                (None, Some(pending)) => (pending, true),
-                (None, None) => (session_ticket, disconnect_success),
+            let own_disconnect =
+                citadel_link::CloseReason::Local(citadel_link::ShutdownReason::Shutdown);
+            let (ticket, disconnect_success, reason) = match (ticket, pending_dc) {
+                (Some(explicit), _) => (explicit, disconnect_success, deliberate),
+                (None, Some(pending)) => (pending, true, Some(own_disconnect)),
+                (None, None) => (session_ticket, disconnect_success, deliberate),
             };
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket,
@@ -2977,6 +2983,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
                 conn_type,
                 message: msg.into(),
                 disconnect_token,
+                reason,
             }));
         }
     }
@@ -3004,7 +3011,7 @@ impl<R: Ratchet, T: PlatformOps> Drop for CitadelSessionInner<R, T> {
         } else {
             log::warn!(target: "citadel", "[DC_SIGNAL:Drop] Session being dropped | cid: {:?} | is_provisional: {}",
                 self.session_cid.get(), self.is_provisional());
-            self.send_session_dc_signal(None, false, "Session dropped");
+            self.send_session_dc_signal(None, false, "Session dropped", None);
         }
 
         let _ = inner!(self.stopper_tx).send(());
