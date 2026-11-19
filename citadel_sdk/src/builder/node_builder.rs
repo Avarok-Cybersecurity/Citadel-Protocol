@@ -66,6 +66,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     path_policy: Option<PathPolicy>,
     max_security_level: Option<citadel_types::crypto::MaxSecurityLevel>,
+    revfs_keys: Option<citadel_proto::prelude::RevfsKeys>,
     websocket_listener: Option<citadel_io::WebSocketListen>,
     injected_listener: Option<T::Listener>,
     #[cfg(target_family = "wasm")]
@@ -96,6 +97,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             local_only_server_settings: None,
             path_policy: None,
             max_security_level: None,
+            revfs_keys: None,
             websocket_listener: None,
             injected_listener: None,
             #[cfg(target_family = "wasm")]
@@ -156,6 +158,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
     ) -> anyhow::Result<NodeFuture<'b, K>> {
         self.check()?;
         let max_security_level = required_max_security_level(self.max_security_level)?;
+        let revfs_keys = self.revfs_keys.clone();
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let backend_type = match self.backend_type.take() {
             Some(backend_type) => backend_type,
@@ -242,6 +245,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                     stun_servers,
                     turn_servers,
                     max_security_level,
+                    revfs_keys,
                     server_only_session_init_settings,
                     websocket_listener,
                     pre_built_listener,
@@ -554,6 +558,7 @@ mod tests {
     #[cfg(feature = "google-services")]
     fn okay_config() {
         let _ = DefaultNodeBuilder::default()
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_google_realtime_database_config("123", "456")
             .with_google_services_json_path("abc")
             .build(EmptyKernel::default())
@@ -624,4 +629,6 @@ use path_policy::{check_path_policy, server_settings};
 
 #[path = "node_builder_level_cap.rs"]
 mod level_cap;
+#[path = "node_builder_revfs.rs"]
+mod revfs;
 use level_cap::required_max_security_level;

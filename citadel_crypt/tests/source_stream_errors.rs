@@ -86,7 +86,6 @@ impl ObjectSource for Failing {
 /// Runs the transfer and returns (groups delivered, whether the channel then carried an error).
 async fn run(source: Failing) -> (usize, bool) {
     let (alice, bob) = pair();
-    let (aux, _aux_bob) = pair();
     let (tx, mut rx) = tokio::sync::mpsc::channel(4);
     let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     scramble_encrypt_source::<_, _, HDR, _>(
@@ -97,7 +96,7 @@ async fn run(source: Failing) -> (usize, bool) {
         stop_rx,
         SecurityLevel::Standard,
         alice,
-        aux,
+        None,
         HDR,
         bob.get_cid(),
         0,

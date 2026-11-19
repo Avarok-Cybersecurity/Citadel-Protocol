@@ -538,6 +538,7 @@ pub mod prelude {
     pub use citadel_crypt::ratchets::mono::MonoRatchet;
     pub use citadel_crypt::ratchets::stacked::StackedRatchet;
     pub use citadel_crypt::ratchets::Ratchet;
+    pub use citadel_crypt::revfs_seal::{RevfsKey, RevfsKeySource, RevfsKeys};
     pub use citadel_types::crypto::AlgorithmsExt;
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_user::account_manager::AccountManager;

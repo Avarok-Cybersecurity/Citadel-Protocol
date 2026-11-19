@@ -925,17 +925,37 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
     }
 
     /// Pulls a virtual file from the RE-VFS. If `delete_on_pull` is true, then, the virtual file
-    /// will be taken from the RE-VFS
+    /// will be taken from the RE-VFS. An object stored before account keys is sealed again under
+    /// the account's key as it is read (see [`Self::remote_encrypted_virtual_filesystem_pull_resealing`]).
     async fn remote_encrypted_virtual_filesystem_pull<P: Into<PathBuf> + Send>(
         &self,
         virtual_directory: P,
         transfer_security_level: SecurityLevel,
         delete_on_pull: bool,
     ) -> Result<PathBuf, NetworkError> {
+        self.remote_encrypted_virtual_filesystem_pull_resealing(
+            virtual_directory,
+            transfer_security_level,
+            delete_on_pull,
+        )
+        .await
+        .map(|pulled| pulled.path)
+    }
+
+    /// Pulls a virtual file, and says whether it was sealed again. An object stored before
+    /// account keys (under a key its server also holds) is pushed back to the same path, sealed
+    /// under the account's key, once it has been read; a taken object is not.
+    async fn remote_encrypted_virtual_filesystem_pull_resealing<P: Into<PathBuf> + Send>(
+        &self,
+        virtual_directory: P,
+        transfer_security_level: SecurityLevel,
+        delete_on_pull: bool,
+    ) -> Result<crate::fs::RevfsPull, NetworkError> {
         self.can_use_revfs()?;
+        let virtual_dir = virtual_directory.into();
         let request = NodeRequest::PullObject(PullObject {
             v_conn: *self.user(),
-            virtual_dir: virtual_directory.into(),
+            virtual_dir: virtual_dir.clone(),
             delete_on_pull,
             transfer_security_level,
         });
@@ -945,12 +965,23 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         while let Some(event) = stream.next().await {
             match event.into_result()? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
-                    return handle.receive_file().await.map_err(|err| {
+                    let path = handle.receive_file().await.map_err(|err| {
                         citadel_io::error!(
                             citadel_io::ErrorCode::RemoteFileTransferFailed,
                             err.into_string()
                         )
-                    });
+                    })?;
+                    let legacy_level = handle.legacy_seal_received().filter(|_| !delete_on_pull);
+                    let resealed = legacy_level.is_some();
+                    if let Some(level) = legacy_level {
+                        self.remote_encrypted_virtual_filesystem_push(
+                            path.clone(),
+                            virtual_dir,
+                            level,
+                        )
+                        .await?;
+                    }
+                    return Ok(crate::fs::RevfsPull { path, resealed });
                 }
 
                 NodeResult::PeerEvent(PeerEvent {

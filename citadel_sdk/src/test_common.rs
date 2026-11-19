@@ -71,6 +71,14 @@ pub fn localhost_max_security_level() -> citadel_types::crypto::MaxSecurityLevel
         .expect("Custom(10) is a level a ratchet can carry")
 }
 
+/// The RE-VFS keys of clients under test: each account's key from one fixed root, as an
+/// application derives them from the account's seed. A node has no key unless it is given a
+/// source, so a test that stores objects passes this one.
+pub fn localhost_revfs_keys() -> impl crate::prelude::RevfsKeySource {
+    const TEST_ROOT: [u8; 32] = [0x5e; 32];
+    |cid: u64| crate::prelude::RevfsKey::derive(&TEST_ROOT, "localhost", cid).ok()
+}
+
 /// The path policy of servers under test: the owner's order (Direct, PeerRelay, Turn,
 /// ServerRelay), every path enabled for every class. A server requires a policy and there is no
 /// default; this one keeps the attempt timeouts the campaign used before policies existed (30 s

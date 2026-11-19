@@ -82,6 +82,7 @@ pub struct KernelExecutorArguments<K, R: Ratchet, T: PlatformOps> {
     pub stun_servers: citadel_wire::stun_servers::StunServers,
     pub turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     pub max_security_level: citadel_types::crypto::MaxSecurityLevel,
+    pub revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
     pub websocket_listener: Option<citadel_io::WebSocketListen>,
     /// Pre-built listener for serverless server-role mode.

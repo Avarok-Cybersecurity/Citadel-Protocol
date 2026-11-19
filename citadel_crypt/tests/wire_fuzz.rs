@@ -159,12 +159,11 @@ fn received_mono_transfers_never_panic() {
 #[test]
 fn received_group_packets_never_panic() {
     let (alice, bob) = stacked_pair(suites()[0]);
-    let (aux, _) = stacked_pair(suites()[0]);
     let mut tx = par_scramble_encrypt_group::<_, _, _, HDR>(
         &vec![3u8; 5000][..],
         SecurityLevel::Standard,
         &alice,
-        &aux,
+        None,
         HDR,
         0,
         ObjectId::zero(),

@@ -155,6 +155,10 @@ pub enum ObjectTransferStatus {
     TransferComplete,
     ReceptionComplete,
     Fail(String),
+    /// A pulled RE-VFS object holds groups sealed before account keys, under a key its server
+    /// also holds, at this level. Sent before `ReceptionComplete`; the object should be sealed
+    /// again.
+    LegacySealReceived(SecurityLevel),
 }
 
 impl ObjectTransferStatus {
@@ -206,6 +210,13 @@ impl std::fmt::Display for ObjectTransferStatus {
 
             ObjectTransferStatus::Fail(reason) => {
                 write!(f, "Failure. Reason: {reason}")
+            }
+
+            ObjectTransferStatus::LegacySealReceived(level) => {
+                write!(
+                    f,
+                    "Object sealed before account keys received (level {level:?})"
+                )
             }
         }
     }

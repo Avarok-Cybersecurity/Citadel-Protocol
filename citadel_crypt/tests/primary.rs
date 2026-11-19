@@ -12,7 +12,10 @@ mod tests {
     use citadel_crypt::ratchets::entropy_bank::EntropyBank;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
-    use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
+    use citadel_crypt::revfs_seal::{self, Opened, RevfsKey};
+    use citadel_crypt::scramble::crypt_splitter::{
+        par_scramble_encrypt_group, GroupReceiver, RevfsGroupSeal,
+    };
     use citadel_crypt::toolset::{Toolset, ToolsetUpdateStatus, MAX_RATCHETS_IN_MEMORY};
     #[cfg(not(target_family = "wasm"))]
     use citadel_io::tokio;
@@ -744,20 +747,18 @@ mod tests {
             security_level: SecurityLevel::Standard,
         };
 
-        fn verifier<R: Ratchet>(decrypted: &[u8], plaintext: &[u8], sa_alice: &R, sa_bob: &R) {
-            if !plaintext.is_empty() {
-                assert_ne!(decrypted, plaintext);
+        fn verifier(decrypted: &[u8], plaintext: &[u8], alice: &RevfsKey, bob: &RevfsKey) {
+            // An empty object travels as filler the receiver discards: nothing is sealed.
+            if plaintext.is_empty() {
+                assert!(decrypted.is_empty());
+                return;
             }
-
-            let decrypted_real = sa_alice
-                .local_decrypt(decrypted, SecurityLevel::Standard)
-                .unwrap();
-            assert_eq!(decrypted_real, plaintext);
-            if !plaintext.is_empty() {
-                assert!(sa_bob
-                    .local_decrypt(decrypted, SecurityLevel::Standard)
-                    .is_err());
-            }
+            assert_ne!(decrypted, plaintext);
+            let open = |key| {
+                revfs_seal::open(Some(key), 0, 0, 0, SecurityLevel::Standard, decrypted).unwrap()
+            };
+            assert_eq!(open(alice), Opened::Sealed(plaintext.to_vec()));
+            assert_eq!(open(bob), Opened::Legacy { foreign_key: true });
         }
 
         scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type.clone(), verifier);
@@ -771,7 +772,7 @@ mod tests {
         kem: KemAlgorithm,
         sig: SigAlgorithm,
         transfer_type: TransferType,
-        verifier: impl for<'a> Fn(&'a [u8], &'a [u8], &R, &R),
+        verifier: impl for<'a> Fn(&'a [u8], &'a [u8], &RevfsKey, &RevfsKey),
     ) {
         citadel_logging::setup_log();
 
@@ -787,14 +788,7 @@ mod tests {
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS,
         );
-        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) = gen::<R>(
-            10,
-            0,
-            SECURITY_LEVEL,
-            enx + kem + sig,
-            &PRE_SHARED_KEYS,
-            &PRE_SHARED_KEYS,
-        );
+        let (revfs_alice, revfs_bob) = revfs_keys();
 
         for x in 0..1500_usize {
             if x != 0 {
@@ -807,7 +801,10 @@ mod tests {
                     input_data,
                     SECURITY_LEVEL,
                     &ratchet_alice,
-                    &pseudo_static_aux_ratchet_alice,
+                    Some(RevfsGroupSeal {
+                        key: &revfs_alice,
+                        group_index: 0,
+                    }),
                     HEADER_SIZE_BYTES,
                     0,
                     ObjectId::zero(),
@@ -839,10 +836,18 @@ mod tests {
             verifier(
                 &decrypted_descrambled_plaintext,
                 input_data,
-                &pseudo_static_aux_ratchet_alice,
-                &pseudo_static_aux_ratchet_bob,
+                &revfs_alice,
+                &revfs_bob,
             )
         }
+    }
+
+    /// Two accounts' keys: the first seals, the second must not open what it sealed.
+    fn revfs_keys() -> (RevfsKey, RevfsKey) {
+        (
+            RevfsKey::derive(&[1u8; 32], "storage.example", 0).unwrap(),
+            RevfsKey::derive(&[2u8; 32], "storage.example", 0).unwrap(),
+        )
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -943,7 +948,7 @@ mod tests {
         #[values(SecurityLevel::Standard, SecurityLevel::Reinforced)] security_level: SecurityLevel,
     ) {
         citadel_logging::setup_log();
-        let (plaintext, bytes_ret, sa_alice, sa_bob) = test_file_transfer_inner(
+        let (plaintext, bytes_ret, alice, bob) = test_file_transfer_inner(
             TransferType::RemoteEncryptedVirtualFilesystem {
                 virtual_path: PathBuf::from("/"),
                 security_level,
@@ -955,9 +960,9 @@ mod tests {
         )
         .await;
         assert_ne!(plaintext, bytes_ret);
-        let decrypted = sa_alice.local_decrypt(&bytes_ret, security_level).unwrap();
-        assert_eq!(decrypted, plaintext);
-        assert!(sa_bob.local_decrypt(&bytes_ret, security_level).is_err());
+        let open = |key| revfs_seal::open(Some(key), 0, 0, 0, security_level, &bytes_ret).unwrap();
+        assert_eq!(open(&alice), Opened::Sealed(plaintext.to_vec()));
+        assert_eq!(open(&bob), Opened::Legacy { foreign_key: true });
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -967,7 +972,7 @@ mod tests {
         kem: KemAlgorithm,
         sig: SigAlgorithm,
         security_level: SecurityLevel,
-    ) -> (&'static [u8], Vec<u8>, StackedRatchet, StackedRatchet) {
+    ) -> (&'static [u8], Vec<u8>, RevfsKey, RevfsKey) {
         use citadel_crypt::scramble::crypt_splitter::GroupReceiverStatus;
         use std::time::Instant;
         use tokio::sync::mpsc::channel;
@@ -982,14 +987,7 @@ mod tests {
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS,
         );
-        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) = gen::<StackedRatchet>(
-            0,
-            0,
-            security_level,
-            enx + kem + sig,
-            &PRE_SHARED_KEYS,
-            &PRE_SHARED_KEYS,
-        );
+        let (revfs_alice, revfs_bob) = revfs_keys();
 
         let cmp = include_bytes!("../../resources/TheBridge.pdf");
         let source = PathBuf::from("../resources/TheBridge.pdf");
@@ -1003,7 +1001,7 @@ mod tests {
             stop_rx,
             security_level,
             alice.clone(),
-            pseudo_static_aux_ratchet_alice.clone(),
+            Some(revfs_alice.clone()),
             HEADER_LEN,
             bob.get_cid(),
             0,
@@ -1053,12 +1051,7 @@ mod tests {
             bytes,
             mbs
         );
-        (
-            cmp,
-            bytes_ret,
-            pseudo_static_aux_ratchet_alice,
-            pseudo_static_aux_ratchet_bob,
-        )
+        (cmp, bytes_ret, revfs_alice, revfs_bob)
     }
 
     #[rstest]
