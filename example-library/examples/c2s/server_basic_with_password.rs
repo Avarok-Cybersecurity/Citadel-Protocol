@@ -65,6 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // This "password" is effectively a pre-shared key (PSK)
     let node = DefaultNodeBuilder::default()
         .with_stun_servers(stun::from_env())
+        .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
         .with_path_policy(path_policy::every_path_in_order())
         .with_node_type(NodeType::server(server_addr)?)
         .with_server_password(connect_password)

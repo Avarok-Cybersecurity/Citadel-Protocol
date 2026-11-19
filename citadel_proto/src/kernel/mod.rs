@@ -86,4 +86,6 @@ pub struct KernelExecutorArguments<K, R: Ratchet, T: PlatformOps> {
     /// Pre-built listener for serverless server-role mode.
     /// When `Some`, `CitadelNode::init()` skips `T::bind()` and uses this listener.
     pub pre_built_listener: Option<T::Listener>,
+    /// Which code keeps this node's links existing (required; no default).
+    pub link_manager: crate::proto::link::mode::LinkManagerConfig,
 }

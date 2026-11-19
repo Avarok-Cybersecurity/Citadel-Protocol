@@ -79,6 +79,7 @@ mod tests {
         );
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .build(kernel)
             .unwrap();
         run_clients(server, async move { client.await.map(|_| ()) }).await;
@@ -150,10 +151,12 @@ mod tests {
 
         let client_a = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .build(kernel_a)
             .unwrap();
         let client_b = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .build(kernel_b)
             .unwrap();
         run_clients(server, async move {

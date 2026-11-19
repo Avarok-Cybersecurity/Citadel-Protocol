@@ -139,10 +139,12 @@ mod tests {
         let clients = futures::future::try_join(
             DefaultNodeBuilder::default()
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
                 .build(dialer_node)
                 .unwrap(),
             DefaultNodeBuilder::default()
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
                 .build(acceptor_node)
                 .unwrap(),
         );

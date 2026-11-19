@@ -174,6 +174,7 @@ mod tests {
                     .block_on(async move {
                         DefaultNodeBuilder::default()
                             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
                             .build(kernel)
                             .unwrap()
                             .await
@@ -184,6 +185,7 @@ mod tests {
 
         let receiver = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .build(receiver_kernel)
             .unwrap();
         receiver.await.expect("the receiver's node failed");

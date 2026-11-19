@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build the node
     let client = DefaultNodeBuilder::default()
         .with_stun_servers(stun::from_env())
+        .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
         .build(kernel)?;
 
     // Run the node

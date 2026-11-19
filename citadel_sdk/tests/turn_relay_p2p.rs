@@ -175,7 +175,9 @@ mod tests {
                 },
             );
             let mut builder = DefaultNodeBuilder::default();
-            let _ = builder.with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS);
+            let _ = builder
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy);
             if let Some(cert) = &trust {
                 builder.with_custom_certs(&[cert]).unwrap();
             }

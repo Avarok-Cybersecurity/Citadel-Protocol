@@ -592,6 +592,9 @@ pub mod prelude {
 
     pub use crate::proto::misc::platform_ops::{DefaultTransport, PlatformOps, TransferMetadata};
 
+    pub use crate::proto::link::mode::{
+        LinkManagerConfig, LinkManagerConfigError, LinkManagerMode,
+    };
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     #[doc(hidden)]
     pub use crate::proto::misc::safe_split_stream;
@@ -622,6 +625,7 @@ pub mod prelude {
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::proto::traffic::{ByteCount, NodeTrafficSnapshot, PathBytesSnapshot};
     pub use citadel_io::ServerMode;
+    pub use citadel_link::{Backoff, FlapPolicy, HealPolicy, LinkPolicy};
     pub use citadel_types::crypto::SecrecyMode;
     pub use citadel_types::proto::ClientConnectionType;
     pub use citadel_types::proto::ConnectMode;

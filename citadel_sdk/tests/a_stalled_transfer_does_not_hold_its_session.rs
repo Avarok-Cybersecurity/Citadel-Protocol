@@ -155,6 +155,7 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .build(client_kernel)
             .unwrap();
         let result = tokio::time::timeout(Duration::from_secs(120), async move {

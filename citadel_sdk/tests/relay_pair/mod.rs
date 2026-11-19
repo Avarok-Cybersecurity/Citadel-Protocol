@@ -76,6 +76,7 @@ pub mod pair {
             };
             let client = DefaultNodeBuilder::default()
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
                 .build(kernel)
                 .unwrap();
             kernels.push(async move { client.await.map(|_| ()) });

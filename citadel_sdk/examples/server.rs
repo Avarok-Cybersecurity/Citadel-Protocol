@@ -40,6 +40,7 @@ async fn main() {
             SocketAddr::from_str(addr.as_str()).unwrap(),
         ))
         .with_stun_servers([stun0, stun1, stun2])
+        .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
         .with_path_policy(every_path_in_order())
         .build(server)
         .unwrap()

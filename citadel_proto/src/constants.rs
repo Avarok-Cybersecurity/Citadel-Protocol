@@ -69,7 +69,10 @@ pub const MINOR_VERSION: u8 = 12;
 // party and a client creates the credential it enrols (see `SECURITY_KEY_CEREMONY_SINCE`).
 // Additive: each side uses them only with a node at or above the gate, and with an older peer
 // behaves as before.
-pub const PATCH_VERSION: u8 = 3;
+// Bumped 3 -> 4 (the RobustConnectionManager release, one bump shared by every lane, §12.2): a
+// P2P pair exchanges its ends' link-manager modes and runs the manager only when both are
+// Managed (see `LINK_MODE_SINCE`). Additive: with a peer below it, the campaign runs as before.
+pub const PATCH_VERSION: u8 = 4;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -152,6 +155,11 @@ pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
 /// sent exactly the 0.12.2 bytes and hashes the 0.12.2 transcript; a client cannot enrol a key at
 /// a server below it.
 pub const SECURITY_KEY_CEREMONY_SINCE: (u8, u8, u8) = (0, 12, 3);
+
+/// The first protocol version whose P2P pairs exchange their link-manager modes on the
+/// coordination endpoint before any path work (`link::p2p::agree`). With a peer below it the
+/// pair runs the Legacy campaign, whatever this node's mode.
+pub const LINK_MODE_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

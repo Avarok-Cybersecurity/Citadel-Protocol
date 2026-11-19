@@ -41,6 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = DefaultNodeBuilder::default()
         .with_node_type(NodeType::Server(tcp_addr))
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
         .with_path_policy(citadel_sdk::test_common::localhost_path_policy())
         .with_websocket_listener(ws_addr)
         .build(kernel)?;

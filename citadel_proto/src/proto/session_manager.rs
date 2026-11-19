@@ -179,6 +179,7 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     started: Instant,
     /// The node's client-role QUIC endpoints, shared with its remote's `rebind_local`.
     local_rebinder: LocalRebinder,
+    link_manager: crate::proto::link::mode::LinkManagerConfig,
     /// This node's traffic by class, counted by every session's streams.
     traffic: crate::proto::traffic::NodeTraffic,
 }
@@ -215,6 +216,7 @@ const PROVISIONAL_CID_RESERVATION_TTL: Duration = Duration::from_secs(30);
 
 impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Creates a new [SessionManager] which handles individual connections
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         local_node_type: NodeType,
         kernel_tx: UnboundedSender<NodeResult<R>>,
@@ -223,6 +225,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         client_config: T::ClientConfig,
         stun_servers: citadel_wire::stun_servers::StunServers,
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
+        link_manager: crate::proto::link::mode::LinkManagerConfig,
     ) -> Self {
         let incoming_cxn_count = 0;
         let inner = HdpSessionManagerInner {
@@ -248,6 +251,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             ended_sessions: EndedSessions::default(),
             started: Instant::now(),
             local_rebinder: LocalRebinder::new(),
+            link_manager,
             traffic: Default::default(),
         };
 
@@ -435,6 +439,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     }
 
     /// The node's tracker of transports that can move to a new local address.
+    /// The node's link-manager mode and policy.
+    pub(crate) fn link_manager(&self) -> crate::proto::link::mode::LinkManagerConfig {
+        inner!(self).link_manager.clone()
+    }
+
     pub(crate) fn local_rebinder(&self) -> LocalRebinder {
         inner!(self).local_rebinder.clone()
     }

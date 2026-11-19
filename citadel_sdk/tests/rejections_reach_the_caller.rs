@@ -90,6 +90,7 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .build(client_kernel)
             .unwrap();
         let result = citadel_io::tokio::select! {
@@ -151,6 +152,7 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .build(client_kernel)
             .unwrap();
         let outcome = citadel_io::tokio::time::timeout(MUST_ANSWER_WITHIN, client).await;
@@ -204,6 +206,7 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .build(client_kernel)
             .unwrap();
 

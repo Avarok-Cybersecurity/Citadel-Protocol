@@ -142,6 +142,7 @@ where
         let one_end = one_end.clone();
         DefaultNodeBuilder::default()
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .build(GroupTestKernel::new(move |remote, events| {
                 one_end(remote, events, addr, me, peer)
             }))

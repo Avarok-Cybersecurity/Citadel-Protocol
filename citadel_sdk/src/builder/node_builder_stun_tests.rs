@@ -12,7 +12,9 @@ fn refusal(node_type: NodeType, stun: Option<&[&str]>) -> String {
         let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
     }
     if let Some(stun) = stun {
-        let _ = builder.with_stun_servers(stun.to_vec());
+        let _ = builder
+            .with_stun_servers(stun.to_vec())
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy);
     }
     match builder.build(EmptyKernel::default()) {
         Ok(_) => panic!("a builder with STUN servers {stun:?} must be refused"),
@@ -76,7 +78,8 @@ fn a_builder_with_three_distinct_stun_servers_builds() {
         let mut builder = DefaultNodeBuilder::default();
         let _ = builder
             .with_node_type(node_type)
-            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS);
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy);
         if node_type.is_server() {
             let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
         }

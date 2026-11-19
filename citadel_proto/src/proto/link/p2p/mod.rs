@@ -11,11 +11,27 @@
 //! and the manager run one implementation of each step.
 
 #[cfg(not(target_family = "wasm"))]
+pub(crate) mod agree;
+#[cfg(not(target_family = "wasm"))]
 pub(crate) mod attach;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod context;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod direct;
 #[cfg(not(target_family = "wasm"))]
 mod disconnect_task;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod establisher;
+#[cfg(not(target_family = "wasm"))]
+mod failure;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod handles;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod launch;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod managed;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod start;
 #[cfg(not(target_family = "wasm"))]
 mod stream_end;
 #[cfg(not(target_family = "wasm"))]

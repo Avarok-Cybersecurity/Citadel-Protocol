@@ -90,6 +90,8 @@ pub(crate) struct Campaign<R: Ratchet, T: PlatformOps> {
     /// Whether both NATs are unpredictable (no hole punch can work), as the plan was made from.
     pub(crate) direct_impossible: bool,
     pub(crate) guard: CampaignEndGuard,
+    /// The pair's manager, on a `Managed` node (WIRE-A: used only if the peer is Managed too).
+    pub(crate) managed: Option<crate::proto::link::p2p::start::ManagedPair<R, T>>,
 }
 
 /// Starts the campaign on its own task: the inbound packet processor that forged the connection
@@ -116,6 +118,7 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         plan,
         direct_impossible,
         guard,
+        managed,
     } = campaign;
     let started = Instant::now();
     let cell = guard.cell().clone();
@@ -198,6 +201,9 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
                 return;
             }
         };
+        if crate::proto::link::p2p::start::hand_over(managed, &app, peer_version).await {
+            return;
+        }
         if plan.is_server_only() {
             log::warn!(target: "citadel", "The P2P connection to {peer_cid} has no path to try (the NATs are incompatible and no TURN config was supplied, or the server's path policy allows none): staying server-relayed");
             let none = crate::proto::peer::p2p_outcome::AttemptReport::nothing_attached(vec![]);

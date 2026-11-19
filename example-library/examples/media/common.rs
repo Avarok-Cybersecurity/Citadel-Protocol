@@ -111,6 +111,7 @@ where
         });
     DefaultNodeBuilder::default()
         .with_stun_servers(stun::from_env())
+        .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
         .build(kernel)?
         .await?;
     Ok(())

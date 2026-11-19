@@ -56,6 +56,7 @@ async fn main() {
     let _ = DefaultNodeBuilder::default()
         .with_node_type(NodeType::Peer)
         .with_stun_servers([stun0, stun1, stun2])
+        .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
         .build(peer)
         .unwrap()
         .await

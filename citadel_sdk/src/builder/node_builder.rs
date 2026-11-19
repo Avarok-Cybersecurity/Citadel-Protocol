@@ -21,7 +21,7 @@
 //! // Create a basic server node
 //! let builder = DefaultNodeBuilder::default()
 //!     .with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()))
-//!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"]).with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
 //!     .with_backend(BackendType::InMemory);
 //! ```
 //!
@@ -61,6 +61,8 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     client_tls_config: Option<T::ClientConfig>,
     kernel_executor_settings: Option<KernelExecutorSettings>,
     stun_servers: Option<Vec<String>>,
+    link_manager: Option<citadel_proto::prelude::LinkManagerMode>,
+    link_policy: Option<citadel_proto::prelude::LinkPolicy>,
     turn_servers: Option<Vec<TurnServerConfig>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     path_policy: Option<PathPolicy>,
@@ -90,6 +92,8 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             client_tls_config: None,
             kernel_executor_settings: None,
             stun_servers: None,
+            link_manager: None,
+            link_policy: None,
             turn_servers: None,
             local_only_server_settings: None,
             path_policy: None,
@@ -166,6 +170,12 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         let client_config = self.client_tls_config.take();
         let kernel_executor_settings = self.kernel_executor_settings.take().unwrap_or_default();
         let stun_servers = StunServers::required(self.stun_servers.take())?;
+        let link_manager = citadel_proto::prelude::LinkManagerConfig::new(
+            self.link_manager.take().ok_or_else(|| {
+                anyhow::anyhow!("a NodeBuilder needs with_link_manager: Legacy or Managed")
+            })?,
+            self.link_policy.take(),
+        )?;
         let turn_servers = self.turn_servers.take();
         let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = server_settings(
@@ -240,6 +250,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                     server_only_session_init_settings,
                     websocket_listener,
                     pre_built_listener,
+                    link_manager,
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
@@ -348,6 +359,25 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
     /// [`StunServers::new`]).
     pub fn with_stun_servers<V: Into<String>, S: Into<Vec<V>>>(&mut self, servers: S) -> &mut Self {
         self.stun_servers = Some(servers.into().into_iter().map(|t| t.into()).collect());
+        self
+    }
+
+    /// Which code keeps this node's links existing: required, with no default.
+    /// [`LinkManagerMode::Legacy`](citadel_proto::prelude::LinkManagerMode::Legacy) runs today's
+    /// paths unchanged; `Managed` runs each link under a RobustConnectionManager and needs
+    /// [`Self::with_link_policy`]. [`Self::build`] refuses a builder without a mode.
+    pub fn with_link_manager(
+        &mut self,
+        mode: citadel_proto::prelude::LinkManagerMode,
+    ) -> &mut Self {
+        self.link_manager = Some(mode);
+        self
+    }
+
+    /// The policy a `Managed` node's links heal under (every bound explicit; see
+    /// [`LinkPolicy`](citadel_proto::prelude::LinkPolicy)). Refused on a `Legacy` node.
+    pub fn with_link_policy(&mut self, policy: citadel_proto::prelude::LinkPolicy) -> &mut Self {
+        self.link_policy = Some(policy);
         self
     }
 
@@ -589,6 +619,7 @@ mod tests {
             .with_kernel_executor_settings(kernel_settings.clone())
             .with_insecure_skip_cert_verification()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .with_native_certs()
             .await
             .unwrap();
@@ -611,6 +642,10 @@ mod tests {
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "node_builder_stun_tests.rs"]
 mod stun_tests;
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "node_builder_link_manager_tests.rs"]
+mod link_manager_tests;
 
 #[path = "node_builder_path_policy.rs"]
 mod path_policy;

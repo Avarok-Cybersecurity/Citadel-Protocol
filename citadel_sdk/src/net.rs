@@ -65,6 +65,7 @@ impl<R: Ratchet> BrowserConnection<R> {
             .with_no_central_server(config)
             .with_backend(BackendType::InMemory)
             .with_stun_servers(stun_servers)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .build(kernel)
             .map_err(|err| {
                 citadel_io::error!(citadel_io::ErrorCode::NodeBuildFailed, err.to_string())

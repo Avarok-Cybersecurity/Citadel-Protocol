@@ -115,6 +115,7 @@ mod native {
         let builder = builder
             .with_node_type(NodeType::Server(bind_addr))
             .with_stun_servers(LOCALHOST_STUN_SERVERS)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .with_path_policy(localhost_path_policy())
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),

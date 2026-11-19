@@ -93,6 +93,7 @@ where
     });
     let client = DefaultNodeBuilder::default()
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
         .build(client_kernel)
         .unwrap();
     // Polled here, not spawned: a node future is not `Send` in every feature set.

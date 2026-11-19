@@ -250,6 +250,7 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .build(client_kernel)
             .unwrap();
 
@@ -330,6 +331,7 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .build(client_kernel)
             .unwrap();
 
@@ -411,6 +413,7 @@ mod tests {
 
         let client = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .build(client_kernel)
             .unwrap();
 
@@ -563,10 +566,12 @@ mod tests {
 
         let client0 = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .build(client_kernel0)
             .unwrap();
         let client1 = DefaultNodeBuilder::default()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .build(client_kernel1)
             .unwrap();
         let clients = futures::future::try_join(client0, client1);
