@@ -548,6 +548,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             let disconnect_tracker = self.disconnect_tracker();
 
             let (
+                login_deadline,
                 remote,
                 primary_stream,
                 local_bind_addr,
@@ -739,6 +740,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let peer_only_connect_mode =
                     ConnectProtocol::P2P(T::server_identity(&listener_underlying_proto));
 
+                // Immediately before the dial, after this client's own password hashing: the
+                // server's deadline starts at its accept, after this one.
+                let login_deadline = crate::proto::link::login_deadline(&self.link_mode());
                 let C2sPath {
                     stream: primary_stream,
                     local_addr: local_bind_addr,
@@ -750,6 +754,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 )
                 .await?;
                 (
+                    login_deadline,
                     remote,
                     primary_stream,
                     local_bind_addr,
@@ -806,6 +811,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 max_security_level,
                 revfs_keys,
                 init_time,
+                login_deadline,
                 session_password,
                 server_only_session_init_settings: None,
                 disconnect_tracker,
@@ -1169,6 +1175,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             max_security_level,
             revfs_keys,
             init_time,
+            login_deadline: crate::proto::link::login_deadline(&this.link_mode),
             session_password: server_only_session_init_settings
                 .declared_pre_shared_key
                 .clone()

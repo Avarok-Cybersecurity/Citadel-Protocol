@@ -32,7 +32,7 @@ pub use abort::AbortGuard;
 pub(crate) use abort::{until_aborted, InFlightConnects};
 pub(crate) use c2s_establisher::{C2sEstablisher, C2sPath};
 pub use clock::RuntimeClock;
-pub(crate) use deadline::{login_deadline, LoginDeadline};
+pub(crate) use deadline::{is_login_deadline, login_deadline, login_deadline_error, LoginDeadline};
 pub use mode::{LinkManagerMode, ManagedLinks, ManagedLinksError};
 
 /// The port a managed node's deadlines read, and the time it speaks in.

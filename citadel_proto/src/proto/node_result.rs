@@ -291,6 +291,13 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket_opt: _,
                 cid_opt: _,
                 message: err,
+            }) if crate::proto::link::is_login_deadline(&err) => {
+                Err(crate::proto::link::login_deadline_error())
+            }
+            NodeResult::InternalServerError(InternalServerError {
+                ticket_opt: _,
+                cid_opt: _,
+                message: err,
             }) => Err(NetworkError::generic(err)),
             NodeResult::PeerEvent(PeerEvent {
                 event:

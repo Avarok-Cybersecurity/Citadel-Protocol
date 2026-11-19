@@ -302,6 +302,9 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     /// and on a server built without one.
     pub(super) path_policy: Option<citadel_types::proto::PathPolicy>,
     pub(super) init_time: Instant,
+    /// When this login must have connected by: counted from when it began (the client's request,
+    /// the server's accept), so the client's passes first.
+    pub(super) login_deadline: crate::proto::link::LoginDeadline,
     pub(super) file_transfer_compatible: DualLateInit<bool>,
     pub(super) session_password: PreSharedKey,
     pub(super) header_obfuscator_settings: HeaderObfuscatorSettings,
@@ -380,6 +383,7 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub max_security_level: citadel_types::crypto::MaxSecurityLevel,
     pub revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
     pub init_time: Instant,
+    pub login_deadline: crate::proto::link::LoginDeadline,
     pub session_password: PreSharedKey,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
     /// Disconnect signal tracker - passed in to avoid needing to lock session_manager during construction
@@ -528,6 +532,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .as_ref()
             .and_then(|settings| settings.path_policy.clone());
         let init_time = session_init_params.init_time;
+        let login_deadline = session_init_params.login_deadline;
         let session_password = session_init_params.session_password;
         // Use disconnect_tracker passed in through params to avoid needing to lock
         // session_manager during construction (which would cause RefCell double-borrow panic)
@@ -584,6 +589,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             max_security_level,
             path_policy,
             init_time,
+            login_deadline,
             file_transfer_compatible: DualLateInit::default(),
             drop_listener: DualRwLock::from(None),
             session_password,
@@ -623,7 +629,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let this_queue_worker = self.clone();
         let this_close = self.clone();
 
-        let (session_future, handle_zero_state, session_cid, queue_worker_handle) = {
+        let (session_future, handle_zero_state, session_cid, queue_worker_handle, login_deadline) = {
             let quic_conn_opt = T::take_p2p_connection(&mut primary_stream)
                 .and_then(|c| c.downcast::<citadel_wire::exports::Connection>().ok())
                 .map(|c| *c);
@@ -669,11 +675,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             let reader_future =
                 Self::execute_inbound_stream(reader, this_inbound, None, obfuscator, meter);
             //let timer_future = Self::execute_timer(this.clone());
-            // Read before the first packet is sent, so the deadline counts from the session's
-            // start whatever the clock does while the queue worker task is being scheduled.
-            let login_deadline =
-                crate::proto::link::login_deadline(&this.session_manager.link_mode());
-            let queue_worker_future = Self::execute_queue_worker(this_queue_worker, login_deadline);
+            let login_deadline = this.login_deadline.clone();
+            let queue_worker_future =
+                Self::execute_queue_worker(this_queue_worker, login_deadline.clone());
             let stopper_future = Self::stopper(stopper);
             let handle_zero_state = Self::handle_zero_state(
                 None,
@@ -722,6 +726,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 handle_zero_state,
                 session_cid,
                 queue_worker_handle,
+                login_deadline,
             )
         };
 
@@ -765,6 +770,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         }
 
         match res {
+            Ok(SessionEnd::Stream) | Err(_)
+                if this_close.is_provisional() && login_deadline.passed() =>
+            {
+                Err((this_close.login_deadline_end(), session_cid.get()))
+            }
+
             Ok(SessionEnd::Stream) if this_close.is_provisional() => {
                 // The peer hung up mid-handshake, and nothing has been reported.
                 //
@@ -847,19 +858,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
     /// unexpectedly", "Session dropped") or as the stream closing, so a login that was only slow
     /// read as a crash. It is a timeout, and says which deadline.
     fn login_deadline_passed(&self) -> Option<NetworkError> {
-        if !inner_state!(self.state_container)
+        inner_state!(self.state_container)
             .connect_state
             .login_deadline_passed
-        {
-            return None;
-        }
+            .then(|| self.login_deadline_end())
+    }
+
+    fn login_deadline_end(&self) -> NetworkError {
         log::warn!(target: "citadel", "Session not connected within its login deadline ({LOGIN_EXPIRATION_TIME:?}); ending it");
-        Some(error!(
-            ErrorCode::Timeout,
-            format!(
-                "the session did not connect within its login deadline ({LOGIN_EXPIRATION_TIME:?})"
-            )
-        ))
+        crate::proto::link::login_deadline_error()
     }
 
     async fn stopper(
@@ -1403,7 +1410,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
     )]
     async fn execute_queue_worker(
         this_main: CitadelSession<R, T>,
-        login_deadline: Option<crate::proto::link::LoginDeadline>,
+        login_deadline: crate::proto::link::LoginDeadline,
     ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
 
@@ -1440,21 +1447,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 >| {
                     crate::proto::pq_sign_in::presence::provisional_check(&mut **state_container)
                 };
-            match login_deadline {
-                // Legacy: the queue's own timer.
-                None => queue_worker.insert_reserved_fn(
-                    provisional_checker,
-                    LOGIN_EXPIRATION_TIME,
-                    provisional_check,
-                ),
-                // Managed: the node's clock says when, and the queue runs the same check.
-                Some(deadline) => deadline.arm(
-                    stopped,
-                    queue_handle,
-                    provisional_checker,
-                    provisional_check,
-                ),
-            }
+            // The deadline's clock says when, and the queue runs the check.
+            login_deadline.arm(
+                stopped,
+                queue_handle,
+                provisional_checker,
+                provisional_check,
+            );
 
             if !is_server {
                 queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(REKEY_UPDATE_FREQUENCY_STANDARD), move |state_container| {
@@ -2901,10 +2900,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
         msg: S,
         deliberate: Option<citadel_link::CloseReason>,
     ) {
-        // Only send disconnect signal if we have a valid session CID
-        // Sessions without a CID were never connected, so no disconnect is needed
-        let Some(session_cid) = self.session_cid.get() else {
-            log::trace!(target: "citadel", "Skipping D/C signal - no session CID");
+        // Only a session that connected has a disconnect to report. One that never got there may
+        // still hold a CID (a registered account's login carries it from the start); its
+        // "Session dropped" reached the connect's ticket ahead of the reason the login failed.
+        let Some(session_cid) = self.session_cid.get().filter(|_| self.admitted.get()) else {
+            log::trace!(target: "citadel", "Skipping D/C signal - the session never connected");
             let _ = self.dc_signal_sender.take(); // Consume the sender to prevent future sends
             return;
         };
