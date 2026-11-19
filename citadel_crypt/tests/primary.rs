@@ -12,7 +12,9 @@ mod tests {
     use citadel_crypt::ratchets::entropy_bank::EntropyBank;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
-    use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
+    use citadel_crypt::scramble::crypt_splitter::{
+        par_scramble_encrypt_group, GroupReceiver, WaveBinding,
+    };
     use citadel_crypt::toolset::{Toolset, ToolsetUpdateStatus, MAX_RATCHETS_IN_MEMORY};
     #[cfg(not(target_family = "wasm"))]
     use citadel_io::tokio;
@@ -813,6 +815,7 @@ mod tests {
                     ObjectId::zero(),
                     0,
                     transfer_type.clone(),
+                    WaveBinding::Bound,
                     |_vec, _entropy_bank, _target_cid, _, buffer| {
                         for x in 0..HEADER_SIZE_BYTES {
                             buffer.put_u8(x as u8)
@@ -822,7 +825,7 @@ mod tests {
                 .unwrap();
 
             let config = scramble_transmitter.get_receiver_config();
-            let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
+            let mut receiver = GroupReceiver::new(config.clone(), WaveBinding::Bound, 0, 0);
             log::trace!(target: "citadel", "{:?}", config);
 
             while let Some(packet) = scramble_transmitter.get_next_packet() {
@@ -1008,6 +1011,7 @@ mod tests {
             bob.get_cid(),
             0,
             transfer_type,
+            WaveBinding::Bound,
             header_inscribe,
         )
         .unwrap();
@@ -1022,7 +1026,7 @@ mod tests {
             let mut gs = gs.unwrap();
             let config = gs.get_receiver_config();
             log::error!(target: "citadel", "Config: {config:?}");
-            let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
+            let mut receiver = GroupReceiver::new(config.clone(), WaveBinding::Bound, 0, 0);
             let group_id = config.group_id;
             let mut _seq = 0;
             let _now = Instant::now();

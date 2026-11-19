@@ -41,6 +41,7 @@ use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
 use crate::ratchets::entropy_bank::EntropyBank;
 use crate::ratchets::Ratchet;
+pub use crate::scramble::wave_binding::WaveBinding;
 pub use citadel_types::prelude::ObjectId;
 
 /// The maximum bytes per group
@@ -235,6 +236,7 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>
     object_id: ObjectId,
     group_id: u64,
     transfer_type: TransferType,
+    binding: WaveBinding,
     header_inscriber: F,
 ) -> Result<GroupSenderDevice<N>, CryptError>
 where
@@ -281,6 +283,7 @@ where
         target_cid,
         object_id,
         header_size_bytes,
+        binding,
         &header_inscriber,
     );
 
@@ -334,14 +337,22 @@ fn scramble_encrypt_wave(
     target_cid: u64,
     object_id: ObjectId,
     header_size_bytes: usize,
+    binding: WaveBinding,
     header_inscriber: impl Fn(&PacketVector, &EntropyBank, ObjectId, u64, &mut BytesMut) + Send + Sync,
 ) -> Vec<(usize, PacketCoordinate)> {
     // Encrypt the whole wave once into a single allocation, then hand each packet a
-    // ref-counted slice of it (no per-chunk copy). `Bytes::from(Vec)` is zero-copy.
-    let ciphertext: Bytes = msg_entropy_bank
-        .encrypt(msg_pqc, bytes_to_encrypt_for_this_wave)
-        .unwrap()
-        .into();
+    // ref-counted slice of it (no per-chunk copy).
+    let aad = binding.aad(
+        object_id,
+        cfg.group_id,
+        wave_idx as u32,
+        msg_entropy_bank.get_version(),
+    );
+    let mut ciphertext = BytesMut::from(bytes_to_encrypt_for_this_wave);
+    msg_entropy_bank
+        .encrypt_in_place(msg_pqc, aad.as_slice(), &mut ciphertext)
+        .unwrap();
+    let ciphertext: Bytes = ciphertext.freeze();
 
     let max_payload_size = cfg.max_payload_size as usize;
     let mut packets = Vec::with_capacity(ciphertext.len().div_ceil(max_payload_size));
@@ -463,6 +474,10 @@ pub struct GroupReceiver {
     group_timeout: Duration,
     wave_timeout: Duration,
     empty_transfer: bool,
+    /// What each wave must have been sealed for: this group, in this object, under `binding`.
+    binding: WaveBinding,
+    object_id: ObjectId,
+    group_id: u64,
 }
 
 use crate::secure_buffer::sec_packet::SecureMessagePacket;
@@ -735,7 +750,12 @@ impl GroupReceiver {
     ///
     /// The entropy_bank is needed in order to get the multiport width (determines max packets per wave)
     #[allow(unused_results)]
-    pub fn new(cfg: GroupReceiverConfig, wave_timeout_ms: usize, group_timeout_ms: usize) -> Self {
+    pub fn new(
+        cfg: GroupReceiverConfig,
+        binding: WaveBinding,
+        wave_timeout_ms: usize,
+        group_timeout_ms: usize,
+    ) -> Self {
         use bitvec::prelude::*;
         log::trace!(target: "citadel", "Creating new group receiver. Anticipated plaintext slab length: {}", cfg.plaintext_length);
         let unified_plaintext_slab = vec![0u8; cfg.plaintext_length as usize];
@@ -814,6 +834,9 @@ impl GroupReceiver {
             max_plaintext_wave_length: cfg.max_plaintext_wave_length as usize,
             last_plaintext_wave_length: cfg.last_plaintext_wave_length as usize,
             empty_transfer: cfg.empty_transfer,
+            binding,
+            object_id: cfg.object_id,
+            group_id: cfg.group_id,
         }
     }
 
@@ -896,8 +919,17 @@ impl GroupReceiver {
                 .ciphertext_buffer
                 .truncate(completed_wave.bytes_written);
 
-            match msg_entropy_bank.decrypt_in_place(msg_pqc, &mut completed_wave.ciphertext_buffer)
-            {
+            let aad = self.binding.aad(
+                self.object_id,
+                self.group_id,
+                wave_id,
+                msg_entropy_bank.get_version(),
+            );
+            match msg_entropy_bank.decrypt_in_place(
+                msg_pqc,
+                aad.as_slice(),
+                &mut completed_wave.ciphertext_buffer,
+            ) {
                 Ok(()) => {
                     let plaintext = &completed_wave.ciphertext_buffer[..];
 
@@ -1257,6 +1289,7 @@ fn encrypt_waves<F>(
     target_cid: u64,
     object_id: ObjectId,
     header_size_bytes: usize,
+    binding: WaveBinding,
     header_inscriber: &F,
 ) -> HashMap<usize, PacketCoordinate>
 where
@@ -1275,6 +1308,7 @@ where
             target_cid,
             object_id,
             header_size_bytes,
+            binding,
             header_inscriber,
         )
     };

@@ -91,6 +91,8 @@ mod udp_packet_tests;
 mod udp_routing_tests;
 /// Packet validations. This is not the same as encryption
 pub(crate) mod validation;
+/// Which wave layout a group uses
+pub(crate) mod wave_gate;
 
 /// Returns the preferred primary stream for returning a response
 pub(crate) fn get_preferred_primary_stream<R: Ratchet, T: PlatformOps>(

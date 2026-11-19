@@ -36,6 +36,7 @@ use tokio::sync::oneshot::Receiver;
 use crate::packet_vector::PacketVector;
 use crate::ratchets::entropy_bank::EntropyBank;
 use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
+use crate::scramble::wave_binding::WaveBinding;
 
 use crate::misc::CryptError;
 use crate::ratchets::Ratchet;
@@ -217,6 +218,7 @@ pub fn scramble_encrypt_source<
     target_cid: u64,
     group_id: u64,
     transfer_type: TransferType,
+    binding: WaveBinding,
     header_inscriber: F,
 ) -> Result<(usize, usize, usize), CryptError> {
     let path = source.path();
@@ -262,6 +264,7 @@ pub fn scramble_encrypt_source<
         static_aux_ratchet,
         reader,
         transfer_type,
+        binding,
         file_len: object_len,
         max_bytes_per_group,
         read_cursor: 0,
@@ -321,6 +324,7 @@ struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ra
     static_aux_ratchet: Ra,
     security_level: SecurityLevel,
     transfer_type: TransferType,
+    binding: WaveBinding,
     file_len: usize,
     read_cursor: usize,
     object_id: ObjectId,
@@ -420,6 +424,7 @@ impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet
             max_bytes_per_group,
             cur_task,
             transfer_type,
+            binding,
             poll_amt,
             ..
         } = &mut *self;
@@ -442,6 +447,7 @@ impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet
             let target_cid = *target_cid;
             let object_id = *object_id;
             let transfer_type = transfer_type.clone();
+            let binding = *binding;
 
             let task = scramble_off_task(move || {
                 let mut buffer = buffer.lock();
@@ -459,6 +465,7 @@ impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet
                     object_id,
                     group_id_input,
                     transfer_type,
+                    binding,
                     |a, b, c, d, e| (header_inscriber)(a, b, c, d, e),
                 )
             });

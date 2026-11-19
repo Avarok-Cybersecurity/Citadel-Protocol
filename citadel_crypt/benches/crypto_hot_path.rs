@@ -12,7 +12,7 @@ mod common;
 
 use bytes::{BufMut, BytesMut};
 use citadel_crypt::ratchets::Ratchet;
-use citadel_crypt::scramble::crypt_splitter::par_scramble_encrypt_group;
+use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, WaveBinding};
 use citadel_types::crypto::{EncryptionAlgorithm, SecurityLevel};
 use citadel_types::proto::{ObjectId, TransferType};
 use common::make_ratchets;
@@ -111,6 +111,7 @@ fn bench_scramble(c: &mut Criterion) {
                     ObjectId::zero(),
                     0,
                     TransferType::FileTransfer,
+                    WaveBinding::Bound,
                     |_v, _e, _o, _c, buf: &mut BytesMut| {
                         for x in 0..HEADER_LEN {
                             buf.put_u8(x as u8);

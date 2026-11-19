@@ -722,13 +722,14 @@ impl PostQuantumContainer {
         }
     }
 
-    /// Raw in-place AEAD encrypt with NO header AAD and NO anti-replay PID — byte-for-byte
-    /// compatible with the output of [`Self::encrypt`]. Encrypts the whole buffer in place and
-    /// appends the authentication tag, avoiding the fresh `Vec` allocation `encrypt` performs.
-    /// Used by the scramble/group path (which encrypts a whole wave with no per-packet PID).
+    /// Raw in-place AEAD encrypt with NO anti-replay PID, authenticating `aad` alongside the
+    /// buffer. With an empty `aad` the output is byte-for-byte that of [`Self::encrypt`]. Encrypts
+    /// the whole buffer in place and appends the authentication tag, avoiding the fresh `Vec`
+    /// allocation `encrypt` performs. Used by the scramble/group path, whose `aad` names the wave.
     pub fn encrypt_in_place<T: EzBuffer, R: AsRef<[u8]>>(
         &self,
         buf: &mut T,
+        aad: &[u8],
         nonce: R,
     ) -> Result<(), Error> {
         let nonce = nonce.as_ref();
@@ -737,19 +738,21 @@ impl PostQuantumContainer {
             .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_encryption_key() {
             symmetric_key
-                .encrypt_in_place(nonce, &[], &mut in_place)
+                .encrypt_in_place(nonce, aad, &mut in_place)
                 .map_err(|_| Error::encryption_failure())
         } else {
             Err(Error::shared_secret_not_loaded())
         }
     }
 
-    /// Raw in-place AEAD decrypt matching [`Self::encrypt_in_place`] / [`Self::encrypt`] (no header
-    /// AAD, no anti-replay PID). Decrypts the buffer in place and removes the authentication tag,
-    /// avoiding the fresh `Vec` allocation `decrypt` performs.
+    /// Raw in-place AEAD decrypt matching [`Self::encrypt_in_place`] (no anti-replay PID); `aad`
+    /// must be what the sender authenticated, or the buffer is refused. Decrypts the buffer in
+    /// place and removes the authentication tag, avoiding the fresh `Vec` allocation `decrypt`
+    /// performs.
     pub fn decrypt_in_place<T: EzBuffer, R: AsRef<[u8]>>(
         &self,
         buf: &mut T,
+        aad: &[u8],
         nonce: R,
     ) -> Result<(), Error> {
         let nonce = nonce.as_ref();
@@ -758,7 +761,7 @@ impl PostQuantumContainer {
             .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_decryption_key() {
             symmetric_key
-                .decrypt_in_place(nonce, &[], &mut in_place)
+                .decrypt_in_place(nonce, aad, &mut in_place)
                 .map_err(|_| Error::decryption_failure())
         } else {
             Err(Error::shared_secret_not_loaded())
@@ -1398,9 +1401,9 @@ mod in_place_aead_tests {
         (alice, bob)
     }
 
-    // The raw in-place AEAD primitives must round-trip and be byte-compatible with the existing
-    // Vec-allocating encrypt/decrypt (no header AAD, no anti-replay PID), so the scramble/group
-    // path can switch to them without a wire-format change.
+    // With no associated data the raw in-place AEAD primitives must round-trip and be
+    // byte-compatible with the Vec-allocating encrypt/decrypt (no anti-replay PID): that is the
+    // wave layout a node below the wave binding sends and expects.
     #[test]
     fn in_place_roundtrip_matches_vec_path() {
         let (alice, bob) = keyed_pair();
@@ -1409,19 +1412,19 @@ mod in_place_aead_tests {
 
         // encrypt_in_place (alice/tx) -> decrypt_in_place (bob/rx)
         let mut buf = BytesMut::from(&plaintext[..]);
-        alice.encrypt_in_place(&mut buf, nonce).unwrap();
+        alice.encrypt_in_place(&mut buf, &[], nonce).unwrap();
         assert_ne!(
             &buf[..],
             &plaintext[..],
             "ciphertext must differ from plaintext"
         );
-        bob.decrypt_in_place(&mut buf, nonce).unwrap();
+        bob.decrypt_in_place(&mut buf, &[], nonce).unwrap();
         assert_eq!(&buf[..], &plaintext[..], "in-place round-trip failed");
 
         // Vec encrypt (alice) -> in-place decrypt (bob): byte-compatible formats.
         let ct = alice.encrypt(&plaintext, nonce).unwrap();
         let mut buf2 = BytesMut::from(&ct[..]);
-        bob.decrypt_in_place(&mut buf2, nonce).unwrap();
+        bob.decrypt_in_place(&mut buf2, &[], nonce).unwrap();
         assert_eq!(
             &buf2[..],
             &plaintext[..],
@@ -1430,13 +1433,33 @@ mod in_place_aead_tests {
 
         // in-place encrypt (alice) -> Vec decrypt (bob): byte-compatible formats.
         let mut buf3 = BytesMut::from(&plaintext[..]);
-        alice.encrypt_in_place(&mut buf3, nonce).unwrap();
+        alice.encrypt_in_place(&mut buf3, &[], nonce).unwrap();
         let pt = bob.decrypt(&buf3[..], nonce).unwrap();
         assert_eq!(
             &pt[..],
             &plaintext[..],
             "in-place-encrypt -> Vec-decrypt mismatch"
         );
+    }
+
+    #[test]
+    fn in_place_associated_data_must_match_to_open() {
+        let (alice, bob) = keyed_pair();
+        let nonce = [0x5Au8; 32];
+        let plaintext = b"a wave".to_vec();
+        let mut sealed = BytesMut::from(&plaintext[..]);
+        alice
+            .encrypt_in_place(&mut sealed, b"wave 1", nonce)
+            .unwrap();
+
+        let mut buf = sealed.clone();
+        bob.decrypt_in_place(&mut buf, b"wave 1", nonce).unwrap();
+        assert_eq!(&buf[..], &plaintext[..]);
+
+        for other in [&b"wave 2"[..], &b""[..]] {
+            let mut buf = sealed.clone();
+            assert!(bob.decrypt_in_place(&mut buf, other, nonce).is_err());
+        }
     }
 
     #[test]

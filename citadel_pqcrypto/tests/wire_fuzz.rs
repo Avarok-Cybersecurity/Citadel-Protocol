@@ -109,7 +109,7 @@ fn received_ciphertexts_never_panic() {
             let mut buf = BytesMut::from(bytes);
             let _ = bob.validate_packet_in_place(HEADER, &mut buf, &nonce);
             let mut buf = BytesMut::from(bytes);
-            let _ = bob.decrypt_in_place(&mut buf, &nonce);
+            let _ = bob.decrypt_in_place(&mut buf, HEADER, &nonce);
         });
     }
 }

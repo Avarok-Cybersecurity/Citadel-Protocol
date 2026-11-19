@@ -1703,6 +1703,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         .unwrap_or_else(|| crypt_container.get_next_object_id());
                     let group_id_start = crypt_container.get_and_increment_group_file_transfer();
                     let latest_hr = crypt_container.get_ratchet(None).unwrap();
+                    let wave_binding = state_container
+                        .get_endpoint_container(C2S_IDENTITY_CID)?
+                        .wave_binding;
                     let static_aux_ratchet = crypt_container
                         .toolset()
                         .read()
@@ -1724,6 +1727,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         target_cid,
                         group_id_start,
                         transfer_type.clone(),
+                        wave_binding,
                         packet_crafter::group::craft_wave_payload_packet_into,
                     )
                     .map_err(|err| NetworkError::generic(err.to_string()))?;
@@ -1836,6 +1840,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         target_cid,
                         start_group_id,
                         transfer_type.clone(),
+                        endpoint_container.wave_binding,
                         packet_crafter::group::craft_wave_payload_packet_into,
                     )
                     .map_err(|err| NetworkError::generic(err.to_string()))?;

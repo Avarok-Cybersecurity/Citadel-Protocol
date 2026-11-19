@@ -156,6 +156,7 @@ async fn scramble_and_reassemble() {
         bob.get_cid(),
         0,
         TransferType::FileTransfer,
+        citadel_crypt::scramble::wave_binding::WaveBinding::Bound,
         header_inscribe,
     )
     .expect("scramble_encrypt_source");
@@ -165,7 +166,12 @@ async fn scramble_and_reassemble() {
     for _ in 0..groups {
         let mut device = rx.recv().await.expect("a group").expect("group scrambled");
         let config = device.get_receiver_config();
-        let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
+        let mut receiver = GroupReceiver::new(
+            config.clone(),
+            citadel_crypt::scramble::wave_binding::WaveBinding::Bound,
+            0,
+            0,
+        );
         while let Some(packet) = device.get_next_packet() {
             let status = receiver.on_packet_received(
                 config.group_id,

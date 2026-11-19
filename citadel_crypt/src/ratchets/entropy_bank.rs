@@ -171,32 +171,34 @@ impl EntropyBank {
         })
     }
 
-    /// In-place equivalent of [`Self::encrypt`] (no header AAD, no anti-replay PID): encrypts `buf`
-    /// in place, appends the AEAD tag, and appends the 8-byte nonce transient-id trailer. Avoids
-    /// the fresh `Vec` allocation `encrypt` performs — used by the scramble/group wave path.
+    /// In-place equivalent of [`Self::encrypt`] (no anti-replay PID) that also authenticates
+    /// `aad`: encrypts `buf` in place, appends the AEAD tag, and appends the 8-byte nonce
+    /// transient-id trailer. Used by the scramble/group wave path, whose `aad` names the wave.
     pub fn encrypt_in_place<T: EzBuffer>(
         &self,
         quantum_container: &PostQuantumContainer,
+        aad: &[u8],
         buf: &mut T,
     ) -> Result<(), CryptError> {
         self.wrap_with_unique_nonce_enx(buf, move |buf, nonce| {
             quantum_container
-                .encrypt_in_place(buf, nonce)
+                .encrypt_in_place(buf, aad, nonce)
                 .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }
 
-    /// In-place equivalent of [`Self::decrypt`], matching [`Self::encrypt_in_place`] / `encrypt`:
-    /// reads + removes the nonce transient-id trailer, then decrypts `buf` in place (removing the
-    /// AEAD tag). Avoids the fresh `Vec` allocation `decrypt` performs.
+    /// The inverse of [`Self::encrypt_in_place`]: reads + removes the nonce transient-id trailer,
+    /// then decrypts `buf` in place (removing the AEAD tag), refusing it unless `aad` is what the
+    /// sender authenticated.
     pub fn decrypt_in_place<T: EzBuffer>(
         &self,
         quantum_container: &PostQuantumContainer,
+        aad: &[u8],
         buf: &mut T,
     ) -> Result<(), CryptError> {
         self.wrap_with_unique_nonce_dex(buf, move |buf, nonce| {
             quantum_container
-                .decrypt_in_place(buf, nonce)
+                .decrypt_in_place(buf, aad, nonce)
                 .map_err(|err| CryptError::encrypt(err.to_string()))
         })
     }

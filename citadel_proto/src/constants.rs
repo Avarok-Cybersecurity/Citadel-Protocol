@@ -69,7 +69,10 @@ pub const MINOR_VERSION: u8 = 12;
 // party and a client creates the credential it enrols (see `SECURITY_KEY_CEREMONY_SINCE`).
 // Additive: each side uses them only with a node at or above the gate, and with an older peer
 // behaves as before.
-pub const PATCH_VERSION: u8 = 3;
+// Bumped 3 -> 4 (the RobustConnectionManager release, one bump shared by every lane, §12.2): a
+// P2P pair exchanges its ends' link-manager modes and runs the manager only when both are
+// Managed (see `LINK_MODE_SINCE`). Additive: with a peer below it, the campaign runs as before.
+pub const PATCH_VERSION: u8 = 4;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -162,6 +165,12 @@ pub fn protocol_version_at_least(version: Option<u32>, since: (u8, u8, u8)) -> b
     let since = (since.0 as usize, since.1 as usize, since.2 as usize);
     (version.major, version.minor, version.patch) >= since
 }
+
+/// The first protocol version whose file and object waves carry their object, group, index and
+/// ratchet version as associated data (`citadel_crypt::scramble::wave_binding`). A sender binds
+/// its waves only for a peer at or above it; a receiver expects bound waves exactly when the
+/// group's authenticated header says its sender is at or above it.
+pub const WAVE_BINDING_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 lazy_static! {
     pub static ref PROTOCOL_VERSION: u32 =

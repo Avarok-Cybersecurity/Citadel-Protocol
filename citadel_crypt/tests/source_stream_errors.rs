@@ -10,6 +10,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::streaming_crypt_scrambler::{
     scramble_encrypt_source, FixedSizedSource, ObjectSource,
 };
+use citadel_crypt::scramble::wave_binding::WaveBinding;
 use citadel_io::tokio;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
@@ -102,6 +103,7 @@ async fn run(source: Failing) -> (usize, bool) {
         bob.get_cid(),
         0,
         TransferType::FileTransfer,
+        WaveBinding::Bound,
         |_v, _b, _o, _c, buf: &mut bytes::BytesMut| {
             for x in 0..HDR {
                 buf.put_u8(x as u8)

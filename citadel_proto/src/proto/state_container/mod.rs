@@ -64,7 +64,7 @@ pub(crate) mod includes {
     pub(crate) use zerocopy::Ref;
 
     pub(crate) use citadel_crypt::scramble::crypt_splitter::{
-        GroupReceiver, GroupReceiverConfig, GroupReceiverStatus,
+        GroupReceiver, GroupReceiverConfig, GroupReceiverStatus, WaveBinding,
     };
     pub(crate) use citadel_user::client_account::ClientNetworkAccount;
     pub(crate) use netbeam::time_tracker::TimeTracker;
@@ -409,6 +409,8 @@ pub struct EndpointChannelContainer<R: Ratchet> {
     /// C4/C5: what the peer's message frames may no longer fall below (shared with the
     /// connection's key-epoch handle).
     pub(crate) message_floor: Arc<MessageFloor>,
+    /// How this node seals file and object waves for the peer, from the peer's version.
+    pub(crate) wave_binding: WaveBinding,
 }
 
 pub(crate) struct UnorderedChannelContainer {

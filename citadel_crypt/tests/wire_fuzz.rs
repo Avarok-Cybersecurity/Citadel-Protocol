@@ -14,6 +14,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::{
     par_scramble_encrypt_group, GroupReceiver, GroupReceiverConfig,
 };
+use citadel_crypt::scramble::wave_binding::WaveBinding;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_types::crypto::{
     CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecurityLevel, SigAlgorithm,
@@ -170,6 +171,7 @@ fn received_group_packets_never_panic() {
         ObjectId::zero(),
         0,
         TransferType::FileTransfer,
+        WaveBinding::Bound,
         |_v, _b, _o, _c, buf| buf.put_bytes(0, HDR),
     )
     .unwrap();
@@ -187,7 +189,7 @@ fn received_group_packets_never_panic() {
         |bytes| {
             if let Ok(cfg) = bincode::deserialize::<GroupReceiverConfig>(bytes) {
                 if cfg.validate().is_ok() {
-                    let _ = GroupReceiver::new(cfg, 0, 0);
+                    let _ = GroupReceiver::new(cfg, WaveBinding::Bound, 0, 0);
                 }
             }
         },
@@ -196,7 +198,7 @@ fn received_group_packets_never_panic() {
     campaign("group packets", seeds, 4 * CASES, DEADLINE, move |bytes| {
         // The bytes choose which genuine packets precede the forged one and what it claims to be.
         let mut rng = Rng::new(bytes.iter().fold(0u64, |h, b| h.rotate_left(5) ^ *b as u64));
-        let mut rx = GroupReceiver::new(config.clone(), 0, 0);
+        let mut rx = GroupReceiver::new(config.clone(), WaveBinding::Bound, 0, 0);
         for (seq, wave, payload) in packets.iter().take(rng.below(packets.len() + 1)) {
             let _ = rx.on_packet_received(0, *seq, *wave, &bob, payload);
         }

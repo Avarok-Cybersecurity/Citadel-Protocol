@@ -6,7 +6,7 @@ use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::{
-    par_scramble_encrypt_group, GroupReceiver, GroupReceiverStatus, GroupSenderDevice,
+    par_scramble_encrypt_group, GroupReceiver, GroupReceiverStatus, GroupSenderDevice, WaveBinding,
 };
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
@@ -43,6 +43,7 @@ fn group() -> (GroupSenderDevice<HDR>, GroupReceiver, R) {
         ObjectId::zero(),
         0,
         TransferType::FileTransfer,
+        WaveBinding::Bound,
         |_v, _b, _o, _c, buf| {
             for x in 0..HDR {
                 buf.put_u8(x as u8)
@@ -50,7 +51,7 @@ fn group() -> (GroupSenderDevice<HDR>, GroupReceiver, R) {
         },
     )
     .unwrap();
-    let rx = GroupReceiver::new(tx.get_receiver_config().clone(), 0, 0);
+    let rx = GroupReceiver::new(tx.get_receiver_config().clone(), WaveBinding::Bound, 0, 0);
     (tx, rx, bob)
 }
 
