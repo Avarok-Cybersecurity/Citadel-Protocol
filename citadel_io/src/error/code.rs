@@ -1299,4 +1299,7 @@ pub enum ErrorCode {
     /// reason, which the server logs.
     #[form = "The server refused this connect"]
     PreconnectRefused = 540,
+    /// A client that requires certificate verification was offered a connection without TLS.
+    #[form = "This client requires a verified TLS certificate, and the server offered plain TCP"]
+    PlaintextOfferRefused = 541,
 }

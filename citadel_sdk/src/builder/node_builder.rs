@@ -471,7 +471,7 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
             .client_tls_config
             .as_ref()
             .map(|cfg| cfg.require_cert_verification)
-            .unwrap_or(false);
+            .unwrap_or(citadel_proto::re_imports::DEFAULT_REQUIRE_CERT_VERIFICATION);
         self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig {
             config,
             require_cert_verification,
@@ -494,6 +494,7 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
         // Explicit opt-out: this clears any require-verification policy by design.
         self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig::new(
             std::sync::Arc::new(citadel_proto::re_imports::insecure::rustls_client_config()),
+            false,
         ));
         self
     }

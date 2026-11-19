@@ -46,6 +46,14 @@ pub async fn c2s_connect(
     match first_packet {
         FirstPacket::OrderedReliable { external_addr } => {
             log::trace!(target: "citadel", "Host claims OrderedReliable (TCP) DEFAULT CONNECTION. External ADDR: {external_addr:?}");
+            // The offer is unauthenticated: a client that requires a verified certificate
+            // cannot take plain TCP, whoever offers it.
+            if default_client_config.require_cert_verification {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    citadel_io::error!(citadel_io::ErrorCode::PlaintextOfferRefused).into_string(),
+                ));
+            }
             Ok(GenericNetworkStream::OrderedReliable(stream))
         }
 

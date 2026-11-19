@@ -154,9 +154,10 @@ mod tests {
             let (port, server) = wss_echo_server().await;
             let endpoint =
                 WebSocketEndpoint::parse(&format!("wss://localhost:{port}/acme")).unwrap();
-            let skip_verify = NativeClientConfig::new(Arc::new(
-                citadel_wire::quic::insecure::rustls_client_config(),
-            ));
+            let skip_verify = NativeClientConfig::new(
+                Arc::new(citadel_wire::quic::insecure::rustls_client_config()),
+                false,
+            );
 
             let mut stream = c2s_connect_endpoint(None, &endpoint, &skip_verify)
                 .await
@@ -182,9 +183,10 @@ mod tests {
             let endpoint =
                 WebSocketEndpoint::parse(&format!("wss://localhost:{port}/acme")).unwrap();
             let native_roots = citadel_wire::tls::load_native_certs_async().await.unwrap();
-            let verifying = NativeClientConfig::new(Arc::new(
-                citadel_wire::tls::create_rustls_client_config(&native_roots).unwrap(),
-            ));
+            let verifying = NativeClientConfig::new(
+                Arc::new(citadel_wire::tls::create_rustls_client_config(&native_roots).unwrap()),
+                true,
+            );
 
             let refused = c2s_connect_endpoint(None, &endpoint, &verifying).await;
             assert!(

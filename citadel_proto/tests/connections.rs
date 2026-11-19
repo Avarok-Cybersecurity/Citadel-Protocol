@@ -155,9 +155,10 @@ pub mod tests {
     #[once]
     fn client_config() -> NativeClientConfig {
         let certs = citadel_wire::tls::load_native_certs().unwrap();
-        NativeClientConfig::new(Arc::new(
-            citadel_wire::tls::cert_vec_to_secure_client_config(&certs).unwrap(),
-        ))
+        NativeClientConfig::new(
+            Arc::new(citadel_wire::tls::cert_vec_to_secure_client_config(&certs).unwrap()),
+            false,
+        )
     }
 
     #[rstest]

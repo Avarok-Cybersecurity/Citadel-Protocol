@@ -21,25 +21,25 @@ pub struct NativeClientConfig {
     /// The rustls client configuration (verifier, roots, ALPN, etc.).
     pub config: Arc<ClientConfig>,
     /// When true, the client refuses to fall back to no-verification even if the peer's FirstPacket
-    /// advertises a self-signed server. This prevents an active attacker from forcing the insecure
-    /// (accept-any-cert) TLS/QUIC path by flipping the `is_self_signed`/absent-`domain` signal.
-    /// Defaults to false so the self-signed deployment mode (and its tests) keep working.
+    /// advertises a self-signed server, and refuses a plain-TCP offer. This prevents the
+    /// unauthenticated first packet from choosing the insecure (accept-any-cert) TLS/QUIC path or
+    /// no TLS at all.
     pub require_cert_verification: bool,
 }
 
+/// The verification choice of a node that was given no client TLS configuration (and of a
+/// certificate set given without one): follow a server that says it is self-signed. It is the
+/// library's standing behaviour, which its default server (self-signed TLS) relies on. A client
+/// that must not be downgraded sets `require_cert_verification`.
+pub const DEFAULT_REQUIRE_CERT_VERIFICATION: bool = false;
+
 impl NativeClientConfig {
-    /// Wraps a rustls client config with the default (permissive) verification policy.
-    pub fn new(config: Arc<ClientConfig>) -> Self {
+    /// Wraps a rustls client config with an explicit verification choice.
+    pub fn new(config: Arc<ClientConfig>, require_cert_verification: bool) -> Self {
         Self {
             config,
-            require_cert_verification: false,
+            require_cert_verification,
         }
-    }
-}
-
-impl From<Arc<ClientConfig>> for NativeClientConfig {
-    fn from(config: Arc<ClientConfig>) -> Self {
-        Self::new(config)
     }
 }
 
@@ -100,7 +100,10 @@ impl ProtocolIO for NativeIO {
         let native_certs = citadel_wire::tls::load_native_certs_async().await?;
         let config = citadel_wire::tls::create_rustls_client_config(&native_certs)
             .map_err(|e| io::Error::other(e.to_string()))?;
-        Ok(NativeClientConfig::new(Arc::new(config)))
+        Ok(NativeClientConfig::new(
+            Arc::new(config),
+            DEFAULT_REQUIRE_CERT_VERIFICATION,
+        ))
     }
 
     fn server_identity(config: &ServerMode<Self>) -> Option<String> {
