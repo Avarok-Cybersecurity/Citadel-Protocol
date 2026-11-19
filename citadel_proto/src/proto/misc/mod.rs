@@ -77,6 +77,8 @@ pub mod native_io;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod native_io_platform;
 #[cfg(not(target_family = "wasm"))]
+pub(crate) mod native_twin_ports;
+#[cfg(not(target_family = "wasm"))]
 pub mod native_upgrade;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_websocket;
