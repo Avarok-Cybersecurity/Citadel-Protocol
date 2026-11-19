@@ -772,6 +772,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "citadel_link"
+version = "0.1.0"
+dependencies = [
+ "citadel_link",
+ "citadel_media",
+ "citadel_negotiation",
+ "citadel_types",
+ "proptest",
+ "strum",
+]
+
+[[package]]
 name = "citadel_logging"
 version = "0.14.0"
 dependencies = [
@@ -1016,6 +1028,7 @@ dependencies = [
  "bytes",
  "citadel_io",
  "citadel_logging",
+ "citadel_types",
  "either",
  "futures",
  "igd-next",

@@ -28,7 +28,7 @@ clippy() {
     echo "::endgroup::"
 }
 
-clippy -p citadel_sdk -p citadel_media -p citadel_wire -p netbeam -p async_ip -p citadel_treekem -p citadel_logging
+clippy -p citadel_sdk -p citadel_media -p citadel_wire -p netbeam -p async_ip -p citadel_treekem -p citadel_logging -p citadel_link -p citadel_negotiation
 clippy -p citadel_pqcrypto --no-default-features
 clippy -p citadel_sdk --no-default-features --lib "${sdk_test_args[@]}"
 clippy -p citadel_sdk --no-default-features --features security-key --lib --test wasm_security_key
