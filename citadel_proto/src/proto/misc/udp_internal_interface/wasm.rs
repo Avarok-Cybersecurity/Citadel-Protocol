@@ -129,10 +129,7 @@ impl WebRtcDataChannelConnector {
         dc.set_onclose(Some(onclose.as_ref().unchecked_ref()));
 
         Self {
-            sink: DataChannelSink {
-                dc: dc.clone(),
-                peer_addr: peer_addr.send_address,
-            },
+            sink: DataChannelSink { dc: dc.clone() },
             stream: DataChannelStream {
                 state,
                 peer_addr: peer_addr.send_address,
@@ -168,7 +165,6 @@ struct DataChannelState {
 
 pub(crate) struct DataChannelSink {
     dc: web_sys::RtcDataChannel,
-    peer_addr: SocketAddr,
 }
 
 // SAFETY: WASM is single-threaded.

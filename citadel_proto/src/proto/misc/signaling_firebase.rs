@@ -5,14 +5,12 @@
 //! beyond what the WASM target already provides.
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::io;
-use std::pin::Pin;
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 
-use super::signaling::SignalingService;
+use super::signaling::{SignalingFuture, SignalingService};
 
 /// Configuration for the Firebase RTDB signaling backend.
 #[derive(Clone, Debug)]
@@ -87,28 +85,28 @@ async fn fetch_text(url: &str, method: &str, body: Option<&str>) -> io::Result<S
             .map_err(js_err)?;
     }
 
-    let window = web_sys::window()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "no global window"))?;
+    let window = web_sys::window().ok_or_else(|| io::Error::other("no global window"))?;
 
     let resp_js = await_js_promise(window.fetch_with_request(&request)).await?;
     let resp: web_sys::Response = resp_js.dyn_into().map_err(js_err)?;
 
     if !resp.ok() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("Firebase HTTP {}: {}", resp.status(), resp.status_text()),
-        ));
+        return Err(io::Error::other(format!(
+            "Firebase HTTP {}: {}",
+            resp.status(),
+            resp.status_text()
+        )));
     }
 
     let text_promise = resp.text().map_err(js_err)?;
     let text_js = await_js_promise(text_promise).await?;
     text_js
         .as_string()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "response not a string"))
+        .ok_or_else(|| io::Error::other("response not a string"))
 }
 
 fn js_err(e: JsValue) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, format!("{e:?}"))
+    io::Error::other(format!("{e:?}"))
 }
 
 /// Await a JS Promise via callback+oneshot (reuses the pattern from wasm_rtc.rs).
@@ -134,21 +132,16 @@ async fn await_js_promise(promise: js_sys::Promise) -> io::Result<JsValue> {
     let _ = promise.then2(&on_resolve, &on_reject);
     let result = rx
         .await
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "JS promise channel dropped"))?;
+        .map_err(|_| io::Error::other("JS promise channel dropped"))?;
 
     drop(on_resolve);
     drop(on_reject);
 
-    result.map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{e:?}")))
+    result.map_err(|e| io::Error::other(format!("{e:?}")))
 }
 
 impl SignalingService for FirebaseSignaling {
-    fn publish(
-        &self,
-        room: &str,
-        key: &str,
-        value: serde_json::Value,
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>>>> {
+    fn publish(&self, room: &str, key: &str, value: serde_json::Value) -> SignalingFuture<()> {
         let url = self.url(room, key);
         let body = serde_json::to_string(&value).unwrap_or_else(|_| "null".into());
         Box::pin(async move {
@@ -157,11 +150,7 @@ impl SignalingService for FirebaseSignaling {
         })
     }
 
-    fn read(
-        &self,
-        room: &str,
-        key: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<serde_json::Value>>>>> {
+    fn read(&self, room: &str, key: &str) -> SignalingFuture<Option<serde_json::Value>> {
         let url = self.url(room, key);
         Box::pin(async move {
             let text = fetch_text(&url, "GET", None).await?;
@@ -178,7 +167,7 @@ impl SignalingService for FirebaseSignaling {
         &self,
         room: &str,
         prefix: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<HashMap<String, serde_json::Value>>>>> {
+    ) -> SignalingFuture<HashMap<String, serde_json::Value>> {
         let url = self.url(room, prefix);
         Box::pin(async move {
             let text = fetch_text(&url, "GET", None).await?;
@@ -191,7 +180,7 @@ impl SignalingService for FirebaseSignaling {
         })
     }
 
-    fn delete_room(&self, room: &str) -> Pin<Box<dyn Future<Output = io::Result<()>>>> {
+    fn delete_room(&self, room: &str) -> SignalingFuture<()> {
         let url = self.room_url(room);
         Box::pin(async move {
             fetch_text(&url, "DELETE", None).await?;

@@ -30,40 +30,18 @@ This module implements direct peer-to-peer connection handling and NAT traversal
 
 */
 
-use citadel_io::tokio::sync::oneshot::{channel, Receiver, Sender};
-use citadel_io::tokio_stream::StreamExt;
-
-use crate::error::NetworkError;
-use citadel_io::{error, ErrorCode};
+use citadel_io::tokio::sync::oneshot::Sender;
 
 use crate::functional::IfTrueConditional;
-use crate::proto::misc;
 use crate::proto::misc::dual_rwlock::DualRwLock;
-use crate::proto::misc::platform_ops::PlatformOps;
-use crate::proto::node_result::{NodeResult, PeerEvent};
-use crate::proto::outbound_budget::MAX_QUEUED_OUTBOUND_BYTES;
-use crate::proto::outbound_sender::budgeted_primary_channel;
+use crate::proto::node_result::NodeResult;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::outbound_sender::UnboundedSender;
-use crate::proto::packet::HeaderObfuscator;
-use crate::proto::packet_crafter;
-use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
-use crate::proto::packet_processor::includes::{Duration, Instant, SocketAddr};
-use crate::proto::peer::p2p_path::P2pRoute;
-use crate::proto::peer::peer_crypt::PeerNatInfo;
-use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
+use crate::proto::packet_processor::includes::SocketAddr;
 use crate::proto::remote::Ticket;
-use crate::proto::session::{CitadelSession, SessionAliveTracker};
-use crate::proto::state_container::{P2PDisconnectSignal, RouteEnd, VirtualConnectionType};
-use crate::proto::traffic::meter::{RouteMeter, StreamMeter};
 use citadel_crypt::ratchets::Ratchet;
-use citadel_types::crypto::SecurityLevel;
-use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
-use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
-use netbeam::sync::network_endpoint::NetworkEndpoint;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::sync::Arc;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -89,6 +67,7 @@ impl Debug for DirectP2PRemote {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl DirectP2PRemote {
     /// - quic_connector should be Some for server conns, None for clients
     fn new(
@@ -150,13 +129,6 @@ impl<R: Ratchet> P2PInboundHandle<R> {
     }
 }
 
-async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
-    receiver
-        .await
-        .map_err(|err| NetworkError::generic(err.to_string()))?;
-    Err(error!(ErrorCode::P2pStopperTriggered))
-}
-
 pub(crate) fn generic_error<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
     err: E,
 ) -> std::io::Error {
@@ -166,14 +138,45 @@ pub(crate) fn generic_error<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod native_p2p {
     use super::*;
+    use crate::error::NetworkError;
+    use crate::proto::misc;
     use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
+    use crate::proto::misc::platform_ops::PlatformOps;
     use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
+    use crate::proto::node_result::PeerEvent;
+    use crate::proto::outbound_budget::MAX_QUEUED_OUTBOUND_BYTES;
+    use crate::proto::outbound_sender::budgeted_primary_channel;
+    use crate::proto::packet::HeaderObfuscator;
+    use crate::proto::packet_crafter;
+    use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
+    use crate::proto::packet_processor::includes::{Duration, Instant};
     use crate::proto::peer::p2p_outcome::{
         tried, AtStage, AttemptReport, PathStage, StageError, StageFailure,
     };
+    use crate::proto::peer::p2p_path::P2pRoute;
+    use crate::proto::peer::peer_crypt::PeerNatInfo;
+    use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
+    use crate::proto::session::{CitadelSession, SessionAliveTracker};
+    use crate::proto::state_container::{P2PDisconnectSignal, RouteEnd, VirtualConnectionType};
+    use crate::proto::traffic::meter::{RouteMeter, StreamMeter};
+    use citadel_io::tokio::sync::oneshot::{channel, Receiver};
+    use citadel_io::tokio_stream::StreamExt;
+    use citadel_io::{error, ErrorCode};
+    use citadel_types::crypto::SecurityLevel;
+    use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
     use citadel_wire::exports::tokio_rustls::rustls;
+    use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
     use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
     use citadel_wire::udp_traversal::udp_hole_puncher::{EndpointHolePunchExt, PunchBudget};
+    use netbeam::sync::network_endpoint::NetworkEndpoint;
+    use std::sync::Arc;
+
+    async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
+        receiver
+            .await
+            .map_err(|err| NetworkError::generic(err.to_string()))?;
+        Err(error!(ErrorCode::P2pStopperTriggered))
+    }
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn p2p_conn_handler<R: Ratchet, T: PlatformOps>(

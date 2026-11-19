@@ -23,7 +23,7 @@ RUN rustup target add wasm32-unknown-unknown
 COPY . .
 
 # Pre-compile WASM test artifacts to warm the cargo cache
-RUN cargo test --target wasm32-unknown-unknown \
+RUN cargo test --locked --target wasm32-unknown-unknown \
     -p citadel_sdk --no-default-features \
     --test wasm_p2p_connect --no-run --release || true
 

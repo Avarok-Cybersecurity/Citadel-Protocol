@@ -38,7 +38,7 @@ dependencies = ["git_lfs_fetch"]
 
 [tasks.docs-html]
 command = "cargo"
-args = ["doc", "--package", "citadel_sdk", "--features=webrtc,doc-images", "--no-deps", "--release"]
+args = ["doc", "--locked", "--package", "citadel_sdk", "--features=webrtc,doc-images", "--no-deps", "--release"]
 dependencies = ["git_lfs"]
 
 [tasks.pr]
@@ -125,7 +125,7 @@ for i in ${range_vals}
     echo Iteration ${iteration_num}/${iterations}...
     
     # Run the tests with nextest - focus on the most racy tests
-    cmd_output = exec --get-exit-code cargo nextest run --release --package citadel_crypt --retries 0 "test_messenger_racy"
+    cmd_output = exec --get-exit-code cargo nextest run --locked --release --package citadel_crypt --retries 0 "test_messenger_racy"
     
     if not equals ${cmd_output} 0
         global_error_count = calc ${global_error_count} + 1
@@ -408,7 +408,7 @@ script = '''
 set -euo pipefail
 echo "[pgo] toolchain check:"; cargo pgo info || true
 echo "[pgo] 1/2 instrument + train (cargo pgo bench) ..."
-cargo pgo bench -- -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput
+cargo pgo bench -- --locked -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput
 # Fail loudly if the instrumented run produced no profiles, instead of letting `optimize` silently
 # build a NON-PGO binary that looks optimized but isn't. Known trigger: an LLVM profiler version
 # mismatch ("Runtime and instrumentation version mismatch : expected N, but get M") from stale
@@ -420,7 +420,7 @@ if ! ls target/pgo-profiles/*.profraw target/pgo-profiles/*.profdata >/dev/null 
   exit 1
 fi
 echo "[pgo] 2/2 optimized rebuild from profiles (cargo pgo optimize) ..."
-cargo pgo optimize bench -- -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput
+cargo pgo optimize bench -- --locked -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput
 echo "[pgo] done. PGO-optimized bench under target/*/release/deps; profiles in target/pgo-profiles."
 '''
 
@@ -438,13 +438,13 @@ if ! command -v llvm-bolt >/dev/null 2>&1; then
 fi
 FEAT="-p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput"
 echo "[bolt] 1/3 instrument the PGO-optimized bench for BOLT ..."
-cargo pgo bolt build --with-pgo -- $FEAT
+cargo pgo bolt build --with-pgo -- --locked $FEAT
 echo "[bolt] 2/3 run the BOLT-instrumented bench to gather profiles ..."
 BIN=$(find target -type f -name 'macro_throughput-*' -perm -u+x -newer target/pgo-profiles 2>/dev/null | head -n1 || true)
 if [ -z "${BIN:-}" ]; then BIN=$(ls -t target/*/release/deps/macro_throughput-* 2>/dev/null | grep -v '\.d$' | head -n1 || true); fi
 if [ -n "${BIN:-}" ]; then "$BIN" --bench || true; else echo "[bolt] WARN: could not locate instrumented bench binary to run"; fi
 echo "[bolt] 3/3 optimize with gathered BOLT profiles ..."
-cargo pgo bolt optimize --with-pgo -- $FEAT
+cargo pgo bolt optimize --with-pgo -- --locked $FEAT
 echo "[bolt] done. BOLT+PGO bench under target/*/release/deps."
 '''
 
@@ -466,7 +466,7 @@ command -v cargo-afl >/dev/null 2>&1 || cargo install cargo-afl --locked
 
 cd fuzz
 echo "[fuzz] building AFL-instrumented harnesses ..."
-cargo afl build --release
+cargo afl build --locked --release
 
 status=0
 mkdir -p out

@@ -217,6 +217,13 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                 let pre_built_listener = injected_listener;
 
                 log::trace!(target: "citadel", "[NodeBuilder] Checking Tokio runtime ...");
+                #[cfg_attr(
+                    target_family = "wasm",
+                    expect(
+                        clippy::let_unit_value,
+                        reason = "the browser has no runtime handle: `rt` is `()` there"
+                    )
+                )]
                 let rt = citadel_io::try_current_runtime().map_err(NetworkError::generic)?;
                 log::trace!(target: "citadel", "[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(

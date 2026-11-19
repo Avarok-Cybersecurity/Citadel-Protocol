@@ -27,6 +27,9 @@ pub enum Fixture {
 }
 
 impl Fixture {
+    /// Every fixture the media tests read; CI's fixture step fetches exactly these.
+    pub const ALL: [Fixture; 2] = [Fixture::Wav, Fixture::Vp8Ivf];
+
     pub const fn url(self) -> &'static str {
         match self {
             Fixture::Wav => "https://download.samplelib.com/wav/sample-3s.wav",

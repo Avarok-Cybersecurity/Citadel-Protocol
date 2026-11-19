@@ -28,6 +28,13 @@ pub(crate) enum P2pRoute {
     Direct,
     /// `relayed_both`: each peer sends through its own allocation (relay-to-relay), so every
     /// packet egresses two TURN servers.
+    #[cfg_attr(
+        target_family = "wasm",
+        expect(
+            dead_code,
+            reason = "the browser's ICE agent owns relaying; only native builds route through TURN"
+        )
+    )]
     Turn {
         relayed_both: bool,
     },

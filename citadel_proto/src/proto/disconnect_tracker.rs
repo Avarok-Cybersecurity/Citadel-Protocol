@@ -79,6 +79,7 @@ impl DisconnectSignalTracker {
     /// # Arguments
     /// * `session_ticket` - Unique ID for this session instance
     /// * `peer_cid` - The CID of the peer being disconnected from
+    #[cfg(not(target_family = "wasm"))]
     pub fn try_p2p_disconnect(&self, session_ticket: Ticket, peer_cid: u64) -> bool {
         self.inner
             .p2p_disconnected
@@ -94,6 +95,7 @@ impl DisconnectSignalTracker {
     /// # Arguments
     /// * `session_ticket` - Unique ID for the session instance
     /// * `peer_cid` - The CID of the peer whose tracking should be cleared
+    #[cfg(not(target_family = "wasm"))]
     pub fn clear_p2p_peer(&self, session_ticket: Ticket, peer_cid: u64) {
         self.inner
             .p2p_disconnected

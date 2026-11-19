@@ -6,7 +6,7 @@
 .idea/workspace.xml
 /logs/
 /*/report.json
-Cargo.lock
+# Cargo.lock is committed: CI builds with --locked, and ci/lockfile_age_gate.py judges each change.
 target_ide/
 .vscode/
 .ci_logs/
@@ -16,3 +16,5 @@ tmp/
 # Generated macro-bench output (thermal/host-specific; durable numbers live in bench/RESULTS.md)
 bench/macro_results.json
 bench/multi_session_results.json
+# Python bytecode from the ci/ gates and their tests.
+__pycache__/

@@ -52,6 +52,13 @@ pub(crate) async fn run_server_with_kernel(
 
     #[cfg(not(feature = "multi-threaded"))]
     {
+        #[cfg_attr(
+            target_family = "wasm",
+            expect(
+                clippy::let_unit_value,
+                reason = "the browser has no runtime handle: `rt` is `()` there"
+            )
+        )]
         let _ = rt;
         let localset = localset.unwrap();
         // Run the kernel INSIDE the LocalSet as well: user kernel code (and the SDK layers it
