@@ -92,3 +92,6 @@ pub(crate) mod standard;
 pub mod stun_servers;
 
 pub use standard::*;
+
+#[cfg(target_arch = "wasm32")]
+use std::collections::HashMap;
