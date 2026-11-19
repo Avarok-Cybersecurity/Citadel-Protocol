@@ -2341,8 +2341,10 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
         self.ended_sessions
             .on_session_end(cid, issued, Instant::now(), policy.resume_grace());
         let pers = self.account_manager.get_persistence_handler().clone();
+        // The end is now, not whenever the write below gets to run.
+        let ended_ms = session_resume_store::now_ms();
         spawn!(async move {
-            let stored = match session_resume_store::now_ms() {
+            let stored = match ended_ms {
                 Ok(ended_ms) => session_resume_store::on_ended(&pers, cid, &issued, ended_ms).await,
                 Err(err) => Err(err),
             };
