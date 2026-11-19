@@ -11,7 +11,7 @@ mod common;
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
-    use crate::common::link::{managed, proxy, saw, ManualClock, Plan, Seen};
+    use crate::common::link::{managed, saw, with_client, ManualClock, Plan, Seen};
     use crate::common::{NodeState, ReconnectionTestKernel};
     use citadel_io::tokio;
     use citadel_io::tokio::sync::oneshot;
@@ -24,44 +24,6 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
     use uuid::Uuid;
-
-    /// Runs `handler` on a client node of `mode` beside a test server; a hang guard, not a
-    /// latency assertion.
-    async fn with_client<F, Fut>(mode: LinkManagerMode, plans: Vec<Plan>, handler: F)
-    where
-        F: FnOnce(
-                NodeRemote<StackedRatchet>,
-                SocketAddr,
-                tokio::sync::mpsc::UnboundedReceiver<Seen>,
-            ) -> Fut
-            + Send
-            + Sync
-            + 'static,
-        Fut: Future<Output = Result<(), NetworkError>> + Send + 'static,
-    {
-        citadel_logging::setup_log();
-        let (server, server_addr) = server_info::<StackedRatchet>();
-        let (proxy_addr, seen) = proxy(server_addr, plans).await;
-        let kernel = ReconnectionTestKernel::new(
-            Arc::new(NodeState::default()),
-            move |remote: NodeRemote<StackedRatchet>, _| handler(remote, proxy_addr, seen),
-        );
-        let mut builder = DefaultNodeBuilder::default();
-        let client = builder
-            .with_link_manager(mode)
-            .with_stun_servers(LOCALHOST_STUN_SERVERS)
-            .build(kernel)
-            .unwrap();
-        let result = tokio::time::timeout(Duration::from_secs(120), async move {
-            tokio::select! {
-                res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
-                res = client => res.map(|_| ()),
-            }
-        })
-        .await
-        .expect("the test timed out");
-        assert!(result.is_ok(), "{result:?}");
-    }
 
     fn connect(user: Uuid, addr: SocketAddr) -> NodeRequest {
         NodeRequest::ConnectToHypernode(ConnectToHypernode {

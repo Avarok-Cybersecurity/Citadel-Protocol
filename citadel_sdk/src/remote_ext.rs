@@ -225,12 +225,22 @@ pub struct RegisterSuccess {
 }
 
 /// Waits for the outcome of a registration request.
-async fn await_registration<R: Ratchet, Rem: Remote<R>>(
+async fn await_registration<R: Ratchet, Rem: ProtocolRemoteExt<R>>(
     remote: &Rem,
     register_request: NodeRequest,
 ) -> Result<RegisterSuccess, NetworkError> {
-    let mut subscription = remote.send_callback_subscription(register_request).await?;
+    // As for connect: a caller that stops waiting before the first answer aborts the
+    // registration instead of leaving it holding its provisional slot.
+    let ticket = remote.get_next_ticket();
+    let mut abort = Some(AbortGuard::new(remote.remote_ref().clone(), ticket));
+    let mut subscription = remote
+        .remote_ref()
+        .send_callback_subscription_custom_ticket(register_request, ticket)
+        .await?;
     while let Some(status) = subscription.next().await {
+        if let Some(abort) = abort.take() {
+            abort.disarm();
+        }
         match status.into_result()? {
             NodeResult::RegisterOkay(RegisterOkay {
                 cid,

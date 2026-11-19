@@ -1,11 +1,15 @@
 //! For the C2S link tests (lane L1): a clock the test moves by hand, and a TCP proxy that can
 //! hold one connect's bytes, so a connect can be stopped at a stage of the test's choosing.
 
+use super::{NodeState, ReconnectionTestKernel};
 use citadel_io::tokio;
 use citadel_io::tokio::io::{AsyncReadExt, AsyncWriteExt};
 use citadel_io::tokio::net::{TcpListener, TcpStream};
 use citadel_io::tokio::sync::{mpsc, oneshot, watch};
 use citadel_sdk::prelude::link::{BoxFuture, Clock, Millis};
+use citadel_sdk::prelude::{DefaultNodeBuilder, NetworkError, NodeRemote, StackedRatchet};
+use citadel_sdk::test_common::{server_info, LOCALHOST_STUN_SERVERS};
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -159,4 +163,45 @@ pub const REATTACH_GRACE: Duration = Duration::from_secs(300);
 pub fn managed(clock: Arc<ManualClock>) -> citadel_sdk::prelude::LinkManagerMode {
     use citadel_sdk::prelude::{LinkManagerMode, ManagedLinks};
     LinkManagerMode::Managed(ManagedLinks::new(clock, REATTACH_GRACE).unwrap())
+}
+
+/// Runs `handler` on a client node of `mode` beside a test server; a hang guard, not a
+/// latency assertion.
+pub async fn with_client<F, Fut>(
+    mode: citadel_sdk::prelude::LinkManagerMode,
+    plans: Vec<Plan>,
+    handler: F,
+) where
+    F: FnOnce(
+            NodeRemote<StackedRatchet>,
+            SocketAddr,
+            tokio::sync::mpsc::UnboundedReceiver<Seen>,
+        ) -> Fut
+        + Send
+        + Sync
+        + 'static,
+    Fut: Future<Output = Result<(), NetworkError>> + Send + 'static,
+{
+    citadel_logging::setup_log();
+    let (server, server_addr) = server_info::<StackedRatchet>();
+    let (proxy_addr, seen) = proxy(server_addr, plans).await;
+    let kernel = ReconnectionTestKernel::new(
+        Arc::new(NodeState::default()),
+        move |remote: NodeRemote<StackedRatchet>, _| handler(remote, proxy_addr, seen),
+    );
+    let mut builder = DefaultNodeBuilder::default();
+    let client = builder
+        .with_link_manager(mode)
+        .with_stun_servers(LOCALHOST_STUN_SERVERS)
+        .build(kernel)
+        .unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(120), async move {
+        tokio::select! {
+            res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
+            res = client => res.map(|_| ()),
+        }
+    })
+    .await
+    .expect("the test timed out");
+    assert!(result.is_ok(), "{result:?}");
 }
