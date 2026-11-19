@@ -161,7 +161,7 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     provisional_cid_reservations: HashMap<u64, Instant>,
     /// Client side: provisional keys whose connect is between admission and registration in
     /// `provisional_connections` (see `provisional_reservation`).
-    pub(crate) provisional_reservations: std::collections::HashSet<ProvisionalKey>,
+    pub(crate) provisional_reservations: HashMap<ProvisionalKey, Ticket>,
     kernel_tx: UnboundedSender<NodeResult<R>>,
     time_tracker: TimeTracker,
     /// Every session this node holds in memory, until its last handle drops.
@@ -693,6 +693,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         &mut this.provisional_reservations,
                         self,
                         &provisional_key,
+                        ticket,
                     )
                     .ok_or_else(|| {
                         error!(
@@ -799,10 +800,22 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
             let (stopper, new_session) = CitadelSession::new(session_init_params)?;
 
-            if let Some((_prev_conn_init_time, _stopper, lingering_session)) = inner_mut!(self)
-                .provisional_connections
-                .insert(provisional_key, (init_time, stopper, new_session.clone()))
-            {
+            let registered = {
+                let mut this = inner_mut!(self);
+                // An abort between the claim and here took the claim away; it may already have
+                // let the next connect claim the key.
+                let still_ours =
+                    this.provisional_reservations.get(&provisional_key) == Some(&ticket);
+                still_ours.then(|| {
+                    this.provisional_connections
+                        .insert(provisional_key, (init_time, stopper, new_session.clone()))
+                })
+            };
+            let Some(lingering) = registered else {
+                new_session.shutdown();
+                return Err(error!(ErrorCode::LinkConnectAborted, peer_addr));
+            };
+            if let Some((_prev_conn_init_time, _stopper, lingering_session)) = lingering {
                 // If the previous connection was not dropped, then we need to drop it
                 log::warn!(target: "citadel", "Found a previous lingering connection to {peer_addr}. Dropping it ...");
                 lingering_session.shutdown();
@@ -1495,6 +1508,38 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     }
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
+    /// A managed node's answer to `AbortLink`: ends what the client connect `ticket` started,
+    /// whatever stage it reached, before the node reads its next request. Its claim on the
+    /// provisional key is given back and its provisional session leaves the map at once, so the
+    /// account's next connect is admitted; the session itself stops on its own task. A session
+    /// that already connected under `ticket` is stopped too: its requester is gone, and a
+    /// session nobody holds would refuse that account's next login.
+    pub(crate) fn abort_connect(&self, ticket: Ticket) -> bool {
+        let mut this = inner_mut!(self);
+        let claims = this.provisional_reservations.len();
+        this.provisional_reservations
+            .retain(|_, held| *held != ticket);
+        let mut aborted = this.provisional_reservations.len() != claims;
+        let started_by =
+            |sess: &CitadelSession<R, T>| !sess.is_server && sess.kernel_ticket.get() == ticket;
+        let provisional = this
+            .provisional_connections
+            .iter()
+            .find(|(_, (_, _, sess))| started_by(sess))
+            .map(|(key, _)| key.clone());
+        if let Some((_, _, sess)) =
+            provisional.and_then(|key| this.provisional_connections.remove(&key))
+        {
+            sess.shutdown();
+            aborted = true;
+        }
+        if let Some((_, sess)) = this.sessions.values().find(|(_, sess)| started_by(sess)) {
+            sess.shutdown();
+            aborted = true;
+        }
+        aborted
+    }
+
     pub fn clear_provisional_session(&self, key: &ProvisionalKey, init_time: Instant) {
         log::trace!(target: "citadel", "Attempting to clear provisional session ...");
         let mut this = inner_mut!(self);

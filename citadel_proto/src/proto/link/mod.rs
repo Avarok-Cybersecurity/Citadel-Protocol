@@ -2,10 +2,15 @@
 //! node-wide mode that selects it, the clock it reads, and the C2S pieces of lane L1 (cancelling
 //! an in-flight connect, §9.1). The decisions live in `citadel_link`; this module is its I/O.
 
+mod abort;
 mod clock;
+mod deadline;
 mod mode;
 
+pub use abort::AbortGuard;
+pub(crate) use abort::{until_aborted, InFlightConnects};
 pub use clock::RuntimeClock;
+pub(crate) use deadline::{login_deadline, LoginDeadline};
 pub use mode::{LinkManagerMode, ManagedLinks, ManagedLinksError};
 
 /// The port a managed node's deadlines read, and the time it speaks in.

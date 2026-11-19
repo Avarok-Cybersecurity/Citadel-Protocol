@@ -668,7 +668,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             let reader_future =
                 Self::execute_inbound_stream(reader, this_inbound, None, obfuscator, meter);
             //let timer_future = Self::execute_timer(this.clone());
-            let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
+            // Read before the first packet is sent, so the deadline counts from the session's
+            // start whatever the clock does while the queue worker task is being scheduled.
+            let login_deadline =
+                crate::proto::link::login_deadline(&this.session_manager.link_mode());
+            let queue_worker_future = Self::execute_queue_worker(this_queue_worker, login_deadline);
             let stopper_future = Self::stopper(stopper);
             let handle_zero_state = Self::handle_zero_state(
                 None,
@@ -723,6 +727,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let res = citadel_io::tokio::select! {
             res = session_future => res.map_err(|err| (NetworkError::generic(err.to_string()), None))?,
             _ = queue_worker_handle => {
+                if let Some(timeout) = this_close.login_deadline_passed() {
+                    return Err((timeout, session_cid.get()));
+                }
                 // Queue worker ending can be expected (cleanup) or unexpected (error).
                 // The queue worker uses a Weak reference to the session - when it can't upgrade
                 // that reference (session dropped), it ends. This is the designed cleanup mechanism.
@@ -738,6 +745,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 }
             }
         };
+
+        // Whichever half noticed first, a session the provisional check ended is reported as the
+        // login timeout it was: the check's shutdown also stops the streams.
+        if let Some(timeout) = this_close.login_deadline_passed() {
+            return Err((timeout, session_cid.get()));
+        }
 
         match res {
             Ok(SessionEnd::Stream) if this_close.is_provisional() => {
@@ -815,6 +828,26 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 Err((err, cid))
             }
         }
+    }
+
+    /// The provisional check ended this session, still unconnected, at its login deadline. That
+    /// end used to reach the caller as the queue worker stopping ("Queue worker ended
+    /// unexpectedly", "Session dropped") or as the stream closing, so a login that was only slow
+    /// read as a crash. It is a timeout, and says which deadline.
+    fn login_deadline_passed(&self) -> Option<NetworkError> {
+        if !inner_state!(self.state_container)
+            .connect_state
+            .login_deadline_passed
+        {
+            return None;
+        }
+        log::warn!(target: "citadel", "Session not connected within its login deadline ({LOGIN_EXPIRATION_TIME:?}); ending it");
+        Some(error!(
+            ErrorCode::Timeout,
+            format!(
+                "the session did not connect within its login deadline ({LOGIN_EXPIRATION_TIME:?})"
+            )
+        ))
     }
 
     async fn stopper(
@@ -1376,7 +1409,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    async fn execute_queue_worker(this_main: CitadelSession<R, T>) -> Result<(), NetworkError> {
+    async fn execute_queue_worker(
+        this_main: CitadelSession<R, T>,
+        login_deadline: Option<crate::proto::link::LoginDeadline>,
+    ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
 
         let queue_worker = {
@@ -1394,22 +1430,39 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
             let kernel_ticket = borrow.kernel_ticket.get();
             let is_server = borrow.is_server;
+            let stopped = inner!(borrow.stopper_tx).subscribe();
+            let queue_handle = (*borrow.queue_handle).clone();
             drop(borrow);
 
             // now, begin loading the subroutines
             //let mut loop_idx = 0;
-            queue_worker.insert_reserved_fn(
-                Some(QueueWorkerTicket::Oneshot(
-                    PROVISIONAL_CHECKER,
-                    RESERVED_CID_IDX,
-                )),
-                LOGIN_EXPIRATION_TIME,
-                // Ends a session still unconnected now, unless it is waiting on a security-key
-                // touch (see `pq_sign_in::presence`).
-                |state_container| {
+            let provisional_checker = Some(QueueWorkerTicket::Oneshot(
+                PROVISIONAL_CHECKER,
+                RESERVED_CID_IDX,
+            ));
+            // Ends a session still unconnected now, unless it is waiting on a security-key
+            // touch (see `pq_sign_in::presence`).
+            let provisional_check =
+                |state_container: &mut dyn crate::inner_arg::ExpectedInnerTargetMut<
+                    StateContainerInner<R>,
+                >| {
                     crate::proto::pq_sign_in::presence::provisional_check(&mut **state_container)
-                },
-            );
+                };
+            match login_deadline {
+                // Legacy: the queue's own timer.
+                None => queue_worker.insert_reserved_fn(
+                    provisional_checker,
+                    LOGIN_EXPIRATION_TIME,
+                    provisional_check,
+                ),
+                // Managed: the node's clock says when, and the queue runs the same check.
+                Some(deadline) => deadline.arm(
+                    stopped,
+                    queue_handle,
+                    provisional_checker,
+                    provisional_check,
+                ),
+            }
 
             if !is_server {
                 queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(REKEY_UPDATE_FREQUENCY_STANDARD), move |state_container| {

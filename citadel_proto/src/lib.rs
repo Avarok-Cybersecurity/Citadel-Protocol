@@ -595,7 +595,7 @@ pub mod prelude {
     /// The RobustConnectionManager's protocol side: the node's link mode and its clock.
     pub use crate::proto::link;
     pub use crate::proto::link::{
-        LinkManagerMode, ManagedLinks, ManagedLinksError, RuntimeClock,
+        AbortGuard, LinkManagerMode, ManagedLinks, ManagedLinksError, RuntimeClock,
     };
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     #[doc(hidden)]

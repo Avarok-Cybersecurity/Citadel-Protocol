@@ -469,11 +469,19 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             session_password: server_password.unwrap_or_default(),
         });
 
-        let mut subscription = self.send_callback_subscription(connect_request).await?;
+        // Armed before the request is sent: a caller that stops waiting at any point after
+        // this (a timeout, a sign-out) aborts the connect instead of leaving it to run.
+        let ticket = self.get_next_ticket();
+        let abort = AbortGuard::new(self.remote_ref().clone(), ticket);
+        let mut subscription = self
+            .remote_ref()
+            .send_callback_subscription_custom_ticket(connect_request, ticket)
+            .await?;
         let status = subscription.next().await.ok_or(citadel_io::error!(
             citadel_io::ErrorCode::RemoteKernelStreamDied,
             "connect"
         ))?;
+        abort.disarm();
 
         return match status.into_result()? {
             NodeResult::ConnectSuccess(ConnectSuccess {
@@ -1890,6 +1898,7 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .build(client_kernel)
             .unwrap();
