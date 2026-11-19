@@ -132,13 +132,13 @@ jobs:
           app-id: ${{ vars.TYPES_SYNC_APP_ID }}
           private-key: ${{ secrets.TYPES_SYNC_APP_PRIVATE_KEY }}
           owner: Avarok-Cybersecurity
-          repositories: citadel-internal-service,citadel-workspace
+          repositories: citadel-agent,citadel-workspace
       - name: Dispatch types-released
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           VERSION: ${{ needs.publish.outputs.version }}
         run: |
-          for repo in citadel-internal-service citadel-workspace; do
+          for repo in citadel-agent citadel-workspace; do
             gh api "repos/Avarok-Cybersecurity/$repo/dispatches" \
               -f event_type=types-released \
               -f "client_payload[producer]=sdk" \
