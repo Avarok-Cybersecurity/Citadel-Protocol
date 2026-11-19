@@ -41,8 +41,8 @@ fn an_end_written_after_this_node_started_counts_from_the_start() {
     let started = Instant::now();
     let now = started + Duration::from_secs(3);
     let now_ms = ENDED_MS + 3_000;
-    // The stopped node's teardown wrote its end two seconds after this node started.
-    let late = StoredResume::EndedAtMs(ENDED_MS + 2_000);
+    // The stopped node's teardown wrote its end 2.5 s after this node started, within a second of now.
+    let late = StoredResume::EndedAtMs(ENDED_MS + 2_500);
     let grace = Duration::from_secs(1);
     assert!(!late.within_grace(grace, now_ms, started, now));
     let early = StoredResume::EndedAtMs(ENDED_MS - 500);
