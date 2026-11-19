@@ -14,6 +14,7 @@ use citadel_user::auth::pq::client::ClientRegistration;
 use citadel_user::auth::pq::oprf::OprfSeed;
 use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
 use citadel_user::auth::pq::server::{registration_reply, PqAuthServerSettings};
+use citadel_user::auth::pq::throttle::ThrottlePolicy;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::auth::{DeclaredAuthenticationMode, PqAuthSide};
 use citadel_user::backend::host_sql::{HostSqlBackend, HostSqlHandle};
@@ -27,7 +28,12 @@ type Cnac = ClientNetworkAccount<StackedRatchet, StackedRatchet>;
 type Manager = AccountManager<StackedRatchet, StackedRatchet>;
 
 fn settings() -> PqAuthServerSettings {
-    PqAuthServerSettings::new(OprfSeed::from_bytes([9u8; 32]), KsfParams::FLOOR).unwrap()
+    PqAuthServerSettings::new(
+        OprfSeed::from_bytes([9u8; 32]),
+        KsfParams::FLOOR,
+        ThrottlePolicy::RECOMMENDED,
+    )
+    .unwrap()
 }
 
 async fn record(username: &str) -> PqAuthRecord {

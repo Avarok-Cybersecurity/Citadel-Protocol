@@ -15,6 +15,18 @@ pub struct ClientRegistration {
 }
 
 impl ClientRegistration {
+    /// The password factor's keypair, from the server's evaluation and salt.
+    pub async fn password_keypair(&self, reply: &RegReply) -> Result<FactorKeypair, AccountError> {
+        password_keypair(
+            &self.input,
+            &self.oprf,
+            &reply.oprf_evaluated,
+            &reply.salt_user,
+            reply.ksf,
+        )
+        .await
+    }
+
     pub fn start(username: &str, password: &SecBuffer) -> Result<(RegStart, Self), AccountError> {
         let input = password_input(password);
         let (oprf, oprf_blinded) = oprf::client_blind(input.as_ref())?;
@@ -40,14 +52,7 @@ impl ClientRegistration {
         reply: &RegReply,
         with_recovery_codes: bool,
     ) -> Result<(RegFinish, Vec<RecoveryCode>), AccountError> {
-        let password = password_keypair(
-            &self.input,
-            &self.oprf,
-            &reply.oprf_evaluated,
-            &reply.salt_user,
-            reply.ksf,
-        )
-        .await?;
+        let password = self.password_keypair(reply).await?;
         let codes = if with_recovery_codes {
             RecoveryCode::generate_set()
         } else {

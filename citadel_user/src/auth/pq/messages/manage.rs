@@ -1,9 +1,11 @@
 use super::login::{LoginChallenge, LoginFinish, LoginStart};
+pub use super::manage_op::ManagementOp;
+use super::register::RegReply;
 use super::{transcript_bytes, SignInLayout};
 use crate::auth::pq::kem::{EncapsulationKey, KemCiphertext};
 use crate::auth::pq::proof::Tag;
 use citadel_negotiation::frame::appended_field;
-use citadel_types::auth::{FactorId, SignInCredential, SignInManagementOp, SignInPolicy};
+use citadel_types::auth::{FactorId, SignInCredential, SignInPolicy};
 use serde::{Deserialize, Serialize};
 
 /// The management exchange, in an authenticated session:
@@ -28,72 +30,9 @@ pub struct ManagementBegin {
     pub op: ManagementOp,
     /// The step-up. A recovery session sends one too; the server challenges no factor in it.
     pub step_up: LoginStart,
-    /// `RegenerateRecoveryCodes`: the new codes' keys.
+    /// `RegenerateRecoveryCodes`: the new codes' keys. `RegenerateRecoveryPhrase`: the new
+    /// phrase's key, alone.
     pub recovery_eks: Vec<EncapsulationKey>,
-}
-
-/// A change on the wire: [`SignInManagementOp`] in 0.12.2's variant order, with the one variant
-/// [`SignInLayout::SecurityKeyCeremony`] added appended last, so a 0.12.2 peer's index for every
-/// other variant is unchanged.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub enum ManagementOp {
-    ListCredentials,
-    /// 0.12.2's enrolment: the application created the credential before the exchange.
-    AddCreatedSecurityKey {
-        credential_id: Vec<u8>,
-        label: String,
-    },
-    RenameCredential {
-        id: FactorId,
-        label: String,
-    },
-    RemoveCredential {
-        id: FactorId,
-    },
-    SetSignInPolicy {
-        policy: SignInPolicy,
-    },
-    RegenerateRecoveryCodes,
-    /// The client creates the credential once the challenge has named the relying party.
-    AddSecurityKey {
-        label: String,
-    },
-}
-
-impl From<SignInManagementOp> for ManagementOp {
-    fn from(op: SignInManagementOp) -> Self {
-        match op {
-            SignInManagementOp::ListCredentials => Self::ListCredentials,
-            SignInManagementOp::AddSecurityKey { label } => Self::AddSecurityKey { label },
-            SignInManagementOp::RenameCredential { id, label } => {
-                Self::RenameCredential { id, label }
-            }
-            SignInManagementOp::RemoveCredential { id } => Self::RemoveCredential { id },
-            SignInManagementOp::SetSignInPolicy { policy } => Self::SetSignInPolicy { policy },
-            SignInManagementOp::RegenerateRecoveryCodes => Self::RegenerateRecoveryCodes,
-        }
-    }
-}
-
-impl ManagementOp {
-    /// Whether a session signed in with a recovery code may make this change.
-    pub fn allowed_in_recovery(&self) -> bool {
-        matches!(
-            self,
-            Self::AddCreatedSecurityKey { .. }
-                | Self::AddSecurityKey { .. }
-                | Self::SetSignInPolicy { .. }
-        )
-    }
-
-    /// The layout a peer must speak to send this change.
-    pub fn layout(&self) -> Option<SignInLayout> {
-        match self {
-            Self::AddCreatedSecurityKey { .. } => Some(SignInLayout::V0_12_2),
-            Self::AddSecurityKey { .. } => Some(SignInLayout::SecurityKeyCeremony),
-            _ => None,
-        }
-    }
 }
 
 /// S→C.
@@ -117,6 +56,14 @@ pub struct ManagementCeremony {
     /// `AddSecurityKey`: the credential ids of the account's keys. The new credential is not
     /// created on an authenticator that holds one of them, so no key is enrolled twice.
     pub exclude_credentials: Vec<Vec<u8>>,
+    /// Appended, `SetPassword`: the new password's OPRF evaluation and the fresh salt and
+    /// parameters its factor is stretched with.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "appended_field"
+    )]
+    pub password: Option<RegReply>,
 }
 
 impl ManagementChallenge {
@@ -150,6 +97,13 @@ pub struct ManagementCommit {
 pub struct CommitCeremony {
     /// `AddSecurityKey`: the key the client created.
     pub new_key: Option<NewSecurityKey>,
+    /// Appended, `SetPassword`: the new password factor's key.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "appended_field"
+    )]
+    pub password_ek: Option<EncapsulationKey>,
 }
 
 impl ManagementCommit {
@@ -160,13 +114,19 @@ impl ManagementCommit {
 }
 
 /// 0.12.2 binds the bare encapsulation key; the ceremony binds the created key with its
-/// credential id.
+/// credential id, and a new password's key after it (absent, the bytes are 0.12.3's).
 pub(crate) fn key_binding(
     new_key_ek: &Option<EncapsulationKey>,
     ceremony: Option<&CommitCeremony>,
 ) -> Vec<u8> {
     match ceremony {
-        Some(ceremony) => transcript_bytes(&ceremony.new_key),
+        Some(ceremony) => {
+            let mut bytes = transcript_bytes(&ceremony.new_key);
+            if let Some(password_ek) = &ceremony.password_ek {
+                bytes.extend_from_slice(&transcript_bytes(password_ek));
+            }
+            bytes
+        }
         None => transcript_bytes(new_key_ek),
     }
 }
@@ -211,4 +171,6 @@ pub enum ServerOutcome {
     Removed,
     PolicySet,
     RecoveryCodesReplaced,
+    PasswordSet,
+    RecoveryPhraseReplaced,
 }

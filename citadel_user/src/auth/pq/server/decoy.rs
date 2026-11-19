@@ -7,12 +7,13 @@ use super::PqAuthServerSettings;
 use crate::auth::pq::kem::{EncapsulationKey, FactorKeypair, FactorSeed, SEED_LEN};
 use crate::auth::pq::recovery::RECOVERY_CODE_COUNT;
 use crate::misc::AccountError;
-use citadel_types::auth::FactorId;
+use citadel_types::auth::{FactorId, FactorKind};
 
 const SALT_USER: &[u8] = b"citadel-decoy-salt-user-v1";
 const PRF_EVAL_SALT: &[u8] = b"citadel-decoy-prf-eval-salt-v1";
 const PASSWORD_SEED: &[u8] = b"citadel-decoy-password-factor-v1";
 const RECOVERY_SEED: &[u8] = b"citadel-decoy-recovery-factor-v1";
+const RECOVERY_PHRASE_SEED: &[u8] = b"citadel-decoy-recovery-phrase-factor-v1";
 
 /// A real account's password factor is the first it is given.
 pub(super) const PASSWORD_FACTOR_ID: FactorId = 1;
@@ -48,17 +49,25 @@ pub(super) fn password_key(
     factor_key(settings, PASSWORD_SEED, username)
 }
 
-/// The recovery code an unknown username (or an unknown code of a real one) appears to have, with
-/// an id in the range a real account's codes are numbered in.
+/// The recovery factor of `kind` an unknown username (or an unknown fingerprint of a real one)
+/// appears to have. A code's id is in the range a real account's codes are numbered in; a
+/// phrase's follows them, where a first phrase that replaced the codes is.
 pub(super) fn recovery_factor(
     settings: &PqAuthServerSettings,
     username: &str,
     fingerprint: &[u8; 32],
+    kind: FactorKind,
 ) -> Result<(FactorId, EncapsulationKey), AccountError> {
-    let id =
-        PASSWORD_FACTOR_ID + 1 + FactorId::from(fingerprint[0]) % RECOVERY_CODE_COUNT as FactorId;
+    let codes = RECOVERY_CODE_COUNT as FactorId;
+    let (id, label) = match kind {
+        FactorKind::RecoveryPhrase => (PASSWORD_FACTOR_ID + 1 + codes, RECOVERY_PHRASE_SEED),
+        _ => (
+            PASSWORD_FACTOR_ID + 1 + FactorId::from(fingerprint[0]) % codes,
+            RECOVERY_SEED,
+        ),
+    };
     let name = format!("{username}\u{0}{}", hex_of(fingerprint));
-    Ok((id, factor_key(settings, RECOVERY_SEED, &name)?))
+    Ok((id, factor_key(settings, label, &name)?))
 }
 
 fn hex_of(bytes: &[u8]) -> String {

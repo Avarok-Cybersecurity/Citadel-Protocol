@@ -588,6 +588,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                 endpoint.clone(),
                             ),
 
+                            // The device holds no account yet; the name is the one recovered.
+                            HdpSessionInitMode::Recover(peer_addr, endpoint, recovery) => (
+                                *peer_addr,
+                                None,
+                                ProposedCredentials::post_quantum(
+                                    recovery.username.clone(),
+                                    String::new(),
+                                ),
+                                endpoint.clone(),
+                            ),
+
                             HdpSessionInitMode::Connect(auth_request) => match auth_request {
                                 AuthenticationRequest::Passwordless {
                                     server_addr,

@@ -8,8 +8,10 @@ use citadel_types::crypto::SecBuffer;
 use citadel_user::auth::pq::admission::AdmissionToken;
 use citadel_user::auth::pq::client::{ClientLogin, ClientRegistration};
 use citadel_user::auth::pq::messages::LoginStart;
+use citadel_user::auth::pq::phrase::RecoveryPhrase;
 use citadel_user::auth::pq::recovery::RecoveryCode;
 use citadel_user::auth::pq::server::{PendingLogin, PendingRegistration};
+use citadel_user::auth::pq::throttle::Attempt;
 use zeroize::Zeroizing;
 
 /// The factors a client offers for one sign-in.
@@ -17,6 +19,7 @@ pub(crate) struct OfferedFactors {
     pub password: Option<SecBuffer>,
     pub security_key: Option<SecurityKeyPrf>,
     pub recovery_code: Option<RecoveryCode>,
+    pub recovery_phrase: Option<RecoveryPhrase>,
     pub admission: Option<AdmissionToken>,
 }
 
@@ -36,6 +39,9 @@ pub(crate) struct PqConnectState {
     pub session_key: Option<Zeroizing<[u8; 32]>>,
     /// Server: between `AUTH_CHALLENGE` and STAGE0.
     pub server: Option<ServerPending>,
+    /// Server: what the sign-in in flight counts as against the throttle, from `AUTH_START`
+    /// until its proof is checked.
+    pub attempt: Option<Attempt>,
 }
 
 impl Default for PqConnectState {
@@ -48,6 +54,7 @@ impl Default for PqConnectState {
             client: None,
             session_key: None,
             server: None,
+            attempt: None,
         }
     }
 }
@@ -77,4 +84,6 @@ pub(crate) struct PqRegisterState {
     /// Server: `PQ_START` passed the admission check, so a legacy STAGE2 (a server without
     /// post-quantum settings) is not asked again.
     pub admitted: bool,
+    /// Both sides: a recovery in place of a registration (see `pq_sign_in::recover`).
+    pub recover: super::recover::state::RecoverState,
 }

@@ -2,8 +2,8 @@
 //! Admission: a server that requires a token (a Turnstile response) for each FRESH sign-in and
 //! registration. The token travels inside the post-quantum channel; a missing one is refused as
 //! `PqSignInAdmissionRequired`, a bad one as `PqSignInAdmissionFailed`, a good one admitted. A
-//! recovery-code sign-in and a reconnect whose resume token the held session recognises are
-//! not asked.
+//! recovery, with a code or the phrase, is asked as `recover`. A reconnect whose resume token the
+//! held session recognises is not asked.
 
 mod common;
 
@@ -12,6 +12,7 @@ mod tests {
     use crate::common::admission::*;
     use crate::common::half_open::{login_after_local_teardown, standard, SeveringProxy};
     use crate::common::pq::*;
+    use crate::common::recovery::{asking, regenerate, DOMAIN};
     use citadel_io::{tokio, ErrorCode};
     use citadel_sdk::prelude::*;
     use citadel_user::auth::pq::admission::AdmissionKind;
@@ -56,19 +57,42 @@ mod tests {
         .await;
     }
 
+    /// Recovery is the surface a guesser needs nothing for, so it is asked like a fresh sign-in.
+    /// Control: restore the recovery exemption in `admission::sign_in` and the code sign-in
+    /// without a token is admitted.
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn a_recovery_code_sign_in_is_not_asked() {
+    async fn a_recovery_is_asked_like_a_fresh_sign_in() {
         citadel_logging::setup_log();
         let policy = turnstile();
         let (server, addr, _) = server(guarded(policy.clone()), Some(poisoned_argon()), None);
+        let (server, device) = with_device(server);
         let user = username("admrec");
         let seen = policy.clone();
         run(server, move |remote, _| async move {
             let reg = register(&remote, addr, &user, Some(GOOD)).await?;
             let factors = SignInFactors::recovery_code(&reg.recovery_codes[0])?;
-            let recovery = sign_in(&remote, &user, factors).await?;
-            assert_eq!(seen.asked(), ["register"], "the recovery sign-in was asked");
-            recovery.shutdown_kernel().await
+            let missing = sign_in(&remote, &user, factors).await;
+            assert_eq!(code(&missing), Some(ErrorCode::PqSignInAdmissionRequired));
+            let factors = SignInFactors::recovery_code(&reg.recovery_codes[0])?;
+            let conn = sign_in(&remote, &user, factors.with_admission(GOOD)).await?;
+            let words = regenerate(&conn, SignInFactors::default()).await?;
+            conn.disconnect().await?;
+            let seed = RecoverySeed::parse(&words.join(" "))?;
+            let phrase = RecoveryPhrase::new(seed, DOMAIN)?;
+
+            let device = device.await.unwrap();
+            let ask = asking(&user, &phrase);
+            let missing = device.recover(addr, ask.clone(), Default::default(), None);
+            let missing = missing.await;
+            assert_eq!(code(&missing), Some(ErrorCode::PqSignInAdmissionRequired));
+            let ask = AccountRecovery {
+                admission: Some(GOOD.into()),
+                ..ask
+            };
+            let _ = device.recover(addr, ask, Default::default(), None).await?;
+            let asked = ["register", "recover", "recover", "recover", "recover"];
+            assert_eq!(seen.asked(), asked);
+            remote.shutdown().await
         })
         .await;
     }
@@ -139,8 +163,9 @@ mod tests {
     }
 
     #[test]
-    fn the_actions_are_sign_in_and_register() {
+    fn the_actions_are_sign_in_register_and_recover() {
         assert_eq!(AdmissionKind::SignIn.action(), "sign-in");
         assert_eq!(AdmissionKind::Register.action(), "register");
+        assert_eq!(AdmissionKind::Recover.action(), "recover");
     }
 }

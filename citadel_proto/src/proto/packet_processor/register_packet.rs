@@ -29,6 +29,7 @@
 //! - `SessionManager`: Tracks registration process
 
 use super::includes::*;
+use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -161,6 +162,11 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             header.session_cid.get(),
                             ticket,
                         );
+                        // What a recovery in this exchange would be bound to.
+                        let binding = citadel_user::auth::pq::channel_binding(
+                            &payload,
+                            &stage1_packet[HDP_HEADER_BYTE_LEN..],
+                        );
 
                         // Single lock for commit and state-machine validation
                         let ok = {
@@ -172,6 +178,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                     Some(transient_mode_requested);
                                 state_container.register_state.created_ratchet =
                                     Some(finished_ratchet);
+                                state_container.register_state.pq.recover.binding = Some(binding);
                                 state_container.register_state.last_stage =
                                     packet_flags::cmd::aux::do_register::STAGE1;
                                 state_container.register_state.on_register_packet_received();
@@ -221,6 +228,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         SyncIO::deserialize_from_vector(&payload[..]).ok(),
                         "Unable to deserialize BobToAliceTransfer"
                     );
+                    let stage1_payload = payload.to_vec();
                     let security_level = transfer.security_level();
 
                     // Offload stage1_alice + finish (avoid capturing session in closure)
@@ -241,6 +249,29 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         proposed_credentials_opt.as_ref(),
                         "Unable to load proposed credentials"
                     );
+
+                    // A recovery goes on in its own lane instead of STAGE2.
+                    match pq_sign_in::recover::client::begin(
+                        &session,
+                        &new_ratchet,
+                        header.protocol_version.get(),
+                        &stage1_payload,
+                        algorithm,
+                        timestamp,
+                        security_level,
+                        ticket,
+                    ) {
+                        Ok(Some(recover_start)) => {
+                            let mut state_container = inner_mut_state!(session.state_container);
+                            state_container.register_state.created_ratchet = Some(new_ratchet);
+                            state_container.register_state.last_stage =
+                                packet_flags::cmd::aux::do_register::RECOVER_START;
+                            state_container.register_state.on_register_packet_received();
+                            return Ok(PrimaryProcessorResult::ReplyToSender(recover_start));
+                        }
+                        Ok(None) => {}
+                        Err(err) => return super::recover_packet::fail_client(&session, err),
+                    }
 
                     // A server that runs post-quantum sign-in evaluates the OPRF first; STAGE2
                     // then carries the keys instead of a password hash.
@@ -375,8 +406,10 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
 
                 let task = {
                     let state_container = inner_state!(session.state_container);
+                    // A recovery never creates an account.
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE1
+                        && !state_container.register_state.pq.recover.in_progress()
                     {
                         let algorithm = header.algorithm;
                         let ratchet = return_if_none!(
@@ -516,6 +549,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     let state_container = inner_state!(session.state_container);
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE2
+                        && !state_container.register_state.pq.recover.in_progress()
                     {
                         let ratchet = return_if_none!(
                             state_container.register_state.created_ratchet.clone(),
@@ -694,6 +728,10 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     log::warn!(target: "citadel", "A failure packet was received, but this node never sent a registration request. Dropping");
                     Ok(PrimaryProcessorResult::Void)
                 }
+            }
+
+            aux if super::recover_packet::is_recovery_stage(aux) => {
+                super::recover_packet::process(&session, &header, payload, remote_addr).await
             }
 
             _ => {

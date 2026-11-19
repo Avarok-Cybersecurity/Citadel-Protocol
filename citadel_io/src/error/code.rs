@@ -1320,4 +1320,19 @@ pub enum ErrorCode {
     /// A RE-VFS key was asked for with a domain that is empty or too long.
     #[form = "A RE-VFS key needs a canonical server domain of 1 to 65535 bytes"]
     RevfsKeyDomainInvalid = 494,
+
+    // --- account recovery ---
+    /// A recovery phrase was bound to a server domain that is empty or too long.
+    #[form = "A recovery phrase needs a canonical server domain of 1 to 65535 bytes"]
+    RecoveryDomainInvalid = 510,
+    /// What the user typed is not a recovery phrase (the reason: a word count, an unknown word,
+    /// or a check that does not match). It says nothing about any account.
+    #[form = "Not a recovery phrase: {}"]
+    RecoveryPhraseUnreadable = 511,
+    /// The server is below the protocol version that recovers accounts and sets passwords.
+    #[form = "The server predates account recovery; it must be updated first"]
+    RecoveryUnsupported = 512,
+    /// A sign-in throttle policy with a limit that would admit nothing or lock nothing (reason).
+    #[form = "Invalid sign-in throttle policy: {}"]
+    SignInThrottlePolicyInvalid = 513,
 }

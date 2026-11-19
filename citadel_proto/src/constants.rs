@@ -69,7 +69,12 @@ pub const MINOR_VERSION: u8 = 12;
 // party and a client creates the credential it enrols (see `SECURITY_KEY_CEREMONY_SINCE`).
 // Additive: each side uses them only with a node at or above the gate, and with an older peer
 // behaves as before.
-pub const PATCH_VERSION: u8 = 3;
+// Bumped 3 -> 4 (the RobustConnectionManager release, one bump shared by every lane, §12.2): a
+// P2P pair exchanges its ends' link-manager modes and runs the manager only when both are
+// Managed (see `LINK_MODE_SINCE`). Additive: with a peer below it, the campaign runs as before.
+// In the same release, a device with no bundle recovers an account with its recovery phrase,
+// and sessions set passwords and replace phrases (see `RECOVERY_SINCE`).
+pub const PATCH_VERSION: u8 = 4;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
 /// first message on the reliable lane. A peer below it, or of unknown version, gets none.
@@ -152,6 +157,14 @@ pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
 /// sent exactly the 0.12.2 bytes and hashes the 0.12.2 transcript; a client cannot enrol a key at
 /// a server below it.
 pub const SECURITY_KEY_CEREMONY_SINCE: (u8, u8, u8) = (0, 12, 3);
+
+/// The first protocol version whose server recovers accounts: after register STAGE1 it reads
+/// `RECOVER_START` (a device with no bundle proves the account's recovery phrase inside the fresh
+/// key exchange, and that exchange's ratchet becomes the account's bundle), it challenges a
+/// recovery phrase offered at sign-in, and it reads the management changes `SetPassword` and
+/// `RegenerateRecoveryPhrase`. A client checks STAGE1's header and the session's server version
+/// first, and asks an older server for none of these.
+pub const RECOVERY_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

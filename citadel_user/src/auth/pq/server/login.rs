@@ -2,10 +2,9 @@ use super::register::{registration_reply, PendingRegistration};
 use super::{decoy, PqAuthServerSettings};
 use crate::auth::pq::kem::{encapsulate, EncapsulationKey, SharedSecret};
 use crate::auth::pq::messages::{
-    ChallengeBody, FactorChallenge, FactorChallenges, LoginChallenge, LoginFinish, LoginStart,
-    RegStart,
+    ChallengeBody, FactorChallenge, FactorChallenges, LoginChallenge, LoginStart, RegStart,
 };
-use crate::auth::pq::proof::{self, TranscriptHash, AUTH_LABEL};
+use crate::auth::pq::proof::TranscriptHash;
 use crate::auth::pq::random_32;
 use crate::auth::pq::record::PqAuthRecord;
 use crate::auth::pq::{oprf, policy};
@@ -32,11 +31,11 @@ pub enum Expectation {
 }
 
 pub struct Expected {
-    secrets: Vec<(FactorId, FactorKind, SharedSecret)>,
-    rule: Rule,
+    pub(super) secrets: Vec<(FactorId, FactorKind, SharedSecret)>,
+    pub(super) rule: Rule,
 }
 
-enum Rule {
+pub(super) enum Rule {
     Policy(SignInPolicy),
     Recovery,
     Decoy,
@@ -54,8 +53,8 @@ impl Expected {
 
 /// A challenge waiting for its tags.
 pub struct PendingLogin {
-    expected: Expected,
-    transcript: TranscriptHash,
+    pub(super) expected: Expected,
+    pub(super) transcript: TranscriptHash,
 }
 
 /// A login whose tags verified and satisfied the account's policy (or used a recovery code).
@@ -80,6 +79,35 @@ pub fn build_login_challenge(
     settings: &PqAuthServerSettings,
     account: AccountAuth<'_>,
     start: &LoginStart,
+) -> Result<(LoginChallenge, Expectation), AccountError> {
+    build(settings, account, start, FactorKind::RecoveryCode)
+}
+
+/// The challenge of the recovery lane (a device with no bundle): the one recovery factor `start`
+/// names, or a decoy shaped like a recovery phrase for an unknown name or fingerprint. A legacy
+/// account has no recovery factor, so it is answered as an unknown one.
+pub fn build_recovery_challenge(
+    settings: &PqAuthServerSettings,
+    record: Option<&PqAuthRecord>,
+    start: &LoginStart,
+) -> Result<(LoginChallenge, Expected), AccountError> {
+    if start.recovery.is_none() || start.oprf_blinded.is_some() {
+        return Err(error!(ErrorCode::PqSignInMalformed, "a recovery start"));
+    }
+    let account = record.map_or(AccountAuth::Unknown, AccountAuth::PostQuantum);
+    match build(settings, account, start, FactorKind::RecoveryPhrase)? {
+        (challenge, Expectation::Factors(expected)) => Ok((challenge, expected)),
+        _ => Err(error!(ErrorCode::PqSignInMalformed, "a recovery start")),
+    }
+}
+
+/// `decoy_kind` is what an unknown recovery fingerprint appears to be: a code where a code may be
+/// offered, a phrase in the recovery lane, so a decoy looks like what the lane recovers with.
+fn build(
+    settings: &PqAuthServerSettings,
+    account: AccountAuth<'_>,
+    start: &LoginStart,
+    decoy_kind: FactorKind,
 ) -> Result<(LoginChallenge, Expectation), AccountError> {
     let server_nonce = random_32();
     let record = match account {
@@ -123,34 +151,25 @@ pub fn build_login_challenge(
         Some(r) => (r.salt_user, r.prf_eval_salt, r.ksf),
         None => (decoy.salt_user, decoy.prf_eval_salt, settings.ksf()),
     };
-    let (targets, rule) = match (record, start.recovery) {
-        (Some(record), None) => (policy_targets(record), Rule::Policy(record.policy)),
-        (Some(record), Some(fp)) => match record
-            .usable(FactorKind::RecoveryCode)
-            .find(|f| f.ek.fingerprint() == fp)
-        {
-            Some(code) => (
-                vec![target(code.id, code.kind, None, &code.ek)],
-                Rule::Recovery,
-            ),
-            None => {
-                let (id, ek) = decoy::recovery_factor(settings, &start.username, &fp)?;
-                decoy_key = ek;
-                (
-                    vec![target(id, FactorKind::RecoveryCode, None, &decoy_key)],
-                    Rule::Decoy,
-                )
-            }
-        },
-        (None, recovery) => {
-            let (id, kind, ek) = match recovery {
+    let real = match (record, start.recovery) {
+        (Some(record), None) => Some((policy_targets(record), Rule::Policy(record.policy))),
+        (Some(record), Some(fp)) => record
+            .recovery_factor(&fp)
+            .map(|f| (vec![target(f.id, f.kind, None, &f.ek)], Rule::Recovery)),
+        (None, _) => None,
+    };
+    let (targets, rule) = match real {
+        Some(real) => real,
+        None => {
+            let (id, kind, ek) = match start.recovery {
                 None => {
                     let ek = decoy::password_key(settings, &start.username)?;
                     (decoy::PASSWORD_FACTOR_ID, FactorKind::Password, ek)
                 }
                 Some(fp) => {
-                    let (id, ek) = decoy::recovery_factor(settings, &start.username, &fp)?;
-                    (id, FactorKind::RecoveryCode, ek)
+                    let (id, ek) =
+                        decoy::recovery_factor(settings, &start.username, &fp, decoy_kind)?;
+                    (id, decoy_kind, ek)
                 }
             };
             decoy_key = ek;
@@ -205,46 +224,4 @@ fn policy_targets(record: &PqAuthRecord) -> Vec<Target<'_>> {
         .flat_map(|kind| record.usable(*kind))
         .map(|f| target(f.id, f.kind, f.credential_id.clone(), &f.ek))
         .collect()
-}
-
-impl PendingLogin {
-    /// Checks every tag (all of them, before deciding) and then the policy. Any failure is the
-    /// same [`ErrorCode::PqSignInFailed`].
-    pub fn verify(self, finish: &LoginFinish) -> Result<VerifiedLogin, AccountError> {
-        let failed = || error!(ErrorCode::PqSignInFailed);
-        let mut all_valid = !finish.tags.is_empty();
-        let mut used = Vec::with_capacity(finish.tags.len());
-        let mut kinds = Vec::with_capacity(finish.tags.len());
-        let mut secrets = Vec::with_capacity(finish.tags.len());
-        for presented in &finish.tags {
-            let expected = self
-                .expected
-                .secrets
-                .iter()
-                .find(|(id, _, _)| *id == presented.factor_id);
-            let Some((id, kind, k)) = expected else {
-                all_valid = false;
-                continue;
-            };
-            all_valid &= !used.contains(id);
-            all_valid &=
-                proof::verify_factor_tag(k, AUTH_LABEL, *id, &self.transcript, &presented.tag);
-            used.push(*id);
-            kinds.push(*kind);
-            secrets.push(k);
-        }
-        let scope = match self.expected.rule {
-            Rule::Policy(policy) if policy::satisfied(policy, &kinds) => SessionScope::Full,
-            Rule::Recovery if kinds == [FactorKind::RecoveryCode] => SessionScope::Recovery,
-            _ => return Err(failed()),
-        };
-        if !all_valid {
-            return Err(failed());
-        }
-        Ok(VerifiedLogin {
-            scope,
-            session_key: proof::session_key(&secrets, &self.transcript),
-            used,
-        })
-    }
 }

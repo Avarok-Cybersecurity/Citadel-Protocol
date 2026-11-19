@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn a_recovery_code_signs_in_once_to_a_session_that_can_only_add_a_key_and_set_policy() {
+    async fn a_recovery_code_signs_in_once_to_a_session_that_only_manages_credentials() {
         citadel_logging::setup_log();
         let (server, addr, _) = server(pq_settings(), Some(poisoned_argon()), None);
         let user = username("rec");
@@ -121,11 +121,22 @@ mod tests {
             let recovery = sign_in(&remote, &user, SignInFactors::recovery_code(code)?).await?;
             let normal = recovery.get_local_group_peers(user.as_str(), None).await;
             assert!(normal.is_err(), "a recovery session ran a normal request");
+            let rename = recovery.manage_sign_in(
+                SignInManagementOp::RenameCredential {
+                    id: 1,
+                    label: "renamed".into(),
+                },
+                SignInFactors::default(),
+            );
+            assert!(rename.await.is_err(), "a recovery session renamed a factor");
             let list = recovery.manage_sign_in(
                 SignInManagementOp::ListCredentials,
                 SignInFactors::default(),
             );
-            assert!(list.await.is_err(), "a recovery session listed credentials");
+            assert!(matches!(
+                list.await?,
+                SignInManagementOutcome::Credentials { .. }
+            ));
             let added = recovery.manage_sign_in(
                 add_key(),
                 SignInFactors::default().with_security_key(key(3)),

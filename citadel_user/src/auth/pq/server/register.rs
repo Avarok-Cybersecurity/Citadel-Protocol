@@ -44,6 +44,11 @@ impl PendingRegistration {
         &self.username
     }
 
+    /// The fresh salt and the parameters a new password factor is stretched with.
+    pub fn password_parts(&self) -> ([u8; 32], KsfParams) {
+        (self.salt_user, self.ksf)
+    }
+
     /// The new account record. No password hashing happens here: the client sent keys.
     pub fn finish(self, finish: RegFinish, now_ms: u64) -> Result<PqAuthRecord, AccountError> {
         let codes = finish.recovery_eks.len();

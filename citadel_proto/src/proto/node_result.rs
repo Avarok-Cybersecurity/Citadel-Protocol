@@ -54,6 +54,14 @@ pub struct RegisterOkay {
     pub recovery_codes: Vec<String>,
 }
 
+/// A recovery succeeded: this device now holds the account's only bundle. Sign in with the
+/// phrase next, to a session that may manage the account's credentials.
+#[derive(Debug)]
+pub struct RecoverOkay {
+    pub ticket: Ticket,
+    pub cid: u64,
+}
+
 #[derive(Debug)]
 pub struct RegisterFailure {
     pub ticket: Ticket,
@@ -224,8 +232,10 @@ pub struct ReVFSResult {
 pub enum NodeResult<R: Ratchet> {
     /// Returns the CNAC which was created during the registration process
     RegisterOkay(RegisterOkay),
-    /// The registration was a failure
+    /// The registration (or a recovery) was a failure
     RegisterFailure(RegisterFailure),
+    /// A recovery installed this device's bundle
+    RecoverOkay(RecoverOkay),
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(DeRegistration),
     /// Connection succeeded for the cid self.0. bool is "is personal"
@@ -312,6 +322,9 @@ impl<R: Ratchet> NodeResult<R> {
             }
             NodeResult::RegisterFailure(RegisterFailure { ticket: t, .. }) => {
                 Some(CallbackKey::ticket_only(*t))
+            }
+            NodeResult::RecoverOkay(RecoverOkay { ticket: t, cid }) => {
+                Some(CallbackKey::new(*t, *cid))
             }
             NodeResult::DeRegistration(DeRegistration {
                 session_cid,

@@ -1,7 +1,7 @@
 //! The record's rules: a policy can never be left unsatisfiable, and a code signs in once.
 
 use super::kem::{FactorKeypair, FactorSeed, SEED_LEN};
-use super::record::NewFactor;
+use super::record::{NewFactor, RecoverySecret};
 use super::tests::register;
 use citadel_io::{tokio, ErrorCode};
 use citadel_types::auth::{FactorKind, SignInPolicy};
@@ -68,7 +68,7 @@ async fn recovery_codes_are_replaced_not_removed_and_consumed_once() {
     assert_eq!(record.usable(FactorKind::RecoveryCode).count(), 9);
 
     let fresh = (0..10).map(|n| key(100 + n).ek).collect();
-    record.replace_recovery_codes(fresh, 11);
+    record.replace_recovery(RecoverySecret::Codes(fresh), 11);
     assert_eq!(record.usable(FactorKind::RecoveryCode).count(), 10);
     assert!(record.factor(code).is_none(), "ids are never reused");
 }

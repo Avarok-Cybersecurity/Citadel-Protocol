@@ -14,10 +14,16 @@ use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
 use citadel_user::auth::pq::server::{
     build_login_challenge, registration_reply, AccountAuth, Expectation, PqAuthServerSettings,
 };
+use citadel_user::auth::pq::throttle::ThrottlePolicy;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 fn settings() -> PqAuthServerSettings {
-    PqAuthServerSettings::new(OprfSeed::from_bytes([1u8; 32]), KsfParams::FLOOR).unwrap()
+    PqAuthServerSettings::new(
+        OprfSeed::from_bytes([1u8; 32]),
+        KsfParams::FLOOR,
+        ThrottlePolicy::RECOMMENDED,
+    )
+    .unwrap()
 }
 
 fn record(runtime: &tokio::runtime::Runtime) -> PqAuthRecord {

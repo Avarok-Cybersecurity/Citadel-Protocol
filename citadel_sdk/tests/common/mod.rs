@@ -24,6 +24,8 @@ pub mod half_open_scenario;
 pub mod media;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod pq;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod recovery;
 
 use citadel_io::tokio::sync::{Mutex, Semaphore};
 use citadel_sdk::async_trait;

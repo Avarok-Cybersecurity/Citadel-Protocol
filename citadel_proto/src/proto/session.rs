@@ -364,6 +364,13 @@ pub enum HdpSessionInitMode {
         Option<SecBuffer>,
         Option<citadel_user::auth::pq::admission::AdmissionToken>,
     ),
+    /// A new device's recovery of an account (see `pq_sign_in::recover`), with the server's
+    /// WebSocket URL when it is reached through one.
+    Recover(
+        SocketAddr,
+        Option<citadel_io::WebSocketEndpoint>,
+        crate::proto::node_request::AccountRecovery,
+    ),
 }
 
 pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
@@ -452,7 +459,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .as_ref()
             .map(|r| &r.init_mode)
         {
-            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _)) => endpoint.clone(),
+            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _))
+            | Some(HdpSessionInitMode::Recover(_, endpoint, _)) => endpoint.clone(),
             _ => None,
         };
 
@@ -478,7 +486,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         }
                     }
 
-                    HdpSessionInitMode::Register(..) => (None, SessionState::NeedsRegister, None),
+                    HdpSessionInitMode::Register(..) | HdpSessionInitMode::Recover(..) => {
+                        (None, SessionState::NeedsRegister, None)
+                    }
                 }
             } else {
                 (None, SessionState::SocketJustOpened, None)
@@ -898,6 +908,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     passwordless,
                     proposed_cid,
                     ticket,
+                );
+                crate::proto::pq_sign_in::recover::client::on_stage0_sent(
+                    &mut state_container,
+                    &stage0_register_packet,
                 );
                 to_outbound
                     .unbounded_send(stage0_register_packet)
