@@ -53,6 +53,7 @@ pub mod node_result;
 pub(crate) mod outbound_budget;
 pub(crate) mod outbound_primary;
 pub(crate) mod outbound_sender;
+pub(crate) mod outbound_total;
 pub(crate) mod outbound_udp_sender;
 /// The fundamental packet types
 pub(crate) mod packet;

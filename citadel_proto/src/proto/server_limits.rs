@@ -2,7 +2,7 @@
 //! they can cause. Every limit is the operator's: a server node is built with [`ServerLimits`]
 //! (`NodeBuilder::with_server_limits`) or not at all.
 
-use crate::proto::outbound_budget::OutboundBudget;
+use crate::proto::outbound_total::OutboundTotal;
 use citadel_io::{error, ErrorCode, NetworkError};
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
@@ -22,7 +22,8 @@ pub struct ServerLimits {
     pub legacy_registration: LegacyRegistration,
     /// The most bytes one peer-facing stream may hold queued for a client that is not reading.
     pub outbound_queued_per_stream: NonZeroUsize,
-    /// The most bytes all peer-facing streams may hold queued together.
+    /// The most bytes all peer-facing streams may hold queued together. A send that would pass
+    /// it ends the stream holding the most.
     pub outbound_queued_total: NonZeroUsize,
 }
 
@@ -68,7 +69,7 @@ pub fn admit_provisional(
 pub(crate) struct ServerLoad {
     pub(crate) limits: ServerLimits,
     legacy_hashes: Arc<AtomicUsize>,
-    outbound_total: Arc<OutboundBudget>,
+    outbound_total: Arc<OutboundTotal>,
 }
 
 /// One legacy registration's turn to hash. The turn ends when this drops.
@@ -82,7 +83,7 @@ impl Drop for LegacyHashTurn {
 
 impl ServerLoad {
     pub(crate) fn new(limits: ServerLimits) -> Self {
-        let outbound_total = Arc::new(OutboundBudget::new(limits.outbound_queued_total.get()));
+        let outbound_total = Arc::new(OutboundTotal::new(limits.outbound_queued_total.get()));
         Self {
             limits,
             legacy_hashes: Arc::new(AtomicUsize::new(0)),
@@ -106,8 +107,8 @@ impl ServerLoad {
         Ok(turn)
     }
 
-    /// The budget every peer-facing stream of this server also charges.
-    pub(crate) fn outbound_total(&self) -> Arc<OutboundBudget> {
+    /// The total every peer-facing stream of this server also counts against.
+    pub(crate) fn outbound_total(&self) -> Arc<OutboundTotal> {
         self.outbound_total.clone()
     }
 }

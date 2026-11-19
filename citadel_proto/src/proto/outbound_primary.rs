@@ -5,6 +5,7 @@ use crate::proto::outbound_budget::OutboundBudget;
 use crate::proto::outbound_sender::{
     unbounded, OutboundPacket, SendError, UnboundedReceiver, UnboundedSender,
 };
+use crate::proto::outbound_total::OutboundTotal;
 use bytes::{Bytes, BytesMut};
 use futures::task::{Context, Poll};
 use std::pin::Pin;
@@ -95,13 +96,13 @@ impl From<UnboundedSender<OutboundPacket>> for OutboundPrimaryStreamSender {
 /// also count against the node's `total`, when it has one.
 pub(crate) fn budgeted_primary_channel(
     limit: usize,
-    total: Option<Arc<OutboundBudget>>,
+    total: Option<Arc<OutboundTotal>>,
 ) -> (OutboundPrimaryStreamSender, OutboundPrimaryStreamReceiver) {
     let (tx, rx) = unbounded();
-    let budget = Arc::new(match total {
+    let budget = match total {
         Some(total) => OutboundBudget::within(limit, total),
         None => OutboundBudget::new(limit),
-    });
+    };
     (
         OutboundPrimaryStreamSender(tx, Some(budget.clone())),
         OutboundPrimaryStreamReceiver(BudgetedReceiver {
