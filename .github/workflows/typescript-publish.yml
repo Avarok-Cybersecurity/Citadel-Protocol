@@ -1,5 +1,13 @@
 name: Publish TypeScript Types
 
+# Every change to the generated types is released (TYPES-SYNC D1):
+#   - package.json names a version not yet on npm: that release, as `latest`;
+#   - otherwise the derived prerelease `<next patch>-t.<content hash>`
+#     (scripts/ts-version.mjs) under the `types` dist-tag, which no `^` range
+#     takes, so a consumer moves only through an exact pin.
+# Then the consumers are told (repository_dispatch `types-released`), and their
+# types-bump workflows open or update ONE bump PR each (TYPES-SYNC D2).
+
 on:
   push:
     branches:
@@ -8,9 +16,14 @@ on:
       - 'citadel-protocol-types-ts/**'
       - 'citadel_types/**'
       - 'citadel_proto/src/constants.rs'
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: typescript-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -41,42 +54,95 @@ jobs:
         working-directory: citadel-protocol-types-ts
         run: npm test
 
-      - name: Get package version
+      - name: Decide the version
         id: version
         working-directory: citadel-protocol-types-ts
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: Check if version exists on npm
-        id: check
-        working-directory: citadel-protocol-types-ts
         run: |
-          if npm view @avarok/citadel-protocol-types@${{ steps.version.outputs.version }} version 2>/dev/null; then
-            echo "exists=true" >> $GITHUB_OUTPUT
+          declared=$(node -p "require('./package.json').version")
+          if [ -z "$(npm view "@avarok/citadel-protocol-types@$declared" version 2>/dev/null)" ]; then
+            version=$declared; tag=latest
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            version=$(node scripts/ts-version.mjs); tag=types
           fi
-        continue-on-error: true
+          exists=false
+          if [ -n "$(npm view "@avarok/citadel-protocol-types@$version" version 2>/dev/null)" ]; then exists=true; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+          echo "$version (dist-tag $tag), already published: $exists"
 
       - name: Publish to npm
-        if: steps.check.outputs.exists != 'true'
+        if: steps.version.outputs.exists != 'true'
         working-directory: citadel-protocol-types-ts
-        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_JS_CITADEL_TYPES }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::secret NPM_JS_CITADEL_TYPES is not set; nothing can be published"
+            exit 1
+          fi
+          # Only this job's checkout is changed; the committed package.json keeps the release line.
+          npm version --no-git-tag-version --allow-same-version "$VERSION"
+          npm publish --access public --tag "$TAG"
 
       - name: Create GitHub Release
-        if: steps.check.outputs.exists != 'true'
+        if: steps.version.outputs.exists != 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ts-v${{ steps.version.outputs.version }}
           name: TypeScript Types v${{ steps.version.outputs.version }}
+          prerelease: ${{ steps.version.outputs.tag != 'latest' }}
           body: |
-            TypeScript type definitions for Citadel Protocol v${{ steps.version.outputs.version }}
+            TypeScript type definitions for Citadel Protocol, from ${{ github.sha }}.
 
-            ## Installation
             ```bash
-            npm install @avarok/citadel-protocol-types@${{ steps.version.outputs.version }}
+            npm install --save-exact @avarok/citadel-protocol-types@${{ steps.version.outputs.version }}
             ```
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  # Tell every consumer, through the Citadel types-sync GitHub App (TYPES-SYNC D2,
+  # setup steps in the design doc). Runs after a publish and after a rerun that
+  # found the version already out, so a lost dispatch is recovered by rerunning.
+  notify-consumers:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: The App's credentials are configured
+        env:
+          APP_ID: ${{ vars.TYPES_SYNC_APP_ID }}
+          APP_KEY: ${{ secrets.TYPES_SYNC_APP_PRIVATE_KEY }}
+        run: |
+          missing=""
+          [ -n "$APP_ID" ] || missing="$missing variable TYPES_SYNC_APP_ID"
+          [ -n "$APP_KEY" ] || missing="$missing secret TYPES_SYNC_APP_PRIVATE_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::not configured:$missing (see TYPES-SYNC-DESIGN.md, 'Creating the types-sync App'). The consumers were NOT told about ${{ needs.publish.outputs.version }}; their nightly types-bump will still find it."
+            exit 1
+          fi
+      - uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ vars.TYPES_SYNC_APP_ID }}
+          private-key: ${{ secrets.TYPES_SYNC_APP_PRIVATE_KEY }}
+          owner: Avarok-Cybersecurity
+          repositories: citadel-internal-service,citadel-workspace
+      - name: Dispatch types-released
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          for repo in citadel-internal-service citadel-workspace; do
+            gh api "repos/Avarok-Cybersecurity/$repo/dispatches" \
+              -f event_type=types-released \
+              -f "client_payload[producer]=sdk" \
+              -f "client_payload[version]=$VERSION" \
+              -f "client_payload[rev]=$GITHUB_SHA"
+            echo "told $repo: @avarok/citadel-protocol-types $VERSION"
+          done
