@@ -802,7 +802,8 @@ pub enum ErrorCode {
     /// A keep-alive packet could not be sent (reason).
     #[form = "Unable to send keep-alive: {}"]
     KeepAliveSendFailed = 239,
-    /// A pre-connect SYN referenced a CID that is not registered to this node (cid).
+    /// A pre-connect SYN referenced a CID that is not registered to this node (cid). No longer
+    /// sent to a client: the server answers [`ErrorCode::PreconnectRefused`] instead.
     #[form = "CID {} is not registered to this node"]
     PreconnectCidNotRegistered = 240,
     /// The incoming protocol semver could not be parsed.
@@ -1292,4 +1293,10 @@ pub enum ErrorCode {
     /// not UTF-8). Choose a backend explicitly.
     #[form = "No usable home directory for the default account store; choose a backend explicitly"]
     BackendHomeDirUnavailable = 461,
+
+    // --- citadel_proto: before a connection proves anything (540-559) ---
+    /// The server did not go on with a connect's first packet. It reads the same whatever the
+    /// reason, which the server logs.
+    #[form = "The server refused this connect"]
+    PreconnectRefused = 540,
 }
