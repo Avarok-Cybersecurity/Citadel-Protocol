@@ -102,7 +102,7 @@ pub(crate) fn register_failure(
     reads_code: bool,
 ) -> Vec<u8> {
     let admission_challenge = challenge_of(&err).cloned().filter(|_| reads_challenge);
-    let code = Some(err.code_u16()).filter(|_| reads_code);
+    let code = reads_code.then(|| err.code_u16());
     let message = err.into_string();
     if admission_challenge.is_none() && code.is_none() {
         return message.into_bytes();
