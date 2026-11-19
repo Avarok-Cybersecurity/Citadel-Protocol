@@ -125,6 +125,7 @@ mod native {
         enable_websocket: bool,
     ) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
         let mut builder = NodeBuilder::default();
+        let _ = builder.with_link_manager(LinkManagerMode::Legacy);
         let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
             .expect("Failed to create TCP listener");
         let bind_addr = tcp_listener.local_addr().unwrap();

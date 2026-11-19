@@ -91,7 +91,7 @@ use citadel_io::tokio::sync::oneshot;
     skip_all,
     ret,
     err,
-    fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = session_orig.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
@@ -131,8 +131,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
 
     let task = async move {
         let session = &session;
-        // we can unwrap below safely since the header layout has already been verified
-        let header = Ref::new(&*header).unwrap();
+        let header = return_if_none!(Ref::new(&*header), "Malformed peer CMD header");
 
         match aux_cmd {
             packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST => {
@@ -171,18 +170,11 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 vconn.get_original_session_cid()
                             };
 
-                            // Validate disconnect token against the active vconn to
-                            // reject stale signals from a previous P2P connection
-                            if let Some(token) = disconnect_token {
-                                let state_container = inner_state!(session.state_container);
-                                if let Some(current_vconn) =
-                                    state_container.active_virtual_connections.get(&target)
-                                {
-                                    if current_vconn.p2p_connection_id != token.connection_id {
-                                        log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal from server for peer {} — token mismatch", target);
-                                        return Ok(PrimaryProcessorResult::Void);
-                                    }
-                                }
+                            if inner_state!(session.state_container)
+                                .is_stale_disconnect(target, disconnect_token.as_ref())
+                            {
+                                log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal from server for peer {} — token mismatch", target);
+                                return Ok(PrimaryProcessorResult::Void);
                             }
 
                             let mut state_container = inner_mut_state!(session.state_container);

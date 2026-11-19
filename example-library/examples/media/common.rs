@@ -112,6 +112,7 @@ where
             remote.shutdown_kernel().await
         });
     DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
         .with_max_security_level(max_level::extreme())
         .build(kernel)?

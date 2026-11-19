@@ -70,6 +70,7 @@ mod tests {
             conn_type: None,
             message: String::new(),
             disconnect_token: None,
+            reason: None,
         })
     }
 

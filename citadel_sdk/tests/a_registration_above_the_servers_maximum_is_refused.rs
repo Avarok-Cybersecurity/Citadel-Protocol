@@ -69,6 +69,7 @@ mod tests {
         });
         let username = format!("r_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let node = DefaultNodeBuilder::default()
+            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(localhost_max_security_level())
             .build(GroupTestKernel::new(move |remote, _events| {

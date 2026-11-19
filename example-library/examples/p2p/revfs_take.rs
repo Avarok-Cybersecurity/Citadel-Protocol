@@ -140,6 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the peer
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
         .with_max_security_level(max_level::extreme())
         .with_revfs_key_source(revfs_keys::per_run("localhost"))

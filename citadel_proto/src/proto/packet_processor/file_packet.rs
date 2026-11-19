@@ -48,7 +48,7 @@ use citadel_types::proto::TransferType;
     skip_all,
     ret,
     err,
-    fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = session.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub fn process_file_packet<R: Ratchet, T: PlatformOps>(

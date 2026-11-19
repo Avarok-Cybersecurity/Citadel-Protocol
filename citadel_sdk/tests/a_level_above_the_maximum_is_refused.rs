@@ -199,6 +199,7 @@ mod tests {
         };
         let node = |me: String, peer: String, max: MaxSecurityLevel| {
             DefaultNodeBuilder::default()
+                .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
                 .with_max_security_level(max)
                 .build(GroupTestKernel::new(move |remote, events| {

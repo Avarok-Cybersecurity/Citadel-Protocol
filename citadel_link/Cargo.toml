@@ -14,6 +14,7 @@ license = "MIT OR Apache-2.0"
 citadel_types = { workspace = true }
 citadel_negotiation = { workspace = true }
 citadel_media = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 citadel_link = { path = ".", features = ["harness"] }

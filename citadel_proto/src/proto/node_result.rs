@@ -165,6 +165,10 @@ pub struct Disconnect {
     /// Token identifying the specific C2S session instance.
     /// Used to reject stale disconnect signals from previous sessions.
     pub disconnect_token: Option<DisconnectToken>,
+    /// Why the link closed, when the protocol knows (`citadel_link::CloseReason`): this node
+    /// disconnected or abandoned it on purpose. `None` is a link that was lost, or ended in a way
+    /// this node cannot attribute; it never stands for a deliberate close.
+    pub reason: Option<citadel_link::CloseReason>,
 }
 
 #[derive(Debug)]
@@ -403,6 +407,11 @@ impl<R: Ratchet> NodeResult<R> {
 /// its challenge) when the server's admission check refused it
 /// (`citadel_user::auth::pq::admission`), generic otherwise.
 fn refused(message: String, challenge: Option<AdmissionChallenge>) -> NetworkError {
+    // A server holding the account's session refuses with this reason, verbatim, at SYN and at
+    // STAGE0, in every version; named here once, so a caller matches a code, not a string (S-C8).
+    if message.starts_with(crate::proto::session_manager::SESSION_ALREADY_CONNECTED) {
+        return citadel_io::error!(citadel_io::ErrorCode::RemoteServerHoldsSession, message);
+    }
     citadel_user::auth::pq::admission::refusal_from_message(&message, challenge)
         .unwrap_or_else(|| NetworkError::generic(message))
 }

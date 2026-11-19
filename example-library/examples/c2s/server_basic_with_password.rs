@@ -66,6 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // a client attempts to register or connect, they must provide the password.
     // This "password" is effectively a pre-shared key (PSK)
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
         .with_max_security_level(max_level::extreme())
         .with_path_policy(path_policy::every_path_in_order())

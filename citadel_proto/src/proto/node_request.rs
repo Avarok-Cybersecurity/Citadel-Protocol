@@ -133,6 +133,14 @@ pub struct AbandonSession {
     pub session_cid: u64,
 }
 
+/// Aborts the connect (or registration) that `ticket` requested, at whatever stage it reached:
+/// hashing, dialling, or the handshake (`proto::link`'s abort). Only the requester's own ticket
+/// names it. A managed node frees what the connect held before reading its next request; a
+/// legacy node ignores it.
+pub struct AbortLink {
+    pub ticket: crate::proto::remote::Ticket,
+}
+
 /// These are sent down the stack into the server. Most of the requests expect a ticket ID
 /// in order for processes sitting above the [Kernel] to know how the request went
 #[allow(variant_size_differences)]
@@ -163,6 +171,8 @@ pub enum NodeRequest {
     ProbeServer(ProbeServer),
     /// Ends a C2S session locally, without the server's ack
     AbandonSession(AbandonSession),
+    /// Aborts an in-flight connect by the ticket that requested it
+    AbortLink(AbortLink),
     /// Returns a list of connected sessions
     GetActiveSessions,
     /// shutdown signal
@@ -193,6 +203,7 @@ impl NodeRequest {
             }
             NodeRequest::ProbeServer(ProbeServer { session_cid, .. }) => Some(*session_cid),
             NodeRequest::AbandonSession(AbandonSession { session_cid }) => Some(*session_cid),
+            NodeRequest::AbortLink(_) => None,
             NodeRequest::GetActiveSessions => None,
             NodeRequest::Shutdown => None,
         }
