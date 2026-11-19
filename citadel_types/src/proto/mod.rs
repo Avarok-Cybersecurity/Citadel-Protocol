@@ -123,7 +123,7 @@ impl VirtualObjectMetadata {
     }
 
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(input: T) -> Option<Self> {
-        bincode::deserialize(input.as_ref()).ok()
+        citadel_io::decode::deserialize(input.as_ref()).ok()
     }
 
     pub fn get_security_level(&self) -> Option<SecurityLevel> {
@@ -689,7 +689,7 @@ impl VirtualConnectionType {
 
     /// Deserializes from bytes.
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(this: T) -> Option<Self> {
-        bincode::deserialize(this.as_ref()).ok()
+        citadel_io::decode::deserialize(this.as_ref()).ok()
     }
 
     /// Gets the target CID, agnostic to connection type.

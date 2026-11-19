@@ -30,6 +30,6 @@ fn a_check_packet_is_sealed_like_every_other_hole_punch_packet() {
     let opened = container
         .decrypt_packet(&sent)
         .expect("the peer could not decrypt the Check packet");
-    let packet: NatPacket = bincode::deserialize(&opened).unwrap();
+    let packet: NatPacket = citadel_io::decode::deserialize(&opened).unwrap();
     assert!(matches!(packet, NatPacket::Check));
 }

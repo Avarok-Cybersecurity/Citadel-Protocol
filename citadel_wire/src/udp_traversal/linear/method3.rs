@@ -329,7 +329,7 @@ impl Method3 {
                         }
                     };
 
-                    match bincode::deserialize(&packet)
+                    match citadel_io::decode::deserialize(&packet)
                         .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))
                     {
                         Ok(NatPacket::Check) => {

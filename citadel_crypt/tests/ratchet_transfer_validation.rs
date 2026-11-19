@@ -46,7 +46,7 @@ fn stacked_bob_accepts(params: CryptoParameters, nonce_len: Option<usize>) -> bo
         // msg_nonce is followed by the security level (4), the cid (8) and the version (4).
         bytes = with_nonce(&bytes, params.encryption_algorithm.nonce_len(), 16, len);
     }
-    let transfer: AliceToBobTransfer = bincode::deserialize(&bytes).unwrap();
+    let transfer: AliceToBobTransfer = citadel_io::decode::deserialize(&bytes).unwrap();
     C::new_bob(7, opts, transfer, PSKS).is_some()
 }
 
@@ -59,7 +59,7 @@ fn mono_bob_accepts(params: CryptoParameters, nonce_len: Option<usize>) -> bool 
         // The nonce is followed by the cid (8) and the version (4).
         bytes = with_nonce(&bytes, params.encryption_algorithm.nonce_len(), 12, len);
     }
-    let transfer: MonoAliceToBobTransfer = bincode::deserialize(&bytes).unwrap();
+    let transfer: MonoAliceToBobTransfer = citadel_io::decode::deserialize(&bytes).unwrap();
     <C as EndpointRatchetConstructor<MonoRatchet>>::new_bob(7, opts, transfer, PSKS).is_some()
 }
 

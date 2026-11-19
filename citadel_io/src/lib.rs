@@ -56,6 +56,7 @@ pub mod standard;
 #[cfg(target_family = "wasm")]
 pub mod wasm;
 
+pub mod decode;
 pub mod endpoint;
 pub use endpoint::WebSocketEndpoint;
 

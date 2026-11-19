@@ -390,7 +390,7 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(
         // we get a Released packet. The side that gets this will automatically be allowed to acquire the mutex lock
         match packet {
             UpdatePacket::Released(new_data, _) => {
-                let new_data = bincode::deserialize::<T>(&new_data)?;
+                let new_data = citadel_io::decode::deserialize::<T>(&new_data)?;
                 *value = new_data;
                 // now, send a LockAcquired packet
                 conn.send_serialized(UpdatePacket::LockAcquired).await?;
@@ -468,7 +468,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(
         log::trace!(target: "citadel", "[YIELD LOCK] {:?} received packet: {:?}", channel.node_type(), next_packet);
         match next_packet {
             UpdatePacket::Released(new_value, _) => {
-                lock.deref_mut().0 = bincode::deserialize(&new_value)?;
+                lock.deref_mut().0 = citadel_io::decode::deserialize(&new_value)?;
                 channel.send_serialized(UpdatePacket::LockAcquired).await?;
                 channel
                     .send_serialized(UpdatePacket::ReleasedVerified)

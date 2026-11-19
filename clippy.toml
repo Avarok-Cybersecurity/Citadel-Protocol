@@ -1,0 +1,8 @@
+# Bytes this node did not produce are decoded through `citadel_io::decode`, whose bound stops a
+# length prefix that claims more than the input holds. The free functions have no such bound.
+disallowed-methods = [
+    { path = "bincode::deserialize", reason = "use citadel_io::decode::deserialize (bounded by the input length)" },
+    { path = "bincode::deserialize_from", reason = "use citadel_io::decode::deserialize_from (bounded by the input length)" },
+    { path = "bincode::deserialize_in_place", reason = "no input length to bound it by; decode with citadel_io::decode" },
+    { path = "bincode::deserialize_from_custom", reason = "use citadel_io::decode (bounded by the input length)" },
+]
