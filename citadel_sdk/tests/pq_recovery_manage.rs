@@ -86,4 +86,30 @@ mod tests {
         })
         .await;
     }
+
+    /// A step-up is a guess at the account's factors like a sign-in: one wrong current password
+    /// locks the account under a one-failure policy, and the right one is then refused. Control:
+    /// drop the throttle check at management Begin and the right password is admitted.
+    #[citadel_io::tokio::test(flavor = "multi_thread")]
+    async fn a_step_up_over_the_throttle_is_refused() {
+        citadel_logging::setup_log();
+        let tight = ThrottlePolicy {
+            max_failures: 1,
+            ..ThrottlePolicy::RECOMMENDED
+        };
+        let (server, addr, _) = server(pq_settings_throttled(tight), Some(poisoned_argon()), None);
+        let user = username("stepup");
+        run(server, move |remote, _| async move {
+            let _ = remote
+                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .await?;
+            let conn = login(&remote, &user, PASSWORD).await?;
+            let wrong = SignInFactors::password("not the password");
+            assert!(conn.set_password(NEW_PASSWORD, wrong).await.is_err());
+            let refused = conn.set_password(NEW_PASSWORD, password()).await;
+            assert!(refused.is_err(), "a step-up over the throttle");
+            conn.shutdown_kernel().await
+        })
+        .await;
+    }
 }
