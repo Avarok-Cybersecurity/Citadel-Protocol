@@ -114,7 +114,7 @@ async fn read_first_packet<Read: AsyncRead + Unpin>(
 ) -> io::Result<FirstPacket> {
     let (_stream, ret) = citadel_io::time::timeout(
         timeout.unwrap_or(TCP_CONN_TIMEOUT),
-        super::read_one_packet_as_framed(stream),
+        super::read_one_packet_as_framed(stream, super::MAX_FIRST_PACKET_LEN),
     )
     .await
     .map_err(|err| io::Error::new(io::ErrorKind::TimedOut, err.to_string()))?

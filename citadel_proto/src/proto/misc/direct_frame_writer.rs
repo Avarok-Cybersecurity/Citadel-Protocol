@@ -8,9 +8,8 @@
 //! payload are written as two separate buffers, removing the per-chunk copy that
 //! concatenating them into one contiguous packet would require.
 //!
-//! The on-wire bytes are byte-identical to the `LengthDelimitedCodec` configuration used
-//! by the reader (`length_field_offset(0)`, `u32` big-endian length field, no length
-//! adjustment, 64 MB max frame) — only the in-process assembly differs.
+//! The on-wire bytes are the frames [`super::primary_frame::PrimaryFrameDecoder`] reads
+//! (`u32` big-endian length prefix, then the body) — only the in-process assembly differs.
 //!
 //! Buffers are written sequentially with `write_all` (which uses `poll_write`), **not** a
 //! single `write_vectored`. quinn's QUIC `poll_write_vectored` can return `Pending` under
@@ -28,8 +27,7 @@ use bytes::Bytes;
 use citadel_io::tokio::io::{AsyncWrite, AsyncWriteExt};
 use std::io;
 
-/// Length prefix width — matches `LengthDelimitedCodec::builder().length_field_type::<u32>()`.
-const LEN_PREFIX_LEN: usize = 4;
+use super::primary_frame::LEN_PREFIX_LEN;
 
 /// Writes length-delimited frames to `W` directly, avoiding the codec encode copy.
 pub struct DirectFrameWriter<W: AsyncWrite + Unpin + ContextRequirements + 'static> {

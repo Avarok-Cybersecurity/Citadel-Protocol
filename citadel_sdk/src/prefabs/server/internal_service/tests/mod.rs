@@ -38,8 +38,11 @@ async fn test_write_and_read_one_packet(
     .unwrap();
     let internal_server_communicator =
         write_one_packet(internal_server_communicator, packet).await?;
-    let (_, response) =
-        read_one_packet_as_framed::<_, TestPacket>(internal_server_communicator).await?;
+    let (_, response) = read_one_packet_as_framed::<_, TestPacket>(
+        internal_server_communicator,
+        MAX_PRIMARY_FRAME_LEN,
+    )
+    .await?;
     barrier.wait().await;
 
     if &response.packet != message {

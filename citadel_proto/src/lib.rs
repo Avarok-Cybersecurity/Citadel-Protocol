@@ -642,6 +642,7 @@ pub mod prelude {
     pub use crate::proto::remote::*;
 
     pub use crate::auth::AuthenticationRequest;
+    pub use crate::proto::misc::primary_frame::MAX_PRIMARY_FRAME_LEN;
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
     pub use crate::proto::session::ServerOnlySessionInitSettings;
