@@ -1292,4 +1292,10 @@ pub enum ErrorCode {
     /// not UTF-8). Choose a backend explicitly.
     #[form = "No usable home directory for the default account store; choose a backend explicitly"]
     BackendHomeDirUnavailable = 461,
+
+    // --- crypto layer: key validation (620..=639) ---
+    /// An encapsulation key received from elsewhere failed the input check (length, and every
+    /// coefficient reduced mod q), so nothing is encapsulated or encrypted to it.
+    #[form = "The {} encapsulation key failed its validity check"]
+    KemPublicKeyInvalid = 620,
 }

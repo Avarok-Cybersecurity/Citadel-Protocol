@@ -303,8 +303,11 @@ pub mod kyber_module {
         nonce: V,
     ) -> Result<Vec<u8>, Error> {
         match kem_alg {
-            KemAlgorithm::MlKem => kyber_pke::encrypt(local_pk, plaintext, nonce)
-                .map_err(|err| Error::generic(format!("{err:?}"))),
+            KemAlgorithm::MlKem => {
+                crate::kem_key_check::require_valid_public_key(kem_alg, local_pk.as_ref())?;
+                kyber_pke::encrypt(local_pk, plaintext, nonce)
+                    .map_err(|err| Error::generic(format!("{err:?}")))
+            }
             KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
                 crate::libcrux_kem::encrypt_pke(
                     kem_alg,

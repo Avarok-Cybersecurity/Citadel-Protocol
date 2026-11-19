@@ -82,6 +82,8 @@ pub mod encryption;
 
 pub mod constructor_opts;
 
+/// The validity check on encapsulation keys received from elsewhere
+pub mod kem_key_check;
 pub mod libcrux_kem;
 
 pub mod wire;
@@ -865,6 +867,7 @@ pub fn kem_keypair_from_seed(seed: &[u8; 64]) -> Result<(Vec<u8>, Vec<u8>), Erro
 /// Raw ML-KEM encapsulation to a public key. Returns `(ciphertext, shared_secret)`. The clean,
 /// container-free KEM API the TreeKEM ratchet tree encrypts path secrets with.
 pub fn kem_encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+    kem_key_check::require_valid_public_key(KemAlgorithm::MlKem, public_key)?;
     let (ct, ss) = kyber_pke::encapsulate(public_key, &mut rand::rngs::ThreadRng::default())
         .map_err(|err| Error::generic(format!("ML-KEM encapsulate failed: {err:?}")))?;
     let mut shared = [0u8; 32];
@@ -954,6 +957,7 @@ impl PostQuantumMeta {
 
         let (ciphertext, shared_secret) = match kem_scheme {
             KemAlgorithm::MlKem => {
+                kem_key_check::require_valid_public_key(kem_scheme, pk_alice)?;
                 let (ciphertext, shared_secret) =
                     kyber_pke::encapsulate(pk_alice, &mut citadel_io::thread_rng()).map_err(
                         |_err| citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed),

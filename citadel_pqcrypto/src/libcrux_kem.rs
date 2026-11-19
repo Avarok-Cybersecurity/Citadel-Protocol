@@ -111,6 +111,7 @@ pub fn keypair_from_seed(alg: KemAlgorithm, seed: &[u8; 64]) -> Result<(Vec<u8>,
 
 /// Encapsulate to `public_key`. Returns `(ciphertext, shared_secret)`.
 pub fn encapsulate(alg: KemAlgorithm, public_key: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    crate::kem_key_check::require_valid_public_key(alg, public_key)?;
     let mut randomness = [0u8; 32];
     fill_random(&mut randomness);
     match alg {
