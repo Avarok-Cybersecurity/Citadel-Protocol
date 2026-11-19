@@ -132,7 +132,9 @@ mod tests {
                             starve().await;
                         }
                     }));
-                    let cross = move || drop(cross_tx.send(()));
+                    let cross = move || {
+                        let _ = cross_tx.send(());
+                    };
                     let budget = LOGIN_EXPIRATION_TIME + Duration::from_secs(30);
                     let res = late_login(remote, proxy_addr, seen, cross, budget);
                     res.await
