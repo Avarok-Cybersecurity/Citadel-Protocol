@@ -613,7 +613,7 @@ jobs:
       # and citadel_media still carry wasm-only warnings (unused native imports and the like),
       # so they join this list once those are cleared.
       - name: Clippy for wasm32
-        run: cargo clippy --target wasm32-unknown-unknown --no-deps -p citadel_io -p citadel_types -p citadel_logging -p citadel_pqcrypto -p citadel_crypt -p citadel_treekem -p citadel_user -p netbeam -p async_ip -p citadel_wire -- -D warnings
+        run: cargo clippy --target wasm32-unknown-unknown --no-deps -p citadel_io -p citadel_types -p citadel_logging -p citadel_phrase -p citadel_pqcrypto -p citadel_crypt -p citadel_treekem -p citadel_user -p netbeam -p async_ip -p citadel_wire -- -D warnings
       - name: Check citadel_pqcrypto for wasm32
         run: cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
       - name: Check citadel_sdk for wasm32

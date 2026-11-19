@@ -85,7 +85,7 @@ pub trait AccountRecoveryExt<R: Ratchet>: Remote<R> {
 
 impl<R: Ratchet, T: Remote<R>> AccountRecoveryExt<R> for T {}
 
-async fn await_recovery<R: Ratchet, Rem: Remote<R> + ?Sized>(
+async fn await_recovery<R: Ratchet, Rem: Remote<R>>(
     remote: &Rem,
     request: RecoverAccount,
 ) -> Result<RecoverSuccess, NetworkError> {
