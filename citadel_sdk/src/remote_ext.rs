@@ -990,7 +990,9 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                         )
                     })?;
                     let legacy_level = handle.legacy_seal_received().filter(|_| !delete_on_pull);
-                    let resealed = legacy_level.is_some();
+                    // Sealing again re-reads the pulled object from the local filesystem; a build
+                    // without one returns the object as stored, and says it was not resealed.
+                    #[cfg(feature = "filesystem")]
                     if let Some(level) = legacy_level {
                         self.remote_encrypted_virtual_filesystem_push(
                             path.clone(),
@@ -999,6 +1001,11 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                         )
                         .await?;
                     }
+                    #[cfg(not(feature = "filesystem"))]
+                    if let Some(level) = legacy_level {
+                        log::warn!(target: "citadel", "RE-VFS object {virtual_dir:?} is sealed under a key its server holds (level {level:?}); without a filesystem it is not sealed again");
+                    }
+                    let resealed = cfg!(feature = "filesystem") && legacy_level.is_some();
                     return Ok(crate::fs::RevfsPull { path, resealed });
                 }
 
