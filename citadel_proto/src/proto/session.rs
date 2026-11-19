@@ -140,13 +140,15 @@ enum SessionShutdownReason {
 /// and only on a session that is already ending.
 const FINAL_REPLY_FLUSH_YIELDS: usize = 8;
 
-/// How long to let the writer finish after those yields.
+/// The one bound on letting a session's final reply leave before the session ends (S-C5): after
+/// those yields here, and on the disconnect responder's flush barrier for FINAL.
 ///
 /// Paid only on a session that is already ending, and only when a handler
 /// actually queued a closing reply. Bounded rather than awaited-to-completion
 /// because the writer's channel has no drain signal to await, and because a peer
 /// that has already gone will never let the write finish.
-const FINAL_REPLY_FLUSH_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+pub(crate) const FINAL_REPLY_FLUSH_GRACE: std::time::Duration =
+    std::time::Duration::from_millis(250);
 
 /// How long handlers already running may finish once the inbound stream has ended. They
 /// were answering a peer that has gone; the grace only lets a final packet's processing
@@ -2483,16 +2485,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 } => {
                     let target = v_conn.get_original_target_cid();
 
-                    // Validate disconnect token against active vconn to reject stale signals
-                    if let Some(token) = &disconnect_token {
-                        if let Some(vconn) = state_container.active_virtual_connections.get(&target)
-                        {
-                            if vconn.p2p_connection_id != token.connection_id {
-                                log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal for peer {target}: token connection_id {:?} != active {:?}",
-                                    token.connection_id, vconn.p2p_connection_id);
-                                return Ok(());
-                            }
-                        }
+                    if state_container.is_stale_disconnect(target, disconnect_token.as_ref()) {
+                        log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal for peer {target}: {disconnect_token:?} is not the live connection");
+                        return Ok(());
                     }
 
                     if !state_container
@@ -2542,16 +2537,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 } => {
                     let target = peer_conn_type.get_original_target_cid();
 
-                    // Validate disconnect token against active vconn to reject stale signals
-                    if let Some(token) = &disconnect_token {
-                        if let Some(vconn) = state_container.active_virtual_connections.get(&target)
-                        {
-                            if vconn.p2p_connection_id != token.connection_id {
-                                log::trace!(target: "citadel", "Rejecting stale P2P DisconnectUDP signal for peer {target}: token connection_id {:?} != active {:?}",
-                                    token.connection_id, vconn.p2p_connection_id);
-                                return Ok(());
-                            }
-                        }
+                    if state_container.is_stale_disconnect(target, disconnect_token.as_ref()) {
+                        log::trace!(target: "citadel", "Rejecting stale P2P DisconnectUDP signal for peer {target}: {disconnect_token:?} is not the live connection");
+                        return Ok(());
                     }
 
                     // disconnect UDP locally
@@ -2855,23 +2843,19 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
         ticket: Option<Ticket>,
         msg: BytesMut,
     ) -> Result<(), NetworkError> {
-        if let Some(tx) = self.to_primary_stream.as_ref() {
-            match tx.unbounded_send(msg) {
-                Ok(_) => Ok(()),
-
-                Err(err) => {
-                    self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
-                        ticket_opt: ticket,
-                        cid_opt: self.session_cid.get(),
-                        message: err.to_string(),
-                    }))
-                    .map_err(|err| NetworkError::generic(err.to_string()))?;
-                    Err(error!(ErrorCode::SessionPrimaryStreamSendFailed))
-                }
-            }
-        } else {
-            Err(error!(ErrorCode::SessionPrimaryStreamSenderAbsent))
-        }
+        let tx = self
+            .to_primary_stream
+            .as_ref()
+            .ok_or_else(|| error!(ErrorCode::SessionPrimaryStreamSenderAbsent))?;
+        // One body for both senders (S-C2): the stream's refusal is reported to the kernel and
+        // returned as `SessionPrimaryStreamClosed`.
+        CitadelSession::<R, T>::send_to_primary_stream_closure(
+            tx,
+            &self.kernel_tx,
+            msg,
+            ticket,
+            self.session_cid.get(),
+        )
     }
 
     /// will try a running a function, and if an error occurs, will send error to Kernel

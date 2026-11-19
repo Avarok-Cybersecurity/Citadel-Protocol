@@ -157,6 +157,7 @@ mod outbound_transfer;
 pub(crate) mod peer_keys;
 mod rekey_and_groups;
 pub(crate) mod relay_route;
+mod stale_token;
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod test_support;
 mod transfer_error;

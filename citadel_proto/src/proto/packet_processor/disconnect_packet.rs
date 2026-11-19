@@ -43,7 +43,7 @@ pub const SUCCESS_DISCONNECT: &str = "Successfully Disconnected";
     skip_all,
     ret,
     err,
-    fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = session.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_disconnect<R: Ratchet, T: PlatformOps>(
@@ -99,7 +99,7 @@ pub async fn process_disconnect<R: Ratchet, T: PlatformOps>(
             // and FINAL is no longer silently dropped if the writer is cancelled too early (the race
             // exposed by removing the sleep: the peer's disconnect().await would hang forever).
             if let Ok(sent) = citadel_io::time::timeout(
-                Duration::from_millis(100),
+                crate::proto::session::FINAL_REPLY_FLUSH_GRACE,
                 primary_stream.send_and_flush(packet),
             )
             .await
