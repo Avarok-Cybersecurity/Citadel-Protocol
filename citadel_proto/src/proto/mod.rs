@@ -87,6 +87,8 @@ pub mod traffic;
 /// ~!
 pub(crate) mod transfer_stats;
 mod udp_packet_tests;
+#[cfg(test)]
+mod udp_routing_tests;
 /// Packet validations. This is not the same as encryption
 pub(crate) mod validation;
 

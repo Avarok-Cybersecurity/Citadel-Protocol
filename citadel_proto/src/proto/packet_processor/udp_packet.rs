@@ -32,6 +32,7 @@ use crate::error::NetworkError;
 use crate::proto::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
+use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
 
 /// This will handle an inbound group packet
@@ -51,15 +52,14 @@ pub fn process_udp_packet<R: Ratchet, T: PlatformOps>(
     accessor: &EndpointCryptoAccessor<R>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let (header, payload, _, _) = packet.decompose();
+    let accessor_target = accessor.get_target_cid();
 
     let res = accessor.borrow_hr(
         Some(hr_version),
         move |hr, state_container| -> PrimaryProcessorResult {
-            let header = header.as_ref();
-            if let Some((header, payload)) =
-                super::super::validation::aead::validate_custom(hr, &header, payload)
+            if let Some((peer_cid, payload)) =
+                open_datagram(hr, accessor_target, header.as_ref(), payload)
             {
-                let peer_cid = get_resp_target_cid_from_header(&header);
                 let payload = SecBuffer::from(payload);
                 if state_container.forward_data_to_unordered_channel(peer_cid, payload) {
                     log::trace!(target: "citadel", "Successfully sent data to unordered channel");
@@ -83,4 +83,24 @@ pub fn process_udp_packet<R: Ratchet, T: PlatformOps>(
             Ok(PrimaryProcessorResult::Void)
         }
     }
+}
+
+/// Opens one datagram that arrived on the UDP channel of `channel_cid` under that channel's
+/// ratchet, and names the virtual connection its payload belongs to.
+///
+/// The ratchet that opens it belongs to `channel_cid`, so that is the only connection it is
+/// delivered to; a datagram whose header names a different endpoint is dropped.
+pub(crate) fn open_datagram<R: Ratchet>(
+    hr: &R,
+    channel_cid: u64,
+    header: &[u8],
+    payload: BytesMut,
+) -> Option<(u64, BytesMut)> {
+    let (header, payload) = super::super::validation::aead::validate_custom(hr, &header, payload)?;
+    let named = get_resp_target_cid_from_header(&header);
+    if named != channel_cid {
+        log::debug!(target: "citadel", "Dropping a UDP datagram for {named} that arrived on the channel of {channel_cid}");
+        return None;
+    }
+    Some((named, payload))
 }
