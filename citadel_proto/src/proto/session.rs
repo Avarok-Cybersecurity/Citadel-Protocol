@@ -132,21 +132,10 @@ enum SessionShutdownReason {
     Error(NetworkError),
 }
 
-/// How many times the reader yields so the writer can flush a final reply.
-///
-/// The two share one task through the `select!` in `execute`, so the writer only
-/// runs when the reader is not ready. One yield lets the writer take the packet
-/// off the queue; the rest cover the awaits inside its own write path. Cheap,
-/// and only on a session that is already ending.
-const FINAL_REPLY_FLUSH_YIELDS: usize = 8;
-
-/// The one bound on letting a session's final reply leave before the session ends (S-C5): after
-/// those yields here, and on the disconnect responder's flush barrier for FINAL.
-///
-/// Paid only on a session that is already ending, and only when a handler
-/// actually queued a closing reply. Bounded rather than awaited-to-completion
-/// because the writer's channel has no drain signal to await, and because a peer
-/// that has already gone will never let the write finish.
+/// The bound on a session's final reply reaching the socket before the session ends (S-C5): the
+/// flush barrier behind an `EndSessionAndReplyToSender` reply and behind the disconnect
+/// responder's FINAL. The barrier is acknowledged as soon as the writer has flushed, so this is
+/// paid in full only when the peer has stopped reading and the write can never finish.
 pub(crate) const FINAL_REPLY_FLUSH_GRACE: std::time::Duration =
     std::time::Duration::from_millis(250);
 
@@ -706,11 +695,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             // them apart without knowing which future resolved — and it has to,
             // because one of them must reach the caller as an error and the other
             // must not.
+            //
+            // Biased, writer first and reader last: a final reply the reader queued in one pass
+            // is on the socket before the next pass can see the stopper. Polled in random order,
+            // a stopper the queue worker fired on seeing the session end won the draw against
+            // the writer, and a refused registration reached its client as a bare EOF.
             let session_future = spawn_handle!(async move {
                 citadel_io::tokio::select! {
+                    biased;
                     res0 = writer_future => res0.map(|_| SessionEnd::Stream),
+                    res2 = stopper_future => res2.map(|_| SessionEnd::Deliberate),
                     res1 = reader_future => res1.map(|_| SessionEnd::Stream),
-                    res2 = stopper_future => res2.map(|_| SessionEnd::Deliberate)
                 }
             });
 
@@ -736,24 +731,29 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             return Err((NetworkError::generic(err), session_cid.get()));
         }
 
+        let mut session_future = session_future;
         let res = citadel_io::tokio::select! {
-            res = session_future => res.map_err(|err| (NetworkError::generic(err.to_string()), None))?,
-            _ = queue_worker_handle => {
+            res = &mut session_future => res.map_err(|err| (NetworkError::generic(err.to_string()), None))?,
+            worker = queue_worker_handle => {
                 if let Some(timeout) = this_close.login_deadline_passed() {
                     return Err((timeout, session_cid.get()));
                 }
-                // Queue worker ending can be expected (cleanup) or unexpected (error).
-                // The queue worker uses a Weak reference to the session - when it can't upgrade
-                // that reference (session dropped), it ends. This is the designed cleanup mechanism.
-                // However, if strong_count > 1, the session is still actively held elsewhere,
-                // meaning this is an unexpected termination.
-                let strong_count = this_close.strong_count();
-                if strong_count > 1 {
-                    log::error!(target: "citadel", "Queue worker ended unexpectedly while session still active (strong_count: {})", strong_count);
-                    return Err((error!(ErrorCode::SessionQueueWorkerEnded), session_cid.get()));
+                // `Ok` is the worker seeing its session end: it has fired the stopper, so the
+                // session's own future ends next. Awaiting it, rather than dropping (aborting)
+                // it, lets the reply the ending session is flushing leave first.
+                if matches!(worker, Ok(Ok(()))) {
+                    session_future.await.map_err(|err| (NetworkError::generic(err.to_string()), None))?
                 } else {
-                    log::info!(target: "citadel", "Queue worker ended, session cleanup in progress (strong_count: {})", strong_count);
-                    return Ok(session_cid.get());
+                    // A task asked the worker to end the session, or the worker failed. If
+                    // strong_count > 1 the session is still held elsewhere: unexpected.
+                    let strong_count = this_close.strong_count();
+                    if strong_count > 1 {
+                        log::error!(target: "citadel", "Queue worker ended unexpectedly while session still active (strong_count: {})", strong_count);
+                        return Err((error!(ErrorCode::SessionQueueWorkerEnded), session_cid.get()));
+                    } else {
+                        log::info!(target: "citadel", "Queue worker ended, session cleanup in progress (strong_count: {})", strong_count);
+                        return Ok(session_cid.get());
+                    }
                 }
             }
         };
@@ -1183,28 +1183,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             cid_opt: Option<u64>,
         ) -> std::io::Result<()> {
             let mut session_closing_error: Option<String> = None;
-            let mut queued_a_final_reply = false;
-            match &result {
-                Ok(
-                    PrimaryProcessorResult::ReplyToSender { .. }
-                    | PrimaryProcessorResult::EndSessionAndReplyToSender { .. },
-                ) => {
-                    let return_packet = match result {
-                        Ok(PrimaryProcessorResult::ReplyToSender(packet)) => packet,
-                        Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(packet, err)) => {
-                            // Set state to Disconnecting immediately so new connection attempts can wait
-                            session.state.set(SessionState::Disconnecting);
-                            session_closing_error = Some(err.to_string());
-                            queued_a_final_reply = true;
-                            packet
-                        }
-                        _ => unreachable!(),
-                    };
-
+            match result {
+                Ok(PrimaryProcessorResult::ReplyToSender(packet)) => {
                     CitadelSession::<R, T>::send_to_primary_stream_closure(
                         primary_stream,
                         kernel_tx,
-                        return_packet,
+                        packet,
                         None,
                         cid_opt,
                     )
@@ -1214,6 +1198,25 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             err.into_string()
                         ))
                     })?;
+                }
+
+                Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(packet, err)) => {
+                    // Set state to Disconnecting immediately so new connection attempts can wait
+                    session.state.set(SessionState::Disconnecting);
+                    session_closing_error = Some(err.to_string());
+                    // The reply must be on the socket before the reader ends, because ending it
+                    // drops the writer. Queued and left to yields and a sleep, it lost the race on
+                    // loaded runners and the peer saw a bare EOF instead of the refusal. The same
+                    // flush barrier as the disconnect responder's FINAL: acknowledged once the
+                    // writer has flushed, bounded for a peer that has stopped reading.
+                    if let Ok(sent) = citadel_io::time::timeout(
+                        FINAL_REPLY_FLUSH_GRACE,
+                        primary_stream.send_and_flush(packet),
+                    )
+                    .await
+                    {
+                        sent.map_err(|_| std::io::Error::other("Unable to send the final reply"))?;
+                    }
                 }
 
                 Err(reason) => {
@@ -1234,29 +1237,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             }
 
             if let Some(err) = session_closing_error {
-                // The reply this variant is named for is only QUEUED at this
-                // point: `send_to_primary_stream_closure` pushes onto a channel,
-                // and the reader and the writer share one task through the
-                // `select!` in `execute`. Returning Err here ends the reader,
-                // which resolves that select and drops the writer — so the packet
-                // the handler crafted was discarded unsent, and a server refusing
-                // a registration at stage 0 simply hung up. The client then saw a
-                // bare EOF and lost the reason entirely.
-                //
-                // Yield so the select can poll the writer branch. Bounded, and
-                // best effort: this session is ending either way, and a peer that
-                // is gone cannot be told anything.
-                if queued_a_final_reply {
-                    for _ in 0..FINAL_REPLY_FLUSH_YIELDS {
-                        citadel_io::tokio::task::yield_now().await;
-                    }
-                    // The yields alone are a race, and CI won it against us: on a
-                    // loaded Linux runner the writer had not finished its socket
-                    // write when the reader returned, so the peer saw a bare EOF
-                    // and lost the reason. A session that is ending can afford
-                    // the wait; a peer that never learns why cannot.
-                    citadel_io::time::sleep(FINAL_REPLY_FLUSH_GRACE).await;
-                }
                 log::error!(target: "citadel", "[PrimaryProcessor] session ending: {err:?} | Session end state: {:?}", session.state.get());
                 Err(std::io::Error::other(err))
             } else {
