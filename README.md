@@ -410,3 +410,40 @@ This project is dual-licensed for maximum permissibility under:
 
 - [👨‍💻 Thomas Braun](https://thomaspbraun.com) - Inventor and Core Developer
 - [👨‍💻 Donovan Tjemmes](https://github.com/Tjemmmic) - Developer
+
+## 🎯 Examples
+
+The repository ships with a rich collection of ready-to-run example binaries that showcase the Citadel Protocol in both **client-server (C2S)** and **peer-to-peer (P2P)** scenarios. All of the examples live in the dedicated `citadel-examples` crate located at `example-library/`.
+
+### 🏗️ Compiling **all** examples
+
+From the repository root run:
+
+```bash
+# Debug build
+cargo build -p citadel-examples --examples
+
+# Release build (optimised)
+cargo build -p citadel-examples --examples --release
+```
+
+The flag `--examples` tells Cargo to build every `[[example]]` target declared in `example-library/Cargo.toml`.
+
+### 🔬 Compiling a **single** example
+
+If you only need one binary you can compile it individually:
+
+```bash
+# Build the basic server example
+cargo build -p citadel-examples --example server_basic
+```
+
+### ▶️ Running an example
+
+`cargo run` will compile (if necessary) and launch a chosen example in a single step. For example, to start the basic server shown in the documentation:
+
+```bash
+cargo run -p citadel-examples --example server_basic
+```
+
+A convenient walkthrough for every example together with the required environment variables can be found in the dedicated [examples README](./example-library/README.md).
