@@ -3,6 +3,7 @@
 //! unconnected session waits until [`KEY_PRESENCE_WINDOW`] after the challenge instead.
 
 use super::security_key::KEY_PRESENCE_WINDOW;
+use crate::constants::LOGIN_EXPIRATION_TIME;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::session::CitadelSession;
 use crate::proto::session_queue_handler::QueueWorkerResult;
@@ -44,6 +45,10 @@ pub(crate) fn provisional_check<R: Ratchet>(
                 .insert_reserved(None, remaining, |state| provisional_check(&mut **state));
             QueueWorkerResult::Complete
         }
-        _ => QueueWorkerResult::EndSession,
+        _ => {
+            log::warn!(target: "citadel", "A session still unconnected {LOGIN_EXPIRATION_TIME:?} after it began is ended");
+            state.connect_state.pq.handshake_expired = true;
+            QueueWorkerResult::EndSession
+        }
     }
 }

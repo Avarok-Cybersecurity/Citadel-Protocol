@@ -25,10 +25,14 @@ pub(crate) struct OfferedFactors {
 
 /// Kept in the connect state.
 pub(crate) struct PqConnectState {
-    /// Both sides: what the session may do. `Recovery` after a recovery-code sign-in.
+    /// Both sides: what the session may do. `Recovery` (the recovery console) after a sign-in
+    /// with the recovery phrase or a recovery code.
     pub scope: SessionScope,
     /// Both sides: until when a sign-in may wait for a security-key touch.
     pub presence_until: Option<Instant>,
+    /// Both sides: the provisional check ended this session because its handshake did not
+    /// finish in time, so its end is a failure the caller must hear of.
+    pub handshake_expired: bool,
     /// Server: a management exchange in progress.
     pub manage: Option<ServerManagement>,
     /// Client: the factors offered, until `AUTH_START` is sent.
@@ -49,6 +53,7 @@ impl Default for PqConnectState {
         Self {
             scope: SessionScope::Full,
             presence_until: None,
+            handshake_expired: false,
             manage: None,
             offered: None,
             client: None,

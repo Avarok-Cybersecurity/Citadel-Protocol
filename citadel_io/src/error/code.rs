@@ -1335,4 +1335,8 @@ pub enum ErrorCode {
     /// A sign-in throttle policy with a limit that would admit nothing or lock nothing (reason).
     #[form = "Invalid sign-in throttle policy: {}"]
     SignInThrottlePolicyInvalid = 513,
+    /// A session's handshake (a registration, recovery or sign-in) did not finish within the
+    /// node's limit for an unconnected session (the limit).
+    #[form = "The handshake did not finish within {}"]
+    HandshakeExpired = 514,
 }

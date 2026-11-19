@@ -187,10 +187,17 @@ pub async fn load_native_certs_async() -> Result<Vec<Certificate<'static>>, Erro
 
 /// Loads native certs. This is an expensive operation, and should be called once per node
 pub fn load_native_certs() -> Result<Vec<Certificate<'static>>, Error> {
-    Ok(rustls_native_certs::load_native_certs()
-        .certs
-        .into_iter()
-        .collect())
+    let loaded = rustls_native_certs::load_native_certs();
+    for err in &loaded.errors {
+        log::debug!(target: "citadel", "Loading the system's certificates: {err}");
+    }
+    if loaded.certs.is_empty() {
+        return Err(Error::other(format!(
+            "The system's certificate store gave no certificates: {:?}",
+            loaded.errors
+        )));
+    }
+    Ok(loaded.certs)
 }
 
 #[cfg(test)]

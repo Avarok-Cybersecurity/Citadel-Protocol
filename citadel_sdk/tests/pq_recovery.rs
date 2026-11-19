@@ -45,6 +45,12 @@ mod tests {
                 ended.is_ok(),
                 "the old device's session survived the recovery"
             );
+            // A request on the ended session is answered, not left waiting.
+            let rekey = tokio::time::timeout(deadline, held.rekey()).await;
+            assert!(
+                matches!(rekey, Ok(Err(_))),
+                "rekey on an ended session: {rekey:?}"
+            );
             let revoked = login(&remote_a, &user, PASSWORD).await;
             assert!(revoked.is_err(), "the old device's bundle still signs in");
 

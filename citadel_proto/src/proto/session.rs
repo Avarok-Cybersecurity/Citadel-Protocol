@@ -742,6 +742,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let res = citadel_io::tokio::select! {
             res = session_future => res.map_err(|err| (NetworkError::generic(err.to_string()), None))?,
             _ = queue_worker_handle => {
+                if let Some(expired) = Self::handshake_expired(&this_close) {
+                    return Err((expired, session_cid.get()));
+                }
                 // Queue worker ending can be expected (cleanup) or unexpected (error).
                 // The queue worker uses a Weak reference to the session - when it can't upgrade
                 // that reference (session dropped), it ends. This is the designed cleanup mechanism.
@@ -757,6 +760,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 }
             }
         };
+
+        // However the session's halves resolved, a handshake the provisional check cut short
+        // failed: its stopper and its queue worker both end it, either may win the race above,
+        // and neither reports anything by itself.
+        if let Some(expired) = Self::handshake_expired(&this_close) {
+            return Err((expired, session_cid.get()));
+        }
 
         match res {
             Ok(SessionEnd::Stream) if this_close.is_provisional() => {
@@ -1393,6 +1403,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         } else {
             Ok(())
         }
+    }
+
+    /// The failure to report when the provisional check ended this session's handshake.
+    fn handshake_expired(session: &Self) -> Option<NetworkError> {
+        let state = inner_state!(session.state_container);
+        state.connect_state.pq.handshake_expired.then(|| {
+            error!(
+                ErrorCode::HandshakeExpired,
+                citadel_io::Dbg(crate::constants::LOGIN_EXPIRATION_TIME)
+            )
+        })
     }
 
     #[cfg_attr(

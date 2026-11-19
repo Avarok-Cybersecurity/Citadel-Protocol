@@ -1537,7 +1537,9 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         let mut subscription = self.remote().send_callback_subscription(request).await?;
 
         while let Some(evt) = subscription.next().await {
-            if let NodeResult::ReKeyResult(result) = evt {
+            // A request the node could not route (the session is gone) is answered with an
+            // error, not a `ReKeyResult`; skipping it waited forever.
+            if let NodeResult::ReKeyResult(result) = evt.into_result()? {
                 return match result.status {
                     ReKeyReturnType::Success { version } => Ok(Some(version)),
                     ReKeyReturnType::AlreadyInProgress => Ok(None),
