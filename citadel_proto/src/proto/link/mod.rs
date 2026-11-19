@@ -6,6 +6,18 @@ mod abort;
 mod clock;
 mod deadline;
 mod mode;
+// The frames, proof and admission rule are whole and tested; the stream swap that would carry
+// them under a held session is not built yet (lane L1 report, design gap 1). `expect`, so the
+// allowance fails the build the moment that integration uses them.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        unused_imports,
+        reason = "the §5.2 stream swap is not integrated yet"
+    )
+)]
+pub(crate) mod reattach;
 
 pub use abort::AbortGuard;
 pub(crate) use abort::{until_aborted, InFlightConnects};

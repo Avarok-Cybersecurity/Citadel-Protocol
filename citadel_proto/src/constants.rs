@@ -153,6 +153,12 @@ pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
 /// a server below it.
 pub const SECURITY_KEY_CEREMONY_SINCE: (u8, u8, u8) = (0, 12, 3);
 
+/// A client may reattach a held session over a new path with the same seal, and a server answers
+/// it (`proto::link::reattach`, `ROBUST-CONNECTION-MANAGER.md` §5.2). Additive: a node below it is
+/// never sent the frames, and the manager seals afresh as before. Shares the one 0.12.4 bump with
+/// the rest of the mega PR (§12.2); `PATCH_VERSION` is raised once, by the release commit.
+pub const LINK_REATTACH_SINCE: (u8, u8, u8) = (0, 12, 4);
+
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.
 pub fn protocol_version_at_least(version: Option<u32>, since: (u8, u8, u8)) -> bool {
