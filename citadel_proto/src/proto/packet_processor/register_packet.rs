@@ -338,6 +338,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                 pq_sign_in::register::on_pq_start(
                     &session,
                     &ratchet,
+                    header.protocol_version.get(),
                     &plaintext,
                     header.algorithm,
                     security_level,
@@ -381,6 +382,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     Err(err) => {
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
+                            error_code: Some(err.code_u16()),
                             error_message: err.into_string(),
                             admission_challenge: None,
                         }))?;
@@ -665,6 +667,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                         kernel_tx.unbounded_send(NodeResult::RegisterFailure(
                                             RegisterFailure {
                                                 ticket: reg_ticket.get(),
+                                                error_code: Some(err.code_u16()),
                                                 error_message: err.into_string(),
                                                 admission_challenge: None,
                                             },
@@ -719,12 +722,12 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     {
                         // Freed before the caller hears, so it may retry at once.
                         session.release_provisional_slot();
-                        let (error_message, admission_challenge) =
-                            pq_sign_in::refusal::read_register_failure(error_message);
+                        let refusal = pq_sign_in::refusal::read_register_failure(error_message);
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
-                            error_message,
-                            admission_challenge,
+                            error_message: refusal.message,
+                            admission_challenge: refusal.admission_challenge,
+                            error_code: refusal.code,
                         }))?;
                         session.shutdown();
                     } else {

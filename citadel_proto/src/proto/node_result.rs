@@ -73,6 +73,9 @@ pub struct RegisterFailure {
     /// The check to complete before trying again, when the server's admission refusal sent one
     /// (public: see `citadel_user::auth::pq::admission::AdmissionChallenge`).
     pub admission_challenge: Option<AdmissionChallenge>,
+    /// The failure's stable error code, when the side that failed sent it (a server at
+    /// `RECOVERY_SINCE` or later), or when it failed on this side.
+    pub error_code: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -291,7 +294,14 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: _,
                 error_message: err,
                 admission_challenge,
-            }) => Err(refused(err, admission_challenge)),
+                error_code,
+            }) => Err(
+                match (refused_admission(&err, admission_challenge), error_code) {
+                    (Some(admission), _) => admission,
+                    (None, Some(code)) => NetworkError::from_wire(code, err),
+                    (None, None) => NetworkError::generic(err),
+                },
+            ),
             NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::generic(format!(
                 "Outbound request rejected: {:?}",
                 String::from_utf8(reason.message_opt.unwrap_or_default())
@@ -420,6 +430,10 @@ impl<R: Ratchet> NodeResult<R> {
 /// its challenge) when the server's admission check refused it
 /// (`citadel_user::auth::pq::admission`), generic otherwise.
 fn refused(message: String, challenge: Option<AdmissionChallenge>) -> NetworkError {
-    citadel_user::auth::pq::admission::refusal_from_message(&message, challenge)
-        .unwrap_or_else(|| NetworkError::generic(message))
+    refused_admission(&message, challenge).unwrap_or_else(|| NetworkError::generic(message))
+}
+
+/// An admission refusal, rebuilt with its challenge as the error's detail.
+fn refused_admission(message: &str, challenge: Option<AdmissionChallenge>) -> Option<NetworkError> {
+    citadel_user::auth::pq::admission::refusal_from_message(message, challenge)
 }

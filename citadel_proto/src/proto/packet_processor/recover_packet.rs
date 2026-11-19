@@ -109,7 +109,7 @@ fn refuse<R: Ratchet, T: PlatformOps>(
     let packet = packet_crafter::do_register::craft_failure(
         header.algorithm,
         session.time_tracker.get_global_time_ns(),
-        crate::proto::pq_sign_in::refusal::register_failure(err, true),
+        crate::proto::pq_sign_in::refusal::register_failure(err, true, true),
         header.session_cid.get(),
         ticket,
     );
@@ -132,6 +132,7 @@ pub(super) fn fail_client<R: Ratchet, T: PlatformOps>(
         .on_fail();
     session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
         ticket: session.kernel_ticket.get(),
+        error_code: Some(err.code_u16()),
         error_message: err.into_string(),
         admission_challenge: None,
     }))?;

@@ -67,6 +67,7 @@ pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
 pub(crate) async fn on_pq_start<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
+    client_version: u32,
     payload: &[u8],
     algorithm: u8,
     security_level: SecurityLevel,
@@ -83,7 +84,11 @@ pub(crate) async fn on_pq_start<R: Ratchet, T: PlatformOps>(
             let packet = packet_crafter::do_register::craft_failure(
                 algorithm,
                 session.time_tracker.get_global_time_ns(),
-                super::refusal::register_failure(err, reads_challenge),
+                super::refusal::register_failure(
+                    err,
+                    reads_challenge,
+                    super::recover::server_recovers(Some(client_version)),
+                ),
                 ratchet.get_cid(),
                 ticket,
             );

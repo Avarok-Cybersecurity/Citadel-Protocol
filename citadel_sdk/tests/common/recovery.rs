@@ -90,8 +90,13 @@ pub async fn phrase_session(
         .await
 }
 
-/// Every refusal reads the same over the wire: a wrong proof's message, nothing more.
+/// Every refusal reads the same: a wrong proof's code and message, nothing more.
 pub fn assert_failed(result: Result<RecoverSuccess, NetworkError>, what: &str) {
-    let err = result.expect_err(what).into_string();
-    assert_eq!(err, ErrorCode::PqSignInFailed.raw_string(), "{what}");
+    let err = result.expect_err(what);
+    assert_eq!(err.code(), ErrorCode::PqSignInFailed, "{what}: {err}");
+    assert_eq!(
+        err.into_string(),
+        ErrorCode::PqSignInFailed.raw_string(),
+        "{what}"
+    );
 }
