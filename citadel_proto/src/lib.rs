@@ -519,9 +519,7 @@ pub mod re_imports {
     pub use futures::future::try_join3;
 
     #[cfg(not(target_family = "wasm"))]
-    pub use crate::proto::misc::native_io::{
-        NativeClientConfig, DEFAULT_REQUIRE_CERT_VERIFICATION,
-    };
+    pub use crate::proto::misc::native_io::NativeClientConfig;
     pub use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
     pub use citadel_io::tokio_util::io::{SinkWriter, StreamReader};
     pub use citadel_pqcrypto::build_tag;
@@ -563,7 +561,7 @@ pub mod prelude {
     // Unconditional exports available on all platforms
     pub use crate::proto::misc::server_endpoint_store::load as load_server_endpoint;
     pub use async_trait::async_trait;
-    pub use citadel_io::WebSocketEndpoint;
+    pub use citadel_io::{CertVerification, WebSocketEndpoint};
     pub use citadel_wire::hypernode_type::NodeType;
     pub use citadel_wire::quic_rebind::{RebindFailure, RebindReport, Rebound};
     pub use citadel_wire::stun_servers::{StunServers, StunServersError, MIN_STUN_SERVERS};

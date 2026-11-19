@@ -44,7 +44,10 @@ mod tests {
             let remote = remote.clone();
             tokio::spawn(async move {
                 remote
-                    .connect_with_defaults(AuthenticationRequest::transient(user, addr))
+                    .connect_with_defaults(
+                        AuthenticationRequest::transient(user, addr),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await
                     .map(|_| ())
             })
@@ -53,7 +56,10 @@ mod tests {
         first.abort();
         assert!(first.await.unwrap_err().is_cancelled());
         remote
-            .connect_with_defaults(AuthenticationRequest::transient(user, addr))
+            .connect_with_defaults(
+                AuthenticationRequest::transient(user, addr),
+                CertVerification::SelfSignedAccepted,
+            )
             .await
             .map(|_| ())
     }

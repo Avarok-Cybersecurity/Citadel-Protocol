@@ -64,6 +64,7 @@ mod tests {
                         username.as_str(),
                         username.as_str(),
                         password,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .await?;
                 log::info!(target: "citadel", "[Client] Registered with CID: {}", reg_result.cid);
@@ -71,10 +72,10 @@ mod tests {
 
                 // Connect
                 let mut conn = remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(
-                        username.clone(),
-                        password,
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username.clone(), password),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 let cid_1 = conn.cid;
                 log::info!(target: "citadel", "[Client] Connected with CID: {}", cid_1);
@@ -118,10 +119,10 @@ mod tests {
 
                 // Reconnect (login, not register)
                 let mut conn2 = remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(
-                        username.clone(),
-                        password,
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username.clone(), password),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 let cid_2 = conn2.cid;
                 log::info!(target: "citadel", "[Client] Reconnected with CID: {}", cid_2);

@@ -5,7 +5,7 @@
 
 use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::misc::platform_ops::PlatformOps;
-use citadel_io::{NetworkError, WebSocketEndpoint};
+use citadel_io::{CertVerification, NetworkError, WebSocketEndpoint};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 
@@ -19,18 +19,20 @@ pub(crate) struct C2sPath<T: PlatformOps> {
 pub(crate) struct C2sEstablisher<T: PlatformOps>(PhantomData<T>);
 
 impl<T: PlatformOps> C2sEstablisher<T> {
-    /// Dials `server` (over its WebSocket `endpoint` when the account names one) and registers
-    /// the transport with `rebinder`, so a QUIC client endpoint can move address later.
+    /// Dials `server` (over its WebSocket `endpoint` when the account names one), demanding of
+    /// its certificate what `verification` says, and registers the transport with `rebinder`, so
+    /// a QUIC client endpoint can move address later.
     pub(crate) async fn open_path(
         config: &T::ClientConfig,
+        verification: CertVerification,
         server: SocketAddr,
         endpoint: Option<WebSocketEndpoint>,
         rebinder: &LocalRebinder,
     ) -> Result<C2sPath<T>, NetworkError> {
         let addr = T::from_socket_addr(server);
         let stream = match endpoint {
-            Some(endpoint) => T::connect_endpoint(config, addr, endpoint).await,
-            None => T::connect(config, addr).await,
+            Some(endpoint) => T::connect_endpoint(config, addr, endpoint, verification).await,
+            None => T::connect(config, addr, verification).await,
         }
         .map_err(|err| NetworkError::socket(err.to_string()))?;
         T::track_client_transport(&stream, rebinder);

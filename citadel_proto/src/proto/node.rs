@@ -540,6 +540,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     session_password,
                     endpoint,
                     password,
+                    cert_verification,
                     admission,
                 }) => {
                     let (session_manager, local_nat_type, listener_underlying_proto) = (
@@ -570,6 +571,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                             None,
                             security_settings,
                             &default_client_config,
+                            cert_verification,
                             session_password,
                         );
                         let Some(initiated) = until_aborted(&mut in_flight, initiate).await else {
@@ -586,6 +588,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     keep_alive_timeout,
                     session_security_settings: security_settings,
                     session_password,
+                    cert_verification,
                 }) => {
                     let (session_manager, local_nat_type, listener_underlying_proto) = (
                         session_manager.clone(),
@@ -609,6 +612,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                             keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000),
                             security_settings,
                             &default_client_config,
+                            cert_verification,
                             session_password,
                         );
                         let Some(initiated) = until_aborted(&mut in_flight, initiate).await else {

@@ -136,7 +136,13 @@ mod tests {
             .build(GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, _| async move {
                     let _ = remote
-                        .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                        .register_with_defaults(
+                            addr,
+                            user.as_str(),
+                            user.as_str(),
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     assert!(!stored_meets_floor(&first_slot, &user).await);
                     let _ = stop_tx.send(());

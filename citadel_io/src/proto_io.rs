@@ -53,10 +53,12 @@ pub trait ProtocolIO: Clone + Send + Sync + 'static {
         addr: Self::Addr,
     ) -> impl Future<Output = io::Result<(Self::Listener, Self::Addr)>> + Send;
 
-    /// Connect to a remote address (client side).
+    /// Connect to a remote address (client side), demanding of the server's certificate what
+    /// `verification` says.
     fn connect(
         config: &Self::ClientConfig,
         addr: Self::Addr,
+        verification: crate::CertVerification,
     ) -> impl Future<Output = io::Result<Self::Stream>> + Send;
 
     /// Connect to a server reached by a WebSocket URL (`ws://` or `wss://host[:port]/path`)
@@ -69,6 +71,7 @@ pub trait ProtocolIO: Clone + Send + Sync + 'static {
         _config: &Self::ClientConfig,
         _addr: Self::Addr,
         endpoint: crate::WebSocketEndpoint,
+        _verification: crate::CertVerification,
     ) -> impl Future<Output = io::Result<Self::Stream>> + Send {
         async move {
             Err(io::Error::new(
@@ -294,6 +297,7 @@ pub trait ProtocolUpgrade<T: ProtocolIO>: Send + Sync + 'static {
         local_addr: T::Addr,
         remote_addr: T::Addr,
         client_config: &T::ClientConfig,
+        verification: crate::CertVerification,
     ) -> impl Future<Output = io::Result<T::Stream>> + Send;
 
     // ── Default methods (orchestration process) ───────────────────
@@ -322,15 +326,16 @@ pub trait ProtocolUpgrade<T: ProtocolIO>: Send + Sync + 'static {
     fn connect_with_upgrade(
         remote_addr: T::Addr,
         client_config: &T::ClientConfig,
+        verification: crate::CertVerification,
     ) -> impl Future<Output = io::Result<T::Stream>> + Send {
         async move {
             // 1. Connect to signaling transport
-            let stream = T::connect(client_config, remote_addr.clone()).await?;
+            let stream = T::connect(client_config, remote_addr.clone(), verification).await?;
             let local_addr = T::local_addr(&stream)?;
             // 2. Read the redirect signal
             let signal = Self::read_signal_from_stream(stream).await?;
             // 3. Connect to target transport
-            Self::connect_target(signal, local_addr, remote_addr, client_config).await
+            Self::connect_target(signal, local_addr, remote_addr, client_config, verification).await
         }
     }
 

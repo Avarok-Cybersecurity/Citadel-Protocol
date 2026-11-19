@@ -24,15 +24,19 @@ async fn a_server_that_stalls_the_tls_handshake_fails_the_connect_at_its_deadlin
         drop(stream);
     });
 
-    let config = NativeClientConfig::new(
-        Arc::new(citadel_wire::quic::insecure::rustls_client_config()),
-        false,
-    );
+    let config = NativeClientConfig::new(Arc::new(
+        citadel_wire::quic::insecure::rustls_client_config(),
+    ));
     let deadline = Duration::from_millis(500);
     // An upper bound only, far above `deadline`: without one this test would wait for ever.
     let outcome = tokio::time::timeout(
         Duration::from_secs(20),
-        c2s_connect(Some(deadline), addr, &config),
+        c2s_connect(
+            Some(deadline),
+            addr,
+            &config,
+            CertVerification::SelfSignedAccepted,
+        ),
     )
     .await
     .expect("the connect outlived its deadline: the TLS handshake is unbounded");
@@ -57,30 +61,37 @@ async fn offering(first_packet: FirstPacket) -> (SocketAddr, tokio::task::JoinHa
     (addr, server)
 }
 
-fn client_config(require_cert_verification: bool) -> NativeClientConfig {
-    NativeClientConfig {
-        config: Arc::new(citadel_wire::quic::insecure::rustls_client_config()),
-        require_cert_verification,
-    }
+fn client_config() -> NativeClientConfig {
+    NativeClientConfig::new(Arc::new(
+        citadel_wire::quic::insecure::rustls_client_config(),
+    ))
+}
+
+async fn connect(
+    addr: SocketAddr,
+    config: &NativeClientConfig,
+    verification: CertVerification,
+) -> io::Result<GenericNetworkStream> {
+    c2s_connect(Some(Duration::from_secs(5)), addr, config, verification).await
 }
 
 #[tokio::test]
-async fn a_client_that_requires_verification_refuses_a_plaintext_offer() {
+async fn a_connection_that_requires_verification_refuses_a_plaintext_offer() {
     let external_addr = "127.0.0.1:1".parse().unwrap();
     let (addr, server) = offering(FirstPacket::OrderedReliable { external_addr }).await;
-    let outcome = c2s_connect(Some(Duration::from_secs(5)), addr, &client_config(true)).await;
+    let outcome = connect(addr, &client_config(), CertVerification::Required).await;
     server.abort();
-    assert!(
-        outcome.is_err(),
-        "a client that requires certificate verification connected over plain TCP"
-    );
+    let Err(err) = outcome else {
+        panic!("a connection that requires a verified certificate connected over plain TCP");
+    };
+    assert!(err.to_string().contains("offered none"), "{err}");
 }
 
 #[tokio::test]
-async fn a_client_that_does_not_require_verification_takes_a_plaintext_offer() {
+async fn a_connection_that_does_not_require_verification_takes_a_plaintext_offer() {
     let external_addr = "127.0.0.1:1".parse().unwrap();
     let (addr, server) = offering(FirstPacket::OrderedReliable { external_addr }).await;
-    let outcome = c2s_connect(Some(Duration::from_secs(5)), addr, &client_config(false)).await;
+    let outcome = connect(addr, &client_config(), CertVerification::SelfSignedAccepted).await;
     server.abort();
     assert!(matches!(
         outcome,
@@ -112,20 +123,19 @@ async fn self_signed_tls() -> (SocketAddr, tokio::task::JoinHandle<()>) {
 }
 
 /// A client whose certificate verifier trusts one unrelated self-signed certificate only.
-fn verifying_client(require_cert_verification: bool) -> NativeClientConfig {
+fn verifying_client() -> NativeClientConfig {
     let unrelated = citadel_wire::tls::create_server_self_signed_config()
         .unwrap()
         .quic_chain;
-    NativeClientConfig {
-        config: Arc::new(citadel_wire::tls::create_rustls_client_config(&unrelated).unwrap()),
-        require_cert_verification,
-    }
+    NativeClientConfig::new(Arc::new(
+        citadel_wire::tls::create_rustls_client_config(&unrelated).unwrap(),
+    ))
 }
 
 #[tokio::test]
 async fn a_self_signed_offer_does_not_switch_verification_off_when_it_is_required() {
     let (addr, server) = self_signed_tls().await;
-    let outcome = c2s_connect(Some(Duration::from_secs(5)), addr, &verifying_client(true)).await;
+    let outcome = connect(addr, &verifying_client(), CertVerification::Required).await;
     server.abort();
     assert!(
         outcome.is_err(),
@@ -136,7 +146,12 @@ async fn a_self_signed_offer_does_not_switch_verification_off_when_it_is_require
 #[tokio::test]
 async fn a_self_signed_offer_is_taken_when_verification_is_not_required() {
     let (addr, server) = self_signed_tls().await;
-    let outcome = c2s_connect(Some(Duration::from_secs(5)), addr, &verifying_client(false)).await;
+    let outcome = connect(
+        addr,
+        &verifying_client(),
+        CertVerification::SelfSignedAccepted,
+    )
+    .await;
     server.abort();
     assert!(outcome.is_ok(), "{:?}", outcome.err());
 }

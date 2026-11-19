@@ -53,10 +53,13 @@ mod tests {
         TestBarrier::setup(1);
         let (server, server_addr) = server_info::<StackedRatchet>();
         let owner = Uuid::new_v4();
-        let settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, owner)
-                .build()
-                .unwrap();
+        let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            owner,
+            CertVerification::SelfSignedAccepted,
+        )
+        .build()
+        .unwrap();
         let kernel = BroadcastKernel::<_, _, StackedRatchet>::new(
             settings,
             GroupInitRequestType::Create {

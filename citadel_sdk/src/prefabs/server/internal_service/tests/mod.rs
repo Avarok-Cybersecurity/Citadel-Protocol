@@ -80,10 +80,12 @@ async fn test_internal_service_basic_bytes() {
         .await
     });
 
-    let server_connection_settings =
-        DefaultServerConnectionSettingsBuilder::transient(server_bind_addr)
-            .build()
-            .unwrap();
+    let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient(
+        server_bind_addr,
+        CertVerification::SelfSignedAccepted,
+    )
+    .build()
+    .unwrap();
 
     let client_kernel = SingleClientServerConnectionKernel::new(
         server_connection_settings,

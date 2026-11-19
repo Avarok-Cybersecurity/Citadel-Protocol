@@ -36,13 +36,22 @@ mod tests {
     ) -> Result<(), NetworkError> {
         let username = format!("late_{}", &Uuid::new_v4().to_string()[..8]);
         remote
-            .register_with_defaults(proxy_addr, username.clone(), username.clone(), PASSWORD)
+            .register_with_defaults(
+                proxy_addr,
+                username.clone(),
+                username.clone(),
+                PASSWORD,
+                CertVerification::SelfSignedAccepted,
+            )
             .await?;
         let login = {
             let remote = remote.clone();
             tokio::spawn(async move {
                 remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(username, PASSWORD))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username, PASSWORD),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await
                     .map(|_| ())
             })

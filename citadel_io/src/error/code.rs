@@ -1340,8 +1340,8 @@ pub enum ErrorCode {
     /// reason, which the server logs.
     #[form = "The server refused this connect"]
     PreconnectRefused = 540,
-    /// A client that requires certificate verification was offered a connection without TLS.
-    #[form = "This client requires a verified TLS certificate, and the server offered plain TCP"]
+    /// A connection that requires a verified certificate was offered one without TLS.
+    #[form = "This connection requires a verified TLS certificate, and the server offered none"]
     PlaintextOfferRefused = 541,
     /// A server node was built without its limits; there is no default.
     #[form = "A server node requires its limits (NodeBuilder::with_server_limits); there is no default"]

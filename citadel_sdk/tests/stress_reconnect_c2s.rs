@@ -56,6 +56,7 @@ mod tests {
                         username.as_str(),
                         username.as_str(),
                         password,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .await?;
                 let expected_cid = reg.cid;
@@ -67,10 +68,10 @@ mod tests {
 
                     // Connect
                     let mut conn = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     assert_eq!(conn.cid, expected_cid, "CID changed on iteration {}", i + 1);
                     state.set_cid(conn.cid).await;
@@ -111,10 +112,10 @@ mod tests {
 
                 // Reconnect to get a handle for shutdown
                 let conn = remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(
-                        username.clone(),
-                        password,
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username.clone(), password),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 conn.shutdown_kernel().await
             },

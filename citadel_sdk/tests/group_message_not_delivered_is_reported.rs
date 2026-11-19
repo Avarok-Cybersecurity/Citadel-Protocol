@@ -41,7 +41,13 @@ mod tests {
             GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, _events: Events| async move {
                     let _ = remote
-                        .register_with_defaults(server_addr, &name, &name, PASSWORD)
+                        .register_with_defaults(
+                            server_addr,
+                            &name,
+                            &name,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     let conn = connect(&remote, &name).await?;
                     let mut channel = conn.create_group(None).await?;

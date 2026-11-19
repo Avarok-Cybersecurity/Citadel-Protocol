@@ -115,12 +115,13 @@ impl ProtocolUpgrade<NativeIO> for TcpToQuicUpgrade {
         local_addr: SocketAddr,
         remote_addr: SocketAddr,
         client_config: &super::native_io::NativeClientConfig,
+        verification: citadel_io::CertVerification,
     ) -> io::Result<GenericNetworkStream> {
         let udp_socket = client_quic_socket(local_addr)?;
 
-        // Honor the local client policy: a peer must not be able to force the no-verification path
-        // by advertising self-signed / omitting a domain when the client requires verification.
-        let require_cert_verification = client_config.require_cert_verification;
+        // Honor this connection's choice: a peer must not be able to force the no-verification
+        // path by advertising self-signed / omitting a domain when verification is required.
+        let require_cert_verification = verification.is_required();
 
         let mut quic_endpoint = if signal.is_self_signed && !require_cert_verification {
             QuicClient::new_no_verify(udp_socket)

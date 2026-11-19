@@ -194,9 +194,12 @@ impl ProtocolIO for WasmIO {
         }
     }
 
+    /// The browser verifies every `wss://` certificate itself; a connection that requires a
+    /// verified certificate refuses a `ws://` URL, which has none.
     fn connect(
         config: &Self::ClientConfig,
         addr: SocketAddr,
+        verification: citadel_io::CertVerification,
     ) -> impl Future<Output = io::Result<Self::Stream>> + Send {
         let pre_built = config
             .pre_built_stream
@@ -209,6 +212,12 @@ impl ProtocolIO for WasmIO {
         SendFuture(async move {
             if let Some(stream) = pre_built {
                 return Ok(stream);
+            }
+            if verification.is_required() && !url.starts_with("wss://") {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    citadel_io::error!(citadel_io::ErrorCode::PlaintextOfferRefused).into_string(),
+                ));
             }
             WasmWebSocketStream::connect(&url)
                 .await

@@ -160,7 +160,7 @@
 //! use futures::StreamExt;
 //! use citadel_sdk::prelude::*;
 //!
-//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password", CertVerification::Required).build()?;
 //!
 //! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
 //!     // handle program logic here
@@ -238,7 +238,7 @@
 //! use futures::StreamExt;
 //! use citadel_sdk::prelude::*;
 //!
-//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password", CertVerification::Required).build()?;
 //!
 //! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
 //!     let virtual_path = "/home/virtual_user/output.pdf";

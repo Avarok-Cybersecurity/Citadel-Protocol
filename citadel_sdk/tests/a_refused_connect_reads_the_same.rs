@@ -54,7 +54,13 @@ mod tests {
             client(move |remote, _| async move {
                 forgotten_rx.await.expect("the first client ended");
                 let _ = remote
-                    .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                    .register_with_defaults(
+                        addr,
+                        user.as_str(),
+                        user.as_str(),
+                        PASSWORD,
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 let _ = reregistered_tx.send(());
                 remote.shutdown().await
@@ -67,7 +73,13 @@ mod tests {
             let mut cids = Vec::new();
             for user in [&unknown_user, &stale_user] {
                 let registered = remote
-                    .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                    .register_with_defaults(
+                        addr,
+                        user.as_str(),
+                        user.as_str(),
+                        PASSWORD,
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 accounts.delete_client_by_cid(registered.cid).await?;
                 cids.push(registered.cid);

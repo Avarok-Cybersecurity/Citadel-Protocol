@@ -93,6 +93,7 @@ where
         my_user,
         "Media Example",
         "notsecurepassword",
+        CertVerification::SelfSignedAccepted,
     )
     .with_session_security_settings(session_security)
     .with_udp_mode(UdpMode::Enabled)

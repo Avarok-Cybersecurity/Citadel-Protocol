@@ -481,22 +481,13 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 /// NativeIO-specific builder methods for TLS certificate configuration
 #[cfg(not(target_family = "wasm"))]
 impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
-    /// Wraps a rustls client config, preserving any previously-set `require_cert_verification`
-    /// policy so that the ordering of `with_*_certs` and `with_require_cert_verification` does not
-    /// matter.
+    /// The roots and verifier a connection that requires verification checks a server against
+    /// (each connection chooses, see [`CertVerification`](crate::prelude::CertVerification)).
     fn set_client_rustls_config(
         &mut self,
         config: std::sync::Arc<citadel_proto::re_imports::RustlsClientConfig>,
     ) {
-        let require_cert_verification = self
-            .client_tls_config
-            .as_ref()
-            .map(|cfg| cfg.require_cert_verification)
-            .unwrap_or(citadel_proto::re_imports::DEFAULT_REQUIRE_CERT_VERIFICATION);
-        self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig {
-            config,
-            require_cert_verification,
-        });
+        self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig::new(config));
     }
 
     /// Loads the accepted cert chain stored by the local operating system
@@ -509,30 +500,13 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
         Ok(self)
     }
 
-    /// The client will skip unconditionally server certificate verification
-    /// This is not recommended
+    /// The client will skip unconditionally server certificate verification, on every connection,
+    /// whatever it chooses. This is not recommended
     pub fn with_insecure_skip_cert_verification(&mut self) -> &mut Self {
-        // Explicit opt-out: this clears any require-verification policy by design.
-        self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig::new(
-            std::sync::Arc::new(citadel_proto::re_imports::insecure::rustls_client_config()),
-            false,
+        self.set_client_rustls_config(std::sync::Arc::new(
+            citadel_proto::re_imports::insecure::rustls_client_config(),
         ));
         self
-    }
-
-    /// Requires server certificate verification, refusing to fall back to the accept-any-cert path
-    /// even if the peer advertises a self-signed server (i.e. an attacker cannot downgrade the
-    /// transport by flipping the `is_self_signed`/`domain` signal). If no client TLS config has been
-    /// set yet, the OS-native cert roots are loaded first. Order-independent with respect to the
-    /// `with_*_certs` methods.
-    pub async fn with_require_cert_verification(&mut self) -> anyhow::Result<&mut Self> {
-        if self.client_tls_config.is_none() {
-            let _ = self.with_native_certs().await?;
-        }
-        if let Some(cfg) = self.client_tls_config.as_mut() {
-            cfg.require_cert_verification = true;
-        }
-        Ok(self)
     }
 
     /// Loads a custom list of certs into the acceptable certificate list. Connections that present server certificates

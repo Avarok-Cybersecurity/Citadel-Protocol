@@ -12,34 +12,18 @@ use crate::proto::misc::native_config::{
 use crate::proto::misc::native_upgrade::TcpToQuicUpgrade;
 use crate::proto::misc::net::{DualListener, GenericNetworkStream};
 
-/// Native client TLS configuration plus connection policy.
-///
-/// Bundles the rustls client config with a flag controlling whether the peer may downgrade the
-/// connection to no-certificate-verification. Cloning is cheap (the rustls config is behind an Arc).
+/// The native client's TLS configuration: the verifier and roots a connection verifies a server
+/// against when it requires verification (see [`citadel_io::CertVerification`], chosen per
+/// connection). Cloning is cheap (the rustls config is behind an Arc).
 #[derive(Clone)]
 pub struct NativeClientConfig {
     /// The rustls client configuration (verifier, roots, ALPN, etc.).
     pub config: Arc<ClientConfig>,
-    /// When true, the client refuses to fall back to no-verification even if the peer's FirstPacket
-    /// advertises a self-signed server, and refuses a plain-TCP offer. This prevents the
-    /// unauthenticated first packet from choosing the insecure (accept-any-cert) TLS/QUIC path or
-    /// no TLS at all.
-    pub require_cert_verification: bool,
 }
 
-/// The verification choice of a node that was given no client TLS configuration (and of a
-/// certificate set given without one): follow a server that says it is self-signed. It is the
-/// library's standing behaviour, which its default server (self-signed TLS) relies on. A client
-/// that must not be downgraded sets `require_cert_verification`.
-pub const DEFAULT_REQUIRE_CERT_VERIFICATION: bool = false;
-
 impl NativeClientConfig {
-    /// Wraps a rustls client config with an explicit verification choice.
-    pub fn new(config: Arc<ClientConfig>, require_cert_verification: bool) -> Self {
-        Self {
-            config,
-            require_cert_verification,
-        }
+    pub fn new(config: Arc<ClientConfig>) -> Self {
+        Self { config }
     }
 }
 
@@ -74,16 +58,21 @@ impl ProtocolIO for NativeIO {
         }
     }
 
-    async fn connect(config: &Self::ClientConfig, addr: Self::Addr) -> io::Result<Self::Stream> {
-        super::native_connect::c2s_connect(None, addr, config).await
+    async fn connect(
+        config: &Self::ClientConfig,
+        addr: Self::Addr,
+        verification: citadel_io::CertVerification,
+    ) -> io::Result<Self::Stream> {
+        super::native_connect::c2s_connect(None, addr, config, verification).await
     }
 
     async fn connect_endpoint(
         config: &Self::ClientConfig,
         _addr: Self::Addr,
         endpoint: citadel_io::WebSocketEndpoint,
+        verification: citadel_io::CertVerification,
     ) -> io::Result<Self::Stream> {
-        super::native_ws_connect::c2s_connect_endpoint(None, &endpoint, config).await
+        super::native_ws_connect::c2s_connect_endpoint(None, &endpoint, config, verification).await
     }
 
     async fn bind_unreliable(addr: Self::Addr) -> io::Result<Self::UnreliableSocket> {
@@ -100,10 +89,7 @@ impl ProtocolIO for NativeIO {
         let native_certs = citadel_wire::tls::load_native_certs_async().await?;
         let config = citadel_wire::tls::create_rustls_client_config(&native_certs)
             .map_err(|e| io::Error::other(e.to_string()))?;
-        Ok(NativeClientConfig::new(
-            Arc::new(config),
-            DEFAULT_REQUIRE_CERT_VERIFICATION,
-        ))
+        Ok(NativeClientConfig::new(Arc::new(config)))
     }
 
     fn server_identity(config: &ServerMode<Self>) -> Option<String> {

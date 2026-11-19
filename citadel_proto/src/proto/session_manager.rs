@@ -553,6 +553,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         keep_alive_timeout_ns: Option<i64>,
         security_settings: SessionSecuritySettings,
         default_client_config: &T::ClientConfig,
+        cert_verification: citadel_io::CertVerification,
         session_password: PreSharedKey,
     ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let (session_manager, new_session, peer_addr, primary_stream) = {
@@ -762,6 +763,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     local_addr: local_bind_addr,
                 } = C2sEstablisher::<T>::open_path(
                     default_client_config,
+                    cert_verification,
                     peer_addr,
                     provisional_key.endpoint.clone(),
                     &self.local_rebinder(),

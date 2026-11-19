@@ -161,6 +161,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "my_username",
         "My Name",
         "notsecurepassword",
+        // What this connection demands of the server's certificate; there is no default.
+        CertVerification::Required,
     )
     .build()?;
 

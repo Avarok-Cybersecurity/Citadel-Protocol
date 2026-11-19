@@ -120,6 +120,7 @@ mod imp {
             let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
                 server_addr,
                 Uuid::new_v4(),
+                CertVerification::SelfSignedAccepted,
             )
             .with_udp_mode(UdpMode::Disabled)
             .with_session_security_settings(security)

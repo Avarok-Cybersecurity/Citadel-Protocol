@@ -127,10 +127,13 @@ mod tests {
             if let Some(turn) = turn.clone() {
                 peer = peer.with_turn_config(turn);
             }
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuids[me])
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuids[me],
+                CertVerification::SelfSignedAccepted,
+            )
+            .build()
+            .unwrap();
             let kernel = PeerConnectionKernel::new(
                 settings,
                 peer.add(),
