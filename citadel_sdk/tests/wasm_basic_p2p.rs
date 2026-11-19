@@ -202,6 +202,7 @@ async fn test_a_server_ends_when_its_injector_is_dropped() {
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
         .with_node_type(NodeType::server("127.0.0.1:0").expect("addr"))
         .with_path_policy(citadel_sdk::test_common::localhost_path_policy())
+        .with_server_limits(citadel_sdk::test_common::localhost_server_limits())
         .with_backend(BackendType::InMemory)
         .with_injected_listener(listener)
         .build(citadel_sdk::prefabs::server::empty::EmptyKernel::<

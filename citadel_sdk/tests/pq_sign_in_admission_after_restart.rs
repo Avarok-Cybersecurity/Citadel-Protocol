@@ -46,6 +46,7 @@ mod tests {
         let _ = builder
             .with_node_type(NodeType::Server(bound))
             .with_path_policy(citadel_sdk::test_common::localhost_path_policy())
+            .with_server_limits(citadel_sdk::test_common::localhost_server_limits())
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(listener).unwrap(),
             ))

@@ -37,6 +37,8 @@
 
 #[path = "../shared/path_policy.rs"]
 mod path_policy;
+#[path = "../shared/server_limits.rs"]
+mod server_limits;
 #[path = "../shared/stun.rs"]
 mod stun;
 
@@ -66,6 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let node = DefaultNodeBuilder::default()
         .with_stun_servers(stun::from_env())
         .with_path_policy(path_policy::every_path_in_order())
+        .with_server_limits(server_limits::one_machine())
         .with_node_type(NodeType::server(server_addr)?)
         .with_server_password(connect_password)
         .build(kernel)?;

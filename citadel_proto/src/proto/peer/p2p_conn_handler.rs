@@ -263,7 +263,7 @@ pub(crate) mod native_p2p {
         log::trace!(target: "citadel", "[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), remote_peer);
         let (sink, stream) = misc::safe_split_stream(p2p_stream);
         let (p2p_primary_stream_tx, p2p_primary_stream_rx) =
-            budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES);
+            budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES, None);
         let header_obfuscator = HeaderObfuscator::new(
             from_listener,
             session_security_settings.header_obfuscator_settings,

@@ -64,6 +64,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     turn_servers: Option<Vec<TurnServerConfig>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     path_policy: Option<PathPolicy>,
+    server_limits: Option<ServerLimits>,
     websocket_listener: Option<citadel_io::WebSocketListen>,
     injected_listener: Option<T::Listener>,
     #[cfg(target_family = "wasm")]
@@ -93,6 +94,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             turn_servers: None,
             local_only_server_settings: None,
             path_policy: None,
+            server_limits: None,
             websocket_listener: None,
             injected_listener: None,
             #[cfg(target_family = "wasm")]
@@ -169,7 +171,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         let turn_servers = self.turn_servers.take();
         let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = server_settings(
-            self.local_only_server_settings.take(),
+            with_limits(
+                self.local_only_server_settings.take(),
+                self.server_limits.take(),
+            ),
             self.path_policy.take(),
         );
         let websocket_listener = self.websocket_listener.take();
@@ -436,6 +441,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 
     fn check(&self) -> anyhow::Result<()> {
         check_path_policy(self.hypernode_type.as_ref(), self.path_policy.as_ref())?;
+        check_server_limits(self.hypernode_type.as_ref(), self.server_limits.as_ref())?;
         if self.injected_listener.is_some()
             && !matches!(self.hypernode_type, Some(NodeType::Server(_)))
         {
@@ -602,7 +608,9 @@ mod tests {
             .unwrap();
 
         if node_type.is_server() {
-            let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
+            let _ = builder
+                .with_path_policy(crate::test_common::localhost_path_policy())
+                .with_server_limits(crate::test_common::localhost_server_limits());
         }
         assert!(builder.underlying_protocol.is_some());
         assert_eq!(backend_type, builder.backend_type.clone().unwrap());
@@ -622,4 +630,7 @@ mod stun_tests;
 
 #[path = "node_builder_path_policy.rs"]
 mod path_policy;
+#[path = "node_builder_server_limits.rs"]
+mod server_limits;
 use path_policy::{check_path_policy, server_settings};
+use server_limits::{check_server_limits, with_limits};

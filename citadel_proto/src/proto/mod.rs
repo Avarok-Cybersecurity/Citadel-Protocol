@@ -67,6 +67,7 @@ pub mod remote;
 mod reseal_tests;
 pub(crate) mod seal_identity;
 /// Each CID gets a session
+pub mod server_limits;
 pub mod server_probe;
 pub(crate) mod session;
 mod session_abandon;

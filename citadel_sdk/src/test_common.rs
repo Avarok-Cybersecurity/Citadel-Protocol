@@ -81,6 +81,27 @@ pub fn localhost_path_policy() -> PathPolicy {
     PathPolicy::new(rules, PathClasses::NONE).expect("the test policy is valid")
 }
 
+/// The limits of servers under test. Every client of a test dials from the one loopback address
+/// and many tests start dozens of clients at once, so the per-address limit is the total; both
+/// are far above any suite's concurrency. Legacy registration is taken (suites exercise it),
+/// with as many concurrent hashes as the largest suite registers at once. The queue limits are
+/// the per-stream bound clients use (`outbound_budget::MAX_QUEUED_OUTBOUND_BYTES`, 256 MiB) and
+/// sixteen of them in all, which no suite's transfers approach.
+pub fn localhost_server_limits() -> ServerLimits {
+    const CONNECTIONS: usize = 1024;
+    const QUEUED_PER_STREAM: usize = 256 * 1024 * 1024;
+    let nonzero = |n: usize| std::num::NonZeroUsize::new(n).expect("a positive test limit");
+    ServerLimits {
+        provisional_per_ip: nonzero(CONNECTIONS),
+        provisional_total: nonzero(CONNECTIONS),
+        legacy_registration: LegacyRegistration::Accepted {
+            concurrent_hashes: nonzero(64),
+        },
+        outbound_queued_per_stream: nonzero(QUEUED_PER_STREAM),
+        outbound_queued_total: nonzero(16 * QUEUED_PER_STREAM),
+    }
+}
+
 #[cfg(not(target_family = "wasm"))]
 mod native {
     use super::*;
@@ -116,6 +137,7 @@ mod native {
             .with_node_type(NodeType::Server(bind_addr))
             .with_stun_servers(LOCALHOST_STUN_SERVERS)
             .with_path_policy(localhost_path_policy())
+            .with_server_limits(localhost_server_limits())
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),
             ));

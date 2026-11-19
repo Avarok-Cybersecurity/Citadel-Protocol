@@ -143,6 +143,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         };
 
         let time_tracker = TimeTracker::new();
+        let server_load = server_only_session_init_settings
+            .as_ref()
+            .and_then(|settings| settings.limits.clone())
+            .map(crate::proto::server_limits::ServerLoad::new);
         let session_manager = CitadelSessionManager::new(
             local_node_type,
             to_kernel.clone(),
@@ -151,6 +155,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             client_config.clone(),
             stun_servers.clone(),
             turn_servers,
+            server_load,
         );
 
         let nat_type = T::identify_nat_type(stun_servers).await?;
@@ -350,6 +355,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     ) {
                         Ok(session) => {
                             spawn!(session);
+                        }
+
+                        // A connection over the server's limits is closed (dropped here) and
+                        // logged: telling the kernel of each would let it queue without bound.
+                        Err(err)
+                            if matches!(
+                                err.code,
+                                ErrorCode::ProvisionalPerIpAtCap | ErrorCode::ProvisionalTotalAtCap
+                            ) =>
+                        {
+                            log::warn!(target: "citadel", "Closing a connection from {peer_addr:?}: {err}");
                         }
 
                         Err(err) => {

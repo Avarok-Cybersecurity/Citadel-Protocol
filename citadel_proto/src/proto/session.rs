@@ -411,6 +411,10 @@ pub struct ServerOnlySessionInitSettings {
     /// built without one, such as the server role of a serverless pair, whose peers then plan
     /// their paths themselves.
     pub path_policy: Option<citadel_types::proto::PathPolicy>,
+    /// The server's limits (see [`ServerLimits`](crate::proto::server_limits::ServerLimits)).
+    /// `None` only on a node built without them, such as the server role of a serverless pair,
+    /// which takes its one connection.
+    pub limits: Option<crate::proto::server_limits::ServerLimits>,
 }
 
 /// TURN server configuration for NAT traversal relay.
@@ -630,8 +634,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             *inner_mut!(this.ws_pinger) = T::ws_pinger(&primary_stream);
             let (writer, reader) = misc::safe_split_stream(primary_stream);
 
+            // A server's streams take its own per-stream limit and also count against its total.
             let (primary_outbound_tx, primary_outbound_rx) =
-                budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES);
+                match this.session_manager.server_load() {
+                    Some(load) => budgeted_primary_channel(
+                        load.limits.outbound_queued_per_stream.get(),
+                        Some(load.outbound_total()),
+                    ),
+                    None => budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES, None),
+                };
 
             // if the primary stream uses QUIC, load this inside for both client and server
             if let Some(quic_conn) = quic_conn_opt {

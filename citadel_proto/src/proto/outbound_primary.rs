@@ -65,12 +65,18 @@ impl OutboundPrimaryStreamSender {
     }
 
     fn send(&self, packet: OutboundPacket) -> Result<(), SendError<OutboundPacket>> {
+        let len = packet.body_len();
         if let Some(budget) = &self.1 {
-            if !budget.admit(packet.body_len()) {
+            if !budget.admit(len) {
                 return Err(SendError(packet));
             }
         }
-        self.0.unbounded_send(packet)
+        self.0.unbounded_send(packet).inspect_err(|_| {
+            // The writer is gone: these bytes will never be taken.
+            if let Some(budget) = &self.1 {
+                budget.release(len);
+            }
+        })
     }
 
     #[cfg(test)]
@@ -85,12 +91,17 @@ impl From<UnboundedSender<OutboundPacket>> for OutboundPrimaryStreamSender {
     }
 }
 
-/// The channel of a peer-facing stream, whose queue holds at most `limit` bytes.
+/// The channel of a peer-facing stream, whose queue holds at most `limit` bytes, and whose bytes
+/// also count against the node's `total`, when it has one.
 pub(crate) fn budgeted_primary_channel(
     limit: usize,
+    total: Option<Arc<OutboundBudget>>,
 ) -> (OutboundPrimaryStreamSender, OutboundPrimaryStreamReceiver) {
     let (tx, rx) = unbounded();
-    let budget = Arc::new(OutboundBudget::new(limit));
+    let budget = Arc::new(match total {
+        Some(total) => OutboundBudget::within(limit, total),
+        None => OutboundBudget::new(limit),
+    });
     (
         OutboundPrimaryStreamSender(tx, Some(budget.clone())),
         OutboundPrimaryStreamReceiver(BudgetedReceiver {
@@ -133,6 +144,19 @@ impl futures::Stream for BudgetedReceiver {
     }
 }
 
+/// A writer's end that goes returns what is still queued to its budget, which a node-wide total
+/// would otherwise go on counting.
+impl Drop for BudgetedReceiver {
+    fn drop(&mut self) {
+        if let Some(budget) = &self.budget {
+            self.inner.close();
+            while let Ok(packet) = self.inner.as_mut().try_recv() {
+                budget.release(packet.body_len());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,7 +168,7 @@ mod tests {
 
     #[citadel_io::tokio::test]
     async fn a_reply_counts_as_sent_only_once_the_writer_has_flushed_it() {
-        let (tx, mut rx) = budgeted_primary_channel(1_000);
+        let (tx, mut rx) = budgeted_primary_channel(1_000, None);
         let mut sent = Box::pin(tx.send_and_flush(reply()));
         assert!((&mut sent).now_or_never().is_none(), "queued is not sent");
 
@@ -167,7 +191,7 @@ mod tests {
 
     #[citadel_io::tokio::test]
     async fn a_writer_that_ends_before_flushing_does_not_hold_the_reply_wait() {
-        let (tx, mut rx) = budgeted_primary_channel(1_000);
+        let (tx, mut rx) = budgeted_primary_channel(1_000, None);
         let mut sent = Box::pin(tx.send_and_flush(reply()));
         assert!((&mut sent).now_or_never().is_none());
         assert!(rx.0.next().await.is_some());
@@ -177,7 +201,7 @@ mod tests {
 
     #[citadel_io::tokio::test]
     async fn a_reply_to_a_writer_already_gone_is_refused() {
-        let (tx, rx) = budgeted_primary_channel(1_000);
+        let (tx, rx) = budgeted_primary_channel(1_000, None);
         drop(rx);
         assert!(tx.send_and_flush(reply()).await.is_err());
     }
