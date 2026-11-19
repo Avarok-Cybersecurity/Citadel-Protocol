@@ -82,6 +82,8 @@ pub mod encryption;
 
 pub mod constructor_opts;
 
+#[cfg(test)]
+mod aead_zeroize_tests;
 /// The validity check on encapsulation keys received from elsewhere
 pub mod kem_key_check;
 pub mod libcrux_kem;
@@ -806,8 +808,9 @@ impl PostQuantumContainer {
 
 impl Clone for PostQuantumContainer {
     fn clone(&self) -> Self {
-        let ser = self.serialize_to_vector().unwrap();
-        PostQuantumContainer::deserialize_from_bytes(ser).unwrap()
+        // The serialized form holds every secret the container does; it is wiped once read back.
+        let ser = Zeroizing::new(self.serialize_to_vector().unwrap());
+        PostQuantumContainer::deserialize_from_bytes(&*ser).unwrap()
     }
 }
 

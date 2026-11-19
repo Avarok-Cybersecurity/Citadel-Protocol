@@ -378,8 +378,8 @@ pub mod constructor {
                 .iter_mut()
                 .filter_map(|inner| {
                     let entropy_bank = inner.entropy_bank.as_mut()?;
-                    let serialized = entropy_bank.serialize_to_vec().ok()?;
-                    let encrypted = inner.pqc.encrypt(serialized, nonce_msg).ok()?;
+                    let serialized = zeroize::Zeroizing::new(entropy_bank.serialize_to_vec().ok()?);
+                    let encrypted = inner.pqc.encrypt(&*serialized, nonce_msg).ok()?;
                     Some(encrypted)
                 })
                 .collect();
@@ -388,9 +388,13 @@ pub mod constructor {
             }
 
             let scramble_entropy_bank = self.scramble.entropy_bank.as_mut()?;
-            let serialized = scramble_entropy_bank.serialize_to_vec().ok()?;
-            let encrypted_scramble_entropy_bank =
-                self.scramble.pqc.encrypt(serialized, nonce_scramble).ok()?;
+            let serialized =
+                zeroize::Zeroizing::new(scramble_entropy_bank.serialize_to_vec().ok()?);
+            let encrypted_scramble_entropy_bank = self
+                .scramble
+                .pqc
+                .encrypt(&*serialized, nonce_scramble)
+                .ok()?;
 
             let transfer = BobToAliceTransfer {
                 msg_bob_params_txs: msg_bob_cts,
@@ -423,20 +427,22 @@ pub mod constructor {
 
             for (idx, container) in self.message.inner.iter_mut().enumerate() {
                 // now, using the message pqc, decrypt the message entropy_bank
-                let decrypted_msg_entropy_bank = match container.pqc.decrypt(
-                    &transfer
-                        .encrypted_msg_entropy_banks
-                        .get(idx)
-                        .ok_or_else(|| {
-                            citadel_io::error!(citadel_io::ErrorCode::RekeyEntropyBankMissing)
-                        })?[..],
-                    nonce_msg,
-                ) {
-                    Ok(entropy_bank) => entropy_bank,
-                    Err(err) => {
-                        return Err(CryptError::rekey_update(err.to_string()));
-                    }
-                };
+                let decrypted_msg_entropy_bank = zeroize::Zeroizing::new(
+                    match container.pqc.decrypt(
+                        &transfer
+                            .encrypted_msg_entropy_banks
+                            .get(idx)
+                            .ok_or_else(|| {
+                                citadel_io::error!(citadel_io::ErrorCode::RekeyEntropyBankMissing)
+                            })?[..],
+                        nonce_msg,
+                    ) {
+                        Ok(entropy_bank) => entropy_bank,
+                        Err(err) => {
+                            return Err(CryptError::rekey_update(err.to_string()));
+                        }
+                    },
+                );
                 let mut decrypted_entropy_bank =
                     EntropyBank::deserialize_from(&decrypted_msg_entropy_bank[..])?;
                 decrypted_entropy_bank.cid = self.cid;
@@ -449,14 +455,15 @@ pub mod constructor {
                 .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
                 .map_err(|err| CryptError::rekey_update(err.to_string()))?;
             // do the same as above
-            let decrypted_scramble_entropy_bank = self
-                .scramble
-                .pqc
-                .decrypt(
-                    &transfer.encrypted_scramble_entropy_bank[..],
-                    nonce_scramble,
-                )
-                .map_err(|err| CryptError::rekey_update(err.to_string()))?;
+            let decrypted_scramble_entropy_bank = zeroize::Zeroizing::new(
+                self.scramble
+                    .pqc
+                    .decrypt(
+                        &transfer.encrypted_scramble_entropy_bank[..],
+                        nonce_scramble,
+                    )
+                    .map_err(|err| CryptError::rekey_update(err.to_string()))?,
+            );
 
             let mut decrypted_entropy_bank =
                 EntropyBank::deserialize_from(&decrypted_scramble_entropy_bank[..])?;

@@ -59,15 +59,13 @@
 //! - Consider perfect secrecy mode for maximum security
 //! - Properly handle algorithm selection based on requirements
 
-use crate::utils;
 use crate::utils::validate_crypto_params;
-use bytes::{Bytes, BytesMut};
 use packed_struct::derive::{PackedStruct, PrimitiveEnum_u8};
 use packed_struct::{PackedStruct, PrimitiveEnum};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use sha3::Digest;
-use std::fmt::{Debug, Formatter};
-use std::ops::{Add, Deref, DerefMut};
+use std::fmt::Debug;
+use std::ops::Add;
 use strum::{EnumCount, IntoEnumIterator, ParseError, VariantNames};
 #[cfg(feature = "typescript")]
 use ts_rs::TS;
@@ -124,216 +122,8 @@ pub fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoPa
     ret
 }
 
-/// A memory-secure wrapper for shipping around Bytes
-pub struct SecBuffer {
-    pub inner: BytesMut,
-}
-
-impl SecBuffer {
-    /// Creates an unlocked, empty buffer
-    pub fn empty() -> Self {
-        Self::with_capacity(0)
-    }
-
-    pub fn with_capacity(cap: usize) -> Self {
-        Self::from(BytesMut::with_capacity(cap))
-    }
-
-    /// Returns the inner element without dropping the memory
-    pub fn into_buffer(mut self) -> BytesMut {
-        self.unlock();
-        std::mem::take(&mut self.inner)
-    }
-
-    /// For accessing the inner element
-    pub fn handle(&mut self) -> SecureBufMutHandle<'_> {
-        SecureBufMutHandle::new(self)
-    }
-
-    /// returns the length of the buffer
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    fn lock(&self) {
-        unsafe { utils::mem::mlock(self.slice().as_ptr(), self.inner.len()) }
-    }
-
-    fn unlock(&self) {
-        unsafe { utils::mem::munlock(self.slice().as_ptr(), self.inner.len()) }
-    }
-
-    fn zeroize(&mut self) {
-        unsafe { utils::mem::zeroize(self.slice().as_ptr(), self.inner.len()) }
-    }
-
-    fn slice(&self) -> &[u8] {
-        &self.inner[..]
-    }
-
-    pub fn reserve(&mut self, additional: usize) {
-        let required = self.inner.len().saturating_add(additional);
-        if required <= self.inner.capacity() {
-            // Sufficient capacity already; no reallocation, so no secrets can be left behind.
-            return;
-        }
-        // Grow manually so the old, secret-bearing allocation is zeroized BEFORE it is freed.
-        // Delegating to BytesMut::reserve would reallocate and free the old buffer in the clear,
-        // leaving plaintext lingering in freed heap until some later allocation overwrites it.
-        //
-        // Grow with amortized headroom (at least double the current capacity) rather than to the
-        // exact size, so a sequence of incremental reservations does not reallocate-and-zeroize the
-        // whole accumulated buffer each time — that would be O(n^2) secret-wiping copies. Doubling
-        // keeps the (necessarily copying) reallocations amortized O(1).
-        let new_capacity = required.max(self.inner.capacity().saturating_mul(2));
-        self.unlock();
-        let mut grown = BytesMut::with_capacity(new_capacity);
-        grown.extend_from_slice(&self.inner[..]);
-        // Wipe the old allocation's live bytes, then drop it (replaced below).
-        self.zeroize();
-        self.inner = grown;
-        self.lock();
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-pub struct SecureBufMutHandle<'a> {
-    inner: &'a mut SecBuffer,
-}
-
-impl<'a> SecureBufMutHandle<'a> {
-    fn new(inner: &'a mut SecBuffer) -> SecureBufMutHandle<'a> {
-        inner.unlock();
-        Self { inner }
-    }
-}
-
-impl Deref for SecureBufMutHandle<'_> {
-    type Target = BytesMut;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner.inner
-    }
-}
-
-impl DerefMut for SecureBufMutHandle<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner.inner
-    }
-}
-
-impl Drop for SecureBufMutHandle<'_> {
-    fn drop(&mut self) {
-        self.inner.lock()
-    }
-}
-
-impl AsRef<[u8]> for SecBuffer {
-    fn as_ref(&self) -> &[u8] {
-        &self.inner[..]
-    }
-}
-
-impl AsMut<[u8]> for SecBuffer {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.inner.as_mut()
-    }
-}
-
-impl From<Vec<u8>> for SecBuffer {
-    fn from(inner: Vec<u8>) -> Self {
-        Self::from(BytesMut::from(Bytes::from(inner)))
-    }
-}
-
-impl From<BytesMut> for SecBuffer {
-    fn from(inner: BytesMut) -> Self {
-        let this = Self { inner };
-        this.lock();
-        this
-    }
-}
-
-impl From<Bytes> for SecBuffer {
-    fn from(inner: Bytes) -> Self {
-        // Zero-copy when the `Bytes` uniquely owns its allocation (e.g. came from a
-        // `Vec`/`BytesMut`); otherwise reclaims by copying. Mirrors the `Vec<u8>` path.
-        Self::from(BytesMut::from(inner))
-    }
-}
-
-impl<const N: usize> From<[u8; N]> for SecBuffer {
-    fn from(this: [u8; N]) -> Self {
-        Self::from(&this as &[u8])
-    }
-}
-
-impl From<&[u8]> for SecBuffer {
-    fn from(this: &[u8]) -> Self {
-        Self::from(BytesMut::from(this))
-    }
-}
-
-impl From<&str> for SecBuffer {
-    fn from(this: &str) -> Self {
-        Self::from(BytesMut::from(this))
-    }
-}
-
-impl Drop for SecBuffer {
-    fn drop(&mut self) {
-        self.unlock();
-        self.zeroize();
-    }
-}
-
-impl Debug for SecBuffer {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "***SECRET***")
-    }
-}
-
-impl<T: AsRef<[u8]>> PartialEq<T> for SecBuffer {
-    fn eq(&self, other: &T) -> bool {
-        // Constant time comparison to prevent timing attacks
-        let this = self.as_ref();
-        let other = other.as_ref();
-        utils::const_time_compare(this, other)
-    }
-}
-
-impl Clone for SecBuffer {
-    fn clone(&self) -> Self {
-        self.unlock();
-        let ret = SecBuffer::from(self.inner.clone());
-        self.lock();
-        ret
-    }
-}
-
-impl Serialize for SecBuffer {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        self.unlock();
-        let ret = self.inner.serialize(serializer);
-        self.lock();
-        ret
-    }
-}
-
-impl<'de> Deserialize<'de> for SecBuffer {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Ok(Self::from(BytesMut::deserialize(deserializer)?))
-    }
-}
+mod sec_buffer;
+pub use sec_buffer::{SecBuffer, SecureBufMutHandle};
 
 #[derive(PackedStruct, Default, Serialize, Deserialize, Copy, Clone, Debug)]
 #[cfg_attr(feature = "typescript", derive(TS))]
@@ -793,6 +583,18 @@ impl AsRef<[Vec<u8>]> for PreSharedKey {
         &self.passwords
     }
 }
+
+/// Each password's hash is wiped when the key drops.
+impl Drop for PreSharedKey {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.passwords
+            .iter_mut()
+            .for_each(|password| password.zeroize());
+    }
+}
+
+impl zeroize::ZeroizeOnDrop for PreSharedKey {}
 
 impl<T: AsRef<[u8]>> From<T> for PreSharedKey {
     fn from(password: T) -> Self {

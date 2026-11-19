@@ -42,7 +42,7 @@
 //! - [`crate::secure_buffer::sec_packet`] - Packet buffer implementation
 //!
 
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 use citadel_types::crypto::SecBuffer;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;

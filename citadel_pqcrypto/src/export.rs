@@ -66,7 +66,7 @@ pub(crate) mod custom_serde {
         where
             S: Serializer,
         {
-            let intermediate_form = KeyStoreIntermediate {
+            let mut intermediate_form = KeyStoreIntermediate {
                 alice_key: self.alice_key,
                 bob_key: self.bob_key,
                 kex: self.kex.clone(),
@@ -74,7 +74,9 @@ pub(crate) mod custom_serde {
                 pq_node: self.pq_node,
                 params: self.params,
             };
-            KeyStoreIntermediate::serialize(&intermediate_form, s)
+            let serialized = KeyStoreIntermediate::serialize(&intermediate_form, s);
+            intermediate_form.wipe_keys();
+            serialized
         }
     }
 
@@ -103,17 +105,24 @@ pub(crate) mod custom_serde {
 impl TryFrom<KeyStoreIntermediate> for KeyStore {
     type Error = citadel_types::errors::Error;
 
-    fn try_from(int: KeyStoreIntermediate) -> Result<Self, Self::Error> {
-        let (alice_symmetric_key, bob_symmetric_key) = keys_to_aead_store(
+    fn try_from(mut int: KeyStoreIntermediate) -> Result<Self, Self::Error> {
+        let stores = keys_to_aead_store(
             &int.alice_key,
             &int.bob_key,
             &int.kex,
             int.params,
             int.sig.as_ref(),
             int.pq_node,
-        )?;
+        );
+        let (alice_symmetric_key, bob_symmetric_key) = match stores {
+            Ok(stores) => stores,
+            Err(err) => {
+                wipe(&mut int.alice_key, &mut int.bob_key);
+                return Err(err);
+            }
+        };
 
-        Ok(KeyStore {
+        let store = KeyStore {
             alice_module: alice_symmetric_key,
             bob_module: bob_symmetric_key,
             alice_key: int.alice_key,
@@ -122,7 +131,24 @@ impl TryFrom<KeyStoreIntermediate> for KeyStore {
             sig: int.sig,
             pq_node: int.pq_node,
             params: int.params,
-        })
+        };
+        // The keys were copied into the store; the intermediate's copies go now.
+        wipe(&mut int.alice_key, &mut int.bob_key);
+        Ok(store)
+    }
+}
+
+type Key = GenericArray<u8, generic_array::typenum::U32>;
+
+fn wipe(alice_key: &mut Key, bob_key: &mut Key) {
+    use zeroize::Zeroize;
+    alice_key.as_mut_slice().zeroize();
+    bob_key.as_mut_slice().zeroize();
+}
+
+impl KeyStoreIntermediate {
+    fn wipe_keys(&mut self) {
+        wipe(&mut self.alice_key, &mut self.bob_key);
     }
 }
 

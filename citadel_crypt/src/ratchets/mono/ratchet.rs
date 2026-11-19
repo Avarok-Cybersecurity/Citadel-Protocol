@@ -306,7 +306,7 @@ impl MonoRatchetConstructor {
             encrypted_entropy_bank_bytes: self
                 .pqc
                 .encrypt(
-                    self.entropy_bank.as_ref()?.serialize_to_vec().ok()?,
+                    zeroize::Zeroizing::new(self.entropy_bank.as_ref()?.serialize_to_vec().ok()?),
                     &self.nonce,
                 )
                 .ok()?,
@@ -321,10 +321,11 @@ impl MonoRatchetConstructor {
         self.pqc
             .alice_on_receive_ciphertext(transfer.params_tx, psks)
             .map_err(|err| CryptError::rekey_update(err.to_string()))?;
-        let bytes = self
-            .pqc
-            .decrypt(&transfer.encrypted_entropy_bank_bytes, &self.nonce)
-            .map_err(|err| CryptError::rekey_update(err.to_string()))?;
+        let bytes = zeroize::Zeroizing::new(
+            self.pqc
+                .decrypt(&transfer.encrypted_entropy_bank_bytes, &self.nonce)
+                .map_err(|err| CryptError::rekey_update(err.to_string()))?,
+        );
         let entropy_bank = EntropyBank::deserialize_from(&bytes[..])?;
         self.entropy_bank = Some(entropy_bank);
         Ok(())

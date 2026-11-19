@@ -4,6 +4,8 @@ use std::fmt::Formatter;
 use std::write;
 
 pub(crate) mod mem;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod page_locks;
 
 pub fn print_tick(
     f: &mut Formatter<'_>,

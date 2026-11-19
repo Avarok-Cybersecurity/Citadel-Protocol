@@ -75,6 +75,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::Semaphore;
+use zeroize::Zeroizing;
 
 pub struct RatchetManager<S, I, R, P: AttachedPayload = ()>
 where
@@ -91,7 +92,7 @@ where
     rekey_done_notifier_tx: UnboundedSender<Option<R>>,
     last_received_message: Arc<AtomicU64>,
     cid: u64,
-    psks: Arc<Vec<Vec<u8>>>,
+    psks: Arc<Vec<Zeroizing<Vec<u8>>>>,
     role: Arc<Atomic<RekeyRole>>,
     constructors: Arc<Mutex<HashMap<u32, R::Constructor>>>,
     is_initiator: bool,
@@ -344,7 +345,11 @@ where
             attached_payload_rx: Arc::new(Mutex::new(Some(attached_payload_rx))),
             rekey_done_notifier,
             rekey_done_notifier_tx: rekey_done_notifier_tx.clone(),
-            psks: Arc::new(psks.iter().map(|psk| psk.as_ref().to_vec()).collect()),
+            psks: Arc::new(
+                psks.iter()
+                    .map(|psk| Zeroizing::new(psk.as_ref().to_vec()))
+                    .collect(),
+            ),
             role: Arc::new(Atomic::new(RekeyRole::Idle)),
             state: Arc::new(Atomic::new(RekeyState::Idle)),
             local_listener: Arc::new(Mutex::new(None)),
@@ -1933,6 +1938,10 @@ where
         }
     }
 }
+
+#[cfg(test)]
+#[path = "ratchet_manager_hygiene_tests.rs"]
+mod hygiene_tests;
 
 #[cfg(test)]
 pub(crate) mod tests {

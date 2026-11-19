@@ -37,6 +37,7 @@ dependencies = [
  "cfg-if 1.0.5",
  "cipher",
  "cpufeatures 0.2.17",
+ "zeroize",
 ]
 
 [[package]]
@@ -51,6 +52,7 @@ dependencies = [
  "ctr",
  "ghash",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -125,6 +127,7 @@ dependencies = [
  "aead",
  "ascon-core",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -132,6 +135,9 @@ name = "ascon-core"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c4c9bc969387b7d7e7e931b978833ab18251a39e0f94addad7b823d08b8db74"
+dependencies = [
+ "zeroize",
+]
 
 [[package]]
 name = "asn1-rs"
@@ -312,7 +318,7 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "sha2",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -816,6 +822,7 @@ dependencies = [
 name = "citadel_pqcrypto"
 version = "0.14.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "ascon-aead",
  "bincode",
@@ -833,6 +840,7 @@ dependencies = [
  "log",
  "ml-dsa",
  "parking_lot",
+ "polyval",
  "pqc_kyber_kyberslash",
  "rand 0.8.8",
  "serde",
@@ -962,8 +970,8 @@ dependencies = [
  "bytes",
  "citadel_io",
  "getrandom 0.2.17",
- "kernel32-sys",
  "libc",
+ "log",
  "packed_struct",
  "serde",
  "sha3",
@@ -971,6 +979,8 @@ dependencies = [
  "strum_macros",
  "ts-rs",
  "uuid",
+ "windows-sys 0.59.0",
+ "zeroize",
 ]
 
 [[package]]
@@ -1499,7 +1509,7 @@ checksum = "1b1d1d91c932ef41c0f2663aa8b0ca0342d444d842c06914aa0a7e352d0bada6"
 dependencies = [
  "libc",
  "redox_users",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2641,16 +2651,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kernel32-sys"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
-dependencies = [
- "winapi 0.2.8",
- "winapi-build",
-]
-
-[[package]]
 name = "kyber-pke"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3063,7 +3063,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
 dependencies = [
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -3440,6 +3440,7 @@ dependencies = [
  "cpufeatures 0.2.17",
  "opaque-debug",
  "universal-hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -4872,7 +4873,7 @@ dependencies = [
  "libc",
  "ntapi",
  "once_cell",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -5695,7 +5696,7 @@ dependencies = [
  "rand 0.8.8",
  "thiserror 1.0.69",
  "tokio",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -5716,7 +5717,7 @@ dependencies = [
  "rand 0.8.8",
  "thiserror 1.0.69",
  "tokio",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -5736,7 +5737,7 @@ dependencies = [
  "rand 0.9.5",
  "thiserror 1.0.69",
  "tokio",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -5751,12 +5752,6 @@ dependencies = [
 
 [[package]]
 name = "winapi"
-version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "167dc9d6949a9b857f3451275e911c3f44255842c1f7a76f33c55103a909087a"
-
-[[package]]
-name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
@@ -5764,12 +5759,6 @@ dependencies = [
  "winapi-i686-pc-windows-gnu",
  "winapi-x86_64-pc-windows-gnu",
 ]
-
-[[package]]
-name = "winapi-build"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d315eee3b34aca4797b2da6b13ed88266e6d612562a0c46390af8299fc699bc"
 
 [[package]]
 name = "winapi-i686-pc-windows-gnu"
