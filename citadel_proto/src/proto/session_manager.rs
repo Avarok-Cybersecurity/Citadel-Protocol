@@ -41,7 +41,7 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
-use crate::proto::link::LinkManagerMode;
+use crate::proto::link::{C2sEstablisher, C2sPath, LinkManagerMode};
 use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::misc::panic_future::catch_panic;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -723,24 +723,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let peer_only_connect_mode =
                     ConnectProtocol::P2P(T::server_identity(&listener_underlying_proto));
 
-                // create conn to peer
-                let primary_stream = match provisional_key.endpoint.clone() {
-                    Some(endpoint) => {
-                        T::connect_endpoint(
-                            default_client_config,
-                            T::from_socket_addr(peer_addr),
-                            endpoint,
-                        )
-                        .await
-                    }
-                    None => T::connect(default_client_config, T::from_socket_addr(peer_addr)).await,
-                }
-                .map_err(|err| NetworkError::socket(err.to_string()))?;
-                T::track_client_transport(&primary_stream, &self.local_rebinder());
-                let local_bind_addr: SocketAddr = T::to_socket_addr(
-                    &T::local_addr(&primary_stream)
-                        .map_err(|err| NetworkError::generic(err.to_string()))?,
-                );
+                let C2sPath {
+                    stream: primary_stream,
+                    local_addr: local_bind_addr,
+                } = C2sEstablisher::<T>::open_path(
+                    default_client_config,
+                    peer_addr,
+                    provisional_key.endpoint.clone(),
+                    &self.local_rebinder(),
+                )
+                .await?;
                 (
                     remote,
                     primary_stream,

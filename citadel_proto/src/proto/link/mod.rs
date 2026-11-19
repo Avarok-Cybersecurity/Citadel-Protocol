@@ -3,6 +3,7 @@
 //! an in-flight connect, §9.1). The decisions live in `citadel_link`; this module is its I/O.
 
 mod abort;
+mod c2s_establisher;
 mod clock;
 mod deadline;
 mod mode;
@@ -21,6 +22,7 @@ pub(crate) mod reattach;
 
 pub use abort::AbortGuard;
 pub(crate) use abort::{until_aborted, InFlightConnects};
+pub(crate) use c2s_establisher::{C2sEstablisher, C2sPath};
 pub use clock::RuntimeClock;
 pub(crate) use deadline::{login_deadline, LoginDeadline};
 pub use mode::{LinkManagerMode, ManagedLinks, ManagedLinksError};
