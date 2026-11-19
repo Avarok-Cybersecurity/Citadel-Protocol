@@ -12,17 +12,12 @@ mod common;
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::common::link::{managed, saw, with_client, ManualClock, Plan, Seen};
-    use crate::common::{NodeState, ReconnectionTestKernel};
     use citadel_io::tokio;
     use citadel_io::tokio::sync::oneshot;
     use citadel_proto::constants::TCP_CONN_TIMEOUT;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::{server_info, LOCALHOST_STUN_SERVERS};
     use futures::StreamExt;
-    use std::future::Future;
     use std::net::SocketAddr;
-    use std::sync::Arc;
-    use std::time::Duration;
     use uuid::Uuid;
 
     fn connect(user: Uuid, addr: SocketAddr) -> NodeRequest {
