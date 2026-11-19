@@ -42,6 +42,7 @@ use citadel_crypt::ratchets::Ratchet;
 /// Tracks disconnect signals to ensure at most 1 per session/peer
 pub(crate) mod disconnect_tracker;
 pub(crate) mod endpoint_crypto_accessor;
+pub(crate) mod link;
 pub(crate) mod misc;
 /// Used at each HyperNode
 pub mod node;

@@ -40,6 +40,7 @@ use crate::udp_traversal::multi::DualStackUdpHolePuncher;
 pub use crate::udp_traversal::paired_attempts::PAIRED_ATTEMPTS_HELLO;
 use crate::udp_traversal::paired_attempts::{self, AttemptCoordinator, AttemptLane};
 pub use crate::udp_traversal::punch_budget::PunchBudget;
+pub use crate::udp_traversal::punch_report::{PunchReport, Punched};
 use citadel_io::tokio::net::UdpSocket;
 use futures::Future;
 use netbeam::reliable_conn::{
@@ -67,7 +68,7 @@ struct HolePunchCandidates {
 }
 
 pub struct UdpHolePuncher<'a> {
-    driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
+    driver: Pin<Box<dyn Future<Output = Result<Punched, anyhow::Error>> + Send + 'a>>,
 }
 
 /// An attempt long enough for a punch over a slow coordination path, for a punch with no deadline
@@ -94,11 +95,22 @@ impl<'a> UdpHolePuncher<'a> {
     }
 }
 
+impl<'a> UdpHolePuncher<'a> {
+    /// The punched socket with its [`PunchReport`] (awaiting the puncher itself yields the
+    /// socket alone).
+    pub async fn reported(self) -> Result<Punched, anyhow::Error> {
+        self.driver.await
+    }
+}
+
 impl Future for UdpHolePuncher<'_> {
     type Output = Result<HolePunchedUdpSocket, anyhow::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.driver.as_mut().poll(cx)
+        self.driver
+            .as_mut()
+            .poll(cx)
+            .map(|punched| punched.map(|punched| punched.socket))
     }
 }
 
@@ -113,8 +125,9 @@ async fn driver(
     encrypted_config_container: HolePunchConfigContainer,
     stun_servers: &StunServers,
     budget: PunchBudget,
-) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    let deadline = citadel_io::time::Instant::now() + budget.total();
+) -> Result<Punched, anyhow::Error> {
+    let started = citadel_io::time::Instant::now();
+    let deadline = started + budget.total();
     let timeout = budget.attempt();
     let control = conn.on(HOLE_PUNCH_CONTROL);
     // The local NAT is a fact about this host, not about one attempt: it is learned once, while
@@ -146,9 +159,15 @@ async fn driver(
                 stun_servers,
             );
             let next = match citadel_io::time::timeout(timeout, task).await {
-                Ok(AttemptOutcome::Punched(res)) => {
+                Ok(AttemptOutcome::Punched(socket)) => {
                     log::trace!(target: "citadel", "[driver] Attempt {attempt} succeeded!");
-                    return Ok(res);
+                    let report = PunchReport {
+                        attempt,
+                        attempts_allowed: MAX_RETRIES,
+                        elapsed: started.elapsed(),
+                        local_nat: local_nat_type.class(),
+                    };
+                    return Ok(Punched { socket, report });
                 }
                 Ok(AttemptOutcome::Failed(err)) => {
                     log::warn!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} failed with error: {err:#}");
@@ -879,3 +898,8 @@ mod attempt_pairing_tests;
 #[cfg(all(test, feature = "localhost-testing"))]
 #[path = "sealed_punch_tests.rs"]
 mod sealed_punch_tests;
+
+// Loopback punches; the same localhost NAT model as `attempt_pairing_tests` above.
+#[cfg(all(test, feature = "localhost-testing"))]
+#[path = "punch_report_tests.rs"]
+mod punch_report_tests;
