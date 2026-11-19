@@ -654,6 +654,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The published sources must be what citadel_types generates. Before this,
+      # nothing regenerated them: the exporter itself had stopped compiling, and
+      # KemAlgorithm.ts lacked two variants the Rust has.
+      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - name: Generated types match the Rust
+        run: bash ci/check-ts-types-fresh.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

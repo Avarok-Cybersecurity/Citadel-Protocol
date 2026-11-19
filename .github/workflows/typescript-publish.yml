@@ -6,7 +6,8 @@ on:
       - master
     paths:
       - 'citadel-protocol-types-ts/**'
-      - 'citadel_types/src/**'
+      - 'citadel_types/**'
+      - 'citadel_proto/src/constants.rs'
 
 permissions:
   contents: write
@@ -16,6 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Never publish sources the Rust would not generate.
+      - uses: Avarok-Cybersecurity/gh-actions-deps@master
+      - name: Generated types match the Rust
+        run: bash ci/check-ts-types-fresh.sh
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

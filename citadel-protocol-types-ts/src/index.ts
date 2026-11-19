@@ -38,8 +38,6 @@ export * from './SecurityLevel';
 export * from './HeaderObfuscatorSettings';
 export * from './PreSharedKey';
 
-// Error types
-export * from './Error';
 
 // Runtime helpers (allValues, defaults)
 export * from './helpers';
