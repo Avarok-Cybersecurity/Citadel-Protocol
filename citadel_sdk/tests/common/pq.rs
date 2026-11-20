@@ -20,9 +20,13 @@ pub const PASSWORD: &str = "correct horse battery";
 pub type Slot = Arc<Mutex<Option<NodeRemote<StackedRatchet>>>>;
 
 pub fn pq_settings() -> ServerMiscSettings {
+    pq_settings_throttled(ThrottlePolicy::RECOMMENDED)
+}
+
+pub fn pq_settings_throttled(throttle: ThrottlePolicy) -> ServerMiscSettings {
     ServerMiscSettings {
         pq_sign_in: Some(
-            PqAuthServerSettings::new(OprfSeed::generate(), KsfParams::FLOOR)
+            PqAuthServerSettings::new(OprfSeed::generate(), KsfParams::FLOOR, throttle)
                 .and_then(|settings| settings.with_security_key_rp_id("localhost"))
                 .unwrap(),
         ),
@@ -99,6 +103,7 @@ pub async fn register_legacy(
         password: None,
         cert_verification: CertVerification::SelfSignedAccepted,
         admission: None,
+        recovery_domain: None,
     });
     let mut results = remote.send_callback_subscription(request).await?;
     while let Some(result) = results.next().await {
@@ -133,6 +138,35 @@ pub async fn server_mode(slot: &Slot, user: &str) -> ServerRecord {
         post_quantum: mode.pq_record().is_some(),
         argon: mode.argon_container().is_some(),
     }
+}
+
+/// Another device: a client node with its own, empty account store, run alongside `server` (the
+/// returned future runs both). Its remote arrives once it starts; it runs until the test ends.
+pub fn with_device(
+    server: impl std::future::Future<Output = ()>,
+) -> (
+    impl std::future::Future<Output = ()>,
+    tokio::sync::oneshot::Receiver<NodeRemote<StackedRatchet>>,
+) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let kernel = GroupTestKernel::new(move |remote: NodeRemote<StackedRatchet>, _: Events| {
+        let _ = tx.send(remote);
+        std::future::pending::<Result<(), NetworkError>>()
+    });
+    let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
+        .with_backend(BackendType::InMemory)
+        .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
+        .build(kernel)
+        .unwrap();
+    let both = async move {
+        tokio::select! {
+            _ = server => {}
+            res = node => panic!("the other device ended: {:?}", res.err()),
+        }
+    };
+    (both, rx)
 }
 
 /// Runs `client` against `server` until the client finishes.

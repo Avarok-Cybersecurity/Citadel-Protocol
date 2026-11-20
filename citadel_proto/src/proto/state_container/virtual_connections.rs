@@ -2,6 +2,7 @@
 //! lookup, direct-P2P upgrade, and stream selection.
 
 use super::includes::*;
+use super::relay_route::ForgedRoute;
 use crate::proto::peer::direct_journal::{DirectJournal, JournaledMessage};
 use crate::proto::peer::direct_route;
 use crate::proto::peer::negotiation::floor::MessageFloor;
@@ -148,6 +149,21 @@ impl<R: Ratchet> StateContainerInner<R> {
             .as_ref()?;
         endpoint.direct_p2p_remote.as_ref()?;
         Some(&endpoint.direct_journal)
+    }
+
+    /// Ends the current direct route to `peer_cid` from this side, as its loss would: the peer
+    /// reported losing it, so this side's transport has not noticed yet.
+    pub(crate) fn cut_direct_route(&mut self, peer_cid: u64) -> RouteEnd {
+        let route_id = self
+            .active_virtual_connections
+            .get(&peer_cid)
+            .and_then(|vconn| vconn.endpoint_container.as_ref())
+            .and_then(|endpoint| endpoint.direct_p2p_remote.as_ref())
+            .map(|remote| remote.route_id);
+        match route_id {
+            Some(route_id) => self.fall_back_to_server_relay(peer_cid, route_id),
+            None => RouteEnd::NotCurrent,
+        }
     }
 
     /// The direct route `route_id` to `peer_cid` ended. When it is still the connection's route
@@ -405,6 +421,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             // Client side: this node never runs the server's peer teardown, so
             // there is no incarnation question to answer here.
             peer_session_init_time: None,
+            forged: None,
         };
 
         // Guard: when both peers call connect_to_peer() simultaneously, two independent
@@ -473,6 +490,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         target_udp_sender: Option<OutboundUdpSender>,
         target_tcp_sender: OutboundPrimaryStreamSender,
         peer_session_init_time: Instant,
+        forged: ForgedRoute,
     ) {
         let val = VirtualConnection {
             last_delivered_message_timestamp: DualRwLock::from(None),
@@ -483,6 +501,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             adjacent_nat_type: None, // Server doesn't have direct NAT info for clients
             p2p_connection_id: Ticket(0), // Server doesn't track P2P connection IDs
             peer_session_init_time: Some(peer_session_init_time),
+            forged: Some(forged),
         };
         if self
             .active_virtual_connections

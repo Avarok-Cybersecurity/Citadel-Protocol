@@ -1,0 +1,21 @@
+[package]
+name = "citadel_phrase"
+version = "0.14.0"
+authors = ["Thomas Braun <thomas.braun@avarok.net>"]
+description = "The Citadel recovery phrase: 24 words of the BIP-39 English list encoding a 32-byte seed with a SHA3 check"
+edition = "2021"
+homepage = "https://avarok.net/"
+repository = "https://github.com/Avarok-Cybersecurity/Citadel-Protocol"
+readme = "../README.md"
+categories = ["cryptography"]
+license = "MIT OR Apache-2.0"
+
+# A leaf: pure, no randomness, no clock, no I/O, so it builds for wasm32-unknown-unknown as is.
+# The SDK's sign-in and the agent's identity crate both encode and decode phrases with it.
+[dependencies]
+sha3 = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+# Only to check the bundled word list against BIP-39's published sha256.
+sha256 = { workspace = true }

@@ -4,6 +4,21 @@
 
 ### Added
 
+- **P2P key exchanges signed by each account's identity key.** Each end signs its stage of a P2P
+  key exchange (the initiator its Stage0, the responder its Stage1) with its account's ML-DSA-65
+  identity key, over a transcript naming both CIDs, the connection id, the digests of the stages
+  as their senders wrote them, and the signer's role (`proto::peer::kex_auth`). The other end
+  checks the signature, then the key against the one pinned for the peer. A node gets the keys and
+  the pins from the application through the `P2pKexIdentity` port
+  (`NodeBuilder::with_p2p_kex_identity`); a node given none signs and checks nothing. A peer seen
+  first is pinned; a stage signed by another key is refused (`P2pKexPeerKeyChanged`) and reported
+  to the port, and the pair connects once the application pins the presented key; an unsigned
+  stage from a pinned peer is refused (`P2pKexSignatureMissing`); a stage that does not verify is
+  refused (`P2pKexSignatureInvalid`). A peer with no pin and no signature (an older node, an
+  account with no identity key) connects as before. `PeerChannel::peer_kex_identity()` reports
+  `Signed { identity_key }` or `Unsigned`. Wire: `PeerSignal::Kex` gains an appended `auth` field,
+  ignored by older nodes; gate `P2P_KEX_SIGNED_SINCE` (0.12.4, the shared bump).
+  `KernelExecutorArguments` gains `p2p_kex_identity`.
 - **P2P path outcomes.** Every background upgrade attempt of a peer connection reports a
   `PathAttemptOutcome`: the attempt number, the plan, the path it attached (`Direct`, `Turn` or
   `ServerRelay`), and every stage (`Coordination`, `Direct`, `Turn`) with its time and, for each

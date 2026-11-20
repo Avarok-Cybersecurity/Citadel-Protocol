@@ -350,14 +350,23 @@ pub enum HdpSessionInitMode {
     Connect(AuthenticationRequest),
     /// The optional endpoint is the server's WebSocket URL (see `RegisterToHypernode::endpoint`),
     /// the optional password is for a post-quantum registration (see
-    /// `RegisterToHypernode::password`), and the optional token is its admission token (see
-    /// `RegisterToHypernode::admission`).
+    /// `RegisterToHypernode::password`), the optional token is its admission token (see
+    /// `RegisterToHypernode::admission`), and the last is the recovery phrase's domain (see
+    /// `RegisterToHypernode::recovery_domain`).
     Register(
         SocketAddr,
         ProposedCredentials,
         Option<citadel_io::WebSocketEndpoint>,
         Option<SecBuffer>,
         Option<citadel_user::auth::pq::admission::AdmissionToken>,
+        Option<String>,
+    ),
+    /// A new device's recovery of an account (see `pq_sign_in::recover`), with the server's
+    /// WebSocket URL when it is reached through one.
+    Recover(
+        SocketAddr,
+        Option<citadel_io::WebSocketEndpoint>,
+        crate::proto::node_request::AccountRecovery,
     ),
 }
 
@@ -382,6 +391,7 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub turn_servers: Option<Vec<TurnServerConfig>>,
     pub max_security_level: citadel_types::crypto::MaxSecurityLevel,
     pub revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+    pub p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     pub init_time: Instant,
     pub login_deadline: crate::proto::link::LoginDeadline,
     pub session_password: PreSharedKey,
@@ -452,7 +462,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .as_ref()
             .map(|r| &r.init_mode)
         {
-            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _)) => endpoint.clone(),
+            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _, _))
+            | Some(HdpSessionInitMode::Recover(_, endpoint, _)) => endpoint.clone(),
             _ => None,
         };
 
@@ -478,7 +489,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         }
                     }
 
-                    HdpSessionInitMode::Register(..) => (None, SessionState::NeedsRegister, None),
+                    HdpSessionInitMode::Register(..) | HdpSessionInitMode::Recover(..) => {
+                        (None, SessionState::NeedsRegister, None)
+                    }
                 }
             } else {
                 (None, SessionState::SocketJustOpened, None)
@@ -531,6 +544,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let turn_servers = session_init_params.turn_servers;
         let max_security_level = session_init_params.max_security_level;
         let revfs_keys = session_init_params.revfs_keys;
+        let p2p_kex_identity = session_init_params.p2p_kex_identity;
         let path_policy = session_init_params
             .server_only_session_init_settings
             .as_ref()
@@ -580,6 +594,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 udp_mode,
                 ledger,
                 revfs_keys,
+                p2p_kex_identity,
             ),
             to_primary_stream: DualLateInit::default(),
             state,
@@ -952,6 +967,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     passwordless,
                     proposed_cid,
                     ticket,
+                );
+                crate::proto::pq_sign_in::recover::client::on_stage0_sent(
+                    &mut state_container,
+                    &stage0_register_packet,
                 );
                 to_outbound
                     .unbounded_send(stage0_register_packet)

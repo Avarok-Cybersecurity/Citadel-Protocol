@@ -127,30 +127,45 @@ fn a_challenge_from_an_unknown_provider_reads_as_absent() {
 
 #[test]
 fn a_registration_failure_carries_the_challenge_to_a_client_that_reads_one() {
-    let (message, read) =
-        read_register_failure(register_failure(required(Some(challenge())), true));
-    assert_eq!(read, Some(challenge()));
-    let err = refusal_from_message(&message, read).expect("the refusal was not recognised");
+    let read = read_register_failure(register_failure(required(Some(challenge())), true, false));
+    assert_eq!(read.admission_challenge, Some(challenge()));
+    let err = refusal_from_message(&read.message, read.admission_challenge)
+        .expect("the refusal was not recognised");
     assert_eq!(challenge_of(&err), Some(&challenge()));
 }
 
 #[test]
 fn an_older_client_and_an_absent_challenge_get_the_plain_message() {
-    let to_old = register_failure(required(Some(challenge())), false);
+    let to_old = register_failure(required(Some(challenge())), false, false);
     assert_eq!(
         to_old,
         refusal_message(),
         "an older client was sent a challenge"
     );
-    let absent = register_failure(required(None), true);
+    let absent = register_failure(required(None), true, false);
     assert_eq!(absent, refusal_message());
+    let read = read_register_failure(absent);
+    let expected = String::from_utf8(refusal_message().to_vec()).unwrap();
     assert_eq!(
-        read_register_failure(absent),
-        (String::from_utf8(refusal_message().to_vec()).unwrap(), None)
+        (read.message, read.admission_challenge, read.code),
+        (expected, None, None)
     );
-    let generic = register_failure(citadel_io::NetworkError::msg("Server busy"), true);
-    assert_eq!(
-        read_register_failure(generic),
-        ("Server busy".to_string(), None)
-    );
+    let generic = register_failure(citadel_io::NetworkError::msg("Server busy"), true, false);
+    let read = read_register_failure(generic);
+    assert_eq!((read.message.as_str(), read.code), ("Server busy", None));
+}
+
+/// Control: leave the code out of `register_failure` and the client reads none.
+#[test]
+fn a_client_at_the_recovery_release_reads_the_failures_code() {
+    let failed = citadel_io::error!(citadel_io::ErrorCode::PqSignInFailed);
+    let read = read_register_failure(register_failure(failed.clone(), true, true));
+    assert_eq!(read.code, Some(failed.code_u16()));
+    assert_eq!(read.message, failed.to_string());
+    let rebuilt = citadel_io::NetworkError::from_wire(read.code.unwrap(), read.message);
+    assert_eq!(rebuilt.code(), citadel_io::ErrorCode::PqSignInFailed);
+    let with_challenge =
+        read_register_failure(register_failure(required(Some(challenge())), true, true));
+    assert_eq!(with_challenge.admission_challenge, Some(challenge()));
+    assert!(with_challenge.code.is_some());
 }

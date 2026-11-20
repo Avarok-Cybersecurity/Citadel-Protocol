@@ -31,15 +31,8 @@ impl RevfsKey {
     /// domain, canonicalised by the caller as for the recovery phrase, so one root's keys on two
     /// servers are unrelated. `cid` is the account on that server.
     pub fn derive(root: &[u8; 32], canonical_domain: &str, cid: u64) -> Result<Self, CryptError> {
-        let domain_len = u16::try_from(canonical_domain.len())
-            .ok()
-            .filter(|len| *len > 0)
+        let info = domain_bound_info(canonical_domain, &cid.to_be_bytes())
             .ok_or_else(|| citadel_io::error!(ErrorCode::RevfsKeyDomainInvalid))?;
-        let mut info = Vec::with_capacity(2 + canonical_domain.len() + 1 + 8);
-        info.extend_from_slice(&domain_len.to_be_bytes());
-        info.extend_from_slice(canonical_domain.as_bytes());
-        info.push(0);
-        info.extend_from_slice(&cid.to_be_bytes());
         let mut key = Zeroizing::new([0u8; 32]);
         expand(KEY_SALT, root, &info, &mut key);
         let digest = Sha3_256::new()
@@ -68,6 +61,22 @@ impl RevfsKey {
         expand(OBJECT_SALT, self.key.as_slice(), &info, &mut out);
         out
     }
+}
+
+/// The HKDF `info` that binds a key derived from an account's seed to one server and one account
+/// there: `u16be(len(domain)) ‖ domain ‖ 0x00 ‖ account`. The RE-VFS key and the recovery phrase's
+/// factor both use it, so one seed's keys on two servers are unrelated. `None` for a domain that
+/// is empty or longer than 65535 bytes.
+pub fn domain_bound_info(canonical_domain: &str, account: &[u8]) -> Option<Vec<u8>> {
+    let domain_len = u16::try_from(canonical_domain.len())
+        .ok()
+        .filter(|len| *len > 0)?;
+    let mut info = Vec::with_capacity(2 + canonical_domain.len() + 1 + account.len());
+    info.extend_from_slice(&domain_len.to_be_bytes());
+    info.extend_from_slice(canonical_domain.as_bytes());
+    info.push(0);
+    info.extend_from_slice(account);
+    Some(info)
 }
 
 fn expand(salt: &[u8], ikm: &[u8], info: &[u8], out: &mut [u8; 32]) {

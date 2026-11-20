@@ -29,6 +29,7 @@
 //! - `SessionManager`: Tracks registration process
 
 use super::includes::*;
+use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -161,6 +162,11 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             header.session_cid.get(),
                             ticket,
                         );
+                        // What a recovery in this exchange would be bound to.
+                        let binding = citadel_user::auth::pq::channel_binding(
+                            &payload,
+                            &stage1_packet[HDP_HEADER_BYTE_LEN..],
+                        );
 
                         // Single lock for commit and state-machine validation
                         let ok = {
@@ -172,6 +178,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                     Some(transient_mode_requested);
                                 state_container.register_state.created_ratchet =
                                     Some(finished_ratchet);
+                                state_container.register_state.pq.recover.binding = Some(binding);
                                 state_container.register_state.last_stage =
                                     packet_flags::cmd::aux::do_register::STAGE1;
                                 state_container.register_state.on_register_packet_received();
@@ -221,6 +228,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         SyncIO::deserialize_from_vector(&payload[..]).ok(),
                         "Unable to deserialize BobToAliceTransfer"
                     );
+                    let stage1_payload = payload.to_vec();
                     let security_level = transfer.security_level();
 
                     // Offload stage1_alice + finish (avoid capturing session in closure)
@@ -241,6 +249,29 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         proposed_credentials_opt.as_ref(),
                         "Unable to load proposed credentials"
                     );
+
+                    // A recovery goes on in its own lane instead of STAGE2.
+                    match pq_sign_in::recover::client::begin(
+                        &session,
+                        &new_ratchet,
+                        header.protocol_version.get(),
+                        &stage1_payload,
+                        algorithm,
+                        timestamp,
+                        security_level,
+                        ticket,
+                    ) {
+                        Ok(Some(recover_start)) => {
+                            let mut state_container = inner_mut_state!(session.state_container);
+                            state_container.register_state.created_ratchet = Some(new_ratchet);
+                            state_container.register_state.last_stage =
+                                packet_flags::cmd::aux::do_register::RECOVER_START;
+                            state_container.register_state.on_register_packet_received();
+                            return Ok(PrimaryProcessorResult::ReplyToSender(recover_start));
+                        }
+                        Ok(None) => {}
+                        Err(err) => return super::recover_packet::fail_client(&session, err),
+                    }
 
                     // A server that runs post-quantum sign-in evaluates the OPRF first; STAGE2
                     // then carries the keys instead of a password hash.
@@ -307,6 +338,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                 pq_sign_in::register::on_pq_start(
                     &session,
                     &ratchet,
+                    header.protocol_version.get(),
                     &plaintext,
                     header.algorithm,
                     security_level,
@@ -339,11 +371,18 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     validation::aead::validate_custom(&ratchet, &header.bytes(), payload),
                     "Unable to validate PQ_REPLY"
                 );
-                let pq = match pq_sign_in::register::on_pq_reply(&session, &plaintext).await {
+                let pq = match pq_sign_in::register::on_pq_reply(
+                    &session,
+                    &plaintext,
+                    header.protocol_version.get(),
+                )
+                .await
+                {
                     Ok(pq) => pq,
                     Err(err) => {
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
+                            error_code: Some(err.code_u16()),
                             error_message: err.into_string(),
                             admission_challenge: None,
                         }))?;
@@ -375,8 +414,10 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
 
                 let task = {
                     let state_container = inner_state!(session.state_container);
+                    // A recovery never creates an account.
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE1
+                        && !state_container.register_state.pq.recover.in_progress()
                     {
                         let algorithm = header.algorithm;
                         let ratchet = return_if_none!(
@@ -528,6 +569,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     let state_container = inner_state!(session.state_container);
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE2
+                        && !state_container.register_state.pq.recover.in_progress()
                     {
                         let ratchet = return_if_none!(
                             state_container.register_state.created_ratchet.clone(),
@@ -563,10 +605,14 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             let session_crypto_state =
                                 initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
 
-                            let (registered_pq, recovery_codes) = {
+                            let (registered_pq, recovery_codes, recovery_phrase) = {
                                 let mut state_container = inner_mut_state!(session.state_container);
                                 let pq = &mut state_container.register_state.pq;
-                                (pq.registered, std::mem::take(&mut pq.recovery_codes))
+                                (
+                                    pq.registered,
+                                    std::mem::take(&mut pq.recovery_codes),
+                                    pq.recovery_phrase.take(),
+                                )
                             };
                             async move {
                                 let registered = if registered_pq {
@@ -621,6 +667,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                                     cid: new_cnac.get_cid(),
                                                     welcome_message: success_message,
                                                     recovery_codes,
+                                                    recovery_phrase,
                                                 },
                                             ))?;
                                             session.shutdown();
@@ -632,6 +679,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                         kernel_tx.unbounded_send(NodeResult::RegisterFailure(
                                             RegisterFailure {
                                                 ticket: reg_ticket.get(),
+                                                error_code: Some(err.code_u16()),
                                                 error_message: err.into_string(),
                                                 admission_challenge: None,
                                             },
@@ -686,12 +734,12 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     {
                         // Freed before the caller hears, so it may retry at once.
                         session.release_provisional_slot();
-                        let (error_message, admission_challenge) =
-                            pq_sign_in::refusal::read_register_failure(error_message);
+                        let refusal = pq_sign_in::refusal::read_register_failure(error_message);
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
-                            error_message,
-                            admission_challenge,
+                            error_message: refusal.message,
+                            admission_challenge: refusal.admission_challenge,
+                            error_code: refusal.code,
                         }))?;
                         session.shutdown();
                     } else {
@@ -706,6 +754,10 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     log::warn!(target: "citadel", "A failure packet was received, but this node never sent a registration request. Dropping");
                     Ok(PrimaryProcessorResult::Void)
                 }
+            }
+
+            aux if super::recover_packet::is_recovery_stage(aux) => {
+                super::recover_packet::process(&session, &header, payload, remote_addr).await
             }
 
             _ => {

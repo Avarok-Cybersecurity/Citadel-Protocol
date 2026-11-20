@@ -221,8 +221,12 @@ impl<R: Ratchet> DerefMut for CitadelClientServerConnection<R> {
 pub struct RegisterSuccess {
     pub cid: u64,
     /// The recovery codes of a post-quantum registration, to show the user once (see
-    /// `RegisterOkay::recovery_codes`). Empty for a legacy registration.
+    /// `RegisterOkay::recovery_codes`). Empty for a legacy registration, and at a server that
+    /// recovers accounts.
     pub recovery_codes: Vec<String>,
+    /// The new account's recovery phrase, 24 words to show the user once (see
+    /// `RegisterOkay::recovery_phrase`).
+    pub recovery_phrase: Option<Vec<String>>,
 }
 
 /// Waits for the outcome of a registration request.
@@ -246,11 +250,13 @@ async fn await_registration<R: Ratchet, Rem: ProtocolRemoteExt<R>>(
             NodeResult::RegisterOkay(RegisterOkay {
                 cid,
                 recovery_codes,
+                recovery_phrase,
                 ..
             }) => {
                 return Ok(RegisterSuccess {
                     cid,
                     recovery_codes,
+                    recovery_phrase,
                 });
             }
             NodeResult::RegisterFailure(err) => {
@@ -323,13 +329,16 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             default_security_settings,
             server_password,
             None,
+            None,
             cert_verification,
         )
         .await
     }
 
     /// As [`register`](Self::register), carrying an admission token (a Turnstile response) for a
-    /// server that asks fresh registrations for one. A refusal is a `PqSignInAdmissionRequired`
+    /// server that asks fresh registrations for one, and the server's canonical domain for the new
+    /// account's recovery phrase (see `RegisterToHypernode::recovery_domain`; the phrase comes
+    /// back in [`RegisterSuccess::recovery_phrase`]). A refusal is a `PqSignInAdmissionRequired`
     /// or `PqSignInAdmissionFailed` error.
     #[allow(clippy::too_many_arguments)]
     async fn register_admitted<
@@ -346,6 +355,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
         admission: Option<String>,
+        recovery_domain: Option<String>,
         cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         let (creds, password) =
@@ -361,6 +371,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             password: Some(password),
             cert_verification,
             admission,
+            recovery_domain,
         });
 
         await_registration(self, register_request).await
@@ -394,12 +405,14 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             default_security_settings,
             server_password,
             None,
+            None,
             cert_verification,
         )
         .await
     }
 
-    /// As [`register_to_endpoint`](Self::register_to_endpoint), carrying an admission token.
+    /// As [`register_to_endpoint`](Self::register_to_endpoint), carrying an admission token and
+    /// the recovery phrase's domain (see [`register_admitted`](Self::register_admitted)).
     #[cfg(not(target_family = "wasm"))]
     #[allow(clippy::too_many_arguments)]
     async fn register_to_endpoint_admitted<
@@ -415,6 +428,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
         admission: Option<String>,
+        recovery_domain: Option<String>,
         cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         let remote_addr = endpoint.resolve().await?;
@@ -429,6 +443,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             password: Some(password),
             cert_verification,
             admission,
+            recovery_domain,
         });
 
         await_registration(self, register_request).await
@@ -1582,7 +1597,9 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         let mut subscription = self.remote().send_callback_subscription(request).await?;
 
         while let Some(evt) = subscription.next().await {
-            if let NodeResult::ReKeyResult(result) = evt {
+            // A request the node could not route (the session is gone) is answered with an
+            // error, not a `ReKeyResult`; skipping it waited forever.
+            if let NodeResult::ReKeyResult(result) = evt.into_result()? {
                 return match result.status {
                     ReKeyReturnType::Success { version } => Ok(Some(version)),
                     ReKeyReturnType::AlreadyInProgress => Ok(None),

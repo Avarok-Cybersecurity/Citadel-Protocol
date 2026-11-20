@@ -63,6 +63,8 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
+/// Verifies a detached signature (ML-DSA pure mode, empty context) by an encoded public key.
+pub use crate::functions::signature_verify;
 pub use crate::replay_attack_container::AntiReplayAttackContainer;
 
 pub mod prelude {

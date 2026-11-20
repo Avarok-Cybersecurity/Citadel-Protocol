@@ -140,6 +140,9 @@ pub(crate) fn end_attempt_refused_by<R: Ratchet>(
     } else {
         original
     };
+    // The server's own refusals (of a crossing's spare accept, which carries the merged
+    // exchange's ticket) name this side as the sender; a refusal relayed from the peer names it.
+    let from_peer = original != session_cid;
     let refused = state_container
         .outgoing_peer_connect_attempts
         .get(&peer_cid)
@@ -149,15 +152,23 @@ pub(crate) fn end_attempt_refused_by<R: Ratchet>(
         state_container
             .outgoing_peer_connect_attempts
             .remove(&peer_cid);
-        // The key exchange this side started for that attempt ends with it: left in place, it
-        // reads as an exchange in progress and turns away the pair's next one.
-        let own_exchange = state_container
-            .peer_kem_states
-            .get(&peer_cid)
-            .is_some_and(|kem| kem.local_is_initiator && kem.constructor.is_some());
-        if own_exchange && !state_container.has_live_peer_connection(peer_cid) {
-            state_container.peer_kem_states.remove(&peer_cid);
-        }
+    }
+    // An exchange that ends with the refusal: left in place, it reads as an exchange in progress
+    // and turns away the pair's next one. The exchange this side started for a refused attempt
+    // ends with it. When the peer refused, so does an exchange this side answered: the one the
+    // refusal names, or, when it ended this side's attempt, whichever exchange answered that
+    // attempt (a merged crossing's refusal reaches this side on its own dial's ticket).
+    let ends = state_container
+        .peer_kem_states
+        .get(&peer_cid)
+        .is_some_and(|kem| {
+            let started = kem.local_is_initiator && kem.constructor.is_some();
+            let answered = !kem.local_is_initiator && kem.constructor.is_some();
+            (refused && started)
+                || (from_peer && (kem.answers(refused_ticket) || (refused && answered)))
+        });
+    if ends && !state_container.has_live_peer_connection(peer_cid) {
+        state_container.peer_kem_states.remove(&peer_cid);
     }
 }
 

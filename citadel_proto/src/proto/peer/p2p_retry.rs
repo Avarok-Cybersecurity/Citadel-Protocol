@@ -1,6 +1,7 @@
 //! One recovery cycle of a P2P path campaign: retries, each after its backoff and a rendezvous
 //! with the peer, until a route attaches, both peers are out of retries, or the campaign must end.
 
+use super::coordination::PATH_LOST;
 use super::p2p_campaign::{
     RECOVERY_ATTEMPTS, RECOVERY_BACKOFF, RECOVERY_BACKOFF_MAX, RENDEZVOUS_TIMEOUT,
 };
@@ -116,6 +117,43 @@ impl Retry<'_> {
     }
 }
 
+/// Waits until the connection's P2P route is lost on either side, so both peers enter the retry
+/// together. Each side learns of a dead path only from its own transport, and QUIC's idle timer
+/// can tell one side a whole idle period after the other: longer than the first side waits at the
+/// retry's rendezvous, so the two never met and the campaign ended. With `shared` (a peer at
+/// `PATH_LOSS_SHARED_SINCE`) both wait in one `net_select` on [`PATH_LOST`]. The side that loses
+/// the route wakes the other, which cuts its own route (`cut`) and falls back too. `false` as for
+/// [`wait_for_fall_back`].
+pub(crate) async fn wait_for_shared_fall_back(
+    cell: &P2pPathCell,
+    app: &NetworkEndpoint,
+    shared: bool,
+    cut: impl FnOnce(),
+) -> bool {
+    if !shared {
+        return wait_for_fall_back(cell).await;
+    }
+    // Only a fall-back the campaign will retry wakes the peer; a closing connection ends the
+    // campaign (and this wait) by its cancellation.
+    let lost_here = async {
+        if wait_for_fall_back(cell).await {
+            return;
+        }
+        std::future::pending::<()>().await
+    };
+    match app.on(PATH_LOST).net_select(lost_here).await {
+        Ok(woken) if woken.value.is_none() => {
+            log::info!(target: "citadel", "The peer lost the direct route; falling back with it");
+            cut();
+        }
+        Ok(_) => {}
+        Err(err) => {
+            log::warn!(target: "citadel", "Could not share the direct route's loss with the peer: {err}");
+        }
+    }
+    wait_for_fall_back(cell).await
+}
+
 /// Waits until the connection's P2P route is lost. `false` when the connection closed instead,
 /// or when no campaign can retry.
 pub(crate) async fn wait_for_fall_back(cell: &P2pPathCell) -> bool {
@@ -130,3 +168,7 @@ pub(crate) async fn wait_for_fall_back(cell: &P2pPathCell) -> bool {
         }
     }
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "p2p_retry_tests.rs"]
+mod tests;

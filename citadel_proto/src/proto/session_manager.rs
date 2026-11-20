@@ -174,6 +174,7 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     max_security_level: citadel_types::crypto::MaxSecurityLevel,
     /// Where this node gets each account's RE-VFS key; `None` when it was given none.
     revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+    p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
     /// A server's limits and the state they keep (see [`ServerLoad`]).
@@ -242,6 +243,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
         max_security_level: citadel_types::crypto::MaxSecurityLevel,
         revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+        p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
         server_load: Option<ServerLoad>,
     ) -> Self {
         let incoming_cxn_count = 0;
@@ -265,6 +267,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             turn_servers,
             max_security_level,
             revfs_keys,
+            p2p_kex_identity,
             disconnect_tracker: DisconnectSignalTracker::new(),
             resume_tokens: ResumeTokens::default(),
             ended_sessions: EndedSessions::default(),
@@ -580,6 +583,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 turn_servers,
                 max_security_level,
                 revfs_keys,
+                p2p_kex_identity,
                 provisional_key,
                 reservation,
             ) = {
@@ -597,6 +601,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     turn_servers,
                     max_security_level,
                     revfs_keys,
+                    p2p_kex_identity,
                     provisional_key,
                     reservation,
                 ) = {
@@ -608,10 +613,22 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                 endpoint,
                                 _,
                                 _,
+                                _,
                             ) => (
                                 *peer_addr,
                                 None,
                                 proposed_credentials.clone(),
+                                endpoint.clone(),
+                            ),
+
+                            // The device holds no account yet; the name is the one recovered.
+                            HdpSessionInitMode::Recover(peer_addr, endpoint, recovery) => (
+                                *peer_addr,
+                                None,
+                                ProposedCredentials::post_quantum(
+                                    recovery.username.clone(),
+                                    String::new(),
+                                ),
                                 endpoint.clone(),
                             ),
 
@@ -697,6 +714,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     let turn_servers = this.turn_servers.clone();
                     let max_security_level = this.max_security_level;
                     let revfs_keys = this.revfs_keys.clone();
+                    let p2p_kex_identity = this.p2p_kex_identity.clone();
 
                     let provisional_key = ProvisionalKey::for_account(
                         peer_addr,
@@ -747,6 +765,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         turn_servers,
                         max_security_level,
                         revfs_keys,
+                        p2p_kex_identity,
                         provisional_key,
                         reservation,
                     )
@@ -787,6 +806,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     turn_servers,
                     max_security_level,
                     revfs_keys,
+                    p2p_kex_identity,
                     provisional_key,
                     reservation,
                 )
@@ -826,6 +846,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 turn_servers,
                 max_security_level,
                 revfs_keys,
+                p2p_kex_identity,
                 init_time,
                 login_deadline,
                 session_password,
@@ -1161,6 +1182,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let turn_servers = this.turn_servers.clone();
         let max_security_level = this.max_security_level;
         let revfs_keys = this.revfs_keys.clone();
+        let p2p_kex_identity = this.p2p_kex_identity.clone();
 
         if let Some(load) = &this.server_load {
             // A server's own entries name no account; a client's own connects do.
@@ -1197,6 +1219,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             turn_servers,
             max_security_level,
             revfs_keys,
+            p2p_kex_identity,
             init_time,
             login_deadline: crate::proto::link::login_deadline(&this.link_mode),
             session_password: server_only_session_init_settings
@@ -2365,6 +2388,17 @@ pub struct GroupDelivery {
 }
 
 impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
+    /// Marks `peer_cid`'s route back to `session_cid` ended, as the refusal relayed from
+    /// `session_cid` ended its own route to `peer_cid` (`relay_route::end_refused_route`).
+    pub(crate) fn end_route_back(&self, session_cid: u64, peer_cid: u64) {
+        if let Some(peer_sess) = self.sessions.get(&peer_cid) {
+            let state_container = inner_state!(peer_sess.1.state_container);
+            if let Some(route) = state_container.active_virtual_connections.get(&session_cid) {
+                route.is_active.store(false, Ordering::SeqCst);
+            }
+        }
+    }
+
     /// Clears a session from the SessionManager
     /// Stops every session this node holds for `cid` (admitted or still provisional) and forgets
     /// it, freeing the CID for a new connection. STOP it, do not merely forget it: removing the
@@ -2409,8 +2443,10 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
         self.ended_sessions
             .on_session_end(cid, issued, Instant::now(), policy.resume_grace());
         let pers = self.account_manager.get_persistence_handler().clone();
+        // The end is now, not whenever the write below gets to run.
+        let ended_ms = session_resume_store::now_ms();
         spawn!(async move {
-            let stored = match session_resume_store::now_ms() {
+            let stored = match ended_ms {
                 Ok(ended_ms) => session_resume_store::on_ended(&pers, cid, &issued, ended_ms).await,
                 Err(err) => Err(err),
             };

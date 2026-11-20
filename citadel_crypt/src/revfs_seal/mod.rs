@@ -20,7 +20,7 @@
 
 mod key;
 
-pub use key::{RevfsKey, RevfsKeySource, RevfsKeys, KEY_ID_LEN};
+pub use key::{domain_bound_info, RevfsKey, RevfsKeySource, RevfsKeys, KEY_ID_LEN};
 
 use crate::misc::CryptError;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};

@@ -90,6 +90,7 @@ pub async fn register(
             citadel_sdk::prelude::default_session_security_settings(),
             None,
             admission,
+            Some(crate::common::recovery::DOMAIN.to_string()),
             CertVerification::SelfSignedAccepted,
         )
         .await

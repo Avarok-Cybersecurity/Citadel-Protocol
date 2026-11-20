@@ -1343,6 +1343,21 @@ pub enum ErrorCode {
     #[form = "A RE-VFS key needs a canonical server domain of 1 to 65535 bytes"]
     RevfsKeyDomainInvalid = 494,
 
+    // --- account recovery ---
+    /// A recovery phrase was bound to a server domain that is empty or too long.
+    #[form = "A recovery phrase needs a canonical server domain of 1 to 65535 bytes"]
+    RecoveryDomainInvalid = 510,
+    /// What the user typed is not a recovery phrase (the reason: a word count, an unknown word,
+    /// or a check that does not match). It says nothing about any account.
+    #[form = "Not a recovery phrase: {}"]
+    RecoveryPhraseUnreadable = 511,
+    /// The server is below the protocol version that recovers accounts and sets passwords.
+    #[form = "The server predates account recovery; it must be updated first"]
+    RecoveryUnsupported = 512,
+    /// A sign-in throttle policy with a limit that would admit nothing or lock nothing (reason).
+    #[form = "Invalid sign-in throttle policy: {}"]
+    SignInThrottlePolicyInvalid = 513,
+
     // --- citadel_proto: before a connection proves anything (540-559) ---
     /// The server did not go on with a connect's first packet. It reads the same whatever the
     /// reason, which the server logs.
@@ -1372,4 +1387,19 @@ pub enum ErrorCode {
     /// A connection that requires a verified certificate was asked of a node built to accept any.
     #[form = "This connection requires a verified TLS certificate, and this node was built to accept any certificate (with_insecure_skip_cert_verification); nothing was dialled"]
     CertVerificationUnavailable = 548,
+
+    // --- P2P key exchanges signed by each account's identity key ---
+    /// A peer's key-exchange stage carries a signature that does not verify (peer cid, why).
+    #[form = "Peer {}'s key exchange is not signed by the identity key it names: {}; nothing was built"]
+    P2pKexSignatureInvalid = 660,
+    /// A peer whose identity key this account has pinned sent an unsigned key exchange (peer cid).
+    #[form = "Peer {} has a pinned identity key and sent an unsigned key exchange; nothing was built"]
+    P2pKexSignatureMissing = 661,
+    /// A peer's key exchange is signed by a key other than the one pinned for it (peer cid).
+    #[form = "Peer {}'s identity key changed; no link is built until the new key is accepted"]
+    P2pKexPeerKeyChanged = 662,
+    /// A peer's first verified identity key could not be kept, so the exchange stops before it
+    /// is reported verified (peer cid, why).
+    #[form = "Peer {}'s identity key could not be pinned: {}; nothing was built"]
+    P2pKexPinNotSaved = 663,
 }

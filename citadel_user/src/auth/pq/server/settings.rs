@@ -1,7 +1,10 @@
 use crate::auth::pq::oprf::OprfSeed;
 use crate::auth::pq::record::KsfParams;
+use crate::auth::pq::throttle::{Attempt, Decision, SignInThrottle, ThrottlePolicy};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
+use std::net::IpAddr;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// What a server needs to offer post-quantum sign-in. A server without it keeps the legacy path
 /// only: it answers a post-quantum registration with `Unsupported` and offers no upgrades.
@@ -10,12 +13,19 @@ pub struct PqAuthServerSettings {
     oprf_seed: OprfSeed,
     ksf: KsfParams,
     security_key_rp_id: Option<String>,
+    /// Shared by every clone, so every session of a server counts against the same keys.
+    throttle: Arc<Mutex<SignInThrottle>>,
 }
 
 impl PqAuthServerSettings {
     /// `ksf` is what new password factors are stretched with; it must meet
-    /// [`KsfParams::FLOOR`], because clients refuse anything weaker.
-    pub fn new(oprf_seed: OprfSeed, ksf: KsfParams) -> Result<Self, AccountError> {
+    /// [`KsfParams::FLOOR`], because clients refuse anything weaker. `throttle` limits sign-in and
+    /// recovery attempts (see [`ThrottlePolicy::RECOMMENDED`]); there is no default.
+    pub fn new(
+        oprf_seed: OprfSeed,
+        ksf: KsfParams,
+        throttle: ThrottlePolicy,
+    ) -> Result<Self, AccountError> {
         if !ksf.meets_floor() {
             return Err(error!(
                 ErrorCode::PqSignInUnavailable,
@@ -26,6 +36,7 @@ impl PqAuthServerSettings {
             oprf_seed,
             ksf,
             security_key_rp_id: None,
+            throttle: Arc::new(Mutex::new(SignInThrottle::new(throttle)?)),
         })
     }
 
@@ -61,6 +72,38 @@ impl PqAuthServerSettings {
     pub fn security_key_rp_id(&self) -> Option<&str> {
         self.security_key_rp_id.as_deref()
     }
+
+    /// See [`SignInThrottle::admit`]. Called before any OPRF evaluation or encapsulation.
+    pub fn throttle_admit(
+        &self,
+        username: &str,
+        source: Option<IpAddr>,
+        attempt: Attempt,
+        now_ms: u64,
+    ) -> Decision {
+        self.throttle().admit(username, source, attempt, now_ms)
+    }
+
+    /// The proof of an admitted attempt failed (`verified` false) or verified.
+    pub fn throttle_outcome(
+        &self,
+        username: &str,
+        source: Option<IpAddr>,
+        attempt: Attempt,
+        verified: bool,
+        now_ms: u64,
+    ) {
+        let mut throttle = self.throttle();
+        match verified {
+            true => throttle.record_success(username, source),
+            false => throttle.record_failure(username, source, attempt, now_ms),
+        }
+    }
+
+    fn throttle(&self) -> MutexGuard<'_, SignInThrottle> {
+        // Counters stay meaningful after a panic elsewhere; a poisoned lock is still the table.
+        self.throttle.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 /// A lowercase DNS name: what WebAuthn accepts as a relying party ID. No scheme, port or path,
@@ -86,7 +129,12 @@ mod tests {
     use super::*;
 
     fn settings() -> PqAuthServerSettings {
-        PqAuthServerSettings::new(OprfSeed::from_bytes([1u8; 32]), KsfParams::FLOOR).unwrap()
+        PqAuthServerSettings::new(
+            OprfSeed::from_bytes([1u8; 32]),
+            KsfParams::FLOOR,
+            ThrottlePolicy::RECOMMENDED,
+        )
+        .unwrap()
     }
 
     #[test]

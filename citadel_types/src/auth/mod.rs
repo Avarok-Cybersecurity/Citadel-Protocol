@@ -38,6 +38,9 @@ pub enum FactorKind {
     SecurityKey,
     /// A single-use recovery code.
     RecoveryCode,
+    /// The account's recovery phrase: 24 words for a 32-byte seed, bound to one server and one
+    /// username. Reusable, and it replaces the recovery codes: an account has at most one.
+    RecoveryPhrase,
 }
 
 /// One enrolled factor, as `ListCredentials` reports it.
@@ -63,13 +66,16 @@ pub struct SignInCredential {
 pub enum SessionScope {
     /// Everything the account may do.
     Full,
-    /// Signed in with a recovery code: the session may enrol a security key and set the policy,
-    /// and nothing else.
+    /// The recovery console: signed in with the recovery phrase or a recovery code, the session
+    /// may manage the account's credentials (see [`SignInManagementOp::allowed_in_recovery`]) and
+    /// nothing else. An application shows it as a guided set of credential steps, not its
+    /// ordinary interface.
     Recovery,
 }
 
 /// A change to an account's sign-in factors. Each one needs a fresh proof of the account's
-/// factors (a step-up), except the two a recovery session may make.
+/// factors (a step-up), except in a recovery session, which proves nothing again and may make only
+/// the changes [`Self::allowed_in_recovery`] names.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
@@ -94,14 +100,31 @@ pub enum SignInManagementOp {
     },
     /// Replaces every recovery code, used or not.
     RegenerateRecoveryCodes,
+    /// Sets the account's password: a forgotten one from a recovery session, or a change from a
+    /// full one. The new password itself never reaches the server; the client turns it into a
+    /// fresh password factor, which replaces the old one.
+    SetPassword,
+    /// Replaces the recovery phrase, and any recovery codes, with a new phrase the client draws.
+    /// The old phrase stops working at once. `canonical_domain` is the server's canonical domain,
+    /// which the phrase's factor is bound to (the caller canonicalises it).
+    RegenerateRecoveryPhrase {
+        canonical_domain: String,
+    },
 }
 
 impl SignInManagementOp {
-    /// Whether a session signed in with a recovery code may make this change.
+    /// Whether a recovery session may make this change. Such a session manages credentials and
+    /// nothing else: it lists them, sets the password, replaces the phrase, enrols or removes a
+    /// security key, and sets the policy (a lost key's way back in).
     pub fn allowed_in_recovery(&self) -> bool {
         matches!(
             self,
-            Self::AddSecurityKey { .. } | Self::SetSignInPolicy { .. }
+            Self::ListCredentials
+                | Self::AddSecurityKey { .. }
+                | Self::RemoveCredential { .. }
+                | Self::SetSignInPolicy { .. }
+                | Self::SetPassword
+                | Self::RegenerateRecoveryPhrase { .. }
         )
     }
 }
@@ -125,4 +148,8 @@ pub enum SignInManagementOutcome {
     /// The new codes, formatted for display. The client generated them and the server only ever
     /// saw their keys, so this is the one time they can be shown.
     RecoveryCodes(Vec<String>),
+    PasswordSet,
+    /// The new recovery phrase's 24 words. As for the codes, this is the one time they exist
+    /// anywhere but with the user.
+    RecoveryPhrase(Vec<String>),
 }

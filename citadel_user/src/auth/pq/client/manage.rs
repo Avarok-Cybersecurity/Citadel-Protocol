@@ -2,15 +2,17 @@
 
 use super::key_request::{RelyingParty, SecurityKeyCeremony, SecurityKeyRequest};
 use super::login::{ClientLogin, ClientProof, SecurityKeyAnswer};
+use super::manage_new::{prepare, NewCredentials};
 use crate::auth::pq::kem::FactorKeypair;
 use crate::auth::pq::messages::{
     key_binding, transcript_bytes, ChallengeBody, CommitCeremony, EnrolChallenge, EnrolProof,
     LoginFinish, LoginProof, ManagementBegin, ManagementChallenge, ManagementCommit, ManagementOp,
     NewSecurityKey, SignInLayout,
 };
+use crate::auth::pq::phrase::RecoverySeed;
 use crate::auth::pq::proof::{factor_tag, TranscriptHash, TranscriptPurpose, ENROL_LABEL};
 use crate::auth::pq::recovery::RecoveryCode;
-use crate::auth::pq::seed::{recovery_seed, security_key_seed};
+use crate::auth::pq::seed::security_key_seed;
 use crate::auth::pq::{management_transcript, random_32};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
@@ -21,41 +23,26 @@ use citadel_types::crypto::SecBuffer;
 pub struct ClientManagement {
     login: ClientLogin,
     begin: ManagementBegin,
-    codes: Vec<RecoveryCode>,
+    new: NewCredentials,
 }
 
 impl ClientManagement {
-    /// `password` is the step-up's password, when the account's policy asks for one. New recovery
-    /// codes are generated here, for `RegenerateRecoveryCodes`.
+    /// `password` is the step-up's password, when the account's policy asks for one;
+    /// `new_password` is `SetPassword`'s. New recovery codes or a new phrase are drawn here.
     pub fn begin(
         username: &str,
         op: SignInManagementOp,
         password: Option<&SecBuffer>,
+        new_password: Option<&SecBuffer>,
     ) -> Result<(ManagementBegin, Self), AccountError> {
         let (step_up, login) = ClientLogin::start(username, password, None)?;
-        let codes = match op {
-            SignInManagementOp::RegenerateRecoveryCodes => RecoveryCode::generate_set(),
-            _ => Vec::new(),
-        };
-        let recovery_eks = codes
-            .iter()
-            .map(|code| {
-                FactorKeypair::derive(&recovery_seed(code)).map(|kp| kp.encapsulation_key().clone())
-            })
-            .collect::<Result<_, _>>()?;
+        let (op, recovery_eks, new) = prepare(username, op, new_password)?;
         let begin = ManagementBegin {
-            op: op.into(),
+            op,
             step_up,
             recovery_eks,
         };
-        Ok((
-            begin.clone(),
-            Self {
-                login,
-                begin,
-                codes,
-            },
-        ))
+        Ok((begin.clone(), Self { login, begin, new }))
     }
 
     /// The touch the step-up needs, if the account's policy includes a key.
@@ -127,6 +114,25 @@ impl ClientManagement {
             }
             _ => None,
         };
+        let password_ek = match (&self.new.password, &challenge.ceremony) {
+            (Some(registration), Some(ceremony)) => {
+                let reply = ceremony.password.as_ref().ok_or_else(|| {
+                    error!(
+                        ErrorCode::PqSignInMalformed,
+                        "a password change's evaluation"
+                    )
+                })?;
+                let keypair = registration.password_keypair(reply).await?;
+                Some(keypair.encapsulation_key().clone())
+            }
+            (Some(_), None) => {
+                return Err(error!(
+                    ErrorCode::PqSignInMalformed,
+                    "a password change's layout"
+                ))
+            }
+            (None, _) => None,
+        };
         let ceremony = match layout {
             SignInLayout::V0_12_2 => None,
             SignInLayout::SecurityKeyCeremony => Some(CommitCeremony {
@@ -136,6 +142,7 @@ impl ClientManagement {
                         credential_id: credential_id.clone(),
                         ek: keypair.encapsulation_key().clone(),
                     }),
+                password_ek,
             }),
         };
         // A key is only added in the ceremony layout, which carries it in `ceremony`.
@@ -174,7 +181,8 @@ impl ClientManagement {
         let committed = ClientCommitted {
             transcript,
             new_key: new_key.map(|(_, keypair)| keypair),
-            codes: self.codes,
+            codes: self.new.codes,
+            phrase: self.new.phrase,
         };
         Ok((commit, committed))
     }
@@ -185,6 +193,7 @@ pub struct ClientCommitted {
     transcript: TranscriptHash,
     new_key: Option<FactorKeypair>,
     codes: Vec<RecoveryCode>,
+    phrase: Option<RecoverySeed>,
 }
 
 impl ClientCommitted {
@@ -214,5 +223,11 @@ impl ClientCommitted {
     /// The new recovery codes (`RegenerateRecoveryCodes`), to show the user once.
     pub fn into_recovery_codes(self) -> Vec<RecoveryCode> {
         self.codes
+    }
+
+    /// The new recovery phrase (`RegenerateRecoveryPhrase`), to show the user once. Its seed is
+    /// also the account's new RE-VFS root.
+    pub fn into_recovery_phrase(self) -> Option<RecoverySeed> {
+        self.phrase
     }
 }

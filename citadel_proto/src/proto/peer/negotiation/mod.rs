@@ -12,6 +12,7 @@ mod handle;
 pub mod key_epoch;
 pub mod lane;
 pub(crate) mod level_cap;
+pub(crate) mod link_refusal;
 pub mod reason;
 pub(crate) mod refusal;
 pub(crate) mod shared;

@@ -825,6 +825,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "citadel_phrase"
+version = "0.14.0"
+dependencies = [
+ "sha256",
+ "sha3",
+ "zeroize",
+]
+
+[[package]]
 name = "citadel_pqcrypto"
 version = "0.14.0"
 dependencies = [
@@ -888,6 +897,7 @@ dependencies = [
  "js-sys",
  "lazy_static",
  "log",
+ "ml-dsa",
  "netbeam",
  "once_cell",
  "rand 0.8.8",
@@ -935,6 +945,7 @@ dependencies = [
  "libc",
  "log",
  "mimalloc",
+ "ml-dsa",
  "rand 0.8.8",
  "rcgen",
  "rpassword",
@@ -1004,6 +1015,7 @@ dependencies = [
  "citadel_io",
  "citadel_logging",
  "citadel_negotiation",
+ "citadel_phrase",
  "citadel_pqcrypto",
  "citadel_types",
  "criterion",

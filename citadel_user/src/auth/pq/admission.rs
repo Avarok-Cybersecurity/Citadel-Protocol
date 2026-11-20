@@ -5,7 +5,9 @@
 //! login from a reconnect, so gating the socket would either break every reconnect or be
 //! bypassed by one. Here the server knows which is which: a login presenting a resume token its
 //! held session recognises, or that a session which ended less than
-//! [`AdmissionPolicy::resume_grace`] ago was issued, and a recovery-code sign-in, are not asked.
+//! [`AdmissionPolicy::resume_grace`] ago was issued, is not asked. A recovery, with the phrase or a
+//! code and on a new device or a known one, is asked like any fresh sign-in, as
+//! [`AdmissionKind::Recover`].
 //!
 //! The token travels in `LoginStart`/`RegStart`, inside the post-quantum channel, and is never
 //! printed: [`AdmissionToken`]'s `Debug` shows only that one is present.
@@ -44,6 +46,8 @@ impl std::fmt::Debug for AdmissionToken {
 pub enum AdmissionKind {
     SignIn,
     Register,
+    /// A sign-in or a new device's recovery with the recovery phrase or a code.
+    Recover,
 }
 
 impl AdmissionKind {
@@ -53,6 +57,7 @@ impl AdmissionKind {
         match self {
             Self::SignIn => "sign-in",
             Self::Register => "register",
+            Self::Recover => "recover",
         }
     }
 }
@@ -206,5 +211,6 @@ mod tests {
     fn the_actions_are_the_ones_the_ui_binds_tokens_to() {
         assert_eq!(AdmissionKind::SignIn.action(), "sign-in");
         assert_eq!(AdmissionKind::Register.action(), "register");
+        assert_eq!(AdmissionKind::Recover.action(), "recover");
     }
 }

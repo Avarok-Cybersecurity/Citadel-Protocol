@@ -1,10 +1,11 @@
 //! Server: the admission check (`ServerMiscSettings::admission`) at the start of each FRESH
 //! sign-in or registration, before the OPRF, any encapsulation or any Argon2 work.
 //!
-//! Not asked: a recovery-code sign-in (the user's way back in) and a login whose resume token
-//! shows it to be an admitted session's own client reconnecting: the session the server still
-//! holds recognises it, or the session it was issued to ended within the policy's
-//! `resume_grace` (see `EndedSessions`). A server without a policy admits everyone.
+//! Not asked: a login whose resume token shows it to be an admitted session's own client
+//! reconnecting: the session the server still holds recognises it, or the session it was issued
+//! to ended within the policy's `resume_grace` (see `EndedSessions`). A recovery is asked like any
+//! fresh sign-in, as `AdmissionKind::Recover`: it is the surface a guesser needs no bundle for. A
+//! server without a policy admits everyone.
 
 use super::runs_with;
 use crate::error::NetworkError;
@@ -35,9 +36,6 @@ pub(crate) async fn sign_in<R: Ratchet, T: PlatformOps>(
     cid: u64,
     start: &LoginStart,
 ) -> Option<AdmissionContext> {
-    if start.recovery.is_some() {
-        return None;
-    }
     if let Some(token) = start.resume.map(ResumeToken::from_bytes) {
         if session
             .session_manager
@@ -48,12 +46,11 @@ pub(crate) async fn sign_in<R: Ratchet, T: PlatformOps>(
         }
     }
     let token = start.admission.clone();
-    Some(context(
-        session,
-        &start.username,
-        AdmissionKind::SignIn,
-        token,
-    ))
+    let kind = match start.recovery {
+        Some(_) => AdmissionKind::Recover,
+        None => AdmissionKind::SignIn,
+    };
+    Some(context(session, &start.username, kind, token))
 }
 
 /// A login that sent no `AUTH_START`: a client below 0.12, which cannot carry a token, or a
