@@ -211,6 +211,25 @@ mod native {
         server_test_node_inner(kernel, opts, true)
     }
 
+    /// How many TCP ports `tcp_listener_with_udp_twin` draws looking for one UDP can also take.
+    const TWIN_PORT_DRAWS: usize = 16;
+
+    /// A loopback TCP listener whose port UDP can also bind. A test server's address is drawn
+    /// before its node is built, and a `ServerMode::P2P` override rebinds that explicit port in
+    /// both protocols; a port drawn for TCP alone can sit in a range reserved for UDP (Windows'
+    /// excluded ranges answer WSAEACCES), and the server then fails to start.
+    fn tcp_listener_with_udp_twin() -> citadel_io::tokio::net::TcpListener {
+        for _ in 0..TWIN_PORT_DRAWS {
+            let listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
+                .expect("Failed to create TCP listener");
+            let addr = listener.local_addr().unwrap();
+            if std::net::UdpSocket::bind(addr).is_ok() {
+                return listener;
+            }
+        }
+        panic!("no loopback port free in both TCP and UDP in {TWIN_PORT_DRAWS} draws")
+    }
+
     fn server_test_node_inner<'a, K: NetKernel<R> + 'a, R: Ratchet>(
         kernel: K,
         opts: impl FnOnce(&mut NodeBuilder<R>),
@@ -218,8 +237,7 @@ mod native {
     ) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
         let mut builder = node_builder_for::<R>();
         let _ = builder.with_link_manager(LinkManagerMode::Legacy);
-        let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
-            .expect("Failed to create TCP listener");
+        let tcp_listener = tcp_listener_with_udp_twin();
         let bind_addr = tcp_listener.local_addr().unwrap();
         let builder = builder
             .with_node_type(NodeType::Server(bind_addr))
