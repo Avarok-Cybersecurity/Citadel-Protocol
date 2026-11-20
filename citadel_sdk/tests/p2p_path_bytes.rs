@@ -34,6 +34,13 @@ mod tests {
         Box::new((tx, rx))
     }
 
+    /// Returns once both peers have received all of each other's messages. A message is counted
+    /// sent when the stream's writer takes it, which can be after `send` returns: once the peer
+    /// has it, it has been counted.
+    async fn sent_and_received() {
+        wait_for_peers().await;
+    }
+
     /// Every field of `after` is at least its field in `before`.
     fn grew_or_held(before: PathBytesSnapshot, after: PathBytesSnapshot) {
         for path in [P2pPath::Direct, P2pPath::Turn, P2pPath::ServerRelay] {
@@ -55,6 +62,7 @@ mod tests {
                     wait_for_peers().await;
                     let before = cell.bytes();
                     let _open = exchange(conn, me).await;
+                    sent_and_received().await;
                     let after = cell.bytes();
                     grew_or_held(before, after);
                     let minimum = u64::from(MESSAGES) * data(0).len() as u64;
@@ -136,8 +144,12 @@ mod tests {
                 Box::pin(async move {
                     let cell = conn.channel.p2p_path_cell();
                     assert!(cell.ensure_direct().await.is_err());
+                    // Neither peer sends before both have read their counters: a packet is
+                    // counted when it arrives, whether or not it has been read.
+                    wait_for_peers().await;
                     let before = cell.bytes();
                     let _open = exchange(conn, me).await;
+                    sent_and_received().await;
                     let after = cell.bytes();
                     grew_or_held(before, after);
                     let minimum = u64::from(MESSAGES) * data(0).len() as u64;
