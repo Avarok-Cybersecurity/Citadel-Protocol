@@ -12,13 +12,13 @@ mod common;
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
-    use crate::common::link::{managed, proxy, saw, ManualClock, Plan, Seen};
+    use crate::common::link::{proxy, saw, Plan, Seen};
     use crate::common::{NodeState, ReconnectionTestKernel};
     use citadel_io::{tokio, ErrorCode};
     use citadel_proto::constants::LOGIN_EXPIRATION_TIME;
-    use citadel_sdk::prefabs::server::empty::EmptyKernel;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::{server_test_node, LOCALHOST_STUN_SERVERS};
+    use citadel_sdk::test_common::{managed, ManualClock};
+    use citadel_sdk::test_common::{server_on, LOCALHOST_STUN_SERVERS};
     use std::net::SocketAddr;
     use std::sync::Arc;
     use std::time::Duration;
@@ -49,15 +49,6 @@ mod tests {
             .with_backend(BackendType::Filesystem(backend.to_string()))
             .build(kernel)
             .unwrap()
-    }
-
-    /// A server on a clock of the test's: it ends a login only when the test moves the clock.
-    fn server(
-        clock: Arc<ManualClock>,
-    ) -> (NodeFuture<'static, EmptyKernel<StackedRatchet>>, SocketAddr) {
-        server_test_node(EmptyKernel::default(), move |builder| {
-            let _ = builder.with_link_manager(managed(clock));
-        })
     }
 
     /// Registers a new account on `backend`, through `server`, from a node whose clock never
@@ -129,7 +120,7 @@ mod tests {
         budget: Duration,
     ) {
         citadel_logging::setup_log();
-        let (server, server_addr) = server(ManualClock::new());
+        let (server, server_addr) = server_on::<StackedRatchet>(ManualClock::new());
         let backend = backend();
         let run = async move {
             let (proxy_addr, seen) = proxy(server_addr, plans()).await;
@@ -196,7 +187,7 @@ mod tests {
         {
             let server_clock = server_clock.clone();
             on_own_thread(move || async move {
-                let (server, server_addr) = server(server_clock);
+                let (server, server_addr) = server_on::<StackedRatchet>(server_clock);
                 addr_tx.send(proxy(server_addr, plans()).await).unwrap();
                 let _ = server.await;
             });

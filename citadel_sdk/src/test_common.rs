@@ -260,6 +260,12 @@ mod native {
 #[cfg(not(target_family = "wasm"))]
 pub use native::*;
 
+#[cfg(all(feature = "localhost-testing", not(target_family = "wasm")))]
+#[path = "test_common_clock.rs"]
+mod clock;
+#[cfg(all(feature = "localhost-testing", not(target_family = "wasm")))]
+pub use clock::{managed, server_on, ManualClock};
+
 #[cfg(feature = "localhost-testing")]
 pub async fn wait_for_peers() {
     let barrier = { TEST_BARRIER.lock().clone() };

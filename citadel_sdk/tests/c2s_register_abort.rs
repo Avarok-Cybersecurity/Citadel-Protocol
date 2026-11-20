@@ -6,10 +6,11 @@ mod common;
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
-    use crate::common::link::{managed, saw, with_client, ManualClock, Plan, Seen};
+    use crate::common::link::{saw, with_client, Plan, Seen};
     use citadel_io::tokio;
     use citadel_proto::constants::TCP_CONN_TIMEOUT;
     use citadel_sdk::prelude::*;
+    use citadel_sdk::test_common::{managed, ManualClock};
     use uuid::Uuid;
 
     /// Registration holds a provisional slot the same way, and is aborted the same way.
