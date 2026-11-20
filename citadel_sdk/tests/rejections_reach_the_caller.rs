@@ -53,6 +53,7 @@ mod tests {
                 username.as_str(),
                 username.as_str(),
                 "password123",
+                CertVerification::SelfSignedAccepted,
             )
             .with_udp_mode(UdpMode::Disabled)
             .build()
@@ -144,6 +145,7 @@ mod tests {
                 username.as_str(),
                 username.as_str(),
                 "password123",
+                CertVerification::SelfSignedAccepted,
             )
             .with_udp_mode(UdpMode::Disabled)
             .build()
@@ -199,10 +201,13 @@ mod tests {
         // callback must never run; if it does, the kernel returns Ok and the
         // assertion below says so.
         let client_kernel = SingleClientServerConnectionKernel::new(
-            ServerConnectionSettingsBuilder::<StackedRatchet, _>::transient(server_addr)
-                .with_udp_mode(UdpMode::Disabled)
-                .build()
-                .unwrap(),
+            ServerConnectionSettingsBuilder::<StackedRatchet, _>::transient(
+                server_addr,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Disabled)
+            .build()
+            .unwrap(),
             move |_conn| async move { Ok(()) },
         );
 

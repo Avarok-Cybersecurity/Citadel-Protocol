@@ -100,7 +100,13 @@ mod tests {
         let role = me.as_bytes()[0];
         let conn = if role == b'c' {
             remote
-                .register_with_defaults(addr, me.as_str(), me.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    me.as_str(),
+                    me.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             let conn = connect(&remote, &me).await?;
             wait_for_peers().await;

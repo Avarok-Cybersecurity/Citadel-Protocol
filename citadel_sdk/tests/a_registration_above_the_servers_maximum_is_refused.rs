@@ -34,7 +34,15 @@ mod tests {
         level: SecurityLevel,
     ) -> Result<RegisterSuccess, NetworkError> {
         remote
-            .register(addr, username, username, PASSWORD, settings(level), None)
+            .register(
+                addr,
+                username,
+                username,
+                PASSWORD,
+                settings(level),
+                None,
+                CertVerification::SelfSignedAccepted,
+            )
             .await
     }
 
@@ -52,10 +60,10 @@ mod tests {
         );
         register(&remote, addr, &username, SecurityLevel::Reinforced).await?;
         let conn = remote
-            .connect_with_defaults(AuthenticationRequest::credentialed(
-                username.clone(),
-                PASSWORD,
-            ))
+            .connect_with_defaults(
+                AuthenticationRequest::credentialed(username.clone(), PASSWORD),
+                CertVerification::SelfSignedAccepted,
+            )
             .await?;
         conn.shutdown_kernel().await
     }

@@ -161,6 +161,7 @@ pub async fn connect(
             None,
             Default::default(),
             Default::default(),
+            CertVerification::SelfSignedAccepted,
         )
         .await
 }

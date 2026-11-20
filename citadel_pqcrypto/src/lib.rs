@@ -588,7 +588,7 @@ impl PostQuantumContainer {
     /// Attempts to deserialize the input bytes presumed to be of type [PostQuantumExport],
     /// into a [PostQuantumContainer]
     pub fn deserialize_from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, Error> {
-        bincode::deserialize::<PostQuantumContainer>(bytes.as_ref())
+        citadel_io::decode::deserialize::<PostQuantumContainer>(bytes.as_ref())
             .map_err(|_err| citadel_io::error!(citadel_io::ErrorCode::ContainerSerdeFailed))
     }
 

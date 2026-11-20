@@ -166,6 +166,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         let (client_config, nat_type) = startup?;
 
         let time_tracker = TimeTracker::new();
+        let server_load = server_only_session_init_settings
+            .as_ref()
+            .and_then(|settings| settings.limits.clone())
+            .map(crate::proto::server_limits::ServerLoad::new);
         let session_manager = CitadelSessionManager::new(
             link_mode,
             local_node_type,
@@ -178,6 +182,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             max_security_level,
             revfs_keys,
             p2p_kex_identity,
+            server_load,
         );
 
         log::info!(target: "citadel", "Links: {:?}", session_manager.link_mode());
@@ -384,6 +389,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                             spawn!(session);
                         }
 
+                        // A connection over the server's limits is closed (dropped here) and
+                        // logged: telling the kernel of each would let it queue without bound.
+                        Err(err)
+                            if matches!(
+                                err.code,
+                                ErrorCode::ProvisionalPerIpAtCap | ErrorCode::ProvisionalTotalAtCap
+                            ) =>
+                        {
+                            log::warn!(target: "citadel", "Closing a connection from {peer_addr:?}: {err}");
+                        }
+
                         Err(err) => {
                             to_kernel.unbounded_send(NodeResult::InternalServerError(
                                 InternalServerError {
@@ -548,6 +564,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     session_password,
                     endpoint,
                     password,
+                    cert_verification,
                     admission,
                 }) => {
                     let (session_manager, local_nat_type, listener_underlying_proto) = (
@@ -578,6 +595,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                             None,
                             security_settings,
                             &default_client_config,
+                            cert_verification,
                             session_password,
                         );
                         let Some(initiated) = until_aborted(&mut in_flight, initiate).await else {
@@ -594,6 +612,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     keep_alive_timeout,
                     session_security_settings: security_settings,
                     session_password,
+                    cert_verification,
                 }) => {
                     let (session_manager, local_nat_type, listener_underlying_proto) = (
                         session_manager.clone(),
@@ -617,6 +636,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                             keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000),
                             security_settings,
                             &default_client_config,
+                            cert_verification,
                             session_password,
                         );
                         let Some(initiated) = until_aborted(&mut in_flight, initiate).await else {

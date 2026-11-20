@@ -146,7 +146,7 @@ pub fn encode<T: Serialize>(item: &T) -> Result<Vec<u8>, FrameCodecError> {
 }
 
 pub fn decode<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, FrameCodecError> {
-    bincode::deserialize(bytes).map_err(|err| FrameCodecError(err.to_string()))
+    citadel_io::decode::deserialize(bytes).map_err(|err| FrameCodecError(err.to_string()))
 }
 
 /// For a trailing field added after v1: `#[serde(default, deserialize_with = "appended_field")]`.

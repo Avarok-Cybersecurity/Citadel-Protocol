@@ -44,6 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
         .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_path_policy(citadel_sdk::test_common::localhost_path_policy())
+        .with_server_limits(citadel_sdk::test_common::localhost_server_limits())
         .with_websocket_listener(ws_addr)
         .build(kernel)?;
 

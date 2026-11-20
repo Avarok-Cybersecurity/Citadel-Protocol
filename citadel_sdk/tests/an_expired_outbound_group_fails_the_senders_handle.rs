@@ -150,11 +150,14 @@ mod tests {
         let dropped = Arc::new(AtomicUsize::new(0));
         let relay_task = tokio::spawn(relay(relay_listener, server_addr, dropped.clone()));
 
-        let settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(relay_addr, Uuid::new_v4())
-                .disable_udp()
-                .build()
-                .unwrap();
+        let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            relay_addr,
+            Uuid::new_v4(),
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .build()
+        .unwrap();
 
         let (verdict_tx, verdict_rx) = tokio::sync::oneshot::channel();
         let verdict_tx = std::sync::Mutex::new(Some(verdict_tx));

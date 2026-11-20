@@ -189,12 +189,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .disable_udp()
-                .with_session_security_settings(session_security_settings)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security_settings)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -297,12 +300,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .disable_udp()
-                .with_session_security_settings(session_security_settings)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security_settings)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -380,12 +386,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .disable_udp()
-                .with_session_security_settings(session_security_settings)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security_settings)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -466,12 +475,15 @@ mod tests {
 
         let source_dir = &PathBuf::from("../resources/TheBridge.pdf");
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
-                .disable_udp()
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid0,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let peer_conn_0 = PeerConnectionSetupAggregator::default()
             .with_peer_custom(uuid1)
@@ -521,12 +533,15 @@ mod tests {
             },
         );
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
-                .disable_udp()
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid1,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let peer_conn_1 = PeerConnectionSetupAggregator::default()
             .with_peer_custom(uuid0)

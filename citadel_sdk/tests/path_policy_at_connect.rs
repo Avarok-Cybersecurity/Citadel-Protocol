@@ -34,7 +34,13 @@ mod tests {
             GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, _events: Events| async move {
                     let _ = remote
-                        .register_with_defaults(server_addr, &name, &name, PASSWORD)
+                        .register_with_defaults(
+                            server_addr,
+                            &name,
+                            &name,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     let conn = connect(&remote, &name).await?;
                     assert_eq!(conn.path_policy, Some(localhost_path_policy()));

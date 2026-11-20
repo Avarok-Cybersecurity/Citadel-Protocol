@@ -27,7 +27,13 @@ mod tests {
         let user = username("retry");
         run(server, move |remote, _| async move {
             let _ = remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             for attempt in 0..ATTEMPTS {
                 let refused = login(&remote, &user, "not the password").await;

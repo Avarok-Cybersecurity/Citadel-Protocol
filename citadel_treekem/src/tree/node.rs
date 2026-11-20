@@ -76,7 +76,7 @@ mod tests {
 
         // bincode round-trip (the wire format)
         let bytes = bincode::serialize(&leaf).unwrap();
-        let back: Node = bincode::deserialize(&bytes).unwrap();
+        let back: Node = citadel_io::decode::deserialize(&bytes).unwrap();
         assert_eq!(leaf, back);
     }
 }

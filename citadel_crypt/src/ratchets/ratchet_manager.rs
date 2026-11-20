@@ -1134,7 +1134,7 @@ where
                         log::debug!(target: "citadel", "Client {} received AliceToBob", self.cid);
 
                         // Process the AliceToBob message as Bob
-                        let transfer = bincode::deserialize(&payload)
+                        let transfer = citadel_io::decode::deserialize(&payload)
                             .map_err(|err| CryptError::rekey_update(err.to_string()))?;
 
                         let _cid = self.session_crypto_state.cid();
@@ -1493,9 +1493,12 @@ where
                         { self.constructors.lock().remove(&peer_metadata.next_version) };
                     let staged_epoch = self.epochs.unstage(peer_metadata.next_version);
                     if let Some(mut alice_constructor) = constructor.take() {
-                        let transfer = bincode::deserialize(&transfer_data).map_err(|e| {
-                            CryptError::rekey_update(format!("Failed to deserialize transfer: {e}"))
-                        })?;
+                        let transfer =
+                            citadel_io::decode::deserialize(&transfer_data).map_err(|e| {
+                                CryptError::rekey_update(format!(
+                                    "Failed to deserialize transfer: {e}"
+                                ))
+                            })?;
 
                         // Offload stage1_alice (KEM decapsulation) and update_sync_safe
                         let status = citadel_io::spawn_blocking({

@@ -9,7 +9,6 @@
 //! * **Binary Serialization**
 //!   - Vector-based serialization
 //!   - Buffer-based serialization
-//!   - In-place deserialization
 //!   - Size estimation
 //!
 //! * **Format Support**
@@ -69,7 +68,6 @@
 //! * Types must implement `Serialize` and `Deserialize`
 //! * Buffer operations are more efficient for repeated use
 //! * Size estimation helps with buffer pre-allocation
-//! * In-place deserialization avoids allocations
 //! * Error handling uses `AccountError` type
 //!
 //! ## Related Components
@@ -81,35 +79,16 @@
 //!
 
 use crate::misc::AccountError;
-use bincode::BincodeRead;
 use bincode::Options;
 use bytes::BufMut;
 use bytes::BytesMut;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-/// Builds the bincode configuration used for deserializing untrusted input.
-///
-/// This is byte-for-byte identical to the configuration used by the free
-/// `bincode::deserialize` / `bincode::deserialize_from` functions
-/// (fixint encoding, little-endian, trailing bytes allowed) with one addition:
-/// a byte limit equal to the length of the input buffer.
-///
-/// A correctly-encoded value can never require reading more bytes than the
-/// input itself contains, so the limit never rejects a legitimate message.
-/// What it does prevent is a hostile peer sending a tiny packet whose internal
-/// length prefix (e.g. for a `Vec<u8>` or `String` field) claims billions of
-/// elements: without a limit, bincode honors that prefix and attempts the
-/// corresponding heap allocation *before* discovering the bytes are not there,
-/// turning a few-byte packet into a multi-gigabyte allocation (remote
-/// memory-exhaustion DoS). With the limit, the oversized length is rejected up
-/// front with a clean `SizeLimit` error and no allocation occurs.
+/// The bounded bincode configuration for untrusted input (see [`citadel_io::decode`]).
 #[inline]
 fn limited_options(input_len: usize) -> impl Options {
-    bincode::DefaultOptions::new()
-        .with_fixint_encoding()
-        .allow_trailing_bytes()
-        .with_limit(input_len as u64)
+    citadel_io::decode::bounded_options(input_len)
 }
 
 /// Convenient serialization methods for types that #[derive(Serialize, Deserialize)]
@@ -146,20 +125,6 @@ pub trait SyncIO {
                     err.to_string()
                 )
             })
-    }
-
-    /// Deserializes in-place
-    fn deserialize_in_place<'a, R, T>(reader: R, place: &mut T) -> Result<(), AccountError>
-    where
-        T: serde::de::Deserialize<'a>,
-        R: BincodeRead<'a>,
-    {
-        bincode::deserialize_in_place(reader, place).map_err(|err| {
-            citadel_io::error!(
-                citadel_io::ErrorCode::DeserializationFailed,
-                err.to_string()
-            )
-        })
     }
 
     /// Serializes self into a buffer, appending to any existing contents.

@@ -100,11 +100,14 @@ where
     });
     let (tx, rx) = tokio::sync::oneshot::channel();
     let tx = std::sync::Mutex::new(Some(tx));
-    let settings =
-        DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, Uuid::new_v4())
-            .disable_udp()
-            .build()
-            .unwrap();
+    let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+        server_addr,
+        Uuid::new_v4(),
+        CertVerification::SelfSignedAccepted,
+    )
+    .disable_udp()
+    .build()
+    .unwrap();
     let client_kernel = SingleClientServerConnectionKernel::new(settings, move |conn| async move {
         let out = body(conn).await;
         let _ = tx.lock().unwrap().take().unwrap().send(out);

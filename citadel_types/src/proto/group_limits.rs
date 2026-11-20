@@ -128,9 +128,9 @@ mod tests {
     #[test]
     fn limits_are_validated_as_they_are_read() {
         let valid = bincode::serialize(&GroupMessageLimits::new(16, 4).unwrap()).unwrap();
-        let read: GroupMessageLimits = bincode::deserialize(&valid).unwrap();
+        let read: GroupMessageLimits = citadel_io::decode::deserialize(&valid).unwrap();
         assert_eq!(read, GroupMessageLimits::new(16, 4).unwrap());
         let zero = bincode::serialize(&(0u32, 4u32)).unwrap();
-        assert!(bincode::deserialize::<GroupMessageLimits>(&zero).is_err());
+        assert!(citadel_io::decode::deserialize::<GroupMessageLimits>(&zero).is_err());
     }
 }

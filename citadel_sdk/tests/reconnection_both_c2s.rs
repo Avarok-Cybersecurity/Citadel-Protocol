@@ -99,6 +99,7 @@ mod tests {
                             username.as_str(),
                             username.as_str(),
                             password,
+                            CertVerification::SelfSignedAccepted,
                         )
                         .await?;
                     log::info!(target: "citadel", "[Peer A] Registered CID={}", reg.cid);
@@ -106,10 +107,10 @@ mod tests {
 
                     // Connect
                     let conn = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     log::info!(target: "citadel", "[Peer A] C2S Connected");
 
@@ -179,10 +180,10 @@ mod tests {
 
                     // A reconnects C2S
                     let conn2 = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     log::info!(target: "citadel", "[Peer A] C2S Reconnected");
                     state.set_cid(conn2.cid).await;
@@ -270,6 +271,7 @@ mod tests {
                             username.as_str(),
                             username.as_str(),
                             password,
+                            CertVerification::SelfSignedAccepted,
                         )
                         .await?;
                     log::info!(target: "citadel", "[Peer B] Registered CID={}", reg.cid);
@@ -277,10 +279,10 @@ mod tests {
 
                     // Connect
                     let conn = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     log::info!(target: "citadel", "[Peer B] C2S Connected");
 
@@ -354,10 +356,10 @@ mod tests {
 
                     // B reconnects C2S
                     let conn2 = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     log::info!(target: "citadel", "[Peer B] C2S Reconnected");
                     state.set_cid(conn2.cid).await;

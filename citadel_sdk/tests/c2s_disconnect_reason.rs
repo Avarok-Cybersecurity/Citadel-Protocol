@@ -28,10 +28,10 @@ mod tests {
             Arc::new(NodeState::default()),
             move |remote: NodeRemote<StackedRatchet>, _| async move {
                 let link = remote
-                    .connect_with_defaults(AuthenticationRequest::transient(
-                        Uuid::new_v4(),
-                        server_addr,
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::transient(Uuid::new_v4(), server_addr),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 let mut answers = remote.send_callback_subscription(end(link.cid)).await?;
                 while let Some(answer) = answers.next().await {

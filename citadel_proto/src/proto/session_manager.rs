@@ -177,6 +177,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
+    /// A server's limits and the state they keep (see [`ServerLoad`]).
+    server_load: Option<ServerLoad>,
     /// Client side: each account's latest resume token, kept after its session ends.
     resume_tokens: ResumeTokens,
     /// Server side: each CID's last ended session's resume token, for admission's grace.
@@ -191,6 +193,8 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     /// How this node keeps its links (`proto::link`).
     link_mode: LinkManagerMode,
 }
+
+use crate::proto::server_limits::{admit_provisional, ServerLoad};
 
 /// The reason given to a login refused because the server already holds a session for the account.
 pub(crate) const SESSION_ALREADY_CONNECTED: &str = "Session Already Connected, or, is in the process of disconnection and an earlier connection attempt beat this connection. Not allowing this connection";
@@ -224,7 +228,10 @@ const PROVISIONAL_CID_RESERVATION_TTL: Duration = Duration::from_secs(30);
 
 impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Creates a new [SessionManager] which handles individual connections
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is one part of the node the manager is built from"
+    )]
     pub fn new(
         link_mode: LinkManagerMode,
         local_node_type: NodeType,
@@ -237,6 +244,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         max_security_level: citadel_types::crypto::MaxSecurityLevel,
         revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
         p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
+        server_load: Option<ServerLoad>,
     ) -> Self {
         let incoming_cxn_count = 0;
         let inner = HdpSessionManagerInner {
@@ -267,9 +275,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             local_rebinder: LocalRebinder::new(),
             traffic: Default::default(),
             link_mode,
+            server_load,
         };
 
         Self::from(inner)
+    }
+
+    /// A server's limits and the state they keep; `None` on a node that is not a server.
+    pub(crate) fn server_load(&self) -> Option<ServerLoad> {
+        inner!(self).server_load.clone()
     }
 
     /// Loads the server remote, and gets the time tracker for the calling [CitadelNode]
@@ -542,6 +556,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         keep_alive_timeout_ns: Option<i64>,
         security_settings: SessionSecuritySettings,
         default_client_config: &T::ClientConfig,
+        cert_verification: citadel_io::CertVerification,
         session_password: PreSharedKey,
     ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let (session_manager, new_session, peer_addr, primary_stream) = {
@@ -755,6 +770,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     local_addr: local_bind_addr,
                 } = C2sEstablisher::<T>::open_path(
                     default_client_config,
+                    cert_verification,
                     peer_addr,
                     provisional_key.endpoint.clone(),
                     &self.local_rebinder(),
@@ -1156,8 +1172,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let revfs_keys = this.revfs_keys.clone();
         let p2p_kex_identity = this.p2p_kex_identity.clone();
 
-        // Regardless if the IpAddr existed as a client before, we must treat the connection temporarily as provisional
-        // However, two concurrent provisional connections from the same IP cannot be connecting at once
+        if let Some(load) = &this.server_load {
+            // A server's own entries name no account; a client's own connects do.
+            let held = this
+                .provisional_connections
+                .keys()
+                .filter(|key| key.account.is_none())
+                .map(|key| key.addr.ip());
+            admit_provisional(&load.limits, peer_addr.ip(), held)?;
+        }
         let local_node_type = this.local_node_type;
         let provisional_ticket = Ticket(this.incoming_cxn_count as _);
         this.incoming_cxn_count += 1;

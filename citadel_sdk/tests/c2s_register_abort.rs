@@ -25,7 +25,13 @@ mod tests {
                     let (remote, name) = (remote.clone(), name.clone());
                     tokio::spawn(async move {
                         remote
-                            .register_with_defaults(addr, &name, &name, "password123")
+                            .register_with_defaults(
+                                addr,
+                                &name,
+                                &name,
+                                "password123",
+                                CertVerification::SelfSignedAccepted,
+                            )
                             .await
                             .map(|_| ())
                     })
@@ -37,7 +43,13 @@ mod tests {
                     .await
                     .expect("the abandoned registration was left running");
                 let again = remote
-                    .register_with_defaults(addr, &name, &name, "password123")
+                    .register_with_defaults(
+                        addr,
+                        &name,
+                        &name,
+                        "password123",
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await
                     .map(|_| ());
                 assert!(

@@ -82,10 +82,13 @@ mod tests {
                 .ensure_registered()
                 .with_udp_mode(UdpMode::Enabled)
                 .add();
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuids[idx])
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuids[idx],
+                CertVerification::SelfSignedAccepted,
+            )
+            .build()
+            .unwrap();
             let kernel =
                 PeerConnectionKernel::new(settings, agg, move |mut results, remote| async move {
                     let conn = results.recv().await.unwrap().unwrap();

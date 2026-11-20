@@ -100,17 +100,25 @@ mod tests {
                         && server.session_footprint().sessions == 0
                 };
                 remote
-                    .register_with_defaults(server_addr, &username, &username, password)
+                    .register_with_defaults(
+                        server_addr,
+                        &username,
+                        &username,
+                        password,
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 remote
-                    .connect_with_defaults(login())
+                    .connect_with_defaults(login(), CertVerification::SelfSignedAccepted)
                     .await?
                     .disconnect()
                     .await?;
                 within("the first sessions were not released", nothing_held).await?;
                 let baseline = live_tasks();
 
-                let connection = remote.connect_with_defaults(login()).await?;
+                let connection = remote
+                    .connect_with_defaults(login(), CertVerification::SelfSignedAccepted)
+                    .await?;
                 let sender = connection.remote.clone();
                 let sending = tokio::spawn(async move {
                     let source = BytesSource {

@@ -98,12 +98,15 @@ mod imp {
                     .add();
             }
 
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .with_udp_mode(UdpMode::Disabled)
-                    .with_session_security_settings(security)
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuid,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Disabled)
+            .with_session_security_settings(security)
+            .build()
+            .unwrap();
 
             let connected_c = connected.clone();
             let done_c = done.clone();

@@ -25,6 +25,7 @@ async fn main() {
             my_peer_id,
             "dunny name",
             "password",
+            CertVerification::SelfSignedAccepted,
         )
         .build()
         .unwrap();

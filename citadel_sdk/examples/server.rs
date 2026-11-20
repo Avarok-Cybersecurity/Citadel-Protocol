@@ -43,6 +43,7 @@ async fn main() {
         .with_stun_servers([stun0, stun1, stun2])
         .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_path_policy(every_path_in_order())
+        .with_server_limits(lab_limits())
         .build(server)
         .unwrap()
         .await
@@ -74,4 +75,18 @@ fn every_path_in_order() -> PathPolicy {
         })
         .collect();
     PathPolicy::new(rules, PathClasses::NONE).expect("a valid path policy")
+}
+
+/// The NAT lab's server limits: a handful of lab clients, which register the legacy way.
+fn lab_limits() -> ServerLimits {
+    let nonzero = |n: usize| std::num::NonZeroUsize::new(n).expect("a positive limit");
+    ServerLimits {
+        provisional_per_ip: nonzero(32),
+        provisional_total: nonzero(256),
+        legacy_registration: LegacyRegistration::Accepted {
+            concurrent_hashes: nonzero(4),
+        },
+        outbound_queued_per_stream: nonzero(256 * 1024 * 1024),
+        outbound_queued_total: nonzero(1024 * 1024 * 1024),
+    }
 }

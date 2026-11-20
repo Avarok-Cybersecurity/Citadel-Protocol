@@ -118,6 +118,7 @@ pub mod primary_group_packet;
 pub mod raw_primary_packet;
 pub mod register_packet;
 pub(crate) mod server_probe_packet;
+pub(crate) mod syn_refusal;
 pub mod udp_packet;
 //
 pub mod hole_punch;

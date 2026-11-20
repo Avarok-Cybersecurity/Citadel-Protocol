@@ -88,7 +88,7 @@ pub(crate) fn wrap_p2p_stream<R: Ratchet, T: PlatformOps>(
 
     log::trace!(target: "citadel", "[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), remote_peer);
     let (sink, stream) = misc::safe_split_stream(p2p_stream);
-    let (primary_tx, primary_rx) = budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES);
+    let (primary_tx, primary_rx) = budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES, None);
     let header_obfuscator = HeaderObfuscator::new(
         from_listener,
         facts.session_security_settings.header_obfuscator_settings,

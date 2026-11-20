@@ -67,6 +67,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     turn_servers: Option<Vec<TurnServerConfig>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     path_policy: Option<PathPolicy>,
+    server_limits: Option<ServerLimits>,
     max_security_level: Option<citadel_types::crypto::MaxSecurityLevel>,
     revfs_keys: Option<citadel_proto::prelude::RevfsKeys>,
     p2p_kex_identity: Option<citadel_proto::prelude::P2pKexIdentities>,
@@ -100,6 +101,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             turn_servers: None,
             local_only_server_settings: None,
             path_policy: None,
+            server_limits: None,
             max_security_level: None,
             revfs_keys: None,
             p2p_kex_identity: None,
@@ -183,7 +185,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         let turn_servers = self.turn_servers.take();
         let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = server_settings(
-            self.local_only_server_settings.take(),
+            with_limits(
+                self.local_only_server_settings.take(),
+                self.server_limits.take(),
+            ),
             self.path_policy.take(),
         );
         let websocket_listener = self.websocket_listener.take();
@@ -455,6 +460,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 
     fn check(&self) -> anyhow::Result<()> {
         check_path_policy(self.hypernode_type.as_ref(), self.path_policy.as_ref())?;
+        check_server_limits(self.hypernode_type.as_ref(), self.server_limits.as_ref())?;
         if self.injected_listener.is_some()
             && !matches!(self.hypernode_type, Some(NodeType::Server(_)))
         {
@@ -479,22 +485,13 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 /// NativeIO-specific builder methods for TLS certificate configuration
 #[cfg(not(target_family = "wasm"))]
 impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
-    /// Wraps a rustls client config, preserving any previously-set `require_cert_verification`
-    /// policy so that the ordering of `with_*_certs` and `with_require_cert_verification` does not
-    /// matter.
+    /// The roots and verifier a connection that requires verification checks a server against
+    /// (each connection chooses, see [`CertVerification`](crate::prelude::CertVerification)).
     fn set_client_rustls_config(
         &mut self,
         config: std::sync::Arc<citadel_proto::re_imports::RustlsClientConfig>,
     ) {
-        let require_cert_verification = self
-            .client_tls_config
-            .as_ref()
-            .map(|cfg| cfg.require_cert_verification)
-            .unwrap_or(false);
-        self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig {
-            config,
-            require_cert_verification,
-        });
+        self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig::new(config));
     }
 
     /// Loads the accepted cert chain stored by the local operating system
@@ -507,29 +504,13 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
         Ok(self)
     }
 
-    /// The client will skip unconditionally server certificate verification
-    /// This is not recommended
+    /// The client takes any server certificate unverified. A connection that requires a verified
+    /// certificate (`CertVerification::Required`) is refused on such a node before it dials,
+    /// with `CertVerificationUnavailable`. This is not recommended
     pub fn with_insecure_skip_cert_verification(&mut self) -> &mut Self {
-        // Explicit opt-out: this clears any require-verification policy by design.
-        self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig::new(
-            std::sync::Arc::new(citadel_proto::re_imports::insecure::rustls_client_config()),
-        ));
+        self.client_tls_config =
+            Some(citadel_proto::re_imports::NativeClientConfig::accepting_any_certificate());
         self
-    }
-
-    /// Requires server certificate verification, refusing to fall back to the accept-any-cert path
-    /// even if the peer advertises a self-signed server (i.e. an attacker cannot downgrade the
-    /// transport by flipping the `is_self_signed`/`domain` signal). If no client TLS config has been
-    /// set yet, the OS-native cert roots are loaded first. Order-independent with respect to the
-    /// `with_*_certs` methods.
-    pub async fn with_require_cert_verification(&mut self) -> anyhow::Result<&mut Self> {
-        if self.client_tls_config.is_none() {
-            let _ = self.with_native_certs().await?;
-        }
-        if let Some(cfg) = self.client_tls_config.as_mut() {
-            cfg.require_cert_verification = true;
-        }
-        Ok(self)
     }
 
     /// Loads a custom list of certs into the acceptable certificate list. Connections that present server certificates
@@ -626,7 +607,9 @@ mod tests {
             .unwrap();
 
         if node_type.is_server() {
-            let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
+            let _ = builder
+                .with_path_policy(crate::test_common::localhost_path_policy())
+                .with_server_limits(crate::test_common::localhost_server_limits());
         }
         assert!(builder.underlying_protocol.is_some());
         assert_eq!(backend_type, builder.backend_type.clone().unwrap());
@@ -650,7 +633,10 @@ mod link_manager_tests;
 
 #[path = "node_builder_path_policy.rs"]
 mod path_policy;
+#[path = "node_builder_server_limits.rs"]
+mod server_limits;
 use path_policy::{check_path_policy, server_settings};
+use server_limits::{check_server_limits, with_limits};
 
 #[path = "node_builder_kex_identity.rs"]
 mod kex_identity;

@@ -101,13 +101,14 @@ mod tests {
                         username.as_str(),
                         username.as_str(),
                         password,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .await?;
                 let first = remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(
-                        username.clone(),
-                        password,
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username.clone(), password),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 let cid = first.cid;
                 // Let the keep-alive exchange start, so a handler is in flight on the server.
@@ -118,10 +119,10 @@ mod tests {
                 loop {
                     citadel_io::tokio::time::sleep(Duration::from_secs(1)).await;
                     let last_error = match remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await
                     {
                         Ok(again) => {

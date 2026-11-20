@@ -71,7 +71,13 @@ mod tests {
             Arc::new(NodeState::default()),
             move |remote: NodeRemote<StackedRatchet>, _state: Arc<NodeState>| async move {
                 remote
-                    .register_with_defaults(proxy.addr, &username, &username, PASSWORD)
+                    .register_with_defaults(
+                        proxy.addr,
+                        &username,
+                        &username,
+                        PASSWORD,
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 let conn = connect(&remote, &username, PASSWORD, standard(true)).await?;
                 conn.rekey().await?;
@@ -139,7 +145,13 @@ mod tests {
                 Arc::new(NodeState::default()),
                 move |remote: NodeRemote<StackedRatchet>, _state: Arc<NodeState>| async move {
                     remote
-                        .register_with_defaults(proxy.addr, &username, &username, PASSWORD)
+                        .register_with_defaults(
+                            proxy.addr,
+                            &username,
+                            &username,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     let conn = connect(&remote, &username, PASSWORD, standard(true)).await?;
                     connected.wait().await;
@@ -171,7 +183,13 @@ mod tests {
                 Arc::new(NodeState::default()),
                 move |remote: NodeRemote<StackedRatchet>, _state: Arc<NodeState>| async move {
                     remote
-                        .register_with_defaults(server_addr, &username, &username, PASSWORD)
+                        .register_with_defaults(
+                            server_addr,
+                            &username,
+                            &username,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     let conn = connect(&remote, &username, PASSWORD, standard(false)).await?;
                     connected.wait().await;

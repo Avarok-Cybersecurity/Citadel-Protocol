@@ -53,6 +53,7 @@ mod tests {
                 keep_alive_timeout: None,
                 session_security_settings: Default::default(),
                 session_password: Default::default(),
+                cert_verification: CertVerification::SelfSignedAccepted,
             }))
             .await?;
         match listener.next().await {

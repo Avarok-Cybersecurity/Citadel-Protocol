@@ -193,7 +193,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     }
 
     pub async fn forward_packet(&self, packet: &[u8]) -> Result<(), anyhow::Error> {
-        let deserialized = bincode::deserialize::<MultiplexedPacket<K>>(packet)?;
+        let deserialized = citadel_io::decode::deserialize::<MultiplexedPacket<K>>(packet)?;
         match deserialized {
             MultiplexedPacket::ApplicationLayer { id, payload } => {
                 {

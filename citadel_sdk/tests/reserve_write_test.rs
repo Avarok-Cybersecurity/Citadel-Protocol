@@ -48,6 +48,7 @@ mod tests {
                 username.as_str(),
                 username.as_str(),
                 password,
+                CertVerification::SelfSignedAccepted,
             )
             .with_udp_mode(UdpMode::Disabled)
             .build()
@@ -137,6 +138,7 @@ mod tests {
                 username.as_str(),
                 username.as_str(),
                 password,
+                CertVerification::SelfSignedAccepted,
             )
             .with_udp_mode(UdpMode::Disabled)
             .build()

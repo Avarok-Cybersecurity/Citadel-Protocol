@@ -37,9 +37,13 @@ mod tests {
         let group_id = Uuid::new_v4();
 
         let owner_kernel = SingleClientServerConnectionKernel::new(
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, owner_uuid)
-                .build()
-                .unwrap(),
+            DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                owner_uuid,
+                CertVerification::SelfSignedAccepted,
+            )
+            .build()
+            .unwrap(),
             move |connection| async move {
                 let mut signals = connection
                     .remote
@@ -80,9 +84,13 @@ mod tests {
         );
 
         let joiner_kernel = BroadcastKernel::new(
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, joiner_uuid)
-                .build()
-                .unwrap(),
+            DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                joiner_uuid,
+                CertVerification::SelfSignedAccepted,
+            )
+            .build()
+            .unwrap(),
             GroupInitRequestType::Join {
                 local_user: UserIdentifier::from(joiner_uuid),
                 owner: owner_uuid.into(),

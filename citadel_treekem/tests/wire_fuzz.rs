@@ -68,7 +68,7 @@ fn received_commits_never_panic_or_spin() {
         CASES,
         DEADLINE,
         move |bytes| {
-            if let Ok(commit) = bincode::deserialize::<Commit>(bytes) {
+            if let Ok(commit) = citadel_io::decode::deserialize::<Commit>(bytes) {
                 let mut state = member.clone();
                 let before = state.tree.clone();
                 if state.process_commit(&commit).is_err() {
@@ -84,7 +84,7 @@ fn received_welcomes_never_panic_or_spin() {
     let f = fixture();
     let secret = f.joiner_secret;
     campaign("welcome", vec![f.welcome], CASES, DEADLINE, move |bytes| {
-        if let Ok(welcome) = bincode::deserialize::<Welcome>(bytes) {
+        if let Ok(welcome) = citadel_io::decode::deserialize::<Welcome>(bytes) {
             let _ = GroupState::join_from_welcome(&welcome, secret);
         }
     });
@@ -95,7 +95,7 @@ fn received_application_messages_never_panic() {
     let f = fixture();
     let member = f.member;
     campaign("message", vec![f.message], CASES, DEADLINE, move |bytes| {
-        if let Ok(message) = bincode::deserialize::<AppCiphertext>(bytes) {
+        if let Ok(message) = citadel_io::decode::deserialize::<AppCiphertext>(bytes) {
             let _ = member.decrypt_message(&message);
         }
     });

@@ -70,7 +70,13 @@ mod tests {
             GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, _events: Events| async move {
                     let reg = remote
-                        .register_with_defaults(server_addr, &me, &me, PASSWORD)
+                        .register_with_defaults(
+                            server_addr,
+                            &me,
+                            &me,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     let conn = connect(&remote, &me).await?;
                     sync.wait().await;
@@ -125,7 +131,13 @@ mod tests {
             GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, mut events: Events| async move {
                     let reg = remote
-                        .register_with_defaults(server_addr, &me, &me, PASSWORD)
+                        .register_with_defaults(
+                            server_addr,
+                            &me,
+                            &me,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     a_cid_cell.store(reg.cid, Ordering::SeqCst);
                     let conn = connect(&remote, &me).await?;
@@ -179,7 +191,13 @@ mod tests {
             GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, mut events: Events| async move {
                     let reg = remote
-                        .register_with_defaults(server_addr, &me, &me, PASSWORD)
+                        .register_with_defaults(
+                            server_addr,
+                            &me,
+                            &me,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     shared.b_cid.store(reg.cid, Ordering::SeqCst);
                     let conn = connect(&remote, &me).await?;
