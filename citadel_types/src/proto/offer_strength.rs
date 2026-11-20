@@ -7,7 +7,7 @@
 //! stronger of the two offers, whichever order they arrive in.
 
 use super::SessionSecuritySettings;
-use crate::crypto::{HeaderObfuscatorSettings, SecrecyMode};
+use crate::crypto::{HeaderObfuscatorSettings, KemAlgorithm, SecrecyMode};
 
 /// The settings a link takes when two offers for it cross.
 ///
@@ -15,8 +15,8 @@ use crate::crypto::{HeaderObfuscatorSettings, SecrecyMode};
 /// level (by [`SecurityLevel::value`](crate::crypto::SecurityLevel::value)) and the secrecy mode
 /// (`Perfect` over `BestEffort`). The crypto parameters and header obfuscation are a suite, not a
 /// scale, so they are never mixed: they come whole from the leading offer -- the one with the
-/// higher (level, secrecy) -- and a tie is broken by a fixed total order on the suite. The
-/// result is therefore the same whichever argument is which.
+/// higher (level, secrecy, KEM strength) -- and a tie is broken by a fixed total order on the
+/// suite. The result is therefore the same whichever argument is which.
 pub fn stronger_offer(
     a: SessionSecuritySettings,
     b: SessionSecuritySettings,
@@ -72,10 +72,24 @@ fn obfuscator_key(settings: HeaderObfuscatorSettings) -> (u8, u128) {
     }
 }
 
-fn leading_key(settings: &SessionSecuritySettings) -> (u8, u8, u8, (u8, u128)) {
+/// The KEM's strength: the round-3 Kyber scheme below FIPS 203, and ML-KEM-1024 above
+/// ML-KEM-768. No catch-all, so a new KEM is ranked when it is added.
+fn kem_rank(kem: KemAlgorithm) -> u8 {
+    match kem {
+        KemAlgorithm::MlKem => 0,
+        KemAlgorithm::MlKem768Fips203 => 1,
+        KemAlgorithm::MlKem1024Fips203 => 2,
+    }
+}
+
+/// An offer's place in the order [`stronger_offer`] leads by: level, secrecy, KEM, then the suite.
+type LeadingKey = (u8, u8, u8, u8, (u8, u128));
+
+fn leading_key(settings: &SessionSecuritySettings) -> LeadingKey {
     (
         settings.security_level.value(),
         secrecy_rank(settings.secrecy_mode),
+        kem_rank(settings.crypto_params.kem_algorithm),
         u8::from(settings.crypto_params),
         obfuscator_key(settings.header_obfuscator_settings),
     )
@@ -84,7 +98,7 @@ fn leading_key(settings: &SessionSecuritySettings) -> (u8, u8, u8, (u8, u128)) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::{CryptoParameters, KemAlgorithm, SecurityLevel};
+    use crate::crypto::{CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
 
     fn offer(level: SecurityLevel, secrecy: SecrecyMode) -> SessionSecuritySettings {
         SessionSecuritySettings {
@@ -95,14 +109,11 @@ mod tests {
         }
     }
 
-    fn fingerprint(s: SessionSecuritySettings) -> (u8, u8, u8, (u8, u128)) {
+    fn fingerprint(s: SessionSecuritySettings) -> LeadingKey {
         leading_key(&s)
     }
 
-    fn both_orders(
-        a: SessionSecuritySettings,
-        b: SessionSecuritySettings,
-    ) -> [(u8, u8, u8, (u8, u128)); 2] {
+    fn both_orders(a: SessionSecuritySettings, b: SessionSecuritySettings) -> [LeadingKey; 2] {
         [
             fingerprint(stronger_offer(a, b)),
             fingerprint(stronger_offer(b, a)),
@@ -192,6 +203,24 @@ mod tests {
             falls_short_of(other_suite, mine),
             "at equal strength the suite is the merge's, and this one loses the tie"
         );
+    }
+
+    #[test]
+    fn a_stamp_with_a_weaker_kem_falls_short_whatever_else_its_suite_ranks() {
+        let mut mine = offer(SecurityLevel::High, SecrecyMode::BestEffort);
+        mine.crypto_params.kem_algorithm = KemAlgorithm::MlKem1024Fips203;
+        let mut round_three = mine;
+        round_three.crypto_params.kem_algorithm = KemAlgorithm::MlKem;
+        round_three.crypto_params.encryption_algorithm = EncryptionAlgorithm::Ascon80pq;
+        assert!(u8::from(round_three.crypto_params) > u8::from(mine.crypto_params));
+        assert!(falls_short_of(round_three, mine));
+        for result in both_orders(mine, round_three) {
+            assert_eq!(
+                result,
+                fingerprint(mine),
+                "the merge keeps the stronger KEM"
+            );
+        }
     }
 
     #[test]

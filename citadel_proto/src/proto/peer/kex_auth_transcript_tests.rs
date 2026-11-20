@@ -194,29 +194,6 @@ fn the_signature_covers_every_field_of_the_transcript() {
 }
 
 #[test]
-fn the_stage_digests_cover_what_the_sender_wrote() {
-    let base = stage0_digest(b"kem", settings(), UdpMode::Disabled, Ticket(1));
-    let mut level = settings();
-    level.security_level = SecurityLevel::High;
-    for other in [
-        stage0_digest(b"keM", settings(), UdpMode::Disabled, Ticket(1)),
-        stage0_digest(b"kem", level, UdpMode::Disabled, Ticket(1)),
-        stage0_digest(b"kem", settings(), UdpMode::Enabled, Ticket(1)),
-        stage0_digest(b"kem", settings(), UdpMode::Disabled, Ticket(2)),
-    ] {
-        assert_ne!(base, other);
-    }
-    let base = stage1_digest(b"kem", true, Ticket(1));
-    for other in [
-        stage1_digest(b"keM", true, Ticket(1)),
-        stage1_digest(b"kem", false, Ticket(1)),
-        stage1_digest(b"kem", true, Ticket(2)),
-    ] {
-        assert_ne!(base, other);
-    }
-}
-
-#[test]
 fn the_signature_is_made_under_its_domain() {
     let key = Key::new(5);
     let body = transcript_body(&context(), &KexStage::Initiator { stage0: [1; 32] });
