@@ -52,9 +52,12 @@ pub(crate) async fn on_start<R: Ratchet, T: PlatformOps>(
         return Err(error!(ErrorCode::PqSignInMalformed, "a device label"));
     }
     let account_manager = &session.account_manager;
-    let settings = account_manager
-        .pq_settings()
-        .ok_or_else(|| error!(ErrorCode::RecoveryUnsupported))?;
+    let settings = account_manager.pq_settings().ok_or_else(|| {
+        error!(
+            ErrorCode::PqSignInUnavailable,
+            "this server has no post-quantum sign-in settings"
+        )
+    })?;
     super::super::throttle::admit(session, &username, Attempt::Recovery)?;
     let source = Some(session.remote_peer.ip());
     let ctx = AdmissionContext {

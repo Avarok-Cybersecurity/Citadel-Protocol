@@ -113,7 +113,6 @@ async fn a_registration_is_refused_before_the_oprf_runs() {
         username: "bob".into(),
         oprf_blinded: NOT_A_POINT.to_vec(),
         admission: None,
-        reads_challenge: true,
     };
     let register = |token: Option<&str>| {
         let ctx = ctx(AdmissionKind::Register, token);

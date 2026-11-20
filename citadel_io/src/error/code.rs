@@ -1342,9 +1342,7 @@ pub enum ErrorCode {
     /// or a check that does not match). It says nothing about any account.
     #[form = "Not a recovery phrase: {}"]
     RecoveryPhraseUnreadable = 511,
-    /// The server is below the protocol version that recovers accounts and sets passwords.
-    #[form = "The server predates account recovery; it must be updated first"]
-    RecoveryUnsupported = 512,
+    // 512 is retired: never reuse it.
     /// A sign-in throttle policy with a limit that would admit nothing or lock nothing (reason).
     #[form = "Invalid sign-in throttle policy: {}"]
     SignInThrottlePolicyInvalid = 513,

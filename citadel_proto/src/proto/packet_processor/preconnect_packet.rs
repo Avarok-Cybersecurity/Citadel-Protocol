@@ -573,20 +573,13 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                 if state_container.pre_connect_state.last_stage
                     == packet_flags::cmd::aux::do_preconnect::SUCCESS
                 {
-                    let server_protocol_version = header.protocol_version.get();
                     let (header, payload, _, _) = packet.decompose();
                     if let Some((_, _, ratchet)) = validation::aead::validate(hr, &header, payload)
                     {
                         state_container.pre_connect_state.success = true;
                         std::mem::drop(state_container);
                         // now, begin stage 0 connect
-                        begin_connect_process(
-                            session,
-                            &ratchet,
-                            security_level,
-                            ticket,
-                            server_protocol_version,
-                        )
+                        begin_connect_process(session, &ratchet, security_level, ticket)
                     } else {
                         log::error!(target: "citadel", "Unable to validate success_ack packet. Dropping");
                         Ok(PrimaryProcessorResult::Void)
@@ -627,7 +620,6 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
     ratchet: &R,
     security_level: SecurityLevel,
     ticket: Ticket,
-    server_protocol_version: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     // At this point, the session keys have already been re-established. We just need to begin the login stage
     let resume_token = session.session_manager.resume_token(ratchet.get_cid());
@@ -638,15 +630,14 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
         &mut state_container,
         ratchet,
         resume_token,
-        server_protocol_version,
         timestamp,
         security_level,
         ticket,
     );
     let begun = match begun {
         Ok(begun) => begun,
-        // Refused on this side, before anything is sent (a phrase to a server that predates
-        // recovery): the caller hears why, as from a refused login.
+        // Refused on this side, before anything is sent (a code and a phrase both offered): the
+        // caller hears why, as from a refused login.
         Err(err) => {
             std::mem::drop(state_container);
             let cid = ratchet.get_cid();

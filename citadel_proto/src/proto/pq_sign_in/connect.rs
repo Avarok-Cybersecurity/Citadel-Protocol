@@ -36,7 +36,6 @@ pub(crate) fn begin<R: Ratchet>(
     state: &mut StateContainerInner<R>,
     ratchet: &R,
     resume: Option<ResumeToken>,
-    server_version: u32,
     timestamp: i64,
     security_level: SecurityLevel,
     ticket: Ticket,
@@ -56,10 +55,6 @@ pub(crate) fn begin<R: Ratchet>(
                 ErrorCode::PqSignInMalformed,
                 "a sign-in offering both a recovery code and a recovery phrase"
             ))
-        }
-        // A server below it would answer a phrase with a decoy: say why instead.
-        (None, Some(_)) if !super::recover::server_recovers(Some(server_version)) => {
-            return Err(error!(ErrorCode::RecoveryUnsupported))
         }
         (None, Some(phrase)) => Some(RecoveryOffer::Phrase(phrase)),
         (Some(code), None) => Some(RecoveryOffer::Code(code)),

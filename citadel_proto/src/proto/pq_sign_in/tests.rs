@@ -90,7 +90,6 @@ fn a_current_stage2_reads() {
         .clone();
     let finish = RegFinish {
         password_ek: ek.clone(),
-        recovery_eks: Vec::new(),
         recovery_phrase_ek: None,
     };
     let with_phrase = DoRegisterStage2Packet {

@@ -47,14 +47,6 @@ impl ManagementOp {
         )
     }
 
-    /// Whether only a server at the recovery release reads this change.
-    pub fn needs_recovery_release(&self) -> bool {
-        matches!(
-            self,
-            Self::SetPassword { .. } | Self::RegenerateRecoveryPhrase
-        )
-    }
-
     /// How many recovery keys `ManagementBegin::recovery_eks` carries for this change.
     pub fn recovery_key_count(&self) -> usize {
         match self {

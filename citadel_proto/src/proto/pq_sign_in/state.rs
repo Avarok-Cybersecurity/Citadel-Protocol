@@ -78,9 +78,6 @@ pub(crate) struct PqRegisterState {
     pub registered: bool,
     /// Client: the domain the new account's recovery phrase is bound to, until `PQ_REPLY`.
     pub recovery_domain: Option<String>,
-    /// Client: the new account's recovery codes (a server below the recovery release), for
-    /// `RegisterOkay`.
-    pub recovery_codes: Vec<String>,
     /// Client: the new account's recovery phrase, for `RegisterOkay`.
     pub recovery_phrase: Option<Vec<String>>,
     /// Server: between `PQ_REPLY` and STAGE2.

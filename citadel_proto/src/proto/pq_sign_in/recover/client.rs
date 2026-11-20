@@ -42,13 +42,11 @@ pub(crate) fn on_stage0_sent<R: Ratchet>(
 }
 
 /// Client, once STAGE1 has given it the ratchet: the `RECOVER_START` to send in place of STAGE2,
-/// when this session recovers. Refused, before anything is sent, by a server below
-/// `RECOVERY_SINCE`.
+/// when this session recovers.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
-    server_version: u32,
     stage1_payload: &[u8],
     algorithm: u8,
     timestamp: i64,
@@ -60,9 +58,6 @@ pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
     let Some(ask) = recover.ask.take() else {
         return Ok(None);
     };
-    if !super::server_recovers(Some(server_version)) {
-        return Err(error!(ErrorCode::RecoveryUnsupported));
-    }
     let sent_stage0 = recover
         .sent_stage0
         .take()

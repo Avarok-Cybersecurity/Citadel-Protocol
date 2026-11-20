@@ -81,8 +81,8 @@ mod tests {
                     CertVerification::SelfSignedAccepted,
                 )
                 .await?;
-            // No domain was given, so no recovery credential: codes are no longer issued.
-            assert!(reg.recovery_codes.is_empty() && reg.recovery_phrase.is_none());
+            // No domain was given, so no recovery credential.
+            assert!(reg.recovery_phrase.is_none());
 
             let conn = login(&remote, &user, PASSWORD).await?;
             let added = conn.manage_sign_in(add_key(), password().with_security_key(key(7)));

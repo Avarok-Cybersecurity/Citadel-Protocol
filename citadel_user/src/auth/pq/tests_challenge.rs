@@ -11,7 +11,6 @@ use super::tests::{register, settings};
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
 use citadel_io::{tokio, ErrorCode};
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -44,38 +43,15 @@ fn a_failure_keeps_the_challenge_only_on_the_refusal_that_asks_for_one() {
     assert!(refusal_from_message("Authentication failed", Some(challenge())).is_none());
 }
 
-/// The 0.14.0 shape of `RegStart`, as an older client sends it and an older server reads it.
-#[derive(Serialize, Deserialize)]
-struct RegStartOf0140 {
-    username: String,
-    oprf_blinded: Vec<u8>,
-    admission: Option<super::admission::AdmissionToken>,
-}
-
 #[test]
-fn reg_start_reads_in_both_directions() {
-    let old = RegStartOf0140 {
+fn reg_start_round_trips() {
+    let start = RegStart {
         username: "bob".into(),
         oprf_blinded: vec![1, 2],
         admission: None,
     };
-    let read = RegStart::deserialize_from_vector(&old.serialize_to_vector().unwrap()).unwrap();
-    assert!(
-        !read.reads_challenge,
-        "an older client was taken to read challenges"
-    );
-    let new = RegStart {
-        reads_challenge: true,
-        ..read
-    };
-    let bytes = new.serialize_to_vector().unwrap();
-    assert_eq!(RegStart::deserialize_from_vector(&bytes).unwrap(), new);
-    assert_eq!(
-        RegStartOf0140::deserialize_from_vector(&bytes)
-            .unwrap()
-            .username,
-        "bob"
-    );
+    let bytes = start.serialize_to_vector().unwrap();
+    assert_eq!(RegStart::deserialize_from_vector(&bytes).unwrap(), start);
 }
 
 struct Challenges(AtomicBool);

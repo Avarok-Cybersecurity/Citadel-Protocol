@@ -220,10 +220,6 @@ impl<R: Ratchet> DerefMut for CitadelClientServerConnection<R> {
 /// Contains the elements entailed by a successful registration
 pub struct RegisterSuccess {
     pub cid: u64,
-    /// The recovery codes of a post-quantum registration, to show the user once (see
-    /// `RegisterOkay::recovery_codes`). Empty for a legacy registration, and at a server that
-    /// recovers accounts.
-    pub recovery_codes: Vec<String>,
     /// The new account's recovery phrase, 24 words to show the user once (see
     /// `RegisterOkay::recovery_phrase`).
     pub recovery_phrase: Option<Vec<String>>,
@@ -249,13 +245,11 @@ async fn await_registration<R: Ratchet, Rem: ProtocolRemoteExt<R>>(
         match status.into_result()? {
             NodeResult::RegisterOkay(RegisterOkay {
                 cid,
-                recovery_codes,
                 recovery_phrase,
                 ..
             }) => {
                 return Ok(RegisterSuccess {
                     cid,
-                    recovery_codes,
                     recovery_phrase,
                 });
             }

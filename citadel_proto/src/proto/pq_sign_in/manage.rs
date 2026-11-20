@@ -21,19 +21,6 @@ pub(crate) enum ServerManagement {
     Enrolling(PendingEnrol),
 }
 
-/// Client: whether the server at `server_version` can read `message`.
-pub(crate) fn sendable(
-    message: &ManagementMessage,
-    server_version: Option<u32>,
-) -> Result<(), NetworkError> {
-    if let ManagementMessage::Begin(begin) = message {
-        if begin.op.needs_recovery_release() && !super::recover::server_recovers(server_version) {
-            return Err(error!(ErrorCode::RecoveryUnsupported));
-        }
-    }
-    Ok(())
-}
-
 fn out_of_order() -> NetworkError {
     error!(
         ErrorCode::PqSignInMalformed,

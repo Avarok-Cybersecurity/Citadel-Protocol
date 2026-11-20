@@ -157,8 +157,8 @@ pub const SECURITY_KEY_CEREMONY_SINCE: (u8, u8, u8) = (0, 12, 3);
 /// `RECOVER_START` (a device with no bundle proves the account's recovery phrase inside the fresh
 /// key exchange, and that exchange's ratchet becomes the account's bundle), it challenges a
 /// recovery phrase offered at sign-in, and it reads the management changes `SetPassword` and
-/// `RegenerateRecoveryPhrase`. A client checks STAGE1's header and the session's server version
-/// first, and asks an older server for none of these.
+/// `RegenerateRecoveryPhrase`. Every node this node takes part with is at or above it
+/// (`version_gate`).
 pub const RECOVERY_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 /// A client may reattach a held session over a new path with the same seal, and a server answers

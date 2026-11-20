@@ -109,7 +109,7 @@ fn refuse<R: Ratchet, T: PlatformOps>(
     let packet = packet_crafter::do_register::craft_failure(
         header.algorithm,
         session.time_tracker.get_global_time_ns(),
-        crate::proto::pq_sign_in::refusal::register_failure(err, true, true),
+        crate::proto::pq_sign_in::refusal::register_failure(err),
         header.session_cid.get(),
         ticket,
     );

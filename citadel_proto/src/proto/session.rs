@@ -2480,14 +2480,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
         let mut state_container = inner_mut_state!(this.state_container);
 
-        // An older server cannot decode the signal; it would be dropped and the caller would wait.
-        if let PeerSignal::SignInManagement { message, .. } = &peer_command {
-            crate::proto::pq_sign_in::manage::sendable(
-                message,
-                state_container.adjacent_protocol_version,
-            )?;
-        }
-
         // TODO: send errors if any commands have Some() responses
         if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
             let signal_processed = match peer_command {

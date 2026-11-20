@@ -1,7 +1,6 @@
 use crate::auth::pq::admission::AdmissionToken;
 use crate::auth::pq::kem::EncapsulationKey;
 use crate::auth::pq::record::KsfParams;
-use citadel_negotiation::frame::appended_field;
 use serde::{Deserialize, Serialize};
 
 /// C→S: begin a post-quantum registration. The password factor is always enrolled; security keys
@@ -13,11 +12,6 @@ pub struct RegStart {
     pub oprf_blinded: Vec<u8>,
     /// The registration's admission token, when the client has one.
     pub admission: Option<AdmissionToken>,
-    /// This client reads a refusal's challenge (`admission::AdmissionChallenge`) off the
-    /// registration FAILURE. An older client's `RegStart` has no such field and reads as false,
-    /// so it is sent the plain message it understands.
-    #[serde(default, deserialize_with = "crate::wire_compat::ok_or_default")]
-    pub reads_challenge: bool,
 }
 
 /// S→C: what the client needs to derive its password factor.
@@ -43,15 +37,7 @@ pub enum RegStartReply {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RegFinish {
     pub password_ek: EncapsulationKey,
-    /// One key per recovery code, from a client registering at a server below the recovery
-    /// release. Empty otherwise, and when the account upgrades from a legacy record.
-    pub recovery_eks: Vec<EncapsulationKey>,
-    /// The recovery phrase's key, which a new account at a server that recovers accounts is
-    /// given in place of codes. Appended, and sent only to such a server.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "appended_field"
-    )]
+    /// The recovery phrase's key, when the account is given one. `None` for an account given no
+    /// recovery credential, and when it upgrades from a legacy record.
     pub recovery_phrase_ek: Option<EncapsulationKey>,
 }

@@ -67,7 +67,6 @@ pub fn begin_management(
                 username: begin.step_up.username.clone(),
                 oprf_blinded: oprf_blinded.clone(),
                 admission: None,
-                reads_challenge: false,
             };
             let (mut reply, pending) = registration_reply(settings, &start)?;
             // Only the password changes; the account's keys keep their PRF salt.

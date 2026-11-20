@@ -48,13 +48,9 @@ pub struct RegisterOkay {
     pub ticket: Ticket,
     pub cid: u64,
     pub welcome_message: Vec<u8>,
-    /// A post-quantum registration's recovery codes, formatted for display. Show them to the user
-    /// now: the client generated them, the server holds only their keys, and nothing keeps them.
-    /// Empty for a legacy registration, and at a server that recovers accounts.
-    pub recovery_codes: Vec<String>,
-    /// The new account's recovery phrase, 24 words, at a server that recovers accounts and was
-    /// given its domain (`RegisterToHypernode::recovery_domain`). Show it to the user now, like
-    /// the codes.
+    /// The new account's recovery phrase, 24 words, when the registration was given the server's
+    /// domain (`RegisterToHypernode::recovery_domain`). Show it to the user now: the client
+    /// generated it, the server holds only its key, and nothing keeps it.
     pub recovery_phrase: Option<Vec<String>>,
 }
 
@@ -73,8 +69,8 @@ pub struct RegisterFailure {
     /// The check to complete before trying again, when the server's admission refusal sent one
     /// (public: see `citadel_user::auth::pq::admission::AdmissionChallenge`).
     pub admission_challenge: Option<AdmissionChallenge>,
-    /// The failure's stable error code, when the side that failed sent it (a server at
-    /// `RECOVERY_SINCE` or later), or when it failed on this side.
+    /// The failure's stable error code, when the side that failed sent one (every post-quantum
+    /// registration's refusal does), or when it failed on this side.
     pub error_code: Option<u16>,
 }
 
