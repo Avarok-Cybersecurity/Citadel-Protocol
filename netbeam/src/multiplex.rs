@@ -33,7 +33,7 @@
 //!
 
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
-use crate::sync::network_application::{PostActionChannel, PreActionChannel, INITIAL_CAPACITY};
+use crate::sync::network_application::PostActionChannel;
 use crate::sync::pairing::Pairing;
 use crate::sync::subscription::{
     close_sequence_for_multiplexed_bistream, Subscribable, SubscriptionBiStream,
@@ -120,7 +120,6 @@ pub struct MultiplexedConnInner<K: MultiplexedConnKey> {
     /// A map of subscribers.
     subscribers: RwLock<HashMap<K, MemorySender>>,
     /// A channel for pre-action signals.
-    pre_open_container: PreActionChannel<K>,
     /// A channel for post-action signals.
     post_close_container: PostActionChannel<K>,
     /// The ID generator.
@@ -131,7 +130,7 @@ pub struct MultiplexedConnInner<K: MultiplexedConnKey> {
     node_type: RelativeNodeType,
     /// What both ends speak (see [`WireRevision`]).
     wire: WireRevision,
-    /// Subscription pairing under [`WireRevision::Exchanged`].
+    /// Subscription pairing.
     pairing: Pairing<K>,
     /// Set once the transport can deliver nothing more.
     transport_closed: AtomicBool,
@@ -196,13 +195,11 @@ pub(crate) enum MultiplexedPacket<K: MultiplexedConnKey> {
     ApplicationLayer { id: K, payload: Vec<u8> },
     /// A post-drop packet.
     PostDrop { id: K },
-    /// A pre-create packet.
-    PreCreate { id: K },
     /// A greeter packet.
     Greeter,
-    /// [`WireRevision::Exchanged`]: the receiver proposes `id` for `topic`.
+    /// The receiver proposes `id` for `topic`.
     Open { topic: Topic, id: K },
-    /// [`WireRevision::Exchanged`]: the initiator took the proposed `id`.
+    /// The initiator took the proposed `id`.
     OpenAck { id: K },
 }
 
@@ -214,20 +211,8 @@ impl<K: MultiplexedConnKey> MultiplexedConn<K> {
         wire: WireRevision,
     ) -> Self {
         let id_gen = K::generate_container();
-        // Only the count-paired wire opens ids without asking the peer.
-        let pre_reserved = match wire {
-            WireRevision::CountPaired => INITIAL_CAPACITY,
-            WireRevision::Exchanged => 0,
-        };
-        let ids: Vec<K> = (0..pre_reserved)
-            .map(|_| <K as IDGen<K>>::generate_next(&id_gen))
-            .collect();
-        // the next two lines will generate a list of pre-established bistreams
-        let post_close_container = PostActionChannel::new(&ids);
-        let subscribers = ids
-            .into_iter()
-            .map(|id| (id, MemorySender::reserved()))
-            .collect::<HashMap<_, _>>();
+        let post_close_container = PostActionChannel::new(&Vec::new());
+        let subscribers = HashMap::new();
 
         let current_latest_subscribed = K::generate_container();
 
@@ -235,7 +220,6 @@ impl<K: MultiplexedConnKey> MultiplexedConn<K> {
             inner: Arc::new(MultiplexedConnInner {
                 conn: Arc::new(conn),
                 subscribers: RwLock::new(subscribers),
-                pre_open_container: PreActionChannel::new(),
                 post_close_container,
                 current_latest_subscribed,
                 id_gen,
@@ -249,8 +233,7 @@ impl<K: MultiplexedConnKey> MultiplexedConn<K> {
     }
 
     /// This connection with its subscriptions opened on `topic`: they pair only with the peer's
-    /// subscriptions on the same topic (under [`WireRevision::Exchanged`]; the count-paired wire
-    /// has no topics).
+    /// subscriptions on the same topic.
     pub fn on(&self, topic: Topic) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -383,10 +366,6 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
         &self.post_close_container
     }
 
-    fn pre_action_container(&self) -> &PreActionChannel<Self::ID> {
-        &self.pre_open_container
-    }
-
     async fn recv_post_close_signal_from_stream(&self, id: Self::ID) -> Result<(), Error> {
         self.post_close_container.recv(id).await
     }
@@ -395,13 +374,6 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
         Ok(self
             .conn
             .send_serialized(MultiplexedPacket::PostDrop { id })
-            .await?)
-    }
-
-    async fn send_pre_open_signal(&self, id: Self::ID) -> Result<(), Error> {
-        Ok(self
-            .conn
-            .send_serialized(MultiplexedPacket::PreCreate { id })
             .await?)
     }
 
@@ -437,19 +409,6 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
 
     fn transport_closed(&self) -> bool {
         self.transport_closed.load(Ordering::Acquire)
-    }
-
-    fn get_next_prereserved(&self) -> Option<Self::BorrowedSubscriptionType> {
-        let mut lock = self.subscribers.write();
-        let next_key = K::get_proposed_next(&self.current_latest_subscribed);
-        let pre_reserved_stream = lock.get_mut(&next_key)?;
-        let sub = MultiplexedSubscription {
-            ptr: self,
-            receiver: Some(Mutex::new(pre_reserved_stream.pre_reserved_rx.take()?)),
-            id: next_key,
-        };
-        assert_eq!(K::generate_next(&self.current_latest_subscribed), next_key);
-        Some(sub.into())
     }
 
     fn reserve(&self, id: Self::ID) {

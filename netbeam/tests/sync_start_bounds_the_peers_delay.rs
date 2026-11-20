@@ -1,7 +1,5 @@
-//! A synchronized start must not wait on the peer's clock. The receiver once sent its own wall
-//! clock's start time, so a receiver whose clock ran ahead (or that claimed so) held the
-//! initiator back by the whole lead, and a lead of a few seconds broke the hole punch timed by it.
-//! Now the receiver sends a delay relative to receipt, and the initiator bounds it.
+//! A synchronized start must not wait on the peer's clock: the receiver sends a delay relative to
+//! receipt, and the initiator bounds it.
 
 mod common;
 
@@ -18,7 +16,6 @@ use std::time::Duration;
 enum SyncPacket {
     Syn(()),
     SynAck(()),
-    Ack(i64),
     AckAfter(u64),
 }
 

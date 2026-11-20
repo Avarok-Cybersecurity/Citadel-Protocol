@@ -69,16 +69,6 @@ async fn an_unclaimed_id_buffers_at_most_the_limit_and_is_then_refused() {
     );
 }
 
-/// The ids the count-paired wire opens without asking are bounded the same way.
-#[tokio::test]
-async fn a_pre_reserved_id_nobody_claims_is_bounded() {
-    let conn = conn(WireRevision::CountPaired);
-    assert_eq!(
-        accepted_frames(&conn, 1, 4096).await,
-        UNCLAIMED_BUFFER_LIMIT / FRAME
-    );
-}
-
 /// The bound is on what waits for a claim, not on a subscription its owner reads.
 #[tokio::test]
 async fn a_claimed_id_is_not_bounded() {
