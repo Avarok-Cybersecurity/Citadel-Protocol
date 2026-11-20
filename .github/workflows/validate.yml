@@ -54,6 +54,8 @@ jobs:
         run: python3 ci/cargo_locked_gate.py .
       - name: Every build uses the toolchain rust-toolchain.toml pins
         run: python3 ci/toolchain_pin_gate.py .
+      - name: Every workspace dependency is used by a member
+        run: python3 ci/workspace_deps_gate.py .
       - name: The supply-chain gates' own tests
         run: python3 -m unittest discover -s ci/tests -v
 
