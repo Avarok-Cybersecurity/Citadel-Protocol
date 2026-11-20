@@ -25,6 +25,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: none
+          cache-on-failure: "false"
           targets: ""
           components: clippy
           tools: make

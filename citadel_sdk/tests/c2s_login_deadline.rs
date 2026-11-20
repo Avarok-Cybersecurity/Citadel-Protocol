@@ -12,11 +12,12 @@ mod common;
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
-    use crate::common::link::{managed, proxy, saw, ManualClock, Plan, Seen};
+    use crate::common::link::{proxy, saw, Plan, Seen};
     use crate::common::{NodeState, ReconnectionTestKernel};
     use citadel_io::tokio;
     use citadel_proto::constants::LOGIN_EXPIRATION_TIME;
     use citadel_sdk::prelude::*;
+    use citadel_sdk::test_common::{managed, ManualClock};
     use citadel_sdk::test_common::{server_info, LOCALHOST_STUN_SERVERS};
     use std::sync::Arc;
     use std::time::Duration;

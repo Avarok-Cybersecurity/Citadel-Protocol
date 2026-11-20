@@ -9,19 +9,31 @@
 //!
 //! Two ways that happened, both fixed here and both exercised below.
 
+mod common;
+
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
+    use crate::common::link::{proxy, saw, Plan, Seen};
     use citadel_io::tokio;
     use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use citadel_sdk::prefabs::client::ServerConnectionSettingsBuilder;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::{server_info, server_test_node};
+    use citadel_sdk::test_common::{managed, server_on, server_test_node, ManualClock};
     use std::time::Duration;
     use uuid::Uuid;
 
     /// Long enough that a slow machine does not fail it, short enough that the
-    /// defect (an unbounded wait) cannot pass it.
+    /// defect (an unbounded wait) cannot pass it. It is counted from the step under test,
+    /// never across a node's start-up or a registration, which a loaded host can stretch past
+    /// it on their own (#391).
     const MUST_ANSWER_WITHIN: Duration = Duration::from_secs(20);
+
+    /// [`MUST_ANSWER_WITHIN`], counted from when `started` resolves. A step that never starts
+    /// is caught by the same hang guard as the other tests here, 120 s.
+    async fn answer_window(started: impl std::future::Future<Output = ()>) {
+        let _ = tokio::time::timeout(Duration::from_secs(120), started).await;
+        tokio::time::sleep(MUST_ANSWER_WITHIN).await;
+    }
 
     /// A synchronous rejection inside the node's own outbound loop.
     ///
@@ -40,7 +52,9 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_node_side_rejection_is_returned_rather_than_awaited_forever() {
         citadel_logging::setup_log();
-        let (server, server_addr) = server_info::<StackedRatchet>();
+        // Both ends on clocks nobody moves: the registration and login this test needs first
+        // cannot be ended by a deadline, however slow the host.
+        let (server, server_addr) = server_on::<StackedRatchet>(ManualClock::new());
 
         let uuid = Uuid::new_v4();
         let username = format!("rej_{}", &uuid.to_string()[..8]);
@@ -90,7 +104,7 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
-            .with_link_manager(LinkManagerMode::Legacy)
+            .with_link_manager(managed(ManualClock::new()))
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)
@@ -130,9 +144,14 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         listener.set_nonblocking(true).unwrap();
         let listener = citadel_io::tokio::net::TcpListener::from_std(listener).unwrap();
+        let (dialled_tx, dialled) = tokio::sync::oneshot::channel::<()>();
         let hangup = citadel_io::tokio::spawn(async move {
+            let mut dialled_tx = Some(dialled_tx);
             // Accept, then drop the socket without writing a byte.
             while let Ok((stream, _)) = listener.accept().await {
+                if let Some(tx) = dialled_tx.take() {
+                    let _ = tx.send(());
+                }
                 drop(stream);
             }
         });
@@ -159,7 +178,10 @@ mod tests {
             .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
-        let outcome = citadel_io::tokio::time::timeout(MUST_ANSWER_WITHIN, client).await;
+        let outcome = tokio::select! {
+            res = client => Ok(res),
+            _ = answer_window(async { let _ = dialled.await; }) => Err(()),
+        };
         hangup.abort();
 
         let Ok(res) = outcome else {
@@ -197,12 +219,14 @@ mod tests {
             },
         );
 
+        let (proxy_addr, mut seen) = proxy(server_addr, vec![Plan::Forward]).await;
+
         // A transient registration against a server that forbids them. The
         // callback must never run; if it does, the kernel returns Ok and the
         // assertion below says so.
         let client_kernel = SingleClientServerConnectionKernel::new(
             ServerConnectionSettingsBuilder::<StackedRatchet, _>::transient(
-                server_addr,
+                proxy_addr,
                 CertVerification::SelfSignedAccepted,
             )
             .with_udp_mode(UdpMode::Disabled)
@@ -231,13 +255,11 @@ mod tests {
         // Disabling BOTH is what hangs, and that is the combination the original
         // local controls missed: each fix alone looked unmeasurable because the
         // other one covered for it. CI on ubuntu found it, at the full 20s.
-        let outcome = citadel_io::tokio::time::timeout(MUST_ANSWER_WITHIN, async {
-            citadel_io::tokio::select! {
-                _ = server => panic!("the server ended first"),
-                res = client => res,
-            }
-        })
-        .await;
+        let outcome = tokio::select! {
+            _ = server => panic!("the server ended first"),
+            res = client => Ok(res),
+            _ = answer_window(saw(&mut seen, Seen::Accepted(0))) => Err(()),
+        };
 
         let Ok(res) = outcome else {
             panic!(

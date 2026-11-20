@@ -5,48 +5,15 @@ use super::{NodeState, ReconnectionTestKernel};
 use citadel_io::tokio;
 use citadel_io::tokio::io::{AsyncReadExt, AsyncWriteExt};
 use citadel_io::tokio::net::{TcpListener, TcpStream};
-use citadel_io::tokio::sync::{mpsc, oneshot, watch};
-use citadel_sdk::prelude::link::{BoxFuture, Clock, Millis};
+use citadel_io::tokio::sync::{mpsc, oneshot};
 use citadel_sdk::prelude::{DefaultNodeBuilder, NetworkError, NodeRemote, StackedRatchet};
-use citadel_sdk::test_common::{server_info, LOCALHOST_STUN_SERVERS};
+use citadel_sdk::test_common::LOCALHOST_STUN_SERVERS;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Time that moves only when the test says so. Every managed deadline reads it.
-pub struct ManualClock {
-    now: watch::Sender<u64>,
-}
-
-impl ManualClock {
-    pub fn new() -> Arc<Self> {
-        Arc::new(ManualClock {
-            now: watch::Sender::new(0),
-        })
-    }
-
-    pub fn advance(&self, by: Duration) {
-        let by = u64::try_from(by.as_millis()).unwrap();
-        self.now.send_modify(|now| *now += by);
-    }
-}
-
-impl Clock for ManualClock {
-    fn now(&self) -> Millis {
-        Millis(*self.now.borrow())
-    }
-
-    fn sleep_until(&self, at: Millis) -> BoxFuture<'static, ()> {
-        let mut now = self.now.subscribe();
-        Box::pin(async move {
-            if now.wait_for(|now| *now >= at.0).await.is_err() {
-                // The clock is gone: its time never comes.
-                std::future::pending::<()>().await;
-            }
-        })
-    }
-}
+use citadel_sdk::test_common::{server_on, ManualClock};
 
 /// What the proxy does with one accepted connection, in accept order.
 pub enum Plan {
@@ -155,16 +122,8 @@ pub async fn saw(events: &mut mpsc::UnboundedReceiver<Seen>, want: Seen) {
     panic!("the proxy ended before {want:?}");
 }
 
-/// A managed node's mode, on `clock`, under the test link policy (whose reattach grace, the
-/// owner's 5 minutes, these tests never reach).
-pub fn managed(clock: Arc<ManualClock>) -> citadel_sdk::prelude::LinkManagerMode {
-    use citadel_sdk::prelude::{LinkManagerMode, ManagedLinks};
-    let policy = citadel_sdk::test_common::localhost_link_policy();
-    LinkManagerMode::Managed(ManagedLinks::new(clock, policy).unwrap())
-}
-
-/// Runs `handler` on a client node of `mode` beside a test server; a hang guard, not a
-/// latency assertion.
+/// Runs `handler` on a client node of `mode` beside a test server on a clock nobody moves; a hang
+/// guard, not a latency assertion.
 pub async fn with_client<F, Fut>(
     mode: citadel_sdk::prelude::LinkManagerMode,
     plans: Vec<Plan>,
@@ -181,7 +140,8 @@ pub async fn with_client<F, Fut>(
     Fut: Future<Output = Result<(), NetworkError>> + Send + 'static,
 {
     citadel_logging::setup_log();
-    let (server, server_addr) = server_info::<StackedRatchet>();
+    // A server whose clock never moves: no server deadline can end the test's setup.
+    let (server, server_addr) = server_on::<StackedRatchet>(ManualClock::new());
     let (proxy_addr, seen) = proxy(server_addr, plans).await;
     let kernel = ReconnectionTestKernel::new(
         Arc::new(NodeState::default()),

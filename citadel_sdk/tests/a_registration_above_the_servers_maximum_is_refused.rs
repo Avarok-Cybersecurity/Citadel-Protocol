@@ -15,7 +15,9 @@ mod tests {
     use citadel_io::tokio;
     use citadel_sdk::prefabs::server::empty::EmptyKernel;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::{localhost_max_security_level, server_test_node};
+    use citadel_sdk::test_common::{
+        localhost_max_security_level, managed, server_test_node, ManualClock,
+    };
     use std::time::Duration;
 
     const PASSWORD: &str = "password";
@@ -71,13 +73,16 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_registration_above_the_servers_maximum_is_refused() {
         citadel_logging::setup_log();
+        // Both ends on clocks nobody moves: no deadline can end a registration or the login,
+        // however slow the host (#391).
         let (server, addr) = server_test_node(EmptyKernel::<StackedRatchet>::default(), |b| {
             let _ = b
-                .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Reinforced).unwrap());
+                .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Reinforced).unwrap())
+                .with_link_manager(managed(ManualClock::new()));
         });
         let username = format!("r_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let node = DefaultNodeBuilder::default()
-            .with_link_manager(citadel_sdk::prelude::LinkManagerMode::Legacy)
+            .with_link_manager(managed(ManualClock::new()))
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(localhost_max_security_level())
             .build(GroupTestKernel::new(move |remote, _events| {

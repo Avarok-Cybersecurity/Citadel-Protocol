@@ -13,7 +13,7 @@ mod tests {
     use crate::common::{NodeState, ReconnectionTestKernel};
     use citadel_io::tokio;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::{server_info, LOCALHOST_STUN_SERVERS};
+    use citadel_sdk::test_common::{managed, server_on, ManualClock, LOCALHOST_STUN_SERVERS};
     use futures::StreamExt;
     use std::sync::Arc;
     use std::time::Duration;
@@ -22,7 +22,9 @@ mod tests {
     /// Connects, ends the session with `end(cid)`, and returns the `Disconnect` that answered.
     async fn reason_after(end: fn(u64) -> NodeRequest) -> Option<CloseReason> {
         citadel_logging::setup_log();
-        let (server, server_addr) = server_info::<StackedRatchet>();
+        // Both ends on clocks nobody moves: the login this test needs first cannot be ended by a
+        // deadline, however slow the host (#391).
+        let (server, server_addr) = server_on::<StackedRatchet>(ManualClock::new());
         let (reason_tx, reason_rx) = tokio::sync::oneshot::channel();
         let kernel = ReconnectionTestKernel::new(
             Arc::new(NodeState::default()),
@@ -44,7 +46,7 @@ mod tests {
             },
         );
         let client = DefaultNodeBuilder::default()
-            .with_link_manager(LinkManagerMode::Legacy)
+            .with_link_manager(managed(ManualClock::new()))
             .with_stun_servers(LOCALHOST_STUN_SERVERS)
             .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(kernel)

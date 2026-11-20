@@ -3,10 +3,11 @@
 //!
 //! The settings a dialler builds its link with are the ones in the accept the server delivers
 //! to it: the server's merge when two dials crossed, otherwise the accepter's answer, which the
-//! server relays as it stands. Either way the dialler sees one stamp and makes one check. Here
-//! the stamp is Standard against an Extreme offer: the accepter answers with Standard. The
-//! dialler refuses: its dial fails with `BelowPolicy`, no key exchange starts, and the accepter
-//! hears the refusal on its accept's ticket.
+//! server relays as it stands, unsigned. Either way the dialler sees one stamp and makes one
+//! check. Two stamps: Standard against an Extreme offer, and an offer's own level with the
+//! round-3 KEM in place of ML-KEM-1024 (in a suite whose packed byte ranks above the offer's).
+//! The dialler refuses both: its dial fails with `BelowPolicy`, no key exchange starts, and the
+//! accepter hears the refusal on its accept's ticket.
 //!
 //! Ordering is by events and barriers, never by sleeps.
 
@@ -52,7 +53,32 @@ mod tests {
             .expect("the accepter hears the refusal")
     }
 
+    /// What the dialler offers, and what the accepter stamps in its answer.
+    #[derive(Clone, Copy)]
+    struct Stamp {
+        offer: SessionSecuritySettings,
+        stamped: SessionSecuritySettings,
+    }
+
+    fn lower_level() -> Stamp {
+        Stamp {
+            offer: settings(SecurityLevel::Extreme),
+            stamped: settings(SecurityLevel::Standard),
+        }
+    }
+
+    fn round_three_kem() -> Stamp {
+        let mut offer = settings(SecurityLevel::Standard);
+        offer.crypto_params.kem_algorithm = KemAlgorithm::MlKem1024Fips203;
+        offer.crypto_params.encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
+        let mut stamped = offer;
+        stamped.crypto_params.kem_algorithm = KemAlgorithm::MlKem;
+        stamped.crypto_params.encryption_algorithm = EncryptionAlgorithm::ChaCha20Poly_1305;
+        Stamp { offer, stamped }
+    }
+
     async fn one_end(
+        stamp: Stamp,
         remote: NodeRemote<StackedRatchet>,
         mut events: Events,
         addr: std::net::SocketAddr,
@@ -64,7 +90,7 @@ mod tests {
         wait_for_peers().await;
         if me.starts_with("a_") {
             let dial = target
-                .connect_to_peer_custom(settings(SecurityLevel::Extreme), UdpMode::Disabled, None)
+                .connect_to_peer_custom(stamp.offer, UdpMode::Disabled, None)
                 .await;
             let err = dial.expect_err("a link stamped below the offer must not open");
             assert!(
@@ -84,7 +110,7 @@ mod tests {
                 peer_conn_type: peer_conn_type.reverse(),
                 ticket_opt: Some(ticket),
                 invitee_response: Some(PeerResponse::Accept(None)),
-                session_security_settings: settings(SecurityLevel::Standard),
+                session_security_settings: stamp.stamped,
                 udp_mode: UdpMode::Disabled,
                 session_password: None,
             };
@@ -102,6 +128,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn a_weaker_server_stamp_is_refused() {
+        refused(lower_level()).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn a_stamp_that_swaps_in_the_round_three_kem_is_refused() {
+        refused(round_three_kem()).await;
+    }
+
+    async fn refused(stamp: Stamp) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
         let (server, addr) = server_test_node(EmptyKernel::<StackedRatchet>::default(), |_| {});
@@ -113,7 +148,7 @@ mod tests {
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
                 .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(GroupTestKernel::new(move |remote, events| {
-                    one_end(remote, events, addr, me, peer)
+                    one_end(stamp, remote, events, addr, me, peer)
                 }))
                 .unwrap()
         };

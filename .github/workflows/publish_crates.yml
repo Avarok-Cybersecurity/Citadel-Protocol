@@ -84,6 +84,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: publish-linux
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: ""

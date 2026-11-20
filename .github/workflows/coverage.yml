@@ -48,6 +48,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t2-coverage-macos
+          cache-on-failure: "false"
           targets: ""
           components: llvm-tools-preview
           tools: nextest,llvm-cov
