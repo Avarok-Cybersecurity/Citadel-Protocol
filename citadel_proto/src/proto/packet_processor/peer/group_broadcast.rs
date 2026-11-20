@@ -317,8 +317,7 @@ pub enum GroupBroadcast {
         key: MessageGroupKey,
     },
     /// Member → server: this member has processed the owner's Commit for `epoch`, so it seals
-    /// nothing more at the epoch before it (see `group_commit_gate`). Sent only to a server at
-    /// `GROUP_COMMIT_ACK_SINCE` or later.
+    /// nothing more at the epoch before it (see `group_commit_gate`).
     CommitApplied {
         /// Group key
         key: MessageGroupKey,
@@ -326,8 +325,7 @@ pub enum GroupBroadcast {
         epoch: u64,
     },
     /// Server → owner: every member the server waited on has processed the Commit for `epoch`,
-    /// so the owner may release the Welcome it held for that join. Sent only to an owner at
-    /// `GROUP_COMMIT_ACK_SINCE` or later.
+    /// so the owner may release the Welcome it held for that join.
     CommitSettled {
         /// Group key
         key: MessageGroupKey,
@@ -335,8 +333,7 @@ pub enum GroupBroadcast {
         epoch: u64,
     },
     /// Server → sender: the server refused to relay the sender's message to `key`, which reached
-    /// nobody, because it broke one of the group's limits. Sent only to a sender at
-    /// `GROUP_RELAY_OPTIONS_SINCE` or later; an older one gets `MessageResponse { success: false }`.
+    /// nobody, because it broke one of the group's limits.
     MessageRefused {
         /// Group key
         key: MessageGroupKey,

@@ -3,14 +3,9 @@
 //! which tells the owner once the Commit has settled (`group_commit_relay`). The rule for whom
 //! the server waits on, and for how long, is in `group_commit_gate`; the owner's order of joins
 //! is in `group_cgka::join_queue`.
-//!
-//! Every node takes part only with an adjacent node at `GROUP_COMMIT_ACK_SINCE` or later. With an
-//! older one it does what it did before: the owner sends the Welcome, then the Commit, and the
-//! server relays the Commit and waits on nobody.
 
 use super::super::includes::*;
 use super::group_broadcast::GroupBroadcast;
-use crate::constants::{protocol_version_at_least, GROUP_COMMIT_ACK_SINCE};
 use crate::error::NetworkError;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
@@ -22,11 +17,6 @@ use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::MessageGroupKey;
-
-/// Whether the node at the other end of this node's C2S link takes part.
-pub(crate) fn adjacent_acks<R: Ratchet>(state: &StateContainerInner<R>) -> bool {
-    protocol_version_at_least(state.adjacent_protocol_version, GROUP_COMMIT_ACK_SINCE)
-}
 
 /// What every group packet one handler sends has in common.
 pub(crate) struct Crafter<'a, R> {
@@ -157,7 +147,6 @@ pub(super) fn owner_add_member<R: Ratchet, T: PlatformOps>(
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let mut state = inner_mut_state!(session.state_container);
-    let gated = adjacent_acks(&state);
     // No state: this owner session has not re-founded the group yet. A member restoring
     // after the same outage can publish before this session's `RestoreOwnership` lands;
     // once it does, the server prompts the member again, and that KeyPackage is added.
@@ -166,26 +155,12 @@ pub(super) fn owner_add_member<R: Ratchet, T: PlatformOps>(
         log::warn!(target: "citadel", "Ignoring a KeyPackage for {key:?} from {joiner_cid}: this session holds no tree for the group yet");
         return Ok(PrimaryProcessorResult::Void);
     };
-    let packets = if gated {
-        cgka.joins.enqueue(QueuedKeyPackage {
-            joiner_cid,
-            key_package: key_package.to_vec(),
-            ticket,
-        });
-        crafter.start_next_join(cgka, key)?
-    } else {
-        let (welcome, commit, epoch, assignment) = cgka.add_member(key_package)?;
-        let held = HeldWelcome {
-            epoch,
-            joiner_cid,
-            welcome,
-            assignment,
-            ticket,
-        };
-        let mut packets = crafter.welcome(key, held)?;
-        packets.push(crafter.commit(key, epoch, commit, ticket)?);
-        packets
-    };
+    cgka.joins.enqueue(QueuedKeyPackage {
+        joiner_cid,
+        key_package: key_package.to_vec(),
+        ticket,
+    });
+    let packets = crafter.start_next_join(cgka, key)?;
     send_all(session, ticket, packets)?;
     Ok(PrimaryProcessorResult::Void)
 }
@@ -213,20 +188,17 @@ pub(super) fn owner_commit_settled<R: Ratchet, T: PlatformOps>(
     Ok(PrimaryProcessorResult::Void)
 }
 
-/// Member: tell the server this member has processed the Commit for `epoch`. Called with the
+/// Member: tell the server this member has processed the Commit for `epoch`. `_locked` is the
 /// state lock still held from processing it, so every message this member sealed at the old
 /// epoch is already queued ahead of the acknowledgement.
 pub(super) fn acknowledge_commit<R: Ratchet, T: PlatformOps>(
-    state: &StateContainerInner<R>,
+    _locked: &StateContainerInner<R>,
     session: &CitadelSession<R, T>,
     crafter: &Crafter<'_, R>,
     key: MessageGroupKey,
     epoch: u64,
     ticket: Ticket,
 ) -> Result<(), NetworkError> {
-    if !adjacent_acks(state) {
-        return Ok(());
-    }
     let packet = crafter.packet(&GroupBroadcast::CommitApplied { key, epoch }, ticket)?;
     session.send_to_primary_stream(Some(ticket), packet)
 }

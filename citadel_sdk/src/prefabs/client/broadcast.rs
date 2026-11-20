@@ -243,7 +243,6 @@ where
 
                 crate::prefabs::client::broadcast_join::wait_for_owner_group(
                     &connect_success,
-                    &local_user,
                     &owner,
                     group_id,
                     expected_message_group_key,

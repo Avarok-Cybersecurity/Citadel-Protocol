@@ -2275,19 +2275,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         })
     }
 
-    /// The cids among `cids` with a session here whose protocol version is at least `since`.
-    pub fn connected_at_least(&self, cids: &[u64], since: (u8, u8, u8)) -> HashSet<u64> {
+    /// The cids among `cids` with a session here.
+    pub fn connected(&self, cids: &[u64]) -> HashSet<u64> {
         let this = inner!(self);
         cids.iter()
             .copied()
-            .filter(|cid| {
-                this.sessions.get(cid).is_some_and(|(_, sess)| {
-                    crate::constants::protocol_version_at_least(
-                        inner_state!(sess.state_container).adjacent_protocol_version,
-                        since,
-                    )
-                })
-            })
+            .filter(|cid| this.sessions.contains_key(cid))
             .collect()
     }
 

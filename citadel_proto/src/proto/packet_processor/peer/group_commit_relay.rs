@@ -4,8 +4,6 @@
 
 use super::super::includes::*;
 use super::group_broadcast::GroupBroadcast;
-use super::group_commit_ack::adjacent_acks;
-use crate::constants::GROUP_COMMIT_ACK_SINCE;
 use crate::error::NetworkError;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::peer::group_commit_gate::Settled;
@@ -29,7 +27,7 @@ pub(super) async fn relay_commit<R: Ratchet, T: PlatformOps>(
     timestamp: i64,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let owner_acks = sender == key.cid && adjacent_acks(&inner_state!(session.state_container));
+    let owner_acks = sender == key.cid;
     let peer_layer = &session.hypernode_peer_layer;
     let manager = &session.session_manager;
     let members: Vec<u64> = peer_layer
@@ -41,7 +39,7 @@ pub(super) async fn relay_commit<R: Ratchet, T: PlatformOps>(
         .collect();
     let mut settled = None;
     if owner_acks {
-        let awaiting = manager.connected_at_least(&members, GROUP_COMMIT_ACK_SINCE);
+        let awaiting = manager.connected(&members);
         #[cfg(feature = "localhost-testing")]
         crate::test_hooks::commit_gate_opened(key, epoch, &awaiting);
         settled = peer_layer.open_commit_gate(key, epoch, awaiting).await;
