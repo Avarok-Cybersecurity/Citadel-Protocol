@@ -24,13 +24,6 @@ impl<R: Ratchet> StateContainerInner<R> {
             .ok_or_else(|| citadel_io::error!(ErrorCode::RevfsUnsupported))?;
         let cid = cnac.get_cid();
         let key = self.revfs_key(cid);
-        Ok(revfs_seal::open(
-            key.as_ref(),
-            cid,
-            object_id.0,
-            group_index,
-            level,
-            &group,
-        )?)
+        revfs_seal::open(key.as_ref(), cid, object_id.0, group_index, level, &group)
     }
 }
