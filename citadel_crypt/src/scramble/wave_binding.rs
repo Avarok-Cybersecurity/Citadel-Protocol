@@ -2,19 +2,17 @@
 //!
 //! Under [`WaveBinding::Bound`] a wave's coordinates (its object, group, position and ratchet
 //! version) are the wave's associated data, so it opens only in the place it was sealed for.
-//! [`WaveBinding::Unbound`] is the layout of a node that predates the binding, used only with
-//! such a node.
+//! It is the only layout: a node that seals waves without their coordinates is not taken part
+//! with (its waves fail to open). The type is where a later layout would be added.
 
 use citadel_types::proto::ObjectId;
 
-/// Whether waves exchanged with a node carry their coordinates as associated data. Chosen per
-/// group from the peer's protocol version; there is no default.
+/// What waves exchanged with a node carry as associated data. Named by every sender and
+/// receiver; there is no default.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum WaveBinding {
     /// The wave's object, group, index and ratchet version are authenticated with it.
     Bound,
-    /// The wave authenticates nothing beyond its ciphertext (a node below the binding).
-    Unbound,
 }
 
 /// Distinguishes this associated data from any other the same keys might authenticate.
@@ -25,12 +23,11 @@ const BOUND_LEN: usize = 16 + 16 + 8 + 4 + 4;
 /// The associated data one wave is sealed and opened with.
 pub struct WaveAad {
     bytes: [u8; BOUND_LEN],
-    len: usize,
 }
 
 impl WaveAad {
     pub fn as_slice(&self) -> &[u8] {
-        &self.bytes[..self.len]
+        &self.bytes
     }
 }
 
@@ -44,28 +41,21 @@ impl WaveBinding {
         wave_id: u32,
         ratchet_version: u32,
     ) -> WaveAad {
+        let WaveBinding::Bound = self;
         let mut bytes = [0u8; BOUND_LEN];
-        match self {
-            WaveBinding::Unbound => WaveAad { bytes, len: 0 },
-            WaveBinding::Bound => {
-                let fields: [&[u8]; 5] = [
-                    DOMAIN,
-                    &object_id.0.to_be_bytes(),
-                    &group_id.to_be_bytes(),
-                    &wave_id.to_be_bytes(),
-                    &ratchet_version.to_be_bytes(),
-                ];
-                let mut at = 0;
-                for field in fields {
-                    bytes[at..at + field.len()].copy_from_slice(field);
-                    at += field.len();
-                }
-                WaveAad {
-                    bytes,
-                    len: BOUND_LEN,
-                }
-            }
+        let fields: [&[u8]; 5] = [
+            DOMAIN,
+            &object_id.0.to_be_bytes(),
+            &group_id.to_be_bytes(),
+            &wave_id.to_be_bytes(),
+            &ratchet_version.to_be_bytes(),
+        ];
+        let mut at = 0;
+        for field in fields {
+            bytes[at..at + field.len()].copy_from_slice(field);
+            at += field.len();
         }
+        WaveAad { bytes }
     }
 }
 
@@ -85,13 +75,5 @@ mod tests {
             assert_ne!(base.as_slice(), other.as_slice());
         }
         assert_eq!(base.as_slice().len(), BOUND_LEN);
-    }
-
-    #[test]
-    fn unbound_waves_authenticate_nothing_extra() {
-        assert!(WaveBinding::Unbound
-            .aad(ObjectId(1), 2, 3, 4)
-            .as_slice()
-            .is_empty());
     }
 }

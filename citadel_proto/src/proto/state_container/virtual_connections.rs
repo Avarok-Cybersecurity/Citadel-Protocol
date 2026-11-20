@@ -399,7 +399,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             p2p_disconnect_notifier: None,
             udp_restored,
             message_floor,
-            wave_binding: crate::proto::wave_gate::wave_binding_for(peer_protocol_version),
+            wave_binding: WaveBinding::Bound,
         });
         if let VirtualConnectionType::LocalGroupPeer { .. } = virtual_connection_type {
             self.peer_closings

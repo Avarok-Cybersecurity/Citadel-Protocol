@@ -204,9 +204,8 @@ pub fn protocol_version_at_least(version: Option<u32>, since: (u8, u8, u8)) -> b
 }
 
 /// The first protocol version whose file and object waves carry their object, group, index and
-/// ratchet version as associated data (`citadel_crypt::scramble::wave_binding`). A sender binds
-/// its waves only for a peer at or above it; a receiver expects bound waves exactly when the
-/// group's authenticated header says its sender is at or above it.
+/// ratchet version as associated data (`citadel_crypt::scramble::wave_binding`). Every node this
+/// node takes part with is at or above it (`version_gate`), so every wave is bound.
 pub const WAVE_BINDING_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 lazy_static! {

@@ -31,12 +31,9 @@ impl<R: Ratchet> StateContainerInner<R> {
         if let dashmap::mapref::entry::Entry::Vacant(e) =
             self.inbound_groups.entry(inbound_group_key)
         {
-            // The sender's version, as the group header (covered by the group's AEAD) states it.
-            let binding =
-                crate::proto::wave_gate::wave_binding_for(Some(header.protocol_version.get()));
             let receiver = GroupReceiver::new(
                 group_receiver_config,
-                binding,
+                WaveBinding::Bound,
                 INDIVIDUAL_WAVE_TIMEOUT_MS,
                 GROUP_TIMEOUT_MS,
             );

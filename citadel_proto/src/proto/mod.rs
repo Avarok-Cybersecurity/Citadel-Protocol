@@ -97,8 +97,6 @@ mod udp_routing_tests;
 pub(crate) mod validation;
 /// Which adjacent nodes this node takes part with
 pub mod version_gate;
-/// Which wave layout a group uses
-pub(crate) mod wave_gate;
 
 /// Returns the preferred primary stream for returning a response
 pub(crate) fn get_preferred_primary_stream<R: Ratchet, T: PlatformOps>(

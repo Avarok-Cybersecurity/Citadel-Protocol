@@ -142,12 +142,30 @@ fn an_untouched_transfer_completes() {
     assert!(completes(BOUND, BOUND));
 }
 
+/// A wave sealed without its coordinates (the layout before the binding) does not open where a
+/// bound wave is expected. The control opens the same ciphertext without them, so the binding is
+/// the only thing that refuses it.
 #[test]
-fn a_transfer_between_nodes_below_the_binding_completes() {
-    assert!(completes(WaveBinding::Unbound, WaveBinding::Unbound));
-}
+fn a_wave_sealed_without_its_coordinates_is_refused() {
+    let (alice, bob) = pair();
+    let (alice_pqc, alice_bank) = alice
+        .get_message_pqc_and_entropy_bank_at_layer(None)
+        .unwrap();
+    let (bob_pqc, bob_bank) = bob.get_message_pqc_and_entropy_bank_at_layer(None).unwrap();
+    let mut unbound = bytes::BytesMut::from(&[0xee; 512][..]);
+    alice_bank
+        .encrypt_in_place(alice_pqc, &[], &mut unbound)
+        .unwrap();
 
-#[test]
-fn a_receiver_that_expects_bound_waves_refuses_unbound_ones() {
-    assert!(!completes(WaveBinding::Unbound, BOUND));
+    let aad = BOUND.aad(ObjectId(5), 14, 0, bob_bank.get_version());
+    let mut refused = unbound.clone();
+    assert!(bob_bank
+        .decrypt_in_place(bob_pqc, aad.as_slice(), &mut refused)
+        .is_err());
+
+    let mut control = unbound;
+    bob_bank
+        .decrypt_in_place(bob_pqc, &[], &mut control)
+        .unwrap();
+    assert!(control.iter().all(|b| *b == 0xee));
 }
