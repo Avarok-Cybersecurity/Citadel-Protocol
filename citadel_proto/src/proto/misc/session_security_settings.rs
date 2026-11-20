@@ -36,9 +36,8 @@ use citadel_types::proto::SessionSecuritySettings;
 /// with AES-256-GCM and no per-packet signature. This is the only place a session's KEM is chosen
 /// for it; everywhere else the KEM is named by the caller.
 ///
-/// Every node from protocol 0.10.1 on reads and runs ML-KEM-1024, and both ends of a session agree
-/// on its suite from what the initiator sends, so a node of an older release still connects. To
-/// reach a node older than 0.10.1, name [`KemAlgorithm::MlKem`] with
+/// Both ends of a session agree on its suite from what the initiator sends. To run ML-KEM-768
+/// instead, name [`KemAlgorithm::MlKem768Fips203`] with
 /// [`SessionSecuritySettingsBuilder::with_crypto_params`].
 pub const DEFAULT_SESSION_CRYPTO_PARAMS: CryptoParameters = CryptoParameters::new(
     EncryptionAlgorithm::AES_GCM_256,

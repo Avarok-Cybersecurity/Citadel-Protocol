@@ -54,7 +54,7 @@ fn test_ratchet_construction_all_algorithms() {
         EncryptionAlgorithm::AES_GCM_256,
         EncryptionAlgorithm::ChaCha20Poly_1305,
     ];
-    let kems = [KemAlgorithm::MlKem];
+    let kems = [KemAlgorithm::MlKem768Fips203];
 
     for enc in &algorithms {
         for kem in &kems {
@@ -68,7 +68,7 @@ fn test_ratchet_construction_all_algorithms() {
 /// Encrypt with Alice, decrypt with Bob — validates the full protect/validate cycle.
 #[wasm_bindgen_test]
 fn test_encrypt_decrypt_roundtrip() {
-    let params = EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem;
+    let params = EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem768Fips203;
     let (alice, bob) = create_ratchet_pair(params, SecurityLevel::Standard);
 
     const HEADER_LEN: usize = 50;
@@ -98,7 +98,7 @@ fn test_encrypt_decrypt_roundtrip() {
 /// Verify encrypt/decrypt with ChaCha20-Poly1305.
 #[wasm_bindgen_test]
 fn test_encrypt_decrypt_chacha() {
-    let params = EncryptionAlgorithm::ChaCha20Poly_1305 + KemAlgorithm::MlKem;
+    let params = EncryptionAlgorithm::ChaCha20Poly_1305 + KemAlgorithm::MlKem768Fips203;
     let (alice, bob) = create_ratchet_pair(params, SecurityLevel::Standard);
 
     const HEADER_LEN: usize = 50;
@@ -127,7 +127,7 @@ fn test_encrypt_decrypt_chacha() {
 /// Encrypt/decrypt with a larger payload to exercise chunked processing paths.
 #[wasm_bindgen_test]
 fn test_encrypt_decrypt_large_payload() {
-    let params = EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem;
+    let params = EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem768Fips203;
     let (alice, bob) = create_ratchet_pair(params, SecurityLevel::Standard);
 
     const HEADER_LEN: usize = 50;
@@ -156,7 +156,7 @@ fn test_encrypt_decrypt_large_payload() {
 /// Verify multiple sequential encrypt/decrypt operations (ratchet state advances).
 #[wasm_bindgen_test]
 fn test_multiple_messages() {
-    let params = EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem;
+    let params = EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem768Fips203;
     let (alice, bob) = create_ratchet_pair(params, SecurityLevel::Standard);
 
     const HEADER_LEN: usize = 50;

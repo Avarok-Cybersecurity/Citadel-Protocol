@@ -13,7 +13,7 @@ fn kem_round_trip() {
         let ss_b = decapsulate(alg, &ct, &sk).unwrap();
         assert_eq!(ss_a, ss_b, "{alg:?} shared secrets differ");
         assert_eq!(ss_a.len(), 32, "{alg:?} shared secret is not 32 bytes");
-        assert_eq!(ct.len(), ciphertext_len(alg).unwrap());
+        assert_eq!(ct.len(), crate::kem_key_check::ciphertext_len(alg));
     }
 }
 
@@ -63,12 +63,6 @@ fn pke_rejects_tampered_ciphertext() {
 }
 
 #[test]
-fn legacy_variant_is_rejected() {
-    assert!(keypair(KemAlgorithm::MlKem).is_err());
-    assert!(ciphertext_len(KemAlgorithm::MlKem).is_err());
-}
-
-#[test]
 fn public_key_validation_accepts_real_keys_and_refuses_bad_ones() {
     for alg in ALGS {
         let (pk, _) = keypair(alg).unwrap();
@@ -86,5 +80,4 @@ fn public_key_validation_accepts_real_keys_and_refuses_bad_ones() {
             "{alg:?} accepted an unreduced key"
         );
     }
-    assert!(!public_key_is_valid(KemAlgorithm::MlKem, &[0u8; 1568]));
 }

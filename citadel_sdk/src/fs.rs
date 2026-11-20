@@ -156,12 +156,12 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
@@ -282,7 +282,7 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[timeout(std::time::Duration::from_secs(90))]
@@ -368,7 +368,7 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[timeout(std::time::Duration::from_secs(90))]
@@ -459,7 +459,7 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_p2p_file_transfer_revfs(
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::MlKem, KemAlgorithm::MlKem1024Fips203)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::MlKem768Fips203, KemAlgorithm::MlKem1024Fips203)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();

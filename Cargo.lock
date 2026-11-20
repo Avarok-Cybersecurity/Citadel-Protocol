@@ -849,14 +849,12 @@ dependencies = [
  "fn-dsa",
  "generic-array",
  "getrandom 0.2.17",
- "kyber-pke",
  "lazy_static",
  "libcrux-ml-kem",
  "log",
  "ml-dsa",
  "parking_lot",
  "polyval",
- "pqc_kyber_kyberslash",
  "rand 0.8.8",
  "serde",
  "serde-big-array",
@@ -971,7 +969,6 @@ dependencies = [
  "blake3",
  "chacha20poly1305",
  "citadel_io",
- "citadel_negotiation",
  "citadel_pqcrypto",
  "citadel_types",
  "rand 0.8.8",
@@ -2671,17 +2668,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kyber-pke"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "937633be804fdf435e7dd3608f4b6b0b1210bd340cba9f0dad00b1c47c459633"
-dependencies = [
- "byteorder",
- "pqc_kyber_kyberslash",
- "rand 0.8.8",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3491,16 +3477,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy 0.8.63",
-]
-
-[[package]]
-name = "pqc_kyber_kyberslash"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "207d5f62689c9bca32505356e590921f70cd0dd4b0a2473924a1c51ccfd7119a"
-dependencies = [
- "rand_core 0.6.4",
- "sha2",
 ]
 
 [[package]]

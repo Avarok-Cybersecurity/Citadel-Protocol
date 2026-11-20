@@ -14,8 +14,8 @@ const PSKS: &[&[u8]] = &[b"psk"];
 
 fn suites() -> [CryptoParameters; 2] {
     [
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203
             + EncryptionAlgorithm::MlKemHybrid
             + citadel_types::crypto::SigAlgorithm::MlDsa65,
     ]
@@ -83,7 +83,7 @@ fn a_transfer_with_a_short_nonce_is_refused() {
 
 #[test]
 fn a_transfer_with_a_long_nonce_is_refused() {
-    let params = KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256;
+    let params = KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256;
     assert!(!stacked_bob_accepts(params, Some(32)));
     assert!(!mono_bob_accepts(params, Some(32)));
 }

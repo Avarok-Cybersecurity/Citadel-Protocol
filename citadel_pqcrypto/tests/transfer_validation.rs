@@ -32,24 +32,24 @@ fn bob_receives(alice_params: CryptoParameters, bob_params: CryptoParameters) ->
 #[test]
 fn an_unsigned_transfer_is_refused_by_a_signing_bob() {
     assert!(bob_receives(
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
     ));
 }
 
 #[test]
 fn a_signed_transfer_is_refused_by_a_bob_that_does_not_sign() {
     assert!(bob_receives(
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256 + SigAlgorithm::MlDsa65,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256 + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
     ));
 }
 
 #[test]
 fn a_transfer_naming_another_signature_scheme_is_refused() {
     assert!(bob_receives(
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::FnDsa512,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::FnDsa512,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
     ));
 }
 
@@ -57,15 +57,15 @@ fn a_transfer_naming_another_signature_scheme_is_refused() {
 fn a_transfer_naming_another_kem_is_refused() {
     assert!(bob_receives(
         KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
     ));
 }
 
 #[test]
 fn a_matching_transfer_is_accepted() {
     assert!(!bob_receives(
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
     ));
 }
 
@@ -91,16 +91,16 @@ fn alice_refuses_reply(alice_params: CryptoParameters, bob_params: CryptoParamet
 #[test]
 fn an_unsigned_reply_is_refused_by_a_signing_alice() {
     assert!(alice_refuses_reply(
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
     ));
 }
 
 #[test]
 fn a_signed_reply_is_refused_by_an_alice_that_does_not_sign() {
     assert!(alice_refuses_reply(
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256 + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256 + SigAlgorithm::MlDsa65,
     ));
 }
 
@@ -131,13 +131,13 @@ fn a_short_nonce_is_refused_by_the_plain_ciphers() {
         EncryptionAlgorithm::ChaCha20Poly_1305,
         EncryptionAlgorithm::Ascon80pq,
     ] {
-        short_nonce_is_refused(KemAlgorithm::MlKem + enx);
+        short_nonce_is_refused(KemAlgorithm::MlKem768Fips203 + enx);
     }
 }
 
 #[test]
 fn a_short_nonce_is_refused_by_the_hybrid_cipher() {
     short_nonce_is_refused(
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
     );
 }

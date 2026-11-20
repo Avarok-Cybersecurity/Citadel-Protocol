@@ -18,10 +18,12 @@ const HEADER: &[u8] = b"header";
 
 fn suites() -> Vec<CryptoParameters> {
     vec![
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::ChaCha20Poly_1305 + SigAlgorithm::MlDsa65,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203
+            + EncryptionAlgorithm::ChaCha20Poly_1305
+            + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
         KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256,
     ]
 }

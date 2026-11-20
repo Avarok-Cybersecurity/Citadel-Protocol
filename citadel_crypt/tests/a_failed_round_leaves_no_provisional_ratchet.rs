@@ -19,7 +19,7 @@ const PSKS: &[&[u8]] = &[b"psk"];
 
 fn setup() -> (PeerSessionCrypto<R>, PeerSessionCrypto<R>) {
     let opts = ConstructorOpts::new_vec_init(
-        EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem,
+        EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem768Fips203,
         SecurityLevel::Standard,
     );
     let mut a = <R as Ratchet>::Constructor::new_alice(opts.clone(), ALICE_CID, 0).unwrap();

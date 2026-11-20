@@ -38,7 +38,7 @@ fn test_crypto_params_combinations() {
         EncryptionAlgorithm::ChaCha20Poly_1305,
         EncryptionAlgorithm::Ascon80pq,
     ];
-    let kems = [KemAlgorithm::MlKem];
+    let kems = [KemAlgorithm::MlKem768Fips203];
     let levels = [
         SecurityLevel::Standard,
         SecurityLevel::Reinforced,
@@ -62,10 +62,15 @@ fn test_crypto_params_combinations() {
     // MlKemHybrid requires a SigAlgorithm — test separately
     let result = SessionSecuritySettingsBuilder::default()
         .with_crypto_params(
-            EncryptionAlgorithm::MlKemHybrid + KemAlgorithm::MlKem + SigAlgorithm::MlDsa65,
+            EncryptionAlgorithm::MlKemHybrid
+                + KemAlgorithm::MlKem768Fips203
+                + SigAlgorithm::MlDsa65,
         )
         .build();
-    assert!(result.is_ok(), "Failed for MlKemHybrid + MlKem + MlDsa65");
+    assert!(
+        result.is_ok(),
+        "Failed for MlKemHybrid + MlKem768Fips203 + MlDsa65"
+    );
 }
 
 /// Verify ProposedCredentials::transient works with custom names on WASM.
@@ -137,7 +142,7 @@ async fn scramble_and_reassemble() {
         (alice.finish().unwrap(), bob.finish().unwrap())
     }
 
-    let params = KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256;
+    let params = KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256;
     let (alice, bob) = pair(params);
     let plaintext: Vec<u8> = (0..200 * 1024).map(|i| (i % 251) as u8).collect();
     let (tx, mut rx) = citadel_io::tokio::sync::mpsc::channel(1);
