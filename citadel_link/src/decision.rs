@@ -53,7 +53,7 @@ pub enum FloorChange {
 /// Why a change needs a new path and a new seal.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ReestablishWhy {
-    /// The peer cannot do the change in band or on the path (an older SDK).
+    /// The peer does not negotiate the setting in band (its Hello does not offer it).
     PeerLegacy,
     /// The change is to the path itself (UDP mode, transport).
     Transport,

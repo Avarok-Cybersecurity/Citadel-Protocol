@@ -271,8 +271,8 @@ impl<R: Ratchet> PeerChannel<R> {
     }
 
     /// The other end's `PROTOCOL_VERSION`: from the connect packet on a client-server channel,
-    /// and from the peer's key-exchange signal on a P2P channel. `None` when the peer (or a
-    /// server relaying for it) predates carrying it.
+    /// and from the peer's key-exchange signal on a P2P channel. `None` when no version was read
+    /// for this channel.
     pub fn peer_protocol_version(&self) -> Option<u32> {
         self.peer_protocol_version
     }

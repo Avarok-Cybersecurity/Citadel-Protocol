@@ -3,8 +3,8 @@
 //!
 //! With a plan the server stamped into the key exchange (see `kex_path`), both peers build their
 //! steps from it: each planned path before the server relay, with that path's own attempt
-//! timeout. Without one (an older peer or server), each peer plans alone with [`plan_p2p`],
-//! exactly as before path policies: its own TURN config and the NAT verdict, 30 s per stage.
+//! timeout. Without one (the server has no path policy), each peer plans alone with
+//! [`plan_p2p`]: its own TURN config and the NAT verdict, 30 s per stage.
 //! Pure: no I/O, no clock.
 
 use std::time::Duration;

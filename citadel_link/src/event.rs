@@ -90,8 +90,8 @@ pub enum SealRefusal {
 
 /// Why a P2P connection was closed on purpose. The one definition: `citadel_proto` re-exports
 /// it, and it rides `PeerSignal::Disconnect.reason` and the negotiation lane in the serde shape
-/// it had there, so the wire is unchanged (`disconnect_wire_tests` pins the bytes). `None` in
-/// that field means a lost link, an application that gave no reason, or a node that predates it.
+/// it had there (`disconnect_wire_tests` pins the bytes). `None` in that field means a lost link
+/// or an application that gave no reason.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum DisconnectReason {
     /// A setting could not be changed on the live connection: the closing side redials at the

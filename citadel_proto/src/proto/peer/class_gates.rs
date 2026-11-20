@@ -2,8 +2,8 @@
 //!
 //! A connection whose server stamped a plan (see `kex_path`) may carry, on each path, only the
 //! classes the plan gives that path: an operator can, for example, keep media off the server
-//! relay. A connection without a stamped plan (an older peer or server) has every class open on
-//! every path, as before path policies. Pure: no I/O.
+//! relay. A connection without a stamped plan (its server has no path policy) has every class
+//! open on every path. Pure: no I/O.
 
 use citadel_types::proto::{EffectivePlan, PathClass, PathClasses, PathKind};
 

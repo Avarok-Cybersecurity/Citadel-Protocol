@@ -934,10 +934,6 @@ impl futures::Future for CitadelNodePeerLayerExecutor {
     }
 }
 
-/// Reads a field appended after a signal's original fields: a signal from a node that predates
-/// the field ends where it would begin and reads as `None`. One definition, the negotiation
-/// crate's, for every appended field.
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[allow(variant_size_differences)]
 pub enum PeerSignal {
