@@ -391,6 +391,7 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub turn_servers: Option<Vec<TurnServerConfig>>,
     pub max_security_level: citadel_types::crypto::MaxSecurityLevel,
     pub revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+    pub p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     pub init_time: Instant,
     pub login_deadline: crate::proto::link::LoginDeadline,
     pub session_password: PreSharedKey,
@@ -543,6 +544,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let turn_servers = session_init_params.turn_servers;
         let max_security_level = session_init_params.max_security_level;
         let revfs_keys = session_init_params.revfs_keys;
+        let p2p_kex_identity = session_init_params.p2p_kex_identity;
         let path_policy = session_init_params
             .server_only_session_init_settings
             .as_ref()
@@ -592,6 +594,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 udp_mode,
                 ledger,
                 revfs_keys,
+                p2p_kex_identity,
             ),
             to_primary_stream: DualLateInit::default(),
             state,

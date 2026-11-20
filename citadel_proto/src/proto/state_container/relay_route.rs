@@ -1,15 +1,75 @@
 //! The routes a server relays a peer pair's traffic on.
 //!
 //! A server forges a pair's routes when the responder accepts a connect request, and marks them
-//! inactive when either side ends the connection. Only a live forged route carries relayed
-//! packets or a key exchange: that is the server's record that both peers consented to this pair.
+//! inactive when either side ends the connection, or when either side refuses the exchange the
+//! accept was for before one completed on them. Only a live forged route carries relayed packets
+//! or a key exchange: that is the server's record that both peers consented to this pair.
 
 use super::VirtualConnection;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::outbound_udp_sender::OutboundUdpSender;
+use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+/// What a server records of the accept that forged a pair's routes: its ticket, and whether a key
+/// exchange has completed on the routes since. One record is shared by the pair's two routes.
+#[derive(Clone, Debug)]
+pub struct ForgedRoute {
+    by: Ticket,
+    completed: Arc<AtomicBool>,
+}
+
+impl ForgedRoute {
+    /// The record for routes an accept on `ticket` forges over `previous`, the route there now.
+    /// A live route keeps its record: the link or exchange on it is not this accept's.
+    pub(crate) fn forged<R: Ratchet>(
+        ticket: Ticket,
+        previous: Option<&VirtualConnection<R>>,
+    ) -> Self {
+        previous
+            .filter(|route| route.is_active.load(Ordering::SeqCst))
+            .and_then(|route| route.forged.clone())
+            .unwrap_or_else(|| ForgedRoute {
+                by: ticket,
+                completed: Arc::new(AtomicBool::new(false)),
+            })
+    }
+
+    /// A key exchange reached its last stage on these routes.
+    pub(crate) fn complete(&self) {
+        self.completed.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether `refused` refuses the exchange these routes were forged for, before any completed.
+    fn refused_by(&self, refused: Ticket) -> bool {
+        !self.completed.load(Ordering::SeqCst) && self.by == refused
+    }
+}
+
+/// Ends this session's live route to `peer_cid` if `refused` refuses the exchange it was forged
+/// for and none has completed on it: the pair holds no link and no exchange, so a later dial is
+/// not one over a live link. Returns whether it ended.
+pub(crate) fn end_refused_route<R: Ratchet>(
+    routes: &HashMap<u64, VirtualConnection<R>>,
+    peer_cid: u64,
+    refused: Ticket,
+) -> bool {
+    let Some(route) = routes.get(&peer_cid) else {
+        return false;
+    };
+    let ends = route.relay_route().is_some()
+        && route
+            .forged
+            .as_ref()
+            .is_some_and(|forged| forged.refused_by(refused));
+    if ends {
+        route.is_active.store(false, Ordering::SeqCst);
+    }
+    ends
+}
 
 impl<R: Ratchet> VirtualConnection<R> {
     /// The senders a server relays this pair's packets on: `None` unless the server forged the
@@ -40,7 +100,6 @@ pub(crate) fn admits_key_exchange<R: Ratchet>(
 mod tests {
     use super::*;
     use crate::proto::misc::dual_rwlock::DualRwLock;
-    use crate::proto::remote::Ticket;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_types::proto::VirtualConnectionType;
     use std::sync::atomic::AtomicBool;
@@ -62,6 +121,7 @@ mod tests {
             adjacent_nat_type: None,
             p2p_connection_id: Ticket(0),
             peer_session_init_time: None,
+            forged: forged.then(|| ForgedRoute::forged::<StackedRatchet>(ACCEPT, None)),
         }
     }
 
@@ -85,6 +145,40 @@ mod tests {
     fn a_route_the_server_did_not_forge_relays_nothing() {
         assert!(route(false, true).relay_route().is_none());
         assert!(!admits_key_exchange(&routes(false, true), PEER));
+    }
+
+    const ACCEPT: Ticket = Ticket(1);
+
+    #[test]
+    fn a_refusal_of_the_forging_accept_s_exchange_ends_the_route() {
+        let routes = routes(true, true);
+        assert!(
+            !end_refused_route(&routes, PEER, Ticket(2)),
+            "another exchange's refusal"
+        );
+        assert!(admits_key_exchange(&routes, PEER));
+        assert!(end_refused_route(&routes, PEER, ACCEPT));
+        assert!(!admits_key_exchange(&routes, PEER));
+    }
+
+    #[test]
+    fn a_route_an_exchange_completed_on_outlives_a_refusal() {
+        let routes = routes(true, true);
+        routes[&PEER].forged.as_ref().unwrap().complete();
+        assert!(!end_refused_route(&routes, PEER, ACCEPT));
+        assert!(admits_key_exchange(&routes, PEER));
+    }
+
+    #[test]
+    fn an_accept_over_a_live_route_keeps_its_record_and_over_an_ended_one_starts_anew() {
+        let live = route(true, true);
+        let kept = ForgedRoute::forged(Ticket(5), Some(&live));
+        assert!(kept.refused_by(ACCEPT) && !kept.refused_by(Ticket(5)));
+        live.forged.as_ref().unwrap().complete();
+        assert!(!kept.refused_by(ACCEPT), "the record is shared, not copied");
+        let ended = route(true, false);
+        let fresh = ForgedRoute::forged(Ticket(5), Some(&ended));
+        assert!(fresh.refused_by(Ticket(5)) && !fresh.refused_by(ACCEPT));
     }
 
     #[test]

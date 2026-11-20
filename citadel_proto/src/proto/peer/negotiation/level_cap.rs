@@ -2,7 +2,7 @@
 //! built ([`MaxSecurityLevel`]): every layer is a key exchange and one more seal on every packet,
 //! so a peer or a server naming more layers than this node builds is refused, not obeyed.
 
-use super::refusal::{refuse_accept, refuse_attempt};
+use super::link_refusal::refuse_link;
 use crate::error::NetworkError;
 use crate::proto::node_result::NodeResult;
 use crate::proto::packet_processor::PrimaryProcessorResult;
@@ -34,29 +34,15 @@ pub(crate) fn refuse_if_above_maximum<R: Ratchet>(
     security_level: SecurityLevel,
 ) -> Option<Result<PrimaryProcessorResult, NetworkError>> {
     let error = above_maximum_error(maximum.check(stamped).err()?);
-    let attempt = state_container
-        .outgoing_peer_connect_attempts
-        .remove(&peer_cid);
-    Some(match attempt {
-        Some(attempt) => refuse_attempt(
-            kernel_tx,
-            session_cid,
-            peer_cid,
-            attempt,
-            error,
-            ticket,
-            sess_ratchet,
-            timestamp,
-            security_level,
-        ),
-        None => refuse_accept(
-            sess_ratchet,
-            session_cid,
-            peer_cid,
-            ticket,
-            error,
-            timestamp,
-            security_level,
-        ),
-    })
+    Some(refuse_link(
+        state_container,
+        kernel_tx,
+        session_cid,
+        peer_cid,
+        error,
+        ticket,
+        sess_ratchet,
+        timestamp,
+        security_level,
+    ))
 }

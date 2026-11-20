@@ -107,6 +107,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
         max_security_level: citadel_types::crypto::MaxSecurityLevel,
         revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+        p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
         server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
         websocket_listener: Option<citadel_io::WebSocketListen>,
         pre_built_listener: Option<T::Listener>,
@@ -180,6 +181,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             turn_servers,
             max_security_level,
             revfs_keys,
+            p2p_kex_identity,
             server_load,
         );
 

@@ -105,6 +105,7 @@ mod tests {
                 kex_payload: KeyExchangeProcess::HolePunchFailed,
                 sender_protocol_version: None,
                 path: None,
+                auth: None,
             },
         ];
         for signal in signals {
