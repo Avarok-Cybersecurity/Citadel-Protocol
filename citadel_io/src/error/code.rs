@@ -1361,4 +1361,7 @@ pub enum ErrorCode {
     /// The server is hashing as many legacy registrations as it may at once (limit).
     #[form = "The server is already hashing {} legacy registrations; try again shortly"]
     LegacyRegistrationBusy = 547,
+    /// A connection that requires a verified certificate was asked of a node built to accept any.
+    #[form = "This connection requires a verified TLS certificate, and this node was built to accept any certificate (with_insecure_skip_cert_verification); nothing was dialled"]
+    CertVerificationUnavailable = 548,
 }

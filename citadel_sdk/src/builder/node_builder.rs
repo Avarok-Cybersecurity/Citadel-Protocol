@@ -500,12 +500,12 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
         Ok(self)
     }
 
-    /// The client will skip unconditionally server certificate verification, on every connection,
-    /// whatever it chooses. This is not recommended
+    /// The client takes any server certificate unverified. A connection that requires a verified
+    /// certificate (`CertVerification::Required`) is refused on such a node before it dials,
+    /// with `CertVerificationUnavailable`. This is not recommended
     pub fn with_insecure_skip_cert_verification(&mut self) -> &mut Self {
-        self.set_client_rustls_config(std::sync::Arc::new(
-            citadel_proto::re_imports::insecure::rustls_client_config(),
-        ));
+        self.client_tls_config =
+            Some(citadel_proto::re_imports::NativeClientConfig::accepting_any_certificate());
         self
     }
 

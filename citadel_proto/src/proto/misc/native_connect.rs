@@ -35,6 +35,7 @@ pub async fn c2s_connect(
     default_client_config: &super::native_io::NativeClientConfig,
     verification: CertVerification,
 ) -> io::Result<GenericNetworkStream> {
+    default_client_config.admits(verification)?;
     log::trace!(target: "citadel", "C2S connect defaults to {remote:?}");
     let mut stream =
         citadel_wire::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT))

@@ -19,11 +19,38 @@ use crate::proto::misc::net::{DualListener, GenericNetworkStream};
 pub struct NativeClientConfig {
     /// The rustls client configuration (verifier, roots, ALPN, etc.).
     pub config: Arc<ClientConfig>,
+    accepts_any_certificate: bool,
 }
 
 impl NativeClientConfig {
+    /// Connections that require verification check servers with `config`'s verifier.
     pub fn new(config: Arc<ClientConfig>) -> Self {
-        Self { config }
+        Self {
+            config,
+            accepts_any_certificate: false,
+        }
+    }
+
+    /// A verifier that accepts any certificate. A connection that requires a verified
+    /// certificate is refused on it before it dials (`CertVerificationUnavailable`), instead of
+    /// being verified by a verifier that verifies nothing.
+    pub fn accepting_any_certificate() -> Self {
+        Self {
+            config: Arc::new(citadel_wire::quic::insecure::rustls_client_config()),
+            accepts_any_certificate: true,
+        }
+    }
+
+    /// Whether a connection demanding `verification` can be made with this configuration.
+    pub(crate) fn admits(&self, verification: citadel_io::CertVerification) -> io::Result<()> {
+        if verification.is_required() && self.accepts_any_certificate {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                citadel_io::error!(citadel_io::ErrorCode::CertVerificationUnavailable)
+                    .into_string(),
+            ));
+        }
+        Ok(())
     }
 }
 

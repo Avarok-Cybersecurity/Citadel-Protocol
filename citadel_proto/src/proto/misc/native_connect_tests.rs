@@ -79,7 +79,7 @@ async fn connect(
 async fn a_connection_that_requires_verification_refuses_a_plaintext_offer() {
     let external_addr = "127.0.0.1:1".parse().unwrap();
     let (addr, server) = offering(FirstPacket::OrderedReliable { external_addr }).await;
-    let outcome = connect(addr, &client_config(), CertVerification::Required).await;
+    let outcome = connect(addr, &verifying_client(), CertVerification::Required).await;
     server.abort();
     let Err(err) = outcome else {
         panic!("a connection that requires a verified certificate connected over plain TCP");
@@ -154,4 +154,20 @@ async fn a_self_signed_offer_is_taken_when_verification_is_not_required() {
     .await;
     server.abort();
     assert!(outcome.is_ok(), "{:?}", outcome.err());
+}
+
+#[tokio::test]
+async fn a_node_that_accepts_any_certificate_refuses_a_connection_that_requires_verification() {
+    let (addr, server) = self_signed_tls().await;
+    let any = NativeClientConfig::accepting_any_certificate();
+    let refused = connect(addr, &any, CertVerification::Required).await;
+    let taken = connect(addr, &any, CertVerification::SelfSignedAccepted).await;
+    server.abort();
+    let Err(err) = refused else {
+        panic!(
+            "a connection that requires verification was verified by a verifier that accepts any"
+        );
+    };
+    assert!(err.to_string().contains("accept any certificate"), "{err}");
+    assert!(taken.is_ok(), "{:?}", taken.err());
 }

@@ -27,6 +27,7 @@ pub async fn c2s_connect_endpoint(
     client_config: &NativeClientConfig,
     verification: citadel_io::CertVerification,
 ) -> io::Result<GenericNetworkStream> {
+    client_config.admits(verification)?;
     if verification.is_required() && !endpoint.is_secure() {
         return Err(super::native_connect::plaintext_refused());
     }
@@ -159,15 +160,13 @@ mod tests {
             let (port, server) = wss_echo_server().await;
             let endpoint =
                 WebSocketEndpoint::parse(&format!("wss://localhost:{port}/acme")).unwrap();
-            let skip_verify = NativeClientConfig::new(Arc::new(
-                citadel_wire::quic::insecure::rustls_client_config(),
-            ));
+            let skip_verify = NativeClientConfig::accepting_any_certificate();
 
             let mut stream = c2s_connect_endpoint(
                 None,
                 &endpoint,
                 &skip_verify,
-                citadel_io::CertVerification::Required,
+                citadel_io::CertVerification::SelfSignedAccepted,
             )
             .await
             .expect("wss dial with verification skipped");

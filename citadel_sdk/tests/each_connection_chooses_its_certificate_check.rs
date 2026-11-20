@@ -40,15 +40,27 @@ mod tests {
             .expect("the server did not start listening");
     }
 
-    /// The outcome of a strict connection, then a permissive one, from one node to `addr`. The
-    /// node trusts one unrelated certificate only, so no server here verifies under its roots.
-    async fn strict_then_permissive(
-        server: impl std::future::Future<Output = ()>,
-        addr: SocketAddr,
-    ) -> (Result<(), String>, Result<(), String>) {
+    /// A node that trusts one unrelated certificate only, so no server here verifies under its
+    /// roots.
+    fn trusting_an_unrelated_certificate(builder: &mut DefaultNodeBuilder) {
         let unrelated = citadel_wire::tls::create_server_self_signed_config()
             .unwrap()
             .quic_chain;
+        let _ = builder.with_custom_certs(&unrelated).unwrap();
+    }
+
+    /// A node built to take any certificate unverified.
+    fn accepting_any_certificate(builder: &mut DefaultNodeBuilder) {
+        let _ = builder.with_insecure_skip_cert_verification();
+    }
+
+    /// The outcome of a strict connection, then a permissive one, from one node to `addr`, the
+    /// node's client TLS set by `trust`.
+    async fn strict_then_permissive(
+        server: impl std::future::Future<Output = ()>,
+        addr: SocketAddr,
+        trust: fn(&mut DefaultNodeBuilder),
+    ) -> (Result<(), String>, Result<(), String>) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let body = move |remote: NodeRemote<StackedRatchet>, _: Events| async move {
             let connect = |verification| {
@@ -73,9 +85,8 @@ mod tests {
         let _ = builder
             .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
-            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
-            .with_custom_certs(&unrelated)
-            .unwrap();
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level());
+        trust(&mut builder);
         let client = builder.build(GroupTestKernel::new(body)).unwrap();
         tokio::select! {
             _ = server => panic!("the server ended first"),
@@ -90,7 +101,8 @@ mod tests {
         let (server, addr) = server(Some(ServerMode::OrderedReliableSecure(
             NativeSecureConfig::self_signed().unwrap(),
         )));
-        let (strict, permissive) = strict_then_permissive(server, addr).await;
+        let (strict, permissive) =
+            strict_then_permissive(server, addr, trusting_an_unrelated_certificate).await;
         let refused = strict.expect_err("a strict connection took an unverifiable certificate");
         assert!(refused.contains("certificate"), "{refused}");
         permissive.expect("a permissive connection refused a self-signed server");
@@ -100,9 +112,24 @@ mod tests {
     async fn against_a_server_without_tls_only_the_permissive_connection_connects() {
         citadel_logging::setup_log();
         let (server, addr) = server(None);
-        let (strict, permissive) = strict_then_permissive(server, addr).await;
+        let (strict, permissive) =
+            strict_then_permissive(server, addr, trusting_an_unrelated_certificate).await;
         let refused = strict.expect_err("a strict connection took plain TCP");
         assert!(refused.contains("offered none"), "{refused}");
         permissive.expect("a permissive connection refused plain TCP");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_node_that_accepts_any_certificate_refuses_a_strict_connection() {
+        citadel_logging::setup_log();
+        let (server, addr) = server(Some(ServerMode::OrderedReliableSecure(
+            NativeSecureConfig::self_signed().unwrap(),
+        )));
+        let (strict, permissive) =
+            strict_then_permissive(server, addr, accepting_any_certificate).await;
+        let refused =
+            strict.expect_err("a strict connection was verified by a verifier that accepts any");
+        assert!(refused.contains("accept any certificate"), "{refused}");
+        permissive.expect("a permissive connection refused a self-signed server");
     }
 }
