@@ -56,6 +56,10 @@ impl SecBuffer {
         (self.inner.as_ptr(), self.inner.capacity())
     }
 
+    /// Locks the allocation's pages out of swap. When the OS refuses (past `RLIMIT_MEMLOCK`, or on
+    /// a system that does not allow it), the buffer is used anyway: the refusal is logged once per
+    /// process and the node carries on. This is the chosen behaviour, not a fallback: failing would
+    /// take a node down over an OS limit, and the buffer is still wiped on every path.
     fn lock(&self) {
         let (ptr, capacity) = self.region();
         if let Err(code) = utils::mem::lock(ptr, capacity) {
