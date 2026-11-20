@@ -246,7 +246,7 @@ mod tests {
     async fn stress_test_c2s_messaging(
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::MlKem)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::MlKem768Fips203)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256,
             EncryptionAlgorithm::ChaCha20Poly_1305,
@@ -341,7 +341,7 @@ mod tests {
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
         #[case] server_password: Option<&'static str>,
-        #[values(KemAlgorithm::MlKem)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::MlKem768Fips203)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::MlKemHybrid)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
@@ -439,7 +439,7 @@ mod tests {
         #[case] message_count: usize,
         #[case] secrecy_mode: SecrecyMode,
         #[case] p2p_password: Option<&'static str>,
-        #[values(KemAlgorithm::MlKem)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::MlKem768Fips203)] kem: KemAlgorithm,
         #[values(
             EncryptionAlgorithm::AES_GCM_256,
             EncryptionAlgorithm::ChaCha20Poly_1305,
@@ -465,7 +465,7 @@ mod tests {
             500,
             SecrecyMode::Perfect,
             None,
-            KemAlgorithm::MlKem,
+            KemAlgorithm::MlKem768Fips203,
             EncryptionAlgorithm::AES_GCM_256,
         )
         .await;

@@ -2013,7 +2013,7 @@ pub(crate) mod tests {
         let (alice_container, bob_container) = setup_endpoint_containers::<R>(
             security_level,
             EncryptionAlgorithm::AES_GCM_256,
-            KemAlgorithm::MlKem,
+            KemAlgorithm::MlKem768Fips203,
         );
 
         let (tx_alice, rx_bob) = futures::channel::mpsc::unbounded();
@@ -2439,7 +2439,7 @@ pub(crate) mod tests {
         let (alice_container, _bob_container) = setup_endpoint_containers::<StackedRatchet>(
             SecurityLevel::Standard,
             EncryptionAlgorithm::AES_GCM_256,
-            KemAlgorithm::MlKem,
+            KemAlgorithm::MlKem768Fips203,
         );
         let (tx_alice, peer_inbox) = futures::channel::mpsc::unbounded();
         let (peer_sink, rx_alice) = futures::channel::mpsc::unbounded();
@@ -2511,7 +2511,7 @@ pub(crate) mod tests {
         let (alice_container, _bob_container) = setup_endpoint_containers::<StackedRatchet>(
             SecurityLevel::Standard,
             EncryptionAlgorithm::AES_GCM_256,
-            KemAlgorithm::MlKem,
+            KemAlgorithm::MlKem768Fips203,
         );
         let (tx_alice, peer_inbox) = futures::channel::mpsc::unbounded();
         let (peer_sink, rx_alice) = futures::channel::mpsc::unbounded();

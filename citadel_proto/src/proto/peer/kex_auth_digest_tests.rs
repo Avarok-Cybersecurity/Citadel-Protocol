@@ -23,7 +23,7 @@ fn each_field_changed() -> Vec<SessionSecuritySettings> {
     vec![
         changed(|s| s.security_level = SecurityLevel::High),
         changed(|s| s.secrecy_mode = SecrecyMode::Perfect),
-        changed(|s| s.crypto_params.kem_algorithm = KemAlgorithm::MlKem),
+        changed(|s| s.crypto_params.kem_algorithm = KemAlgorithm::MlKem768Fips203),
         changed(|s| s.crypto_params.encryption_algorithm = EncryptionAlgorithm::MlKemHybrid),
         changed(|s| s.crypto_params.sig_algorithm = SigAlgorithm::FnDsa512),
         changed(|s| s.header_obfuscator_settings = HeaderObfuscatorSettings::Enabled),

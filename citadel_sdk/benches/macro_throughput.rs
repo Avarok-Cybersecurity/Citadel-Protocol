@@ -196,7 +196,7 @@ mod imp {
     async fn run_config(cfg: &Config, msgs: usize, lat_rounds: usize) -> Report {
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(cfg.secrecy)
-            .with_crypto_params(KemAlgorithm::MlKem + cfg.enc)
+            .with_crypto_params(KemAlgorithm::MlKem768Fips203 + cfg.enc)
             .build()
             .unwrap();
 

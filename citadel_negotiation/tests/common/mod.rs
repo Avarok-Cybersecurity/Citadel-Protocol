@@ -115,7 +115,7 @@ impl Setting for Tier {
 /// The suite these worlds start from; a change of KEM is measured against it.
 pub const BASE_PARAMS: CryptoParameters = CryptoParameters::new(
     EncryptionAlgorithm::AES_GCM_256,
-    KemAlgorithm::MlKem,
+    KemAlgorithm::MlKem768Fips203,
     SigAlgorithm::None,
 );
 

@@ -1,7 +1,6 @@
 //! The suite a session runs on. With nothing named, both the client-server session and a P2P
-//! connection run on ML-KEM-1024. A node that offers the round-3 KEM, as every node before 0.12.4
-//! does by default, still connects to one on the new default, and its own C2S session keeps the
-//! suite it asked for.
+//! connection run on ML-KEM-1024. A node whose application names ML-KEM-768 connects to one on the
+//! default, and its own C2S session keeps the suite it asked for.
 #![cfg(not(target_family = "wasm"))]
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -24,10 +23,10 @@ mod tests {
         p2p: KemAlgorithm,
     }
 
-    /// The settings an application names to offer the round-3 KEM, as an older node does.
-    fn round_3() -> SessionSecuritySettings {
+    /// The settings an application names to offer ML-KEM-768.
+    fn ml_kem_768() -> SessionSecuritySettings {
         SessionSecuritySettingsBuilder::default()
-            .with_crypto_params(KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256)
+            .with_crypto_params(KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256)
             .build()
             .unwrap()
     }
@@ -129,16 +128,16 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_node_offering_round_3_still_connects_to_one_on_the_default() {
-        let [older, newer] = run([round_3(), defaults()]).await;
+    async fn a_node_offering_ml_kem_768_connects_to_one_on_the_default() {
+        let [named, default] = run([ml_kem_768(), defaults()]).await;
         assert_eq!(
-            older.c2s,
-            KemAlgorithm::MlKem,
+            named.c2s,
+            KemAlgorithm::MlKem768Fips203,
             "its own session keeps its suite"
         );
-        assert_eq!(newer.c2s, KemAlgorithm::MlKem1024Fips203);
+        assert_eq!(default.c2s, KemAlgorithm::MlKem1024Fips203);
         assert_eq!(
-            older.p2p, newer.p2p,
+            named.p2p, default.p2p,
             "both ends of the connection agree on one suite"
         );
     }

@@ -99,7 +99,7 @@ mod imp {
     async fn run_n(sessions: usize, msgs: usize) -> f64 {
         let security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(SecrecyMode::BestEffort)
-            .with_crypto_params(KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256)
+            .with_crypto_params(KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256)
             .build()
             .unwrap();
 

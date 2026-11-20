@@ -22,8 +22,7 @@ mod tests {
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::crypto::{
-        AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecBuffer,
-        SigAlgorithm, KEM_ALGORITHM_COUNT,
+        AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecBuffer, SigAlgorithm,
     };
     use citadel_types::proto::{ObjectId, TransferType};
     use rstest::rstest;
@@ -166,7 +165,7 @@ mod tests {
         const LEN: usize = 5;
         const HEADER_LEN: usize = 50;
         let message = "Hello, world!";
-        let algo = KemAlgorithm::MlKem + EncryptionAlgorithm::ChaCha20Poly_1305;
+        let algo = KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::ChaCha20Poly_1305;
 
         let chain = CryptoRelayChain::<R>::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
@@ -225,16 +224,16 @@ mod tests {
     #[test]
     fn ratchets() {
         citadel_logging::setup_log();
-        for x in 0u8..KEM_ALGORITHM_COUNT {
+        for kem in KemAlgorithm::list() {
             for sec in 0..SecurityLevel::Extreme.value() {
                 let _ = gen_ratchet::<StackedRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
+                    kem + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
                 let _ = gen_ratchet::<StackedRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
+                    kem + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
@@ -246,16 +245,16 @@ mod tests {
     #[test]
     fn mono_ratchets() {
         citadel_logging::setup_log();
-        for x in 0u8..KEM_ALGORITHM_COUNT {
+        for kem in KemAlgorithm::list() {
             for _sec in 0..SecurityLevel::Extreme.value() {
                 let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
+                    kem + EncryptionAlgorithm::AES_GCM_256,
                     None,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
                 let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
+                    kem + EncryptionAlgorithm::ChaCha20Poly_1305,
                     None,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
@@ -269,11 +268,11 @@ mod tests {
     /// in this process installed with `setup_log`, and plain `cargo test` aborts.
     #[test]
     fn mono_ratchets_fail() {
-        for x in 0u8..KEM_ALGORITHM_COUNT {
+        for kem in KemAlgorithm::list() {
             for sec in 1..SecurityLevel::Extreme.value() {
                 let level = SecurityLevel::from(sec);
                 let (alice, bob) = handshake::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
+                    kem + EncryptionAlgorithm::AES_GCM_256,
                     level,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
@@ -295,7 +294,7 @@ mod tests {
         citadel_logging::setup_log();
         for sec in 0..SecurityLevel::Extreme.value() {
             let ratchet = gen_ratchet::<StackedRatchet, _>(
-                KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
+                KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
                 Some(sec.into()),
                 &PRE_SHARED_KEYS,
                 &PRE_SHARED_KEYS,
@@ -396,27 +395,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     #[case(
@@ -559,27 +558,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     fn toolset_wrapping_vers_all(
@@ -658,27 +657,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     #[timeout(std::time::Duration::from_secs(240))]
@@ -714,27 +713,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     #[case(
@@ -877,27 +876,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     #[tokio::test]
@@ -924,27 +923,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     #[case(
@@ -1070,27 +1069,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     fn test_entropy_bank_encrypt_decrypt_basic(
@@ -1112,7 +1111,7 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     fn test_entropy_bank_encrypt_decrypt_basic_bad_psks(
@@ -1141,27 +1140,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     fn test_entropy_bank_local_encrypt_decrypt(

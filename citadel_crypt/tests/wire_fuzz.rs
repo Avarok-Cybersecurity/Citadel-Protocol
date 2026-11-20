@@ -33,8 +33,8 @@ type Mono = <MonoRatchet as Ratchet>::Constructor;
 
 fn suites() -> [CryptoParameters; 2] {
     [
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
     ]
 }
 

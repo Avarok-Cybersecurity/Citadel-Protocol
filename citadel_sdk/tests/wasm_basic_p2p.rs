@@ -37,7 +37,7 @@ fn test_node_builder_construction() {
 #[wasm_bindgen_test]
 fn test_session_security_settings() {
     let settings = SessionSecuritySettingsBuilder::default()
-        .with_crypto_params(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem)
+        .with_crypto_params(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem768Fips203)
         .with_security_level(SecurityLevel::Standard)
         .build();
     assert!(settings.is_ok());
@@ -108,7 +108,7 @@ fn test_all_encryption_algorithms() {
 
     for enc in algorithms {
         let result = SessionSecuritySettingsBuilder::default()
-            .with_crypto_params(enc + KemAlgorithm::MlKem)
+            .with_crypto_params(enc + KemAlgorithm::MlKem768Fips203)
             .build();
         assert!(result.is_ok(), "Failed for encryption: {enc:?}");
     }
@@ -172,7 +172,9 @@ fn test_hybrid_encryption_settings() {
     // MlKemHybrid requires a post-quantum signature algorithm
     let result = SessionSecuritySettingsBuilder::default()
         .with_crypto_params(
-            EncryptionAlgorithm::MlKemHybrid + KemAlgorithm::MlKem + SigAlgorithm::MlDsa65,
+            EncryptionAlgorithm::MlKemHybrid
+                + KemAlgorithm::MlKem768Fips203
+                + SigAlgorithm::MlDsa65,
         )
         .with_security_level(SecurityLevel::Ultra)
         .build();

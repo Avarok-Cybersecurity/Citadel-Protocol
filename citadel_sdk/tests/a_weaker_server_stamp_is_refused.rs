@@ -5,7 +5,7 @@
 //! to it: the server's merge when two dials crossed, otherwise the accepter's answer, which the
 //! server relays as it stands, unsigned. Either way the dialler sees one stamp and makes one
 //! check. Two stamps: Standard against an Extreme offer, and an offer's own level with the
-//! round-3 KEM in place of ML-KEM-1024 (in a suite whose packed byte ranks above the offer's).
+//! ML-KEM-768 in place of ML-KEM-1024 (in a suite whose packed byte ranks above the offer's).
 //! The dialler refuses both: its dial fails with `BelowPolicy`, no key exchange starts, and the
 //! accepter hears the refusal on its accept's ticket.
 //!
@@ -67,12 +67,12 @@ mod tests {
         }
     }
 
-    fn round_three_kem() -> Stamp {
+    fn weaker_kem() -> Stamp {
         let mut offer = settings(SecurityLevel::Standard);
         offer.crypto_params.kem_algorithm = KemAlgorithm::MlKem1024Fips203;
         offer.crypto_params.encryption_algorithm = EncryptionAlgorithm::AES_GCM_256;
         let mut stamped = offer;
-        stamped.crypto_params.kem_algorithm = KemAlgorithm::MlKem;
+        stamped.crypto_params.kem_algorithm = KemAlgorithm::MlKem768Fips203;
         stamped.crypto_params.encryption_algorithm = EncryptionAlgorithm::ChaCha20Poly_1305;
         Stamp { offer, stamped }
     }
@@ -132,8 +132,8 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
-    async fn a_stamp_that_swaps_in_the_round_three_kem_is_refused() {
-        refused(round_three_kem()).await;
+    async fn a_stamp_that_swaps_in_a_weaker_kem_is_refused() {
+        refused(weaker_kem()).await;
     }
 
     async fn refused(stamp: Stamp) {
