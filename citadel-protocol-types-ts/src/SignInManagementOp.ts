@@ -3,6 +3,7 @@ import type { SignInPolicy } from "./SignInPolicy";
 
 /**
  * A change to an account's sign-in factors. Each one needs a fresh proof of the account's
- * factors (a step-up), except the two a recovery session may make.
+ * factors (a step-up), except in a recovery session, which proves nothing again and may make only
+ * the changes [`Self::allowed_in_recovery`] names.
  */
-export type SignInManagementOp = "ListCredentials" | { "AddSecurityKey": { label: string, } } | { "RenameCredential": { id: number, label: string, } } | { "RemoveCredential": { id: number, } } | { "SetSignInPolicy": { policy: SignInPolicy, } } | "RegenerateRecoveryCodes";
+export type SignInManagementOp = "ListCredentials" | { "AddSecurityKey": { label: string, } } | { "RenameCredential": { id: number, label: string, } } | { "RemoveCredential": { id: number, } } | { "SetSignInPolicy": { policy: SignInPolicy, } } | "SetPassword" | { "RegenerateRecoveryPhrase": { canonical_domain: string, } };
