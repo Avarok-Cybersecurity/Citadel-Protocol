@@ -1,6 +1,8 @@
 FROM rust:latest as builder
 WORKDIR /usr/src/app
 COPY . .
+# The toolchain rust-toolchain.toml names, not the base image's.
+RUN rustup toolchain install
 RUN apt-get update --fix-missing && apt-get install --fix-missing -y openssl libclang-dev build-essential cmake && rm -rf /var/lib/apt/lists/*
 # crates.io fetch resilience (mirrors .cargo/config.toml; guards the transient
 # "[16] Error in the HTTP2 framing layer" that aborts image builds).

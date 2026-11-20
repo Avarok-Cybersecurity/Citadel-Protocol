@@ -91,7 +91,7 @@ cp ./resources/favicon.png ./target/doc/citadel_sdk/favicon.png
 
 [tasks.install-llvm-tools]
 command = "rustup"
-args = ["component", "add", "llvm-tools-preview", "--toolchain", "nightly"]
+args = ["component", "add", "llvm-tools-preview"]
 
 [tasks.install-llvm-cov]
 install_crate = { crate_name = "cargo-llvm-cov", binary = "cargo", test_arg = ["llvm-cov", "--help"] }
