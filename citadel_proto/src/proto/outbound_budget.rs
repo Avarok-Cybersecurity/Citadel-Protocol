@@ -11,7 +11,7 @@
 //! node past it ends the stream holding the most, so all the streams together hold at most that
 //! much, and a stream whose peer reads is not ended for one whose peer does not.
 
-use crate::proto::outbound_total::OutboundTotal;
+use crate::proto::outbound_total::{charge_within, OutboundTotal};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -55,9 +55,7 @@ impl OutboundBudget {
         if self.is_exhausted() {
             return false;
         }
-        let queued = self.queued.fetch_add(len, Ordering::AcqRel) + len;
-        if queued > self.limit {
-            let _ = self.queued.fetch_sub(len, Ordering::AcqRel);
+        if !charge_within(&self.queued, len, self.limit) {
             self.end("this stream's", self.limit);
             return false;
         }
@@ -130,6 +128,14 @@ mod tests {
 
     fn node_total(limit: usize) -> Arc<OutboundTotal> {
         Arc::new(OutboundTotal::new(limit))
+    }
+
+    #[test]
+    fn a_charge_near_the_top_of_usize_does_not_wrap_past_the_limit() {
+        let queued = AtomicUsize::new(usize::MAX - 10);
+        assert!(!charge_within(&queued, 100, usize::MAX));
+        assert_eq!(queued.load(Ordering::Acquire), usize::MAX - 10);
+        assert!(charge_within(&queued, 10, usize::MAX));
     }
 
     #[test]

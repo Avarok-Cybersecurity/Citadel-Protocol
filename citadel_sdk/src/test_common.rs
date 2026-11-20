@@ -102,10 +102,12 @@ pub fn localhost_path_policy() -> PathPolicy {
 /// are far above any suite's concurrency. Legacy registration is taken (suites exercise it),
 /// with as many concurrent hashes as the largest suite registers at once. The queue limits are
 /// the per-stream bound clients use (`outbound_budget::MAX_QUEUED_OUTBOUND_BYTES`, 256 MiB) and
-/// sixteen of them in all, which no suite's transfers approach.
+/// four of them in all (1 GiB), which no suite's transfers approach. The total is a `const` so a
+/// value past a 32-bit `usize` (wasm32) fails to compile under `cargo check` too.
 pub fn localhost_server_limits() -> ServerLimits {
     const CONNECTIONS: usize = 1024;
     const QUEUED_PER_STREAM: usize = 256 * 1024 * 1024;
+    const QUEUED_TOTAL: usize = 4 * QUEUED_PER_STREAM;
     let nonzero = |n: usize| std::num::NonZeroUsize::new(n).expect("a positive test limit");
     ServerLimits {
         provisional_per_ip: nonzero(CONNECTIONS),
@@ -114,7 +116,7 @@ pub fn localhost_server_limits() -> ServerLimits {
             concurrent_hashes: nonzero(64),
         },
         outbound_queued_per_stream: nonzero(QUEUED_PER_STREAM),
-        outbound_queued_total: nonzero(16 * QUEUED_PER_STREAM),
+        outbound_queued_total: nonzero(QUEUED_TOTAL),
     }
 }
 

@@ -8,7 +8,8 @@
 #   2. citadel_pqcrypto without default features, as wasm_check's `cargo check` builds it;
 #   3. citadel_sdk without default features, with every wasm test target wasm-pack runs;
 #   4. the browser security-key backend and its test;
-#   5. citadel_media with its wasm test.
+#   5. citadel_media with its wasm test;
+# then a build of the browser SDK, for the lints only a build runs (see below).
 # A wasm-only warning (an import or item that only native code uses) fails here and nowhere else.
 set -euo pipefail
 
@@ -33,3 +34,10 @@ clippy -p citadel_pqcrypto --no-default-features
 clippy -p citadel_sdk --no-default-features --lib "${sdk_test_args[@]}"
 clippy -p citadel_sdk --no-default-features --features security-key --lib --test wasm_security_key
 clippy -p citadel_media --lib --test wasm_media
+
+# rustc's deny-by-default lints that need the optimised MIR (arithmetic_overflow, unconditional
+# panics) run only when code is built, not under clippy or `cargo check`. A value that overflows a
+# 32-bit usize compiles natively and fails only here, so the browser SDK is also built.
+echo "::group::cargo build --target $TARGET -p citadel_sdk --no-default-features --lib"
+cargo build --locked --target "$TARGET" -p citadel_sdk --no-default-features --lib
+echo "::endgroup::"
