@@ -455,7 +455,7 @@ jobs:
       # The suite reads the media fixtures from disk only (CITADEL_OFFLINE); this step fetches
       # them, so a network failure fails here and never inside a media test (run 44263624976).
       - name: Fetch media test fixtures
-        run: cargo nextest run --locked --package citadel_sdk --features="${{ matrix.features }}$VENDORED" --test media_fixtures --run-ignored only
+        run: cargo nextest run --locked --package citadel_sdk --features="${{ matrix.features }}$VENDORED" --test it -E 'test(/^media_fixtures::/)' --run-ignored only
       - name: ${{ matrix.threading }} testing
         env:
           CITADEL_OFFLINE: "1"
@@ -507,7 +507,7 @@ jobs:
           key: media-fixtures-${{ hashFiles('citadel_sdk/tests/common/fixtures.rs') }}
       # As in the citadel_sdk job: fetched here, read from disk by the suite.
       - name: Fetch media test fixtures
-        run: cargo nextest run --locked --package citadel_sdk --features=${{ matrix.features }} --release --test media_fixtures --run-ignored only
+        run: cargo nextest run --locked --package citadel_sdk --features=${{ matrix.features }} --release --test it -E 'test(/^media_fixtures::/)' --run-ignored only
       - name: ${{ matrix.threading }} testing
         env:
           CITADEL_OFFLINE: "1"
@@ -568,7 +568,7 @@ jobs:
         run: cargo nextest run --locked --package citadel_proto --features="security-key$VENDORED" -E 'test(security_key)'
       - name: Build the hardware test
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo check --locked --package citadel_sdk --features=localhost-testing,security-key --test pq_sign_in_security_key
+        run: cargo check --locked --package citadel_sdk --features=localhost-testing,security-key --test it
 
   coverage:
     needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]

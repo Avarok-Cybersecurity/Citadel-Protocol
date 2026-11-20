@@ -113,7 +113,7 @@ where
         let _ = tx.lock().unwrap().take().unwrap().send(out);
         Ok(())
     });
-    let mut builder = DefaultNodeBuilder::default();
+    let mut builder = citadel_sdk::test_common::node_builder();
     let _ = builder
         .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)

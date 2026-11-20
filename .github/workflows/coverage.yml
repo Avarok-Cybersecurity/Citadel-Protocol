@@ -63,7 +63,7 @@ jobs:
       - name: Fetch media test fixtures
         run: |
           read -ra cov_args <<< "$COV_ARGS"
-          cargo llvm-cov nextest --locked --no-report "${cov_args[@]}" --test media_fixtures --run-ignored only
+          cargo llvm-cov nextest --locked --no-report "${cov_args[@]}" --test it -E 'test(/^media_fixtures::/)' --run-ignored only
       - name: Run llvm-cov nextest (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
         env:
           SKIP_EXT_BACKENDS: "true"
