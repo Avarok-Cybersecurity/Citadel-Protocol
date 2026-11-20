@@ -641,7 +641,8 @@ mod tests {
     /// are not that time: the guard counted them for two months, and a slow runner, which needs
     /// more stalls for the same work, spent the budget on them (#391, 20.168 s). The injected
     /// stalls stop after one budget's worth, so a punch that hangs is still caught within one
-    /// budget of running afterwards.
+    /// budget of running afterwards. Nor is a freeze of the host's: the guard counts the budget
+    /// in ticks of runnable time, as the punch's receive window does, so a freeze is one tick.
     #[cfg(not(target_os = "windows"))]
     #[cfg_attr(coverage, ignore)]
     #[tokio::test]
@@ -699,14 +700,9 @@ mod tests {
         };
         let started = citadel_io::time::Instant::now();
         let punched = async move { citadel_io::tokio::join!(server, client) };
-        let budget_spent = async {
-            loop {
-                citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
-                if started.elapsed().saturating_sub(stalled_for()) > BUDGET {
-                    return;
-                }
-            }
-        };
+        // Counted as the punch's own time, the way its receive window is: a stall, injected here
+        // or the host's, is one tick, whatever its length.
+        let budget_spent = crate::udp_traversal::linear::runnable_window::runnable_window(BUDGET);
         let (res0, res1) = citadel_io::tokio::select! {
             biased;
             punched = punched => punched,
