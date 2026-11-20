@@ -7,8 +7,8 @@
 //!
 //! Signalling rides the peers' netbeam endpoint — the hole-punch compat stream, end-to-end
 //! encrypted with the P2P ratchet — so the Citadel server never sees relay addresses or probe
-//! nonces, and no PeerSignal/wire format changes. A peer that predates this module never answers;
-//! the attempt times out and the connection stays server-relayed.
+//! nonces, and no PeerSignal/wire format changes. When the peer does not answer, the attempt
+//! times out and the connection stays server-relayed.
 //!
 //! 1. allocator → dialer: `Offer { relayed, nonce }` (or `Unavailable`)
 //! 2. dialer → allocator: `DialerReady { candidates }` — IPs the relay may see the dialer from

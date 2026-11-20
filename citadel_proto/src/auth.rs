@@ -136,7 +136,7 @@ pub struct SignInFactors {
     /// session may only manage the account's credentials.
     pub recovery_code: Option<RecoveryCode>,
     /// The recovery phrase, as this server knows it. A sign-in with it is a recovery sign-in, as
-    /// with a code, but the phrase is not spent. Refused locally by a server that predates it.
+    /// with a code, but the phrase is not spent.
     pub recovery_phrase: Option<RecoveryPhrase>,
     /// The admission token (a Turnstile response) for a server that asks fresh sign-ins for one.
     /// Sent only inside the post-quantum channel, and never printed.

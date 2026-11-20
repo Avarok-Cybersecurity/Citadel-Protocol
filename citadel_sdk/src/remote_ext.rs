@@ -183,8 +183,8 @@ pub struct CitadelClientServerConnection<R: Ratchet> {
     pub cid: u64,
     pub session_security_settings: SessionSecuritySettings,
     /// The server's path policy: which paths this session's peer connections may use, in which
-    /// order, for which traffic. `None` from a server that predates sending one
-    /// ([`PATH_POLICY_SINCE`](citadel_proto::constants::PATH_POLICY_SINCE)).
+    /// order, for which traffic. `None` when the server sent none, or one that failed
+    /// validation.
     pub path_policy: Option<PathPolicy>,
 }
 

@@ -32,156 +32,111 @@ use lazy_static::lazy_static;
 
 // Note: these values can each be up to 1024 in size, but, to be safe, we fix the upper
 // bound to 255 (u8::MAX) to ensure that the values fit inside the u32 bit packer
+//
+// The version a node announces in its handshake. A node takes part only with a node at or above
+// `version_gate::OLDEST_PEER_PROTOCOL_VERSION`, and refuses anything else by name. Each
+// `*_SINCE` constant below records the release a feature arrived in. Every one of them is at or
+// below the oldest admitted version, so each always holds for a node this node takes part with,
+// and no code path serves a node below one. They stay as the place a later gate is added: when a
+// release must keep working with the one before it, lower the oldest admitted version and give
+// each newer gate its older-node path there.
 pub const MAJOR_VERSION: u8 = 0;
-// Bumped 9 -> 10: the per-message nonce KDF changed from SHA3-256 to a BLAKE3 keyed-hash PRF
-// (citadel_crypt entropy_bank::get_nonce). This is wire-breaking — a peer on the old derivation
-// produces different nonces, so cross-version traffic must not interoperate.
-// Bumped 10 -> 11: the hole-punch coordination stream now carries attempt-numbered frames
-// (citadel_wire udp_traversal::paired_attempts). A peer on 0.10 sends unframed attempts, so the
-// two cannot punch with each other. The same bump covers the additive changes that ship with it:
-// key-exchange signals carry the sender's protocol version, media endpoints exchange
-// transport offers (see `MEDIA_TRANSPORT_OFFER_SINCE`), and servers answer
-// `GroupBroadcast::AwaitGroup` (see `AWAIT_GROUP_SINCE`).
-// Bumped 11 -> 12: post-quantum sign-in (see `PQ_SIGN_IN_SINCE`).
+// 9 -> 10: the per-message nonce KDF moved from SHA3-256 to a BLAKE3 keyed-hash PRF.
+// 10 -> 11: the hole-punch coordination stream carries attempt-numbered frames; key-exchange
+// signals carry the sender's protocol version; media endpoints exchange transport offers; servers
+// answer `GroupBroadcast::AwaitGroup`.
+// 11 -> 12: post-quantum sign-in.
 pub const MINOR_VERSION: u8 = 12;
-// Bumped 0 -> 1: group members acknowledge each CGKA Commit to the server, which tells the owner
-// once every member it reached has applied it, and the owner holds a joiner's Welcome until then
-// (see `GROUP_COMMIT_ACK_SINCE`). Additive: each side uses it only with a peer at or above it.
-// Bumped 1 -> 2: the server issues a resume token at connect SUCCESS, and a client's next login
-// presents it, so a reconnect replaces the session the server still holds for that same client
-// (see `SESSION_RESUME_SINCE`). Additive, like 0 -> 1.
-// Reset to 0 by the minor bump to 12.
-// Bumped 0 -> 1: a client may probe its server's liveness at any time (see `SERVER_PROBE_SINCE`),
-// and peers can re-arm a P2P path campaign that gave up (see `PATH_REARM_SINCE`). Additive: each
-// side uses them only with a node at or above it.
-// Bumped 1 -> 2: servers send their path policy at connect SUCCESS and stamp each peer pair's
-// effective plan into the pair's key exchange (see `PATH_POLICY_SINCE`). Additive: a node below it
-// neither sends nor reads either, and its peers plan their paths as before. In the same patch,
-// servers honour a group's relay options (see `GROUP_RELAY_OPTIONS_SINCE`).
-// Bumped 2 -> 3 (one release, several additive changes, each with its own gate at 0.12.3):
-// P2P connections carry a negotiation lane, and a deliberate disconnect carries its reason (see
-// `NEGOTIATION_SINCE`); a P2P connection's keys are derived from the pair it joins and the
-// connection's id (see `IDENTITY_BOUND_SEAL_SINCE`); the coordination endpoints pair
-// subscriptions by an exchanged id within a named topic, and time a synchronized start by a
-// relative delay (see `EXCHANGED_SUBSCRIPTIONS_SINCE`); a server names its security-key relying
-// party and a client creates the credential it enrols (see `SECURITY_KEY_CEREMONY_SINCE`).
-// Additive: each side uses them only with a node at or above the gate, and with an older peer
-// behaves as before.
-// Bumped 3 -> 4 (the RobustConnectionManager release, one bump shared by every lane, §12.2): a
-// P2P pair exchanges its ends' link-manager modes and runs the manager only when both are
-// Managed (see `LINK_MODE_SINCE`), and a client may reattach a held session over a new path (see
-// `LINK_REATTACH_SINCE`). Additive: with a peer below it, each behaves as before. In the same
-// bump, P2P key-exchange stages carry the sending account's identity signature (see
-// `P2P_KEX_SIGNED_SINCE`). In the same release, a device with no bundle recovers an account with
-// its recovery phrase, and sessions set passwords and replace phrases (see `RECOVERY_SINCE`).
+// 0 -> 1: liveness probes; re-arming a P2P campaign that gave up.
+// 1 -> 2: server path policy and per-pair effective plans; group relay options.
+// 2 -> 3: the P2P negotiation lane and disconnect reasons; identity-bound P2P keys; exchanged
+// coordination subscriptions; the security-key ceremony.
+// 3 -> 4: link-manager modes; session reattach; signed P2P key-exchange stages; account
+// recovery; shared path loss; bound waves.
 pub const PATCH_VERSION: u8 = 4;
 
-/// The first protocol version whose media endpoints send and expect a transport offer as the
-/// first message on the reliable lane. A peer below it, or of unknown version, gets none.
+/// Media endpoints send and expect a transport offer as the first message on the reliable lane.
 pub const MEDIA_TRANSPORT_OFFER_SINCE: (u8, u8, u8) = (0, 10, 1);
 
-/// The first protocol version whose server answers `GroupBroadcast::AwaitGroup`. A joiner
-/// talking to a server below it, or of unknown version, polls for the owner's group instead.
+/// The server answers `GroupBroadcast::AwaitGroup`, so a joiner waits for the owner's group.
 pub const AWAIT_GROUP_SINCE: (u8, u8, u8) = (0, 11, 0);
 
-/// The first protocol version whose nodes take part in the group Commit acknowledgement: a member
-/// sends `GroupBroadcast::CommitApplied` after processing a Commit, the server answers the owner
-/// with `GroupBroadcast::CommitSettled` once every such member it delivered the Commit to has, and
-/// the owner releases a joiner's Welcome only then. A node below it, or of unknown version, keeps
-/// the earlier behaviour: an owner sends the Welcome at once, and a server waits on no member.
+/// Group Commit acknowledgement: a member sends `GroupBroadcast::CommitApplied` after processing
+/// a Commit, the server answers the owner with `GroupBroadcast::CommitSettled` once every member
+/// it delivered the Commit to has, and the owner releases a joiner's Welcome only then.
 pub const GROUP_COMMIT_ACK_SINCE: (u8, u8, u8) = (0, 11, 1);
 
-/// The first protocol version whose nodes exchange session resume tokens: a server issues one in
-/// connect SUCCESS and accepts it back at STAGE0 as proof that a login is the held session's own
-/// client (see `proto::session_resume`). A node below it, or of unknown version, sends and reads
-/// none, and a login from it is refused while the server holds a session for the account.
+/// Session resume tokens: a server issues one in connect SUCCESS and accepts it back at STAGE0 as
+/// proof that a login is the held session's own client (see `proto::session_resume`).
 pub const SESSION_RESUME_SINCE: (u8, u8, u8) = (0, 11, 2);
 
-/// The first protocol version whose nodes run post-quantum sign-in (see `proto::pq_sign_in`): a
-/// client sends connect `AUTH_START` before STAGE0 and register `PQ_START` before STAGE2, and the
-/// server proves the account's ML-KEM factors instead of verifying an Argon2 hash. Every node this
-/// node takes part with is at or above it (`version_gate`).
+/// Post-quantum sign-in (see `proto::pq_sign_in`): a client sends connect `AUTH_START` before
+/// STAGE0 and register `PQ_START` before STAGE2, and the server proves the account's ML-KEM
+/// factors instead of verifying an Argon2 hash.
 pub const PQ_SIGN_IN_SINCE: (u8, u8, u8) = (0, 12, 0);
 
-/// The first protocol version whose server answers a liveness probe: a `KEEP_ALIVE` with
-/// `cmd_aux` PROBE, echoed at once (see `proto::server_probe`). A server below it reads a probe as
-/// a scheduled keep-alive and would start a second keep-alive cycle, so it is never sent one.
+/// The server answers a liveness probe: a `KEEP_ALIVE` with `cmd_aux` PROBE, echoed at once (see
+/// `proto::server_probe`).
 pub const SERVER_PROBE_SINCE: (u8, u8, u8) = (0, 12, 1);
 
-/// The first protocol version whose P2P campaign, having given up, parks on the coordination
-/// endpoint instead of ending, so either peer can re-arm it (`PeerChannel::upgrade`). With a peer
-/// below it, or of unknown version, the campaign ends as before and an upgrade is refused.
+/// A P2P campaign that gave up parks on the coordination endpoint instead of ending, so either
+/// peer can re-arm it (`PeerChannel::upgrade`).
 pub const PATH_REARM_SINCE: (u8, u8, u8) = (0, 12, 1);
 
-/// The first protocol version whose server sends its `PathPolicy` in connect SUCCESS, and whose
-/// peers offer their path restrictions in each key exchange and execute the `EffectivePlan` the
-/// server stamps into it. A client below it, or of unknown version, is sent no policy; a key
-/// exchange in which either peer is below it carries no plan, and both peers plan their paths
-/// themselves (`plan_p2p`), exactly as before.
+/// The server sends its `PathPolicy` in connect SUCCESS; peers offer their path restrictions in
+/// each key exchange and execute the `EffectivePlan` the server stamps into it.
 pub const PATH_POLICY_SINCE: (u8, u8, u8) = (0, 12, 2);
 
-/// The first protocol version whose server honours a group's relay options: it mails an
-/// `ephemeral` group's broadcasts to no offline member, and holds each message to the group's
-/// `limits`, answering a refused one with `GroupBroadcast::MessageRefused` (to a sender at this
-/// version; an older sender gets the `MessageResponse { success: false }` it understands). A
-/// server below it would ignore both options, so a client refuses to create such a group there.
+/// The server honours a group's relay options: it mails an `ephemeral` group's broadcasts to no
+/// offline member, and holds each message to the group's `limits`, answering a refused one with
+/// `GroupBroadcast::MessageRefused`. A client refuses to create a group with either option on a
+/// server below it.
 pub const GROUP_RELAY_OPTIONS_SINCE: (u8, u8, u8) = (0, 12, 2);
 
-/// The first protocol version whose P2P connections carry a negotiation lane: control frames on
-/// the reliable stream, beginning with each side's `Hello`, that the SDK takes out before the
-/// application sees them (`proto::peer::negotiation::lane`). Its server copies a deliberate
-/// disconnect's `reason` into the `PeerSignal::Disconnect` it sends on. A peer below it, or of
-/// unknown version, is sent no lane frame and its Hello reads as empty: every setting is legacy
-/// toward it. A server below it drops the reason, which the lane then carries instead.
+/// P2P connections carry a negotiation lane: control frames on the reliable stream, beginning
+/// with each side's `Hello`, that the SDK takes out before the application sees them
+/// (`proto::peer::negotiation::lane`). The server copies a deliberate disconnect's `reason` into
+/// the `PeerSignal::Disconnect` it sends on.
 pub const NEGOTIATION_SINCE: (u8, u8, u8) = (0, 12, 3);
 
-/// The first protocol version whose P2P key exchange binds the keys to the connection they are
-/// for: both peers mix the initiator's CID, the responder's CID and the connection's id into the
-/// exchange (`proto::peer::p2p_seal_binding`), so a packet is accepted only under the connection
-/// it was sealed for. Every peer this node takes part with is at or above it (`version_gate`).
+/// A P2P key exchange binds its keys to the connection they are for: both peers mix the
+/// initiator's CID, the responder's CID and the connection's id into the exchange
+/// (`proto::peer::p2p_seal_binding`), so a packet is accepted only under the connection it was
+/// sealed for.
 pub const IDENTITY_BOUND_SEAL_SINCE: (u8, u8, u8) = (0, 12, 3);
 
-/// The first protocol version whose hole-punch and P2P coordination endpoints speak
-/// `netbeam::sync::wire::WireRevision::Exchanged`. Both ends pick the revision from the other's
-/// version, so a pair with either below it, or of unknown version, speaks the count-paired wire.
+/// Hole-punch and P2P coordination endpoints speak
+/// `netbeam::sync::wire::WireRevision::Exchanged`.
 pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
 
-/// The first protocol version whose sign-in messages carry the security-key ceremony: a server
-/// names the WebAuthn relying party its keys are scoped to and the keys an enrolment must avoid,
-/// and a client enrolling a key creates its credential after the challenge, rather than naming
-/// one it created before. Every node this node takes part with is at or above it
-/// (`version_gate`).
+/// Sign-in messages carry the security-key ceremony: a server names the WebAuthn relying party
+/// its keys are scoped to and the keys an enrolment must avoid, and a client enrolling a key
+/// creates its credential after the challenge.
 pub const SECURITY_KEY_CEREMONY_SINCE: (u8, u8, u8) = (0, 12, 3);
 
-/// The first protocol version whose server recovers accounts: after register STAGE1 it reads
-/// `RECOVER_START` (a device with no bundle proves the account's recovery phrase inside the fresh
-/// key exchange, and that exchange's ratchet becomes the account's bundle), it challenges a
-/// recovery phrase offered at sign-in, and it reads the management changes `SetPassword` and
-/// `RegenerateRecoveryPhrase`. Every node this node takes part with is at or above it
-/// (`version_gate`).
+/// The server recovers accounts: after register STAGE1 it reads `RECOVER_START` (a device with no
+/// bundle proves the account's recovery phrase inside the fresh key exchange, and that exchange's
+/// ratchet becomes the account's bundle), it challenges a recovery phrase offered at sign-in, and
+/// it reads the management changes `SetPassword` and `RegenerateRecoveryPhrase`.
 pub const RECOVERY_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 /// A client may reattach a held session over a new path with the same seal, and a server answers
-/// it (`proto::link::reattach`, `ROBUST-CONNECTION-MANAGER.md` §5.2). Additive: a node below it is
-/// never sent the frames, and the manager seals afresh as before. Shares the one 0.12.4 bump with
-/// the rest of the mega PR (§12.2).
+/// it (`proto::link::reattach`, `ROBUST-CONNECTION-MANAGER.md` §5.2).
 pub const LINK_REATTACH_SINCE: (u8, u8, u8) = (0, 12, 4);
 
-/// The first protocol version whose P2P pairs exchange their link-manager modes on the
-/// coordination endpoint before any path work (`link::p2p::agree`). With a peer below it the
-/// pair runs the Legacy campaign, whatever this node's mode.
+/// P2P pairs exchange their link-manager modes on the coordination endpoint before any path work
+/// (`link::p2p::agree`).
 pub const LINK_MODE_SINCE: (u8, u8, u8) = (0, 12, 4);
 
-/// The first protocol version whose P2P key-exchange stages carry a signature by the sending
-/// account's identity key over the exchange's transcript (`proto::peer::kex_auth`). Each side
-/// signs its stage whenever its account has an identity key. Whether an unsigned stage is
-/// accepted is decided by the key pinned for the peer, never by the version a stage claims.
+/// P2P key-exchange stages carry a signature by the sending account's identity key over the
+/// exchange's transcript (`proto::peer::kex_auth`). Each side signs its stage whenever its
+/// account has an identity key. Whether an unsigned stage is accepted is decided by the key
+/// pinned for the peer, never by the version a stage claims.
 pub const P2P_KEX_SIGNED_SINCE: (u8, u8, u8) = (0, 12, 4);
 
-/// The first protocol version whose P2P campaign shares a lost direct path
-/// (`p2p_retry::wait_for_shared_fall_back`). The first peer to lose the route wakes the other over
-/// the coordination endpoint, so both fall back and meet for the retry together. With a peer below
-/// it, each side learns only from its own transport, as before.
+/// A P2P campaign shares a lost direct path (`p2p_retry::wait_for_shared_fall_back`): the first
+/// peer to lose the route wakes the other over the coordination endpoint, so both fall back and
+/// meet for the retry together.
 pub const PATH_LOSS_SHARED_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
@@ -194,9 +149,8 @@ pub fn protocol_version_at_least(version: Option<u32>, since: (u8, u8, u8)) -> b
     (version.major, version.minor, version.patch) >= since
 }
 
-/// The first protocol version whose file and object waves carry their object, group, index and
-/// ratchet version as associated data (`citadel_crypt::scramble::wave_binding`). Every node this
-/// node takes part with is at or above it (`version_gate`), so every wave is bound.
+/// File and object waves carry their object, group, index and ratchet version as associated
+/// data (`citadel_crypt::scramble::wave_binding`).
 pub const WAVE_BINDING_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 lazy_static! {

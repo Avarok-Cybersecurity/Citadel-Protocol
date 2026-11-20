@@ -1,10 +1,12 @@
-//! Reading a message an older or newer node wrote.
+//! Reading a field whose value may be one this node cannot use.
 //!
-//! The wire format is bincode, which has no field names: a field added at the END of a message
-//! is simply absent from an older node's bytes, and an older node ignores the trailing bytes of
-//! a newer one (`allow_trailing_bytes`). Mark such a field
-//! `#[serde(default, deserialize_with = "ok_or_default")]`: it then reads as its default when it
-//! is missing, or when it carries a value this node cannot decode (a variant added later).
+//! The wire format is bincode, which has no field names, so every field is read in order and an
+//! encoding that stops early is refused. A field marked
+//! `#[serde(default, deserialize_with = "ok_or_default")]` reads as its default when its value
+//! fails validation or names a variant this node does not know (an admission challenge from a
+//! provider it does not support, a path policy it cannot accept). It cannot tell a missing value
+//! from an unusable one, so it also reads an encoding that stops before the field: use it only
+//! where reading the default is safe, and never to carry an older encoding forward.
 
 use serde::{Deserialize, Deserializer};
 
