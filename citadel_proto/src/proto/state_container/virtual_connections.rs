@@ -150,6 +150,21 @@ impl<R: Ratchet> StateContainerInner<R> {
         Some(&endpoint.direct_journal)
     }
 
+    /// Ends the current direct route to `peer_cid` from this side, as its loss would: the peer
+    /// reported losing it, so this side's transport has not noticed yet.
+    pub(crate) fn cut_direct_route(&mut self, peer_cid: u64) -> RouteEnd {
+        let route_id = self
+            .active_virtual_connections
+            .get(&peer_cid)
+            .and_then(|vconn| vconn.endpoint_container.as_ref())
+            .and_then(|endpoint| endpoint.direct_p2p_remote.as_ref())
+            .map(|remote| remote.route_id);
+        match route_id {
+            Some(route_id) => self.fall_back_to_server_relay(peer_cid, route_id),
+            None => RouteEnd::NotCurrent,
+        }
+    }
+
     /// The direct route `route_id` to `peer_cid` ended. When it is still the connection's route
     /// and the connection is live, traffic falls back to the server relay: the route is detached,
     /// every message it had not delivered is re-sent over the relay ahead of anything new, and the

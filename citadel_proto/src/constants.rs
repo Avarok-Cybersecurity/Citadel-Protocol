@@ -168,6 +168,12 @@ pub const LINK_REATTACH_SINCE: (u8, u8, u8) = (0, 12, 4);
 /// pair runs the Legacy campaign, whatever this node's mode.
 pub const LINK_MODE_SINCE: (u8, u8, u8) = (0, 12, 4);
 
+/// The first protocol version whose P2P campaign shares a lost direct path
+/// (`p2p_retry::wait_for_shared_fall_back`). The first peer to lose the route wakes the other over
+/// the coordination endpoint, so both fall back and meet for the retry together. With a peer below
+/// it, each side learns only from its own transport, as before.
+pub const PATH_LOSS_SHARED_SINCE: (u8, u8, u8) = (0, 12, 4);
+
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.
 pub fn protocol_version_at_least(version: Option<u32>, since: (u8, u8, u8)) -> bool {
@@ -283,6 +289,19 @@ mod tests {
             version(0, 12, 2),
             IDENTITY_BOUND_SEAL_SINCE
         ));
+    }
+
+    #[test]
+    fn this_node_shares_a_lost_path_and_the_previous_patch_does_not() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            PATH_LOSS_SHARED_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 12, 3),
+            PATH_LOSS_SHARED_SINCE
+        ));
+        assert!(!protocol_version_at_least(None, PATH_LOSS_SHARED_SINCE));
     }
 
     #[test]
