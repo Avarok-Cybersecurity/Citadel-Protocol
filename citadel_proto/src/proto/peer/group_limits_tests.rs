@@ -78,10 +78,9 @@ fn create(options: MessageGroupOptions) -> PeerSignal {
     }
 }
 
-/// A `Create` from a client before the relay options carries options of three fields; one from
-/// a newer client appends two, which an older server ignores.
+/// A `Create` carries its relay options; one whose options stop after the hierarchy is refused.
 #[test]
-fn the_relay_options_are_appended_to_a_groups_creation() {
+fn a_groups_creation_carries_its_relay_options() {
     let options = MessageGroupOptions {
         group_type: GroupType::Public,
         id: 9,
@@ -102,43 +101,49 @@ fn the_relay_options_are_appended_to_a_groups_creation() {
     }
 
     #[derive(serde::Serialize, serde::Deserialize)]
-    enum OldBroadcast {
+    enum BroadcastWithoutRelayOptions {
         Create {
             initial_invitees: Vec<u64>,
             options: (GroupType, u128, GroupHierarchyMode),
         },
     }
-    let old = OldBroadcast::Create {
+    let without = BroadcastWithoutRelayOptions::Create {
         initial_invitees: vec![2],
         options: options_without_relay_fields(),
     }
     .serialize_to_vector()
     .unwrap();
-    let new = GroupBroadcast::Create {
-        initial_invitees: vec![2],
-        options: MessageGroupOptions {
-            group_type: GroupType::Public,
-            id: 9,
-            hierarchy: GroupHierarchyMode::Flat,
-            ephemeral: true,
-            limits: Some(limits(64, 4)),
+    assert!(GroupBroadcast::deserialize_from_vector(&without).is_err());
+}
+
+/// Caps that fail validation refuse the `Create`; they are never read as a group without caps.
+#[test]
+fn a_creation_with_invalid_caps_is_refused() {
+    #[derive(serde::Serialize, serde::Deserialize)]
+    enum BroadcastWithRawCaps {
+        Create {
+            initial_invitees: Vec<u64>,
+            options: (
+                GroupType,
+                u128,
+                GroupHierarchyMode,
+                bool,
+                Option<(u32, u32)>,
+            ),
         },
     }
-    .serialize_to_vector()
-    .unwrap();
-    assert!(
-        new.starts_with(&old),
-        "the old encoding, with the fields appended"
-    );
-    match GroupBroadcast::deserialize_from_vector(&old).unwrap() {
-        GroupBroadcast::Create { options, .. } => {
-            assert_eq!(options.id, 9);
-            assert!(
-                !options.ephemeral,
-                "an older client's group is mailed, as before"
-            );
-            assert_eq!(options.limits, None);
+    let encode = |caps: (u32, u32)| {
+        let (group_type, id, hierarchy) = options_without_relay_fields();
+        BroadcastWithRawCaps::Create {
+            initial_invitees: vec![2],
+            options: (group_type, id, hierarchy, false, Some(caps)),
         }
+        .serialize_to_vector()
+        .unwrap()
+    };
+    match GroupBroadcast::deserialize_from_vector(&encode((64, 4))).unwrap() {
+        GroupBroadcast::Create { options, .. } => assert_eq!(options.limits, Some(limits(64, 4))),
         other => panic!("not a Create: {other:?}"),
     }
+    assert!(GroupBroadcast::deserialize_from_vector(&encode((64, 0))).is_err());
 }

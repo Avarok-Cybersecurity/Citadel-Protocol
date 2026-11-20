@@ -277,19 +277,23 @@ pub struct MessageGroupOptions {
     pub group_type: GroupType,
     pub id: u128,
     /// Whether the group uses the flat zero-trust CGKA or the Decentralized Hierarchy Encryption overlay.
+    ///
+    /// This and the relay options are absent from the TypeScript type, so a JSON caller that omits
+    /// them gets their defaults. A bincode reader has no field names and reads every field: an
+    /// encoding that stops early is refused.
     #[cfg_attr(feature = "typescript", ts(skip))]
     #[serde(default)]
     pub hierarchy: GroupHierarchyMode,
     /// Whether the server relays this group's broadcasts only to members online at the time: an
     /// offline member is never mailed them. For traffic that is stale by the time anyone reads it
-    /// (presence, heartbeats). `false` mails them, as groups always have. Appended: a node that
-    /// predates it neither sends nor reads it.
+    /// (presence, heartbeats). `false` mails them.
     #[cfg_attr(feature = "typescript", ts(skip))]
-    #[serde(default, deserialize_with = "crate::wire_compat::ok_or_default")]
+    #[serde(default)]
     pub ephemeral: bool,
-    /// The caps the server holds each message to, or `None` for none (as groups always had).
+    /// The caps the server holds each message to, or `None` for none. Caps that fail validation
+    /// refuse the whole message.
     #[cfg_attr(feature = "typescript", ts(skip))]
-    #[serde(default, deserialize_with = "crate::wire_compat::ok_or_default")]
+    #[serde(default)]
     pub limits: Option<GroupMessageLimits>,
 }
 
