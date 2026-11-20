@@ -66,7 +66,7 @@ pub(crate) async fn on_start<R: Ratchet, T: PlatformOps>(
         remote_addr: source,
     };
     let policy = super::super::admission::policy(session);
-    admission::check(policy.as_ref(), ctx, false).await?;
+    admission::check(policy.as_ref(), ctx).await?;
     let record = account_manager
         .get_client_by_username(&username)
         .await?

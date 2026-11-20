@@ -697,7 +697,6 @@ pub(crate) mod do_register {
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U128, U32, U64};
 
-    use super::do_connect::ok_or_default;
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::prelude::Ticket;
     use crate::proto::packet::{packet_flags, HdpHeader};
@@ -791,10 +790,8 @@ pub(crate) mod do_register {
     #[derive(Serialize, Deserialize)]
     pub struct DoRegisterStage2Packet {
         pub credentials: ProposedCredentials,
-        /// The factors of a post-quantum registration (see `proto::pq_sign_in`). Sent only to a
-        /// server at `PQ_SIGN_IN_SINCE` or later; absent from an older client's packet.
-        #[serde(deserialize_with = "ok_or_default")]
-        #[serde(default)]
+        /// The factors of a post-quantum registration (see `proto::pq_sign_in`). `None` registers
+        /// the legacy way, at a server with no post-quantum settings or without a password.
         pub pq: Option<citadel_user::auth::pq::messages::RegFinish>,
     }
 

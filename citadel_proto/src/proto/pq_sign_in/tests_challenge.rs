@@ -17,7 +17,7 @@ fn challenge() -> AdmissionChallenge {
 }
 
 fn required(challenge: Option<AdmissionChallenge>) -> citadel_io::NetworkError {
-    refusal_error(AdmissionRefusal::Required(challenge), false)
+    refusal_error(AdmissionRefusal::Required(challenge))
 }
 
 fn refusal_message() -> &'static [u8] {

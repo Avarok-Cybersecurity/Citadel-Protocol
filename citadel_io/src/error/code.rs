@@ -1184,9 +1184,7 @@ pub enum ErrorCode {
     /// The server's admission check refused the token that was sent (reason).
     #[form = "The verification check failed: {}"]
     PqSignInAdmissionFailed = 351,
-    /// The server requires an admission check, and the client is too old to send one.
-    #[form = "This workspace needs a newer app to sign in; update your app"]
-    PqSignInAdmissionNeedsUpdate = 352,
+    // 352 is retired: never reuse it.
     /// The security key, or whoever serves the key channel, declined; the message says why, in
     /// words for the user.
     #[form = "{}"]

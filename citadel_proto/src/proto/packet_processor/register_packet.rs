@@ -298,7 +298,6 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     if let Some(pq_start) = pq_sign_in::register::begin(
                         &session,
                         &new_ratchet,
-                        header.protocol_version.get(),
                         proposed_credentials.username(),
                         algorithm,
                         timestamp,
@@ -462,7 +461,6 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                 let pq_state = &mut state.register_state.pq;
                                 (pq_state.server.take(), pq_state.admitted)
                             };
-                            let adjacent_version = header.protocol_version.get();
                             let session_crypto_state = initialize_peer_session_crypto(
                                 ratchet.get_cid(),
                                 ratchet.clone(),
@@ -492,13 +490,9 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                             None,
                                         );
                                         let policy = pq_sign_in::admission::policy(&session);
-                                        let legacy = pq_sign_in::admission::is_legacy_client(
-                                            adjacent_version,
-                                        );
                                         citadel_user::auth::pq::admission::check(
                                             policy.as_ref(),
                                             ctx,
-                                            legacy,
                                         )
                                         .await
                                     }

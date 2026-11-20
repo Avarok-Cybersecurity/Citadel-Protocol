@@ -42,9 +42,7 @@ pub const MAJOR_VERSION: u8 = 0;
 // key-exchange signals carry the sender's protocol version, media endpoints exchange
 // transport offers (see `MEDIA_TRANSPORT_OFFER_SINCE`), and servers answer
 // `GroupBroadcast::AwaitGroup` (see `AWAIT_GROUP_SINCE`).
-// Bumped 11 -> 12: post-quantum sign-in (see `PQ_SIGN_IN_SINCE`). Additive like the patches before
-// it: each side runs the new exchange only with a node at or above it, and an older node keeps the
-// legacy Argon2 path, so 0.11 and 0.12 nodes still interoperate.
+// Bumped 11 -> 12: post-quantum sign-in (see `PQ_SIGN_IN_SINCE`).
 pub const MINOR_VERSION: u8 = 12;
 // Bumped 0 -> 1: group members acknowledge each CGKA Commit to the server, which tells the owner
 // once every member it reached has applied it, and the owner holds a joiner's Welcome until then
@@ -101,9 +99,8 @@ pub const SESSION_RESUME_SINCE: (u8, u8, u8) = (0, 11, 2);
 
 /// The first protocol version whose nodes run post-quantum sign-in (see `proto::pq_sign_in`): a
 /// client sends connect `AUTH_START` before STAGE0 and register `PQ_START` before STAGE2, and the
-/// server proves the account's ML-KEM factors instead of verifying an Argon2 hash. A client talking
-/// to a server below it, or of unknown version, logs in and registers the legacy way; a server
-/// receiving a legacy login checks it the legacy way, unless the account has already upgraded.
+/// server proves the account's ML-KEM factors instead of verifying an Argon2 hash. Every node this
+/// node takes part with is at or above it (`version_gate`).
 pub const PQ_SIGN_IN_SINCE: (u8, u8, u8) = (0, 12, 0);
 
 /// The first protocol version whose server answers a liveness probe: a `KEEP_ALIVE` with

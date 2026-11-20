@@ -6,9 +6,9 @@
 //!   `LoginChallenge`), then STAGE0 carries the `LoginProof`. A legacy account answers with a
 //!   legacy challenge, logs in with its Argon2 credentials, and upgrades in the same STAGE0.
 //!
-//! Both sides use it only with a node at or above [`PQ_SIGN_IN_SINCE`]; with an older one they
-//! keep the legacy exchange, so 0.11 and 0.12 nodes interoperate. Every message travels inside
-//! the session's post-quantum channel.
+//! Every node this one takes part with runs it (`version_gate`). The legacy exchange remains only
+//! for a server with no post-quantum settings, and a registration given no password. Every
+//! message travels inside the session's post-quantum channel.
 
 pub(crate) mod admission;
 pub(crate) mod admit;
@@ -35,7 +35,7 @@ mod tests_wire_0_12_2;
 mod tests_wire_recovery;
 
 use crate::auth::AuthenticationRequest;
-use crate::constants::{protocol_version_at_least, PQ_SIGN_IN_SINCE, SECURITY_KEY_CEREMONY_SINCE};
+use crate::constants::{protocol_version_at_least, SECURITY_KEY_CEREMONY_SINCE};
 use crate::error::NetworkError;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::session::HdpSessionInitMode;
@@ -44,16 +44,6 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_user::auth::pq::admission::AdmissionToken;
 use citadel_user::auth::pq::messages::SignInLayout;
 use state::OfferedFactors;
-
-/// Whether the adjacent node runs post-quantum sign-in.
-pub(crate) fn runs_with(adjacent_version: u32) -> bool {
-    protocol_version_at_least(Some(adjacent_version), PQ_SIGN_IN_SINCE)
-}
-
-/// [`runs_with`] for a version that may not be known yet; an unknown one does not.
-pub(crate) fn runs_with_known(adjacent_version: Option<u32>) -> bool {
-    adjacent_version.is_some_and(runs_with)
-}
 
 /// The layout of the sign-in messages the adjacent node reads (see `SECURITY_KEY_CEREMONY_SINCE`).
 /// An unknown version reads 0.12.2's.

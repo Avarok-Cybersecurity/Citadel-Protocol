@@ -1,11 +1,12 @@
-//! Interop through the version gate: who runs the exchange, and that the widened STAGE0 and
-//! STAGE2 still read in both directions.
+//! Post-quantum sign-in on the wire, through the version gate: a node below it is refused by name
+//! before any sign-in message is read, and STAGE0 and STAGE2 read only in their current shape.
 
-use super::runs_with;
 use crate::constants::{PQ_SIGN_IN_SINCE, PROTOCOL_VERSION};
 use crate::proto::packet_crafter::do_connect::DoConnectStage0Packet;
 use crate::proto::packet_crafter::do_register::DoRegisterStage2Packet;
 use crate::proto::session_resume::ResumeToken;
+use crate::proto::version_gate::check_peer_protocol_version;
+use citadel_io::ErrorCode;
 use citadel_user::auth::pq::kem::{FactorKeypair, FactorSeed, SEED_LEN};
 use citadel_user::auth::pq::messages::{FactorTag, LoginFinish, LoginProof, RegFinish};
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
@@ -17,23 +18,23 @@ fn version(major: usize, minor: usize, patch: usize) -> u32 {
     Semver::new(major, minor, patch).to_u32().unwrap()
 }
 
+/// A node that predates post-quantum sign-in (and so would log in or register the legacy way) is
+/// refused at the handshake; this node is admitted.
 #[test]
-fn only_nodes_at_or_above_the_gate_run_post_quantum_sign_in() {
-    let (major, minor, patch) = PQ_SIGN_IN_SINCE;
-    assert!(runs_with(*PROTOCOL_VERSION), "this node must run it");
-    assert!(runs_with(version(major as _, minor as _, patch as _)));
-    assert!(
-        !runs_with(version(0, 11, 2)),
-        "0.11.2 keeps the legacy login"
-    );
-    assert!(!runs_with(version(0, 10, 9)));
-    assert!(
-        !runs_with(u32::MAX),
-        "an unparseable version is not trusted"
-    );
+fn a_node_below_post_quantum_sign_in_is_refused_by_name() {
+    let (major, minor, _) = PQ_SIGN_IN_SINCE;
+    assert!(minor > 0, "the gate names a release with a predecessor");
+    for older in [
+        version(major.into(), (minor - 1).into(), 2),
+        version(0, 10, 9),
+    ] {
+        let refused = check_peer_protocol_version(older).unwrap_err();
+        assert_eq!(refused.code, ErrorCode::ProtocolVersionUnsupported);
+    }
+    assert!(check_peer_protocol_version(*PROTOCOL_VERSION).is_ok());
 }
 
-/// The 0.11.2 shape of STAGE0, as an older client sends it and an older server reads it.
+/// The 0.11.2 shape of STAGE0, as a client below post-quantum sign-in sent it.
 #[derive(Serialize, Deserialize)]
 struct Stage0Of0112 {
     proposed_credentials: ProposedCredentials,
@@ -41,6 +42,7 @@ struct Stage0Of0112 {
     resume_token: Option<ResumeToken>,
 }
 
+/// The 0.11.2 shape of STAGE2.
 #[derive(Serialize, Deserialize)]
 struct Stage2Of0112 {
     credentials: ProposedCredentials,
@@ -55,21 +57,20 @@ fn proof() -> LoginProof {
     })
 }
 
+/// Control: read `DoConnectStage0Packet::pq_proof` with `ok_or_default` and the older shape reads.
 #[test]
-fn an_older_clients_stage0_reads_as_a_legacy_login() {
+fn an_older_clients_stage0_does_not_read_and_a_current_one_does() {
     let old = Stage0Of0112 {
         proposed_credentials: ProposedCredentials::transient("alice"),
         uses_filesystem: true,
         resume_token: Some(ResumeToken::generate()),
     };
-    let read = DoConnectStage0Packet::deserialize_from_vector(&old.serialize_to_vector().unwrap())
-        .unwrap();
-    assert!(read.pq_proof.is_none());
-    assert!(read.resume_token.is_some());
-}
+    let refused =
+        DoConnectStage0Packet::deserialize_from_vector(&old.serialize_to_vector().unwrap())
+            .err()
+            .expect("an older STAGE0 read");
+    assert_eq!(refused.code, ErrorCode::DeserializationFailed);
 
-#[test]
-fn a_new_stage0_still_reads_on_an_older_server_and_keeps_its_proof_here() {
     let new = DoConnectStage0Packet {
         proposed_credentials: ProposedCredentials::transient("alice"),
         uses_filesystem: false,
@@ -77,14 +78,12 @@ fn a_new_stage0_still_reads_on_an_older_server_and_keeps_its_proof_here() {
         pq_proof: Some(proof()),
     };
     let bytes = new.serialize_to_vector().unwrap();
-    let old = Stage0Of0112::deserialize_from_vector(&bytes).unwrap();
-    assert!(old.resume_token.is_none());
     let here = DoConnectStage0Packet::deserialize_from_vector(&bytes).unwrap();
     assert_eq!(here.pq_proof, Some(proof()));
 }
 
 #[test]
-fn stage2_reads_in_both_directions() {
+fn a_current_stage2_reads() {
     let ek = FactorKeypair::derive(&FactorSeed::new([1u8; SEED_LEN]))
         .unwrap()
         .encapsulation_key()
@@ -109,34 +108,32 @@ fn stage2_reads_in_both_directions() {
         pq: Some(finish.clone()),
     };
     let bytes = new.serialize_to_vector().unwrap();
-    assert!(Stage2Of0112::deserialize_from_vector(&bytes).is_ok());
     let here = DoRegisterStage2Packet::deserialize_from_vector(&bytes).unwrap();
     assert_eq!(here.pq, Some(finish));
+}
 
+/// A STAGE2 with no `pq` field is an older client's, and does not read as a legacy registration.
+/// Control: read `DoRegisterStage2Packet::pq` with `ok_or_default` again and it reads as `None`.
+#[test]
+fn an_older_clients_stage2_is_refused() {
     let old = Stage2Of0112 {
         credentials: ProposedCredentials::transient("alice"),
     };
-    let read = DoRegisterStage2Packet::deserialize_from_vector(&old.serialize_to_vector().unwrap())
-        .unwrap();
-    assert!(read.pq.is_none());
+    let refused =
+        DoRegisterStage2Packet::deserialize_from_vector(&old.serialize_to_vector().unwrap())
+            .err()
+            .expect("an older STAGE2 read");
+    assert_eq!(refused.code, ErrorCode::DeserializationFailed);
 }
 
-/// A client below 0.12 sends no `AUTH_START` and so cannot carry an admission token: a refusal
-/// tells it to update, not to complete a check it has no way to show.
+/// The legacy registration mode still sends a STAGE2, with no factors, and it reads.
 #[test]
-fn a_client_below_the_gate_is_told_to_update_and_one_at_it_is_not() {
-    use super::admission::is_legacy_client;
-    let (major, minor, patch) = PQ_SIGN_IN_SINCE;
-    let gate = version(major.into(), minor.into(), patch.into());
-    assert!(!is_legacy_client(gate));
-    assert!(is_legacy_client(version(0, 11, 2)));
-    let refusal = citadel_user::auth::pq::admission::refusal_error(
-        citadel_user::auth::pq::admission::AdmissionRefusal::Required(None),
-        is_legacy_client(version(0, 11, 2)),
-    );
-    assert_eq!(
-        refusal.code,
-        citadel_io::ErrorCode::PqSignInAdmissionNeedsUpdate
-    );
-    assert!(refusal.into_string().contains("update your app"));
+fn a_legacy_mode_stage2_reads() {
+    let legacy = DoRegisterStage2Packet {
+        credentials: ProposedCredentials::transient("alice"),
+        pq: None,
+    };
+    let bytes = legacy.serialize_to_vector().unwrap();
+    let read = DoRegisterStage2Packet::deserialize_from_vector(&bytes).unwrap();
+    assert!(read.pq.is_none());
 }

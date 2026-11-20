@@ -21,19 +21,13 @@ pub(crate) enum ServerManagement {
     Enrolling(PendingEnrol),
 }
 
-/// Client: whether the server at `server_version` can read `message`. A server below
-/// `PQ_SIGN_IN_SINCE` reads no management message; one below `SECURITY_KEY_CEREMONY_SINCE` cannot
-/// enrol a key whose credential the client creates after the challenge.
+/// Client: whether the server at `server_version` can read `message`. One below
+/// `SECURITY_KEY_CEREMONY_SINCE` cannot enrol a key whose credential the client creates after the
+/// challenge.
 pub(crate) fn sendable(
     message: &ManagementMessage,
     server_version: Option<u32>,
 ) -> Result<(), NetworkError> {
-    if !super::runs_with_known(server_version) {
-        return Err(error!(
-            ErrorCode::PqSignInUnavailable,
-            "the server predates post-quantum sign-in"
-        ));
-    }
     if let ManagementMessage::Begin(begin) = message {
         if begin.op.needs_recovery_release() && !super::recover::server_recovers(server_version) {
             return Err(error!(ErrorCode::RecoveryUnsupported));

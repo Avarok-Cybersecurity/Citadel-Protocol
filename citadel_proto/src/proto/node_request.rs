@@ -47,9 +47,9 @@ pub struct RegisterToHypernode {
     /// remembers it, so later credentialed connects dial it too. `None` dials `remote_addr`.
     pub endpoint: Option<citadel_io::WebSocketEndpoint>,
     /// The password as the user typed it (trimmed, as `ProposedCredentials::new_register` trims
-    /// it), for a post-quantum registration with a server at `PQ_SIGN_IN_SINCE` or later. The
-    /// server never sees it: the client turns it into an ML-KEM key. `None` registers the legacy
-    /// way only.
+    /// it), for a post-quantum registration. The server never sees it: the client turns it into
+    /// an ML-KEM key. `None` registers the legacy way, as does a server with no post-quantum
+    /// settings.
     pub password: Option<citadel_types::crypto::SecBuffer>,
     /// What this connection demands of the server's certificate. Required: there is no default.
     pub cert_verification: citadel_io::CertVerification,

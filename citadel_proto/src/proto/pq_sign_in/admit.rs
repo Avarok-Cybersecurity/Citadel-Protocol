@@ -41,7 +41,6 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cnac: &ClientNetworkAccount<R, R>,
     payload: &[u8],
-    adjacent_version: u32,
 ) -> Result<(DoConnectStage0Packet, Admission), NetworkError> {
     let stage0 = DoConnectStage0Packet::deserialize_from_vector(payload)
         .map_err(|err| NetworkError::generic(err.into_string()))?;
@@ -53,14 +52,13 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
     let cid = cnac.get_cid();
     let account_manager = &session.account_manager;
     let admission = match (pending, stage0.pq_proof.clone()) {
-        // The legacy login, as before 0.12. An account that has upgraded refuses it.
+        // The legacy login. An account that has upgraded refuses it.
         (None, None) => {
             // No AUTH_START, so nothing was admitted yet: ask before Argon2 runs.
             let presented = stage0.resume_token;
             let username = cnac.get_username();
             let presented = presented.as_ref();
-            super::admission::legacy_sign_in(session, cid, &username, presented, adjacent_version)
-                .await?;
+            super::admission::legacy_sign_in(session, cid, &username, presented).await?;
             legacy_credentials(account_manager, cnac, &stage0).await?;
             Admission::legacy()
         }

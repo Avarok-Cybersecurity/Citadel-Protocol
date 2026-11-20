@@ -1035,8 +1035,7 @@ pub enum PeerSignal {
         payload: super::peer_crypt::WebRtcSignalingPayload,
     },
     /// Post-quantum sign-in management between a client and its server (see
-    /// `proto::pq_sign_in::manage`). Appended last; sent only to a server at `PQ_SIGN_IN_SINCE`
-    /// or later.
+    /// `proto::pq_sign_in::manage`).
     SignInManagement {
         session_cid: u64,
         message: citadel_user::auth::pq::messages::ManagementMessage,

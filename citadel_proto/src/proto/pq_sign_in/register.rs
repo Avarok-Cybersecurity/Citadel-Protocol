@@ -2,7 +2,6 @@
 //! server's `PQ_REPLY`; the client's keys then ride in STAGE2.
 
 use super::packets::{self, Kind};
-use super::runs_with;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -31,12 +30,11 @@ fn kind(aux: u8, algorithm: u8) -> Kind {
 }
 
 /// Client, once STAGE1 has given it the session ratchet: the `PQ_START` to send in place of
-/// STAGE2, when the server runs post-quantum sign-in and the caller gave a password.
+/// STAGE2, when the caller gave a password.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
-    server_version: u32,
     username: &str,
     algorithm: u8,
     timestamp: i64,
@@ -44,8 +42,7 @@ pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
     ticket: Ticket,
 ) -> Result<Option<BytesMut>, NetworkError> {
     let mut state = inner_mut_state!(session.state_container);
-    let password = state.register_state.pq.password.take();
-    let Some(password) = password.filter(|_| runs_with(server_version)) else {
+    let Some(password) = state.register_state.pq.password.take() else {
         return Ok(None);
     };
     let (mut start, client) = ClientRegistration::start(username, &password)?;
@@ -118,7 +115,7 @@ async fn reply_to<R: Ratchet, T: PlatformOps>(
     let ctx = super::admission::register(session, &start.username, start.admission.clone());
     let policy = super::admission::policy(session);
     let settings = session.account_manager.pq_settings();
-    let reply = admission::then(policy.as_ref(), Some(ctx), false, || {
+    let reply = admission::then(policy.as_ref(), Some(ctx), || {
         settings
             .map(|settings| registration_reply(settings, &start))
             .transpose()

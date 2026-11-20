@@ -97,12 +97,10 @@ pub trait AdmissionPolicy: Send + Sync {
 }
 
 /// Runs `policy`, if the server set one (`ServerMiscSettings::admission`); with none, everyone
-/// is admitted. `legacy_client` is a client below protocol 0.12, which cannot send a token: a
-/// refusal tells it to update rather than to complete a check it has no way to show.
+/// is admitted.
 pub async fn check(
     policy: Option<&Arc<dyn AdmissionPolicy>>,
     ctx: AdmissionContext,
-    legacy_client: bool,
 ) -> Result<(), NetworkError> {
     let Some(policy) = policy else {
         return Ok(());
@@ -111,7 +109,7 @@ pub async fn check(
     let kind = ctx.kind;
     policy.admit(ctx).await.map_err(|refusal| {
         log::warn!(target: "citadel", "Admission refused a fresh {kind:?} for {username}: {refusal:?}");
-        refusal_error(refusal, legacy_client)
+        refusal_error(refusal)
     })
 }
 
@@ -121,28 +119,24 @@ pub async fn check(
 pub async fn then<T>(
     policy: Option<&Arc<dyn AdmissionPolicy>>,
     ctx: Option<AdmissionContext>,
-    legacy_client: bool,
     work: impl FnOnce() -> Result<T, NetworkError>,
 ) -> Result<T, NetworkError> {
     if let Some(ctx) = ctx {
-        check(policy, ctx, legacy_client).await?;
+        check(policy, ctx).await?;
     }
     work()
 }
 
 /// The error a refusal travels as. Its message is the code's own form, so a client can tell it
 /// apart from any other failure ([`refusal_from_message`]); a required check's challenge rides
-/// beside it ([`challenge_of`]). A legacy client cannot show one, so it is not given one.
-pub fn refusal_error(refusal: AdmissionRefusal, legacy_client: bool) -> NetworkError {
-    match (refusal, legacy_client) {
-        (_, true) => error!(ErrorCode::PqSignInAdmissionNeedsUpdate),
-        (AdmissionRefusal::Required(None), false) => error!(ErrorCode::PqSignInAdmissionRequired),
-        (AdmissionRefusal::Required(Some(challenge)), false) => {
+/// beside it ([`challenge_of`]).
+pub fn refusal_error(refusal: AdmissionRefusal) -> NetworkError {
+    match refusal {
+        AdmissionRefusal::Required(None) => error!(ErrorCode::PqSignInAdmissionRequired),
+        AdmissionRefusal::Required(Some(challenge)) => {
             error!(ErrorCode::PqSignInAdmissionRequired).with_detail(challenge)
         }
-        (AdmissionRefusal::Failed(reason), false) => {
-            error!(ErrorCode::PqSignInAdmissionFailed, reason)
-        }
+        AdmissionRefusal::Failed(reason) => error!(ErrorCode::PqSignInAdmissionFailed, reason),
     }
 }
 
@@ -155,18 +149,12 @@ pub fn refusal_from_message(
     challenge: Option<AdmissionChallenge>,
 ) -> Option<NetworkError> {
     if message == ErrorCode::PqSignInAdmissionRequired.raw_string() {
-        return Some(refusal_error(AdmissionRefusal::Required(challenge), false));
-    }
-    if message == ErrorCode::PqSignInAdmissionNeedsUpdate.raw_string() {
-        return Some(refusal_error(AdmissionRefusal::Required(None), true));
+        return Some(refusal_error(AdmissionRefusal::Required(challenge)));
     }
     let failed = ErrorCode::PqSignInAdmissionFailed.raw_string();
     let prefix = failed.strip_suffix("{}").unwrap_or(failed);
     let reason = message.strip_prefix(prefix)?;
-    Some(refusal_error(
-        AdmissionRefusal::Failed(reason.to_string()),
-        false,
-    ))
+    Some(refusal_error(AdmissionRefusal::Failed(reason.to_string())))
 }
 
 #[cfg(test)]
@@ -175,24 +163,17 @@ mod tests {
 
     #[test]
     fn a_refusal_reads_back_as_its_code_and_nothing_else_does() {
-        for (refusal, legacy, code) in [
+        for (refusal, code) in [
             (
                 AdmissionRefusal::Required(None),
-                false,
                 ErrorCode::PqSignInAdmissionRequired,
             ),
             (
                 AdmissionRefusal::Failed("expired".into()),
-                false,
                 ErrorCode::PqSignInAdmissionFailed,
             ),
-            (
-                AdmissionRefusal::Required(None),
-                true,
-                ErrorCode::PqSignInAdmissionNeedsUpdate,
-            ),
         ] {
-            let message = refusal_error(refusal, legacy).into_string();
+            let message = refusal_error(refusal).into_string();
             let read_back = refusal_from_message(&message, None).expect("not recognised");
             assert_eq!(read_back.code, code, "{message}");
             assert_eq!(read_back.into_string(), message, "the reason is lost");

@@ -3,7 +3,6 @@
 
 use super::packets::{self, Kind};
 use super::refusal::{fail_login, failure};
-use super::runs_with;
 use super::security_key::SecurityKeyPurpose;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
@@ -32,7 +31,7 @@ fn kind(aux: u8) -> Kind {
 }
 
 /// Client, once pre-connect has finished: the `AUTH_START` to send in place of STAGE0, when the
-/// server runs post-quantum sign-in and the caller offered factors. `None` keeps the legacy login.
+/// caller offered factors. `None` keeps the legacy login.
 pub(crate) fn begin<R: Ratchet>(
     state: &mut StateContainerInner<R>,
     ratchet: &R,
@@ -42,8 +41,7 @@ pub(crate) fn begin<R: Ratchet>(
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<Option<BytesMut>, NetworkError> {
-    let offered = state.connect_state.pq.offered.take();
-    let Some(offered) = offered.filter(|_| runs_with(server_version)) else {
+    let Some(offered) = state.connect_state.pq.offered.take() else {
         return Ok(None);
     };
     let username = state
@@ -125,7 +123,7 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
                 .attempt = Some(attempt);
             let ctx = super::admission::sign_in(session, cnac.get_cid(), &start).await;
             let policy = super::admission::policy(session);
-            admission::then(policy.as_ref(), ctx, false, || {
+            admission::then(policy.as_ref(), ctx, || {
                 super::challenge::issue(session, cnac, ratchet.get_cid(), &start, client_version)
             })
             .await
