@@ -29,7 +29,7 @@ use rand::RngCore;
 
 /// Byte lengths fixed by FIPS 203. Referenced by the conformance tests.
 #[allow(dead_code)]
-mod sizes {
+pub(crate) mod sizes {
     pub const PK_768: usize = 1184;
     pub const SK_768: usize = 2400;
     pub const CT_768: usize = 1088;

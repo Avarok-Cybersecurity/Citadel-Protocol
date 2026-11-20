@@ -14,6 +14,24 @@ const Q: u16 = 3329;
 /// Bytes per encoded polynomial: 256 coefficients at 12 bits.
 const POLY_BYTES: usize = 384;
 
+/// The length of an encapsulation key of `alg`.
+pub const fn public_key_len(alg: KemAlgorithm) -> usize {
+    match alg {
+        KemAlgorithm::MlKem => pqc_kyber::KYBER_PUBLICKEYBYTES,
+        KemAlgorithm::MlKem768Fips203 => crate::libcrux_kem::sizes::PK_768,
+        KemAlgorithm::MlKem1024Fips203 => crate::libcrux_kem::sizes::PK_1024,
+    }
+}
+
+/// The length of a ciphertext of `alg`.
+pub const fn ciphertext_len(alg: KemAlgorithm) -> usize {
+    match alg {
+        KemAlgorithm::MlKem => pqc_kyber::KYBER_CIPHERTEXTBYTES,
+        KemAlgorithm::MlKem768Fips203 => crate::libcrux_kem::sizes::CT_768,
+        KemAlgorithm::MlKem1024Fips203 => crate::libcrux_kem::sizes::CT_1024,
+    }
+}
+
 /// Whether `public_key` is a well-formed encapsulation key for `alg`.
 pub fn public_key_is_valid(alg: KemAlgorithm, public_key: &[u8]) -> bool {
     match alg {

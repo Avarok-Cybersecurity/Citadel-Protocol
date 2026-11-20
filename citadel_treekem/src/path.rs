@@ -10,6 +10,7 @@ use crate::crypto::{self, Secret, SecretMap};
 use crate::tree::math::*;
 use crate::tree::node::Node;
 use crate::tree::ratchet_tree::RatchetTree;
+use citadel_types::crypto::KemAlgorithm;
 use citadel_types::errors::Error;
 use serde::{Deserialize, Serialize};
 
@@ -39,12 +40,14 @@ pub struct UpdatePath {
     pub nodes: Vec<UpdatePathNode>,
 }
 
-/// Committer re-keys leaf `leaf_index`'s direct path with a fresh `leaf_secret`. Mutates `tree` to the
-/// post-commit public state and returns `(update_path, root_secret, own_path_secrets)`.
+/// Committer re-keys leaf `leaf_index`'s direct path with a fresh `leaf_secret`, deriving its leaf
+/// and direct-path keys in `suite`. Mutates `tree` to the post-commit public state and returns
+/// `(update_path, root_secret, own_path_secrets)`.
 pub fn generate_update_path(
     tree: &mut RatchetTree,
     leaf_index: LeafIndex,
     leaf_secret: Secret,
+    suite: KemAlgorithm,
 ) -> Result<(UpdatePath, Secret, SecretMap), Error> {
     let n = tree.num_leaves();
     let dp = direct_path(leaf_index, n)?;
@@ -56,7 +59,7 @@ pub fn generate_update_path(
     own_secrets.insert(leaf_node_idx, leaf_secret);
 
     // Fresh leaf keypair → update our leaf node's public key.
-    let (leaf_pk, _leaf_sk) = crypto::node_keypair_from_path_secret(&leaf_secret)?;
+    let (leaf_pk, _leaf_sk) = crypto::node_keypair_from_path_secret(suite, &leaf_secret)?;
     if let Node::Leaf(mut l) = tree.get(leaf_node_idx)?.clone() {
         l.kem_public = leaf_pk.clone();
         tree.set(leaf_node_idx, Node::Leaf(l))?;
@@ -81,7 +84,7 @@ pub fn generate_update_path(
     let mut update_nodes = Vec::with_capacity(dp.len());
     for ((&node_x, &ps), &cp_node) in dp.iter().zip(path_secrets.iter()).zip(cp.iter()) {
         own_secrets.insert(node_x, ps);
-        let (node_pk, _node_sk) = crypto::node_keypair_from_path_secret(&ps)?;
+        let (node_pk, _node_sk) = crypto::node_keypair_from_path_secret(suite, &ps)?;
         tree.set(
             node_x,
             Node::Parent {
@@ -156,13 +159,13 @@ pub fn apply_update_path(
             let Some(ps_known) = own_secrets.get(&r) else {
                 continue;
             };
-            let (_pk, sk) = crypto::node_keypair_from_path_secret(ps_known)?;
             let hpke = update
                 .nodes
                 .get(d)
                 .and_then(|node| node.encrypted_path_secrets.get(ri))
                 .ok_or_else(|| Error::generic("treekem: missing ciphertext for resolution node"))?;
-            let ps_bytes = crypto::hpke_open(&hpke.kem_ct, &hpke.aead_ct, &sk)?;
+            let ps_bytes =
+                crypto::hpke_open_with_path_secret(ps_known, &hpke.kem_ct, &hpke.aead_ct)?;
             if ps_bytes.len() != crypto::SECRET_LEN {
                 return Err(Error::generic(
                     "treekem: decrypted path secret has wrong length",

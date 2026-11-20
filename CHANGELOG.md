@@ -106,6 +106,14 @@
 - **`MlKemHybrid` runs on every KEM**, the FIPS 203 suites included; a node before 0.12.4 refuses
   that combination, so name `MlKem` with hybrid encryption to reach one.
 - **RE-VFS runs on every KEM.** `ErrorCode::RemoteRevfsRequiresKyber` is no longer returned.
+- **TreeKEM keys on ML-KEM-1024 where every member can.** A `KeyPackage` carries an
+  ML-KEM-1024 leaf key beside its round-3 one (`current_kem_public`, appended so an earlier owner
+  ignores it); an owner inserts it, and re-keys its path on ML-KEM-1024 while every other member's
+  leaf is on it, on round 3 while any is not. Hierarchy messages are sealed on the suite
+  `GroupState::sealing_suite()` names. `Proposal::Add` carries the inserted `leaf: LeafNode`
+  (encoded as before). `kem_keypair_from_seed`, `kem_encapsulate` and `kem_decapsulate` name their
+  suite; `HierarchyScheme::node_keypair`, `DheEnvelope::seal` and `HierarchyMember::seal_message`
+  take one.
 - `BackendType` no longer implements `Default`. Use `BackendType::platform_default()`, which
   returns `ErrorCode::BackendHomeDirUnavailable` instead of panicking when there is no usable home
   directory; `NodeBuilder::build` returns that error when no backend is set.

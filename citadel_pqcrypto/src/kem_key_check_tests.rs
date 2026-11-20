@@ -34,7 +34,7 @@ fn derived_round3_keys_pass() {
     for i in 0..500u32 {
         let mut seed = [0u8; 64];
         seed[..4].copy_from_slice(&i.to_be_bytes());
-        let (public, _) = crate::kem_keypair_from_seed(&seed).unwrap();
+        let (public, _) = crate::kem_keypair_from_seed(KemAlgorithm::MlKem, &seed).unwrap();
         assert!(public_key_is_valid(KemAlgorithm::MlKem, &public));
     }
 }
@@ -72,8 +72,13 @@ fn nothing_is_encapsulated_or_encrypted_to_an_invalid_key() {
             );
         }
     }
-    let round3 = with_unreduced_coefficient(honest_public_key(KemAlgorithm::MlKem));
-    assert!(crate::kem_encapsulate(&round3).is_err(), "tree kem");
+    for alg in [KemAlgorithm::MlKem, KemAlgorithm::MlKem1024Fips203] {
+        let key = with_unreduced_coefficient(honest_public_key(alg));
+        assert!(
+            crate::kem_encapsulate(alg, &key).is_err(),
+            "{alg:?} tree kem"
+        );
+    }
 }
 
 #[test]

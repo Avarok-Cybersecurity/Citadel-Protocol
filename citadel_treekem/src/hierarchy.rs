@@ -14,6 +14,7 @@
 
 use crate::crypto::{self, Secret};
 use crate::path::HpkeCiphertext;
+use citadel_types::crypto::KemAlgorithm;
 use citadel_types::errors::Error;
 // `CommandPath`/`ReadPolicy` live in `citadel_types` (the lower crate) so the proto/SDK API can name
 // them; re-exported here so `citadel_treekem::hierarchy::{CommandPath, ReadPolicy}` still resolves.
@@ -31,8 +32,12 @@ pub trait HierarchyScheme {
         descendant: &CommandPath,
     ) -> Result<Secret, Error>;
 
-    /// The ML-KEM `(public, secret)` keypair for a node, from its node secret.
-    fn node_keypair(&self, node_secret: &Secret) -> Result<(Vec<u8>, Vec<u8>), Error>;
+    /// The `(public, secret)` keypair of `suite` for a node, from its node secret.
+    fn node_keypair(
+        &self,
+        suite: KemAlgorithm,
+        node_secret: &Secret,
+    ) -> Result<(Vec<u8>, Vec<u8>), Error>;
 }
 
 /// The shipped scheme: a one-way BLAKE3 key chain + deterministic ML-KEM per node. Post-quantum and
@@ -60,15 +65,25 @@ impl HierarchyScheme for KdfKemTree {
         Ok(secret)
     }
 
-    fn node_keypair(&self, node_secret: &Secret) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    fn node_keypair(
+        &self,
+        suite: KemAlgorithm,
+        node_secret: &Secret,
+    ) -> Result<(Vec<u8>, Vec<u8>), Error> {
         use sha3::{Digest, Sha3_512};
+        // The round-3 label is the one every earlier release uses.
+        let label: &[u8] = if suite == crypto::ROUND_3_SUITE {
+            b"citadel-dhe-kem-seed-v1"
+        } else {
+            b"citadel-dhe-kem-seed-ml-kem-1024-v1"
+        };
         let out = Sha3_512::new()
             .chain_update(node_secret)
-            .chain_update(b"citadel-dhe-kem-seed-v1")
+            .chain_update(label)
             .finalize();
         let mut seed = [0u8; 64];
         seed.copy_from_slice(&out);
-        citadel_pqcrypto::kem_keypair_from_seed(&seed)
+        citadel_pqcrypto::kem_keypair_from_seed(suite, &seed)
     }
 }
 
@@ -98,10 +113,13 @@ pub struct FlatWrap {
 const CONTENT_NONCE: [u8; 12] = [0u8; 12];
 
 impl DheEnvelope {
-    /// Seal a message. `sender_node_secret` is the sender's own node secret (held since assignment);
-    /// `flat_group_key` is the flat CGKA epoch key, required iff `policy == BroadcastAudit`.
+    /// Seal a message, wrapping its content key on `suite`. `sender_node_secret` is the sender's own
+    /// node secret (held since assignment); `flat_group_key` is the flat CGKA epoch key, required iff
+    /// `policy == BroadcastAudit`.
+    #[allow(clippy::too_many_arguments)]
     pub fn seal<S: HierarchyScheme>(
         scheme: &S,
+        suite: KemAlgorithm,
         sender_path: &CommandPath,
         sender_node_secret: &Secret,
         flat_group_key: Option<&Secret>,
@@ -113,7 +131,7 @@ impl DheEnvelope {
         let body = crypto::sym_seal(content_key, &CONTENT_NONCE, plaintext)?;
 
         // Hierarchy wrap: seal the content key to the sender's own node public key.
-        let (node_pk, _node_sk) = scheme.node_keypair(sender_node_secret)?;
+        let (node_pk, _node_sk) = scheme.node_keypair(suite, sender_node_secret)?;
         let (kem_ct, aead_ct) = crypto::hpke_seal(&node_pk, content_key)?;
         let wrap_hier = HpkeCiphertext { kem_ct, aead_ct };
 
@@ -153,9 +171,10 @@ impl DheEnvelope {
     ) -> Result<Vec<u8>, Error> {
         let sender_secret =
             scheme.derive_descendant_secret(my_node_secret, my_path, &self.sender_path)?;
-        let (_pk, sk) = scheme.node_keypair(&sender_secret)?;
+        let suite = crypto::suite_of_ciphertext(&self.wrap_hier.kem_ct)?;
+        let (_pk, sk) = scheme.node_keypair(suite, &sender_secret)?;
         let content_key_bytes =
-            crypto::hpke_open(&self.wrap_hier.kem_ct, &self.wrap_hier.aead_ct, &sk)?;
+            crypto::hpke_open(suite, &self.wrap_hier.kem_ct, &self.wrap_hier.aead_ct, &sk)?;
         self.decrypt_body(&content_key_bytes)
     }
 
@@ -196,7 +215,17 @@ mod tests {
     fn seal(sender: &str, policy: ReadPolicy, flat: Option<&Secret>, msg: &[u8]) -> DheEnvelope {
         let path = CommandPath::parse(sender);
         let secret = secret_for(&path);
-        DheEnvelope::seal(&KdfKemTree, &path, &secret, flat, policy, &[0x42; 32], msg).unwrap()
+        DheEnvelope::seal(
+            &KdfKemTree,
+            crypto::CURRENT_SUITE,
+            &path,
+            &secret,
+            flat,
+            policy,
+            &[0x42; 32],
+            msg,
+        )
+        .unwrap()
     }
 
     fn open_as(env: &DheEnvelope, reader: &str) -> Result<Vec<u8>, Error> {

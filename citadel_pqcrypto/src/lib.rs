@@ -855,36 +855,56 @@ pub enum PostQuantumMeta {
     },
 }
 
-/// Deterministically derive an ML-KEM keypair from a 64-byte seed (per draft-schwabe-cfrg-kyber),
-/// returning `(public_key, secret_key)` in the same byte layout as [`kyber_pke::kem_keypair`] — so the
-/// result is directly usable with [`kyber_pke::encapsulate`] / [`kyber_pke::decapsulate`].
+/// Deterministically derive a keypair of `alg` from a 64-byte seed, returning `(public_key,
+/// secret_key)`. The round-3 suite follows draft-schwabe-cfrg-kyber, in the byte layout of
+/// [`kyber_pke::kem_keypair`]; the FIPS 203 suites use their standard key generation, which is
+/// already a deterministic function of its 64 bytes of randomness.
 ///
 /// This is the primitive the TreeKEM ratchet tree needs: a tree node's keypair is reproducible from its
 /// path secret, so any member who learns the path secret recomputes the node and ratchets toward the root.
-pub fn kem_keypair_from_seed(seed: &[u8; 64]) -> Result<(Vec<u8>, Vec<u8>), Error> {
+pub fn kem_keypair_from_seed(
+    alg: KemAlgorithm,
+    seed: &[u8; 64],
+) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    if alg.is_libcrux() {
+        return libcrux_kem::keypair_from_seed(alg, seed);
+    }
     let kp = pqc_kyber::derive(seed)
         .map_err(|err| Error::generic(format!("ML-KEM deterministic keygen failed: {err:?}")))?;
     Ok((kp.public.to_vec(), kp.secret.to_vec()))
 }
 
-/// Raw ML-KEM encapsulation to a public key. Returns `(ciphertext, shared_secret)`. The clean,
+/// Raw encapsulation to a public key of `alg`. Returns `(ciphertext, shared_secret)`. The clean,
 /// container-free KEM API the TreeKEM ratchet tree encrypts path secrets with.
-pub fn kem_encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
-    kem_key_check::require_valid_public_key(KemAlgorithm::MlKem, public_key)?;
-    let (ct, ss) = kyber_pke::encapsulate(public_key, &mut rand::rngs::ThreadRng::default())
-        .map_err(|err| Error::generic(format!("ML-KEM encapsulate failed: {err:?}")))?;
-    let mut shared = [0u8; 32];
-    shared.copy_from_slice(&ss[..]);
-    Ok((ct.to_vec(), shared))
+pub fn kem_encapsulate(alg: KemAlgorithm, public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+    let (ct, ss) = if alg.is_libcrux() {
+        libcrux_kem::encapsulate(alg, public_key)?
+    } else {
+        kem_key_check::require_valid_public_key(alg, public_key)?;
+        let (ct, ss) = kyber_pke::encapsulate(public_key, &mut rand::rngs::ThreadRng::default())
+            .map_err(|err| Error::generic(format!("ML-KEM encapsulate failed: {err:?}")))?;
+        (ct.to_vec(), ss.to_vec())
+    };
+    Ok((ct, shared_secret_of(&ss)?))
 }
 
-/// Raw ML-KEM decapsulation: recover the shared secret from a ciphertext with the secret key.
-pub fn kem_decapsulate(ciphertext: &[u8], secret_key: &[u8]) -> Result<[u8; 32], Error> {
+/// Raw decapsulation under `alg`: recover the shared secret from a ciphertext with the secret key.
+pub fn kem_decapsulate(
+    alg: KemAlgorithm,
+    ciphertext: &[u8],
+    secret_key: &[u8],
+) -> Result<[u8; 32], Error> {
+    if alg.is_libcrux() {
+        return shared_secret_of(&libcrux_kem::decapsulate(alg, ciphertext, secret_key)?);
+    }
     let ss = kyber_pke::decapsulate(ciphertext, secret_key)
         .map_err(|err| Error::generic(format!("ML-KEM decapsulate failed: {err:?}")))?;
-    let mut shared = [0u8; 32];
-    shared.copy_from_slice(&ss[..]);
-    Ok(shared)
+    shared_secret_of(&ss[..])
+}
+
+fn shared_secret_of(ss: &[u8]) -> Result<[u8; 32], Error> {
+    ss.try_into()
+        .map_err(|_| Error::generic("a KEM shared secret is not 32 bytes"))
 }
 
 impl PostQuantumMeta {
@@ -1511,7 +1531,8 @@ mod in_place_aead_tests {
 
 #[cfg(test)]
 mod seed_keygen_tests {
-    use super::kem_keypair_from_seed;
+    use super::{kem_decapsulate, kem_encapsulate, kem_keypair_from_seed};
+    use citadel_types::crypto::KemAlgorithm;
 
     /// R1: deterministic ML-KEM keygen must be (a) reproducible from the same seed, (b) distinct for
     /// different seeds, and (c) byte-compatible with `encapsulate`/`decapsulate` so a node keypair
@@ -1527,12 +1548,12 @@ mod seed_keygen_tests {
             s
         };
 
-        let (pk1, sk1) = kem_keypair_from_seed(&seed_a).unwrap();
-        let (pk2, sk2) = kem_keypair_from_seed(&seed_a).unwrap();
+        let (pk1, sk1) = kem_keypair_from_seed(KemAlgorithm::MlKem, &seed_a).unwrap();
+        let (pk2, sk2) = kem_keypair_from_seed(KemAlgorithm::MlKem, &seed_a).unwrap();
         assert_eq!(pk1, pk2, "same seed must yield the same public key");
         assert_eq!(sk1, sk2, "same seed must yield the same secret key");
 
-        let (pk_b, _sk_b) = kem_keypair_from_seed(&seed_b).unwrap();
+        let (pk_b, _sk_b) = kem_keypair_from_seed(KemAlgorithm::MlKem, &seed_b).unwrap();
         assert_ne!(pk1, pk_b, "different seeds must yield different keys");
 
         // Encapsulate to the derived public key, decapsulate with the derived secret key.
@@ -1544,6 +1565,27 @@ mod seed_keygen_tests {
             &ss_dec[..],
             "encapsulate(derived pk) must decapsulate to the same shared secret with the derived sk",
         );
+    }
+
+    /// The same for each suite the tree uses, through the tree's own entry points, and a key of
+    /// one suite is never opened as the other.
+    #[test]
+    fn each_tree_suite_derives_reproducible_keys_that_round_trip() {
+        let seed = [9u8; 64];
+        for alg in [KemAlgorithm::MlKem, KemAlgorithm::MlKem1024Fips203] {
+            let (pk, sk) = kem_keypair_from_seed(alg, &seed).unwrap();
+            assert_eq!(
+                (pk.clone(), sk.clone()),
+                kem_keypair_from_seed(alg, &seed).unwrap()
+            );
+            let (ct, sent) = kem_encapsulate(alg, &pk).unwrap();
+            assert_eq!(kem_decapsulate(alg, &ct, &sk).unwrap(), sent, "{alg:?}");
+        }
+        let (round3, _) = kem_keypair_from_seed(KemAlgorithm::MlKem, &seed).unwrap();
+        let (fips, _) = kem_keypair_from_seed(KemAlgorithm::MlKem1024Fips203, &seed).unwrap();
+        assert_ne!(round3.len(), fips.len());
+        assert!(kem_encapsulate(KemAlgorithm::MlKem1024Fips203, &round3).is_err());
+        assert!(kem_encapsulate(KemAlgorithm::MlKem, &fips).is_err());
     }
 }
 
