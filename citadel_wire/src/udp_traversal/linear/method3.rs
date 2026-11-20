@@ -183,24 +183,22 @@ impl Method3 {
 
         let receiver_task = async move {
             // we are only interested in the first receiver to receive a value
-            let timeout = citadel_io::time::timeout(
-                Duration::from_millis(3000),
-                Self::recv_until(
-                    socket_wrapper,
-                    encryptor,
-                    unique_id,
-                    observed_addrs_on_syn,
-                    MILLIS_DELTA,
-                    this_node_type,
-                    packet_send_params,
-                ),
+            let received = Self::recv_until(
+                socket_wrapper,
+                encryptor,
+                unique_id,
+                observed_addrs_on_syn,
+                MILLIS_DELTA,
+                this_node_type,
+                packet_send_params,
             );
-
-            timeout.await.unwrap_or_else(|_| {
-                Err(citadel_io::error!(
-                    citadel_io::ErrorCode::FirewallPenetrationTimeout
-                ))
-            })
+            citadel_io::tokio::select! {
+                biased;
+                received = received => received,
+                _ = super::runnable_window::runnable_window(Duration::from_millis(3000)) => {
+                    Err(citadel_io::error!(citadel_io::ErrorCode::FirewallPenetrationTimeout))
+                }
+            }
         };
 
         let sender_task = async move {
