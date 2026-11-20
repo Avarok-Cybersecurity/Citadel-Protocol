@@ -4,7 +4,7 @@ use super::manage::{NewKey, MAX_CREDENTIAL_ID_BYTES, MAX_LABEL_CHARS};
 use crate::auth::pq::kem::EncapsulationKey;
 use crate::auth::pq::messages::ServerOutcome;
 use crate::auth::pq::policy;
-use crate::auth::pq::record::{NewFactor, PqAuthRecord};
+use crate::auth::pq::record::{KsfParams, NewFactor, PqAuthRecord, RecoverySecret};
 use crate::misc::AccountError;
 use citadel_types::auth::{FactorId, FactorKind, SignInPolicy};
 
@@ -12,10 +12,20 @@ use citadel_types::auth::{FactorId, FactorKind, SignInPolicy};
 pub enum Change {
     List,
     AddKey(NewKey),
-    Rename { id: FactorId, label: String },
-    Remove { id: FactorId },
+    Rename {
+        id: FactorId,
+        label: String,
+    },
+    Remove {
+        id: FactorId,
+    },
     SetPolicy(SignInPolicy),
-    ReplaceRecovery(Vec<EncapsulationKey>),
+    ReplaceRecovery(RecoverySecret),
+    SetPassword {
+        ek: EncapsulationKey,
+        salt_user: [u8; 32],
+        ksf: KsfParams,
+    },
 }
 
 fn checked_label(label: String) -> Result<String, AccountError> {
@@ -64,9 +74,17 @@ impl Change {
             }
             Self::Remove { id } => record.remove(id).map(|()| ServerOutcome::Removed),
             Self::SetPolicy(policy) => record.set_policy(policy).map(|()| ServerOutcome::PolicySet),
-            Self::ReplaceRecovery(eks) => {
-                record.replace_recovery_codes(eks, now_ms);
-                Ok(ServerOutcome::RecoveryCodesReplaced)
+            Self::ReplaceRecovery(secret) => {
+                let outcome = match &secret {
+                    RecoverySecret::Codes(_) => ServerOutcome::RecoveryCodesReplaced,
+                    RecoverySecret::Phrase(_) => ServerOutcome::RecoveryPhraseReplaced,
+                };
+                record.replace_recovery(secret, now_ms);
+                Ok(outcome)
+            }
+            Self::SetPassword { ek, salt_user, ksf } => {
+                record.set_password(ek, salt_user, ksf, now_ms);
+                Ok(ServerOutcome::PasswordSet)
             }
         }
     }

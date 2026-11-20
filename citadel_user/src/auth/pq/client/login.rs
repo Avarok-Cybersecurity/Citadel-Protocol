@@ -1,12 +1,13 @@
 use super::key_request::{RelyingParty, SecurityKeyCeremony, SecurityKeyRequest};
 use super::ksf::{password_input, password_keypair};
-use super::register::ClientRegistration;
+use super::register::{ClientRegistration, NewRecovery};
 use crate::auth::pq::kem::{FactorKeypair, SharedSecret};
 use crate::auth::pq::messages::{
     ChallengeBody, FactorChallenges, FactorTag, LoginChallenge, LoginFinish, LoginProof,
     LoginStart, RegFinish,
 };
 use crate::auth::pq::oprf::{self, OprfClientState};
+use crate::auth::pq::phrase::RecoveryPhrase;
 use crate::auth::pq::proof::{factor_tag, session_key, TranscriptHash, AUTH_LABEL};
 use crate::auth::pq::random_32;
 use crate::auth::pq::recovery::RecoveryCode;
@@ -35,6 +36,22 @@ pub enum ClientProof {
     Legacy { upgrade: Option<RegFinish> },
 }
 
+/// The recovery factor a sign-in offers.
+#[derive(Copy, Clone, Debug)]
+pub enum RecoveryOffer<'a> {
+    Code(&'a RecoveryCode),
+    Phrase(&'a RecoveryPhrase),
+}
+
+impl RecoveryOffer<'_> {
+    fn keypair(self, username: &str) -> Result<FactorKeypair, AccountError> {
+        match self {
+            Self::Code(code) => FactorKeypair::derive(&recovery_seed(code)),
+            Self::Phrase(phrase) => phrase.keypair(username),
+        }
+    }
+}
+
 /// A login between [`LoginStart`] and the proof.
 pub struct ClientLogin {
     password: Option<(Zeroizing<[u8; 32]>, OprfClientState)>,
@@ -45,7 +62,7 @@ impl ClientLogin {
     pub fn start(
         username: &str,
         password: Option<&SecBuffer>,
-        recovery: Option<&RecoveryCode>,
+        recovery: Option<RecoveryOffer<'_>>,
     ) -> Result<(LoginStart, Self), AccountError> {
         let (password, oprf_blinded) = match password {
             Some(password) => {
@@ -55,9 +72,7 @@ impl ClientLogin {
             }
             None => (None, None),
         };
-        let recovery = recovery
-            .map(|code| FactorKeypair::derive(&recovery_seed(code)))
-            .transpose()?;
+        let recovery = recovery.map(|offer| offer.keypair(username)).transpose()?;
         let start = LoginStart {
             username: username.to_string(),
             client_nonce: random_32(),
@@ -110,7 +125,7 @@ impl ClientLogin {
                 let upgrade = match (upgrade, self.password) {
                     (Some(reply), Some((input, oprf))) => {
                         let registration = ClientRegistration::resume(input, oprf);
-                        Some(registration.finish(reply, false).await?.0)
+                        Some(registration.finish(reply, NewRecovery::None).await?.0)
                     }
                     _ => None,
                 };
@@ -134,7 +149,7 @@ impl ClientLogin {
                     .as_ref()
                     .filter(|(id, _)| c.credential_id.as_ref() == Some(id))
                     .map(|(_, kp)| kp),
-                FactorKind::RecoveryCode => self.recovery.as_ref(),
+                FactorKind::RecoveryCode | FactorKind::RecoveryPhrase => self.recovery.as_ref(),
             };
             if let Some(keypair) = keypair {
                 let k = keypair.decapsulate(&c.ct)?;

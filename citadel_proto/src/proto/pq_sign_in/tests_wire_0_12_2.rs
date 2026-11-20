@@ -11,12 +11,13 @@ use super::manage::sendable;
 use crate::constants::PROTOCOL_VERSION;
 use crate::proto::peer::peer_layer::PeerSignal;
 use citadel_io::ErrorCode;
-use citadel_types::auth::{FactorKind, SignInManagementOp};
+use citadel_types::auth::FactorKind;
 use citadel_user::auth::pq::kem::{EncapsulationKey, KemCiphertext};
 use citadel_user::auth::pq::messages::*;
 use citadel_user::auth::pq::oprf::OprfSeed;
 use citadel_user::auth::pq::record::KsfParams;
 use citadel_user::auth::pq::server::PqAuthServerSettings;
+use citadel_user::auth::pq::throttle::ThrottlePolicy;
 use citadel_user::auth::pq::{login_transcript, management_transcript};
 use citadel_user::serialization::SyncIO;
 use embedded_semver::Semver;
@@ -79,10 +80,14 @@ fn factors() -> LoginChallenge {
 }
 
 fn settings() -> PqAuthServerSettings {
-    PqAuthServerSettings::new(OprfSeed::from_bytes([1; 32]), KsfParams::FLOOR)
-        .unwrap()
-        .with_security_key_rp_id("example.com")
-        .unwrap()
+    PqAuthServerSettings::new(
+        OprfSeed::from_bytes([1; 32]),
+        KsfParams::FLOOR,
+        ThrottlePolicy::RECOMMENDED,
+    )
+    .unwrap()
+    .with_security_key_rp_id("example.com")
+    .unwrap()
 }
 
 /// What this node sends a 0.12.2 client: the challenge with nothing appended.
@@ -128,7 +133,7 @@ fn add_created() -> ManagementBegin {
 
 fn list() -> ManagementBegin {
     ManagementBegin {
-        op: SignInManagementOp::ListCredentials.into(),
+        op: ManagementOp::ListCredentials,
         step_up: start(),
         recovery_eks: Vec::new(),
     }
@@ -276,13 +281,10 @@ fn a_change_to_a_0_12_2_server_is_sent_as_0_12_2_sends_it() {
 /// client refuses before sending rather than leave the caller waiting on a dropped signal.
 #[test]
 fn a_client_does_not_enrol_a_key_it_creates_at_a_0_12_2_server() {
-    let add = SignInManagementOp::AddSecurityKey {
+    let add = ManagementOp::AddSecurityKey {
         label: "YubiKey".into(),
     };
-    let begin = ManagementMessage::Begin(ManagementBegin {
-        op: add.into(),
-        ..list()
-    });
+    let begin = ManagementMessage::Begin(ManagementBegin { op: add, ..list() });
     let refused = sendable(&begin, Some(v0_12_2())).unwrap_err();
     assert_eq!(refused.code, ErrorCode::PqSignInUnavailable);
     assert!(sendable(&begin, Some(*PROTOCOL_VERSION)).is_ok());

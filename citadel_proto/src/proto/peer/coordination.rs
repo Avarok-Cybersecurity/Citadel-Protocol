@@ -26,6 +26,8 @@ pub(crate) const TURN_SIGNALLING: Topic = Topic::new(0x5032_0002);
 pub(crate) const RETRY_RENDEZVOUS: Topic = Topic::new(0x5032_0003);
 /// Waiting, parked, for either side to re-arm the campaign.
 pub(crate) const PARKED: Topic = Topic::new(0x5032_0004);
+/// Waiting, on a direct route, for either side to lose it.
+pub(crate) const PATH_LOST: Topic = Topic::new(0x5032_0005);
 
 #[cfg(test)]
 mod tests {

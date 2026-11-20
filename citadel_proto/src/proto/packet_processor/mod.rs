@@ -116,6 +116,7 @@ pub mod peer;
 pub mod preconnect_packet;
 pub mod primary_group_packet;
 pub mod raw_primary_packet;
+pub(crate) mod recover_packet;
 pub mod register_packet;
 pub(crate) mod server_probe_packet;
 pub(crate) mod syn_refusal;

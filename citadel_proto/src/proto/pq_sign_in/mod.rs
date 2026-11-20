@@ -17,11 +17,13 @@ pub(crate) mod connect;
 pub(crate) mod manage;
 mod packets;
 pub(crate) mod presence;
+pub(crate) mod recover;
 pub(crate) mod refusal;
 pub(crate) mod register;
 pub(crate) mod restrict;
 pub mod security_key;
 pub(crate) mod state;
+pub(crate) mod throttle;
 
 #[cfg(test)]
 mod tests;
@@ -29,6 +31,8 @@ mod tests;
 mod tests_challenge;
 #[cfg(test)]
 mod tests_wire_0_12_2;
+#[cfg(test)]
+mod tests_wire_recovery;
 
 use crate::auth::AuthenticationRequest;
 use crate::constants::{protocol_version_at_least, PQ_SIGN_IN_SINCE, SECURITY_KEY_CEREMONY_SINCE};
@@ -72,6 +76,7 @@ pub(crate) fn store_offered<R: Ratchet>(
                 password: Some(password.clone()),
                 security_key: None,
                 recovery_code: None,
+                recovery_phrase: None,
                 admission: None,
             });
         }
@@ -80,12 +85,22 @@ pub(crate) fn store_offered<R: Ratchet>(
                 password: factors.password.clone(),
                 security_key: factors.security_key.clone(),
                 recovery_code: factors.recovery_code.clone(),
+                recovery_phrase: factors.recovery_phrase.clone(),
                 admission: factors.admission.clone().map(AdmissionToken::new),
             });
         }
-        HdpSessionInitMode::Register(_, _, _, password, admission) => {
+        HdpSessionInitMode::Register(_, _, _, password, admission, recovery_domain) => {
             state.register_state.pq.password = password.clone();
             state.register_state.pq.admission = admission.clone();
+            state.register_state.pq.recovery_domain = recovery_domain.clone();
+        }
+        HdpSessionInitMode::Recover(_, _, ask) => {
+            state.register_state.pq.recover.ask = Some(recover::state::RecoverAsk {
+                username: ask.username.clone(),
+                phrase: ask.phrase.clone(),
+                device_label: ask.device_label.clone(),
+                admission: ask.admission.clone().map(AdmissionToken::new),
+            });
         }
         HdpSessionInitMode::Connect(AuthenticationRequest::Passwordless { .. }) => {}
     }

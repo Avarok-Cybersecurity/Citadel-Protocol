@@ -50,8 +50,20 @@ pub struct RegisterOkay {
     pub welcome_message: Vec<u8>,
     /// A post-quantum registration's recovery codes, formatted for display. Show them to the user
     /// now: the client generated them, the server holds only their keys, and nothing keeps them.
-    /// Empty for a legacy registration.
+    /// Empty for a legacy registration, and at a server that recovers accounts.
     pub recovery_codes: Vec<String>,
+    /// The new account's recovery phrase, 24 words, at a server that recovers accounts and was
+    /// given its domain (`RegisterToHypernode::recovery_domain`). Show it to the user now, like
+    /// the codes.
+    pub recovery_phrase: Option<Vec<String>>,
+}
+
+/// A recovery succeeded: this device now holds the account's only bundle. Sign in with the
+/// phrase next, to a session that may manage the account's credentials.
+#[derive(Debug)]
+pub struct RecoverOkay {
+    pub ticket: Ticket,
+    pub cid: u64,
 }
 
 #[derive(Debug)]
@@ -61,6 +73,9 @@ pub struct RegisterFailure {
     /// The check to complete before trying again, when the server's admission refusal sent one
     /// (public: see `citadel_user::auth::pq::admission::AdmissionChallenge`).
     pub admission_challenge: Option<AdmissionChallenge>,
+    /// The failure's stable error code, when the side that failed sent it (a server at
+    /// `RECOVERY_SINCE` or later), or when it failed on this side.
+    pub error_code: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -228,8 +243,10 @@ pub struct ReVFSResult {
 pub enum NodeResult<R: Ratchet> {
     /// Returns the CNAC which was created during the registration process
     RegisterOkay(RegisterOkay),
-    /// The registration was a failure
+    /// The registration (or a recovery) was a failure
     RegisterFailure(RegisterFailure),
+    /// A recovery installed this device's bundle
+    RecoverOkay(RecoverOkay),
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(DeRegistration),
     /// Connection succeeded for the cid self.0. bool is "is personal"
@@ -281,7 +298,18 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: _,
                 error_message: err,
                 admission_challenge,
-            }) => Err(refused(err, admission_challenge)),
+                error_code,
+            }) => Err(
+                // The code the failing side sent, unless it names nothing more than the text
+                // does; then the text is read as `refused` reads it.
+                match error_code
+                    .map(|code| NetworkError::from_wire(code, err.clone()))
+                    .filter(|wired| wired.code() != citadel_io::ErrorCode::Generic)
+                {
+                    Some(wired) if admission_challenge.is_none() => wired,
+                    _ => refused(err, admission_challenge),
+                },
+            ),
             NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::generic(format!(
                 "Outbound request rejected: {:?}",
                 String::from_utf8(reason.message_opt.unwrap_or_default())
@@ -323,6 +351,9 @@ impl<R: Ratchet> NodeResult<R> {
             }
             NodeResult::RegisterFailure(RegisterFailure { ticket: t, .. }) => {
                 Some(CallbackKey::ticket_only(*t))
+            }
+            NodeResult::RecoverOkay(RecoverOkay { ticket: t, cid }) => {
+                Some(CallbackKey::new(*t, *cid))
             }
             NodeResult::DeRegistration(DeRegistration {
                 session_cid,

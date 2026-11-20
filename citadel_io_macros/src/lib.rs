@@ -34,6 +34,7 @@ pub fn derive_error_registry(input: TokenStream) -> TokenStream {
     let name = &input.ident;
     let mut raw_arms = Vec::new();
     let mut count_arms = Vec::new();
+    let mut from_arms = Vec::new();
 
     for variant in &enum_data.variants {
         let vident = &variant.ident;
@@ -59,6 +60,7 @@ pub fn derive_error_registry(input: TokenStream) -> TokenStream {
 
         raw_arms.push(quote! { #name::#vident => #form, });
         count_arms.push(quote! { #name::#vident => #count, });
+        from_arms.push(quote! { code if code == #name::#vident as u16 => Some(#name::#vident), });
     }
 
     quote! {
@@ -76,6 +78,14 @@ pub fn derive_error_registry(input: TokenStream) -> TokenStream {
             /// The number of `{}` placeholders in the variant's form template.
             pub const fn placeholder_count(self) -> usize {
                 match self { #(#count_arms)* }
+            }
+
+            /// The variant whose stable numeric code is `code`, if this build knows one.
+            pub fn from_u16(code: u16) -> Option<Self> {
+                match code {
+                    #(#from_arms)*
+                    _ => None,
+                }
             }
         }
     }

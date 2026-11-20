@@ -66,13 +66,13 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
             Admission::legacy()
         }
         (Some(ServerPending::Factors(pending)), Some(LoginProof::Factors(finish))) => {
-            if !stage0
+            let username = cnac.get_username();
+            let named = stage0
                 .proposed_credentials
-                .compare_username(cnac.get_username().as_bytes())
-            {
-                return Err(failed());
-            }
-            let verified = pending.verify(&finish)?;
+                .compare_username(username.as_bytes());
+            let verified = pending.verify(&finish).ok().filter(|_| named);
+            throttle_outcome(session, &username, verified.is_some());
+            let verified = verified.ok_or_else(failed)?;
             // Spends a recovery code under the record lock: of two logins that both verified the
             // same code, only the first gets here without an error.
             account_manager
@@ -96,6 +96,20 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
         _ => return Err(error!(ErrorCode::PqSignInMalformed, "a STAGE0 proof")),
     };
     Ok((stage0, admission))
+}
+
+/// The throttle learns how the proof of the attempt `AUTH_START` counted ended.
+fn throttle_outcome<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    username: &str,
+    verified: bool,
+) {
+    let mut state = inner_mut_state!(session.state_container);
+    let attempt = state.connect_state.pq.attempt.take();
+    drop(state);
+    if let Some(attempt) = attempt {
+        super::throttle::outcome(session, username, attempt, verified);
+    }
 }
 
 async fn legacy_credentials<R: Ratchet>(

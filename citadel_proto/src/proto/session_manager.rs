@@ -613,10 +613,22 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                 endpoint,
                                 _,
                                 _,
+                                _,
                             ) => (
                                 *peer_addr,
                                 None,
                                 proposed_credentials.clone(),
+                                endpoint.clone(),
+                            ),
+
+                            // The device holds no account yet; the name is the one recovered.
+                            HdpSessionInitMode::Recover(peer_addr, endpoint, recovery) => (
+                                *peer_addr,
+                                None,
+                                ProposedCredentials::post_quantum(
+                                    recovery.username.clone(),
+                                    String::new(),
+                                ),
                                 endpoint.clone(),
                             ),
 
@@ -2431,8 +2443,10 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
         self.ended_sessions
             .on_session_end(cid, issued, Instant::now(), policy.resume_grace());
         let pers = self.account_manager.get_persistence_handler().clone();
+        // The end is now, not whenever the write below gets to run.
+        let ended_ms = session_resume_store::now_ms();
         spawn!(async move {
-            let stored = match session_resume_store::now_ms() {
+            let stored = match ended_ms {
                 Ok(ended_ms) => session_resume_store::on_ended(&pers, cid, &issued, ended_ms).await,
                 Err(err) => Err(err),
             };

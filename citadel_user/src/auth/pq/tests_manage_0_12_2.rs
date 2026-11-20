@@ -104,7 +104,8 @@ async fn a_0_12_2_client_enrols_the_key_it_created() {
 async fn a_current_client_changes_its_factors_in_the_0_12_2_layout() {
     let (mut record, _) = register("pw").await;
     let list = SignInManagementOp::ListCredentials;
-    let (begin, client) = ClientManagement::begin("alice", list, Some(&password("pw"))).unwrap();
+    let (begin, client) =
+        ClientManagement::begin("alice", list, Some(&password("pw")), None).unwrap();
     let (challenge, pending) =
         begin_management(&settings(), CID, &record, SessionScope::Full, begin, OLD).unwrap();
     assert_eq!(challenge.ceremony, None);
@@ -145,7 +146,7 @@ async fn an_enrolment_from_the_other_layout_is_refused() {
     let add = SignInManagementOp::AddSecurityKey {
         label: "YubiKey".into(),
     };
-    let (begin, _) = ClientManagement::begin("alice", add, Some(&password("pw"))).unwrap();
+    let (begin, _) = ClientManagement::begin("alice", add, Some(&password("pw")), None).unwrap();
     let by_ceremony = begin_management(&settings(), CID, &record, SessionScope::Full, begin, OLD);
     assert_eq!(
         by_ceremony.err().map(|e| e.code),
@@ -157,11 +158,15 @@ async fn an_enrolment_from_the_other_layout_is_refused() {
 async fn a_commit_in_the_other_layout_than_its_challenge_is_refused() {
     let (record, _) = register("pw").await;
     let list = SignInManagementOp::ListCredentials;
-    let (begin, client) = ClientManagement::begin("alice", list, Some(&password("pw"))).unwrap();
+    let (begin, client) =
+        ClientManagement::begin("alice", list, Some(&password("pw")), None).unwrap();
     let (challenge, pending) =
         begin_management(&settings(), CID, &record, SessionScope::Full, begin, OLD).unwrap();
     let (mut commit, _) = client.commit(CID, &challenge, None, None).await.unwrap();
-    commit.ceremony = Some(CommitCeremony { new_key: None });
+    commit.ceremony = Some(CommitCeremony {
+        password_ek: None,
+        new_key: None,
+    });
     let refused = pending.commit(&commit).err().map(|e| e.code);
     assert_eq!(refused, Some(ErrorCode::PqSignInMalformed));
 }

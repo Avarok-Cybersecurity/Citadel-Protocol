@@ -350,14 +350,23 @@ pub enum HdpSessionInitMode {
     Connect(AuthenticationRequest),
     /// The optional endpoint is the server's WebSocket URL (see `RegisterToHypernode::endpoint`),
     /// the optional password is for a post-quantum registration (see
-    /// `RegisterToHypernode::password`), and the optional token is its admission token (see
-    /// `RegisterToHypernode::admission`).
+    /// `RegisterToHypernode::password`), the optional token is its admission token (see
+    /// `RegisterToHypernode::admission`), and the last is the recovery phrase's domain (see
+    /// `RegisterToHypernode::recovery_domain`).
     Register(
         SocketAddr,
         ProposedCredentials,
         Option<citadel_io::WebSocketEndpoint>,
         Option<SecBuffer>,
         Option<citadel_user::auth::pq::admission::AdmissionToken>,
+        Option<String>,
+    ),
+    /// A new device's recovery of an account (see `pq_sign_in::recover`), with the server's
+    /// WebSocket URL when it is reached through one.
+    Recover(
+        SocketAddr,
+        Option<citadel_io::WebSocketEndpoint>,
+        crate::proto::node_request::AccountRecovery,
     ),
 }
 
@@ -453,7 +462,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .as_ref()
             .map(|r| &r.init_mode)
         {
-            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _)) => endpoint.clone(),
+            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _, _))
+            | Some(HdpSessionInitMode::Recover(_, endpoint, _)) => endpoint.clone(),
             _ => None,
         };
 
@@ -479,7 +489,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         }
                     }
 
-                    HdpSessionInitMode::Register(..) => (None, SessionState::NeedsRegister, None),
+                    HdpSessionInitMode::Register(..) | HdpSessionInitMode::Recover(..) => {
+                        (None, SessionState::NeedsRegister, None)
+                    }
                 }
             } else {
                 (None, SessionState::SocketJustOpened, None)
@@ -955,6 +967,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     passwordless,
                     proposed_cid,
                     ticket,
+                );
+                crate::proto::pq_sign_in::recover::client::on_stage0_sent(
+                    &mut state_container,
+                    &stage0_register_packet,
                 );
                 to_outbound
                     .unbounded_send(stage0_register_packet)
