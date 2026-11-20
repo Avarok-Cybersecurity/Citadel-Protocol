@@ -2,10 +2,8 @@
 //! ordered message stream beside the application's messages, never delivered to it.
 //!
 //! A lane frame is a [`UserMessage`](crate::proto::session::UserMessage) whose ticket is
-//! `LANE_TICKET`. The message's own fields are untouched, so the lane changes nothing an older
-//! peer could misread; it is used only toward a peer at
-//! [`NEGOTIATION_SINCE`](crate::constants::NEGOTIATION_SINCE) or later, whose SDK takes every such
-//! frame off the stream before the application sees it (see `driver`). The first frame each side
+//! `LANE_TICKET`. The peer's SDK takes every such frame off the stream before the application
+//! sees it (see `driver`). The first frame each side
 //! sends is its [`Hello`]: the one the application gave [`PeerChannel::open_negotiation`], or an
 //! empty one (nothing negotiated in band) once it splits the channel without opening the lane.
 //!
@@ -47,14 +45,7 @@ impl<R: Ratchet> NegotiationLane<R> {
         self.shared.connection
     }
 
-    /// Whether the peer reads the lane at all. A peer below `NEGOTIATION_SINCE` does not, and
-    /// its Hello reads as empty: every setting is legacy toward it.
-    pub fn peer_reads_lane(&self) -> bool {
-        self.shared.capable
-    }
-
-    /// The peer's Hello. A peer that cannot read the lane has an empty one at once. Fails if the
-    /// connection ends before the peer's Hello arrives.
+    /// The peer's Hello. Fails if the connection ends before the peer's Hello arrives.
     pub async fn peer_hello(&self) -> Result<Hello, NetworkError> {
         let state = self
             .shared
@@ -102,18 +93,13 @@ impl<R: Ratchet> NegotiationLane<R> {
 
     /// Tells the peer, over the lane, why this side is about to close the connection, and waits
     /// (at most `ack_deadline`) for the peer to record it. The peer then reports the connection's
-    /// end with that reason whatever the `Disconnect` that follows carries, so a server that
-    /// rebuilds the signal without it (one below `NEGOTIATION_SINCE`) cannot lose it. Returns at
-    /// once toward a peer that does not read the lane.
+    /// end with that reason whatever the `Disconnect` that follows carries.
     pub async fn announce_closing(
         &self,
         reason: DisconnectReason,
         ack_deadline: Duration,
     ) -> Result<(), NetworkError> {
         let shared = &self.shared;
-        if !shared.capable {
-            return Ok(());
-        }
         shared
             .outbound
             .send(LaneFrame::Closing(reason))

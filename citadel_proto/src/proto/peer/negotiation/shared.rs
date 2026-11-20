@@ -42,8 +42,6 @@ pub(crate) enum Route {
 
 pub(crate) struct LaneShared<R: Ratchet> {
     pub(crate) connection: ConnectionId,
-    /// Whether the peer reads the lane (it is at `NEGOTIATION_SINCE` or later).
-    pub(crate) capable: bool,
     pub(crate) state: watch::Sender<LaneState>,
     /// This side's Hello, once decided; the driver sends it before any other frame.
     pub(crate) local: watch::Sender<Option<Hello>>,
@@ -59,7 +57,6 @@ impl<R: Ratchet> std::fmt::Debug for LaneShared<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NegotiationLane")
             .field("connection", &self.connection)
-            .field("capable", &self.capable)
             .finish()
     }
 }
@@ -68,22 +65,15 @@ impl<R: Ratchet> LaneShared<R> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         connection: ConnectionId,
-        capable: bool,
-        legacy_peer: Option<Hello>,
         outbound: mpsc::UnboundedSender<LaneFrame>,
         closing: PeerClosing,
         node_remote: NodeRemote<R>,
         vconn_type: VirtualConnectionType,
         disconnect_token: Option<DisconnectToken>,
     ) -> Self {
-        let state = LaneState {
-            peer_hello: legacy_peer,
-            ..LaneState::default()
-        };
         Self {
             connection,
-            capable,
-            state: watch::channel(state).0,
+            state: watch::channel(LaneState::default()).0,
             local: watch::channel(None).0,
             outbound,
             routes: Mutex::new(HashMap::new()),

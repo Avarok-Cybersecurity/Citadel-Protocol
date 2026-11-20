@@ -1,12 +1,11 @@
 //! Why a P2P connection was closed on purpose.
 //!
 //! A deliberate drop and a lost link used to reach the peer identically, so the peer could only
-//! redial. The reason travels two ways, because one of them does not survive every server:
+//! redial. The reason travels two ways:
 //!
-//! - in `PeerSignal::Disconnect.reason`, appended last. The server does not relay a peer's
-//!   `Disconnect` as bytes: it decodes it and builds the signals it sends from the fields it
-//!   knows. A server at [`NEGOTIATION_SINCE`](crate::constants::NEGOTIATION_SINCE) copies the
-//!   reason across; an older one reads the signal without it and sends it on without it.
+//! - in `PeerSignal::Disconnect.reason`. The server does not relay a peer's `Disconnect` as
+//!   bytes: it decodes it, builds the signals it sends from its fields, and copies the reason
+//!   across.
 //! - on the connection's own negotiation lane, end to end, before the `Disconnect` is sent: the
 //!   peer's SDK records it against the connection ([`PeerClosing`]) and acknowledges it, and
 //!   only then does the closing side disconnect. Whatever the server rebuilt, the peer reports

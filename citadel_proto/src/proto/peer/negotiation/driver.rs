@@ -39,9 +39,7 @@ impl<R: Ratchet> Driver<R> {
                 let decided = local.borrow_and_update().clone();
                 if let Some(hello) = decided {
                     hello_sent = true;
-                    if self.shared.capable {
-                        self.send(&LaneFrame::Hello(hello)).await;
-                    }
+                    self.send(&LaneFrame::Hello(hello)).await;
                     continue;
                 }
             }
@@ -65,8 +63,7 @@ impl<R: Ratchet> Driver<R> {
                     }
                 },
                 frame = outbound.recv(), if hello_sent => match frame {
-                    Some(frame) if self.shared.capable => self.send(&frame).await,
-                    Some(_) => {}
+                    Some(frame) => self.send(&frame).await,
                     None => break,
                 },
             }

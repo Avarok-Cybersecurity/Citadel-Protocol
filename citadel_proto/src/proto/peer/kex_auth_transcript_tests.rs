@@ -233,12 +233,14 @@ fn auth_of(bytes: &[u8]) -> (Option<KexAuth>, bool) {
 }
 
 #[test]
-fn a_signed_stage_crosses_the_wire_and_an_older_nodes_stage_reads_as_unsigned() {
+fn a_signed_stage_crosses_the_wire_and_one_without_the_field_is_refused() {
     let auth = Key::new(6).sign(b"body");
     let signed = kex(Some(auth.clone())).serialize_to_vector().unwrap();
     assert_eq!(auth_of(&signed), (Some(auth), true));
-    // An older node writes the same signal without the field (one byte: an absent signature).
-    let mut older = kex(None).serialize_to_vector().unwrap();
+    let unsigned = kex(None).serialize_to_vector().unwrap();
+    assert_eq!(auth_of(&unsigned), (None, true));
+    // The encoding before the field (without its one-byte absent marker) does not parse.
+    let mut older = unsigned;
     older.pop();
-    assert_eq!(auth_of(&older), (None, true));
+    assert!(PeerSignal::deserialize_from_vector(&older).is_err());
 }

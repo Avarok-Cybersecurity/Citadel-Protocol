@@ -146,23 +146,19 @@ fn path_of(signal: PeerSignal) -> Option<KexPath> {
     }
 }
 
-/// An older node reads a signal as its own fields followed by bytes it ignores, and sends one
-/// that ends before the path (and the signature appended after it): both directions must parse.
+/// The path crosses the wire; the encoding before it (ending before the path and the signature
+/// after it) does not parse.
 #[test]
-fn the_path_is_appended_to_the_kex_and_absent_from_an_older_nodes() {
+fn the_path_crosses_the_wire_and_a_kex_without_it_is_refused() {
     let stamped = stamp(Some(&policy()), Some(both()), || Some(DIRECT_OK));
     let with = kex(stamped.clone()).serialize_to_vector().unwrap();
     let read = PeerSignal::deserialize_from_vector(&with).unwrap();
     assert_eq!(path_of(read), stamped);
 
     let without = kex(None).serialize_to_vector().unwrap();
-    let legacy = &without[..without.len() - 2];
-    assert!(
-        with.starts_with(legacy),
-        "the old encoding, with the path appended"
-    );
-    let from_older = PeerSignal::deserialize_from_vector(legacy).unwrap();
-    assert_eq!(path_of(from_older), None);
+    assert!(PeerSignal::deserialize_from_vector(&without).is_ok());
+    let older = &without[..without.len() - 2];
+    assert!(PeerSignal::deserialize_from_vector(older).is_err());
 }
 
 /// A pair the NAT model rules out is stamped infeasible in this build too. Under

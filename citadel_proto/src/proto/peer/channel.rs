@@ -129,7 +129,6 @@ impl<R: Ratchet> PeerChannel<R> {
             vconn_type,
             security_settings.security_level,
             disconnect_token,
-            peer_protocol_version,
             closing,
             &to_outbound_stream,
             from_inbound_stream,
@@ -186,7 +185,6 @@ impl<R: Ratchet> PeerChannel<R> {
         vconn_type: VirtualConnectionType,
         security_level: SecurityLevel,
         disconnect_token: Option<DisconnectToken>,
-        peer_protocol_version: Option<u32>,
         closing: PeerClosing,
         tx: &SharedMessengerTx<R>,
         inbound: ProtocolMessengerRx<R>,
@@ -198,19 +196,9 @@ impl<R: Ratchet> PeerChannel<R> {
                 return (ReceiverType::OrderedReliable { rx }, None);
             }
         };
-        let capable = crate::constants::protocol_version_at_least(
-            peer_protocol_version,
-            crate::constants::NEGOTIATION_SINCE,
-        );
-        let legacy_peer = (!capable).then(|| citadel_negotiation::Hello {
-            protocol: peer_protocol_version.unwrap_or(0),
-            settings: Vec::new(),
-        });
         let (outbound_tx, outbound_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         let shared = Arc::new(LaneShared::new(
             citadel_negotiation::ConnectionId(token.connection_id.0),
-            capable,
-            legacy_peer,
             outbound_tx,
             closing,
             node_remote.clone(),
@@ -230,9 +218,7 @@ impl<R: Ratchet> PeerChannel<R> {
 
     /// Opens this connection's negotiation lane and sends `local` as this side's Hello: the
     /// settings it negotiates in band. Once per channel, before [`Self::split`]; a channel split
-    /// without it sends an empty Hello. Toward a peer below
-    /// [`NEGOTIATION_SINCE`](crate::constants::NEGOTIATION_SINCE) nothing is sent and the peer's
-    /// Hello reads as empty. Refused on a client-server channel.
+    /// without it sends an empty Hello. Refused on a client-server channel.
     pub fn open_negotiation(
         &mut self,
         local: citadel_negotiation::Hello,
@@ -292,7 +278,7 @@ impl<R: Ratchet> PeerChannel<R> {
     }
 
     /// What the key exchange proved about the peer: signed by the identity key pinned for it, or
-    /// unsigned (an older peer, a legacy account). `None` on a client-server channel.
+    /// unsigned (an account with no identity key). `None` on a client-server channel.
     pub fn peer_kex_identity(&self) -> Option<&crate::proto::peer::kex_auth::PeerKexIdentity> {
         self.kex_identity.as_ref()
     }

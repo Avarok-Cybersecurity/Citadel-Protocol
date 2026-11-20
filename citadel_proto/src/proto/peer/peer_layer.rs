@@ -937,7 +937,6 @@ impl futures::Future for CitadelNodePeerLayerExecutor {
 /// Reads a field appended after a signal's original fields: a signal from a node that predates
 /// the field ends where it would begin and reads as `None`. One definition, the negotiation
 /// crate's, for every appended field.
-use citadel_negotiation::frame::appended_field;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[allow(variant_size_differences)]
@@ -968,21 +967,16 @@ pub enum PeerSignal {
         /// The connection that ended. Every connection that closes is reported with it (its
         /// channel's, its vConn's or its stream's end, and a disconnect the application asked
         /// for). `None` names no connection: the server's notice that the peer's whole session
-        /// ended, or a peer whose SDK predates the token. It must not be taken for the end of
-        /// a connection that has one; that connection's own end follows, named.
-        #[serde(default)]
+        /// ended. It must not be taken for the end of a connection that has one; that
+        /// connection's own end follows, named.
         disconnect_token: Option<DisconnectToken>,
         /// Why the connection was closed, when it was closed on purpose (see
-        /// [`DisconnectReason`](super::negotiation::reason::DisconnectReason)). Appended last, so
-        /// an older node ignores it and one from an older node reads as `None`. The server
-        /// rebuilds this signal rather than relaying its bytes, so a server below
-        /// `NEGOTIATION_SINCE` drops it; the negotiation lane carries it past such a server.
-        #[serde(default, deserialize_with = "appended_field")]
+        /// [`DisconnectReason`](super::negotiation::reason::DisconnectReason)). The server
+        /// rebuilds this signal rather than relaying its bytes, and copies the reason across.
         reason: Option<super::negotiation::reason::DisconnectReason>,
     },
     DisconnectUDP {
         peer_conn_type: PeerConnectionType,
-        #[serde(default)]
         disconnect_token: Option<DisconnectToken>,
     },
     // This is used for the mailbox
@@ -1027,15 +1021,11 @@ pub enum PeerSignal {
         /// it unchanged; the receiving peer refuses a version it does not take part with
         /// (`version_gate`).
         sender_protocol_version: u32,
-        /// The offers of both peers and the plan the server stamped (see `kex_path`). Appended
-        /// after the version, so an older node ignores it and one from an older node reads as
-        /// `None`; an older server drops it while relaying.
-        #[serde(default, deserialize_with = "appended_field")]
+        /// The offers of both peers and the plan the server stamped (see `kex_path`).
         path: Option<super::kex_path::KexPath>,
         /// The sender's identity signature over this stage's transcript (see `kex_auth`), on
-        /// Stage0 and Stage1. Appended after the path, so an older node ignores it and one from
-        /// an older node reads as `None`; the server relays it unchanged.
-        #[serde(default, deserialize_with = "appended_field")]
+        /// Stage0 and Stage1, when its account has an identity key. The server relays it
+        /// unchanged.
         auth: Option<super::kex_auth::KexAuth>,
     },
     /// WebRTC signaling relay (SDP offer/answer + ICE candidates).
