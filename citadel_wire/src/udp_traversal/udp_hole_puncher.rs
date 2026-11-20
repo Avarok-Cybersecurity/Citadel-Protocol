@@ -636,25 +636,44 @@ mod tests {
     /// resend, or one that lands between the winner's `done` and its reader,
     /// used to fail one side while both held a working socket; the other side
     /// had already returned, so the retry could not recover either.
+    ///
+    /// The punch's budget is one attempt of the punch's own time. The stalls this test injects
+    /// are not that time: the guard counted them for two months, and a slow runner, which needs
+    /// more stalls for the same work, spent the budget on them (#391, 20.168 s). The injected
+    /// stalls stop after one budget's worth, so a punch that hangs is still caught within one
+    /// budget of running afterwards.
     #[cfg(not(target_os = "windows"))]
     #[cfg_attr(coverage, ignore)]
     #[tokio::test]
     async fn test_dual_hole_puncher_survives_executor_stalls() {
         use rand::Rng;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
         use std::time::Duration;
         citadel_logging::setup_log();
 
+        const BUDGET: Duration = super::STANDALONE_ATTEMPT_TIMEOUT;
         let (server_stream, client_stream) = create_streams_with_addrs_and_lag(0).await;
+        // The time this test itself has held the executor, in ms.
+        let stalled = Arc::new(AtomicU64::new(0));
+        let stalled_for = {
+            let stalled = stalled.clone();
+            move || Duration::from_millis(stalled.load(Ordering::Relaxed))
+        };
         // Random, so that repeated runs land stalls in different windows.
-        let staller = citadel_io::tokio::spawn(async move {
-            loop {
-                let (between, stall) = {
-                    let mut rng = rand::thread_rng();
-                    (rng.gen_range(0..60), rng.gen_range(50..3500))
-                };
-                citadel_io::tokio::time::sleep(Duration::from_millis(between)).await;
-                // Deliberately blocks the executor, and with it both punchers.
-                std::thread::sleep(Duration::from_millis(stall));
+        let staller = citadel_io::tokio::spawn({
+            let stalled_for = stalled_for.clone();
+            async move {
+                while stalled_for() < BUDGET {
+                    let (between, stall) = {
+                        let mut rng = rand::thread_rng();
+                        (rng.gen_range(0..60), rng.gen_range(50..3500))
+                    };
+                    citadel_io::tokio::time::sleep(Duration::from_millis(between)).await;
+                    // Deliberately blocks the executor, and with it both punchers.
+                    std::thread::sleep(Duration::from_millis(stall));
+                    stalled.fetch_add(stall, Ordering::Relaxed);
+                }
             }
         });
 
@@ -678,14 +697,25 @@ mod tests {
                 .await
                 .map_err(|e| e.to_string())
         };
-        // One attempt's budget: a punch that needed the retry path has already
-        // failed in the way this test is about.
-        let (res0, res1) =
-            citadel_io::tokio::time::timeout(super::STANDALONE_ATTEMPT_TIMEOUT, async move {
-                citadel_io::tokio::join!(server, client)
-            })
-            .await
-            .expect("a hole punch attempt hung until its timeout");
+        let started = citadel_io::time::Instant::now();
+        let punched = async move { citadel_io::tokio::join!(server, client) };
+        let budget_spent = async {
+            loop {
+                citadel_io::tokio::time::sleep(Duration::from_millis(100)).await;
+                if started.elapsed().saturating_sub(stalled_for()) > BUDGET {
+                    return;
+                }
+            }
+        };
+        let (res0, res1) = citadel_io::tokio::select! {
+            biased;
+            punched = punched => punched,
+            _ = budget_spent => panic!(
+                "a hole punch attempt hung past its budget: {:?} elapsed, {:?} of it stalled by this test",
+                started.elapsed(),
+                stalled_for()
+            ),
+        };
         staller.abort();
         let (s0, s1) = (
             res0.expect("server punch err"),
