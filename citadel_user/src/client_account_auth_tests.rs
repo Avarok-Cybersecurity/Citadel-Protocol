@@ -27,7 +27,7 @@ async fn legacy_credentials() -> ProposedCredentials {
 
 #[citadel_io::tokio::test]
 async fn an_upgraded_account_refuses_a_legacy_login() {
-    let (record, _) = register("pw-123").await;
+    let record = register("pw-123").await;
     let cnac = account(DeclaredAuthenticationMode::PostQuantum {
         username: "alice".into(),
         full_name: "Alice".into(),

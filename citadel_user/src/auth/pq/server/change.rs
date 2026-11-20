@@ -4,7 +4,7 @@ use super::manage::{NewKey, MAX_CREDENTIAL_ID_BYTES, MAX_LABEL_CHARS};
 use crate::auth::pq::kem::EncapsulationKey;
 use crate::auth::pq::messages::ServerOutcome;
 use crate::auth::pq::policy;
-use crate::auth::pq::record::{KsfParams, NewFactor, PqAuthRecord, RecoverySecret};
+use crate::auth::pq::record::{KsfParams, NewFactor, PqAuthRecord};
 use crate::misc::AccountError;
 use citadel_types::auth::{FactorId, FactorKind, SignInPolicy};
 
@@ -20,7 +20,7 @@ pub enum Change {
         id: FactorId,
     },
     SetPolicy(SignInPolicy),
-    ReplaceRecovery(RecoverySecret),
+    ReplaceRecoveryPhrase(EncapsulationKey),
     SetPassword {
         ek: EncapsulationKey,
         salt_user: [u8; 32],
@@ -74,13 +74,9 @@ impl Change {
             }
             Self::Remove { id } => record.remove(id).map(|()| ServerOutcome::Removed),
             Self::SetPolicy(policy) => record.set_policy(policy).map(|()| ServerOutcome::PolicySet),
-            Self::ReplaceRecovery(secret) => {
-                let outcome = match &secret {
-                    RecoverySecret::Codes(_) => ServerOutcome::RecoveryCodesReplaced,
-                    RecoverySecret::Phrase(_) => ServerOutcome::RecoveryPhraseReplaced,
-                };
-                record.replace_recovery(secret, now_ms);
-                Ok(outcome)
+            Self::ReplaceRecoveryPhrase(ek) => {
+                record.replace_recovery_phrase(ek, now_ms);
+                Ok(ServerOutcome::RecoveryPhraseReplaced)
             }
             Self::SetPassword { ek, salt_user, ksf } => {
                 record.set_password(ek, salt_user, ksf, now_ms);

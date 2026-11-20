@@ -9,7 +9,7 @@ mod tests {
     use citadel_io::tokio;
     use citadel_sdk::prelude::*;
 
-    /// The phrase session manages credentials and nothing else; a code is not regenerated there.
+    /// The phrase session manages credentials and nothing else.
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_phrase_session_only_manages_credentials() {
         citadel_logging::setup_log();
@@ -20,11 +20,6 @@ mod tests {
             let conn = phrase_session(&remote, &user, &old).await?;
             let normal = conn.get_local_group_peers(user.as_str(), None).await;
             assert!(normal.is_err(), "a phrase session ran a normal request");
-            let codes = conn.manage_sign_in(
-                SignInManagementOp::RegenerateRecoveryCodes,
-                SignInFactors::default(),
-            );
-            assert!(codes.await.is_err(), "a phrase session regenerated codes");
             let rename = conn.manage_sign_in(
                 SignInManagementOp::RenameCredential {
                     id: 1,

@@ -57,10 +57,10 @@ pub struct PendingLogin {
     pub(super) transcript: TranscriptHash,
 }
 
-/// A login whose tags verified and satisfied the account's policy (or used a recovery code).
+/// A login whose tags verified and satisfied the account's policy (or used the recovery phrase).
 pub struct VerifiedLogin {
     pub scope: SessionScope,
-    /// The factors that proved it, for `last_used_ms` and to consume a recovery code.
+    /// The factors that proved it, for `last_used_ms`.
     pub used: Vec<FactorId>,
     /// Mixed into the session's pre-shared keys on both sides.
     pub session_key: Zeroizing<[u8; 32]>,
@@ -80,7 +80,7 @@ pub fn build_login_challenge(
     account: AccountAuth<'_>,
     start: &LoginStart,
 ) -> Result<(LoginChallenge, Expectation), AccountError> {
-    build(settings, account, start, FactorKind::RecoveryCode)
+    build(settings, account, start)
 }
 
 /// The challenge of the recovery lane (a device with no bundle): the one recovery factor `start`
@@ -95,19 +95,17 @@ pub fn build_recovery_challenge(
         return Err(error!(ErrorCode::PqSignInMalformed, "a recovery start"));
     }
     let account = record.map_or(AccountAuth::Unknown, AccountAuth::PostQuantum);
-    match build(settings, account, start, FactorKind::RecoveryPhrase)? {
+    match build(settings, account, start)? {
         (challenge, Expectation::Factors(expected)) => Ok((challenge, expected)),
         _ => Err(error!(ErrorCode::PqSignInMalformed, "a recovery start")),
     }
 }
 
-/// `decoy_kind` is what an unknown recovery fingerprint appears to be: a code where a code may be
-/// offered, a phrase in the recovery lane, so a decoy looks like what the lane recovers with.
+/// An unknown recovery fingerprint is answered with a decoy shaped like a recovery phrase.
 fn build(
     settings: &PqAuthServerSettings,
     account: AccountAuth<'_>,
     start: &LoginStart,
-    decoy_kind: FactorKind,
 ) -> Result<(LoginChallenge, Expectation), AccountError> {
     let server_nonce = random_32();
     let record = match account {
@@ -166,9 +164,8 @@ fn build(
                     (decoy::PASSWORD_FACTOR_ID, FactorKind::Password, ek)
                 }
                 Some(fp) => {
-                    let (id, ek) =
-                        decoy::recovery_factor(settings, &start.username, &fp, decoy_kind)?;
-                    (id, decoy_kind, ek)
+                    let (id, ek) = decoy::recovery_factor(settings, &start.username, &fp)?;
+                    (id, FactorKind::RecoveryPhrase, ek)
                 }
             };
             decoy_key = ek;

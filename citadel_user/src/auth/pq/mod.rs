@@ -11,7 +11,7 @@
 //! |---|---|
 //! | Password | `Argon2id(OPRF(k_user, SHA3-256(password)), salt_user)`, on the client |
 //! | Security key | HKDF-SHA3 of its WebAuthn PRF output and credential id |
-//! | Recovery code | HKDF-SHA3 of the 128-bit code |
+//! | Recovery phrase | HKDF-SHA3 of the phrase's 32-byte seed, its server's domain and the username |
 //!
 //! The server never stretches a password: [`server`] evaluates the OPRF (one ristretto255 scalar
 //! multiplication), encapsulates once per challenged factor, and compares tags. Argon2id runs only
@@ -27,7 +27,6 @@ pub mod phrase;
 pub mod policy;
 pub mod proof;
 pub mod record;
-pub mod recovery;
 pub mod seed;
 pub mod server;
 pub mod throttle;
@@ -56,6 +55,8 @@ mod tests_recovery_lane;
 mod tests_recovery_manage;
 #[cfg(test)]
 mod tests_recovery_register;
+#[cfg(test)]
+mod tests_retired_codes;
 #[cfg(test)]
 mod tests_throttle;
 

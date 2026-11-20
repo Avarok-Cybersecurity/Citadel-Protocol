@@ -1,5 +1,5 @@
-//! A session signed in with a recovery code may enrol a security key and set the sign-in policy,
-//! and nothing else. The server enforces it where requests enter: the packet dispatch admits only
+//! A session signed in with the recovery phrase may only manage the account's credentials
+//! (`SignInManagementOp::allowed_in_recovery`). The server enforces it where requests enter: the packet dispatch admits only
 //! the packets that carry sign-in management (and the ones that keep or end the session), and the
 //! signal dispatch admits only management signals. The server's application is never told the
 //! session exists, its peers are not told it is online, and it is sent no mailbox and no peer list.
@@ -11,7 +11,7 @@ use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::auth::SessionScope;
 
-/// Whether this session signed in with a recovery code.
+/// Whether this session signed in with the recovery phrase.
 pub(crate) fn is_recovery<R: Ratchet, T: PlatformOps>(session: &CitadelSession<R, T>) -> bool {
     inner_state!(session.state_container).connect_state.pq.scope == SessionScope::Recovery
 }

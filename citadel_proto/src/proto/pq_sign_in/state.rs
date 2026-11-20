@@ -9,7 +9,6 @@ use citadel_user::auth::pq::admission::AdmissionToken;
 use citadel_user::auth::pq::client::{ClientLogin, ClientRegistration};
 use citadel_user::auth::pq::messages::LoginStart;
 use citadel_user::auth::pq::phrase::RecoveryPhrase;
-use citadel_user::auth::pq::recovery::RecoveryCode;
 use citadel_user::auth::pq::server::{PendingLogin, PendingRegistration};
 use citadel_user::auth::pq::throttle::Attempt;
 use zeroize::Zeroizing;
@@ -18,7 +17,6 @@ use zeroize::Zeroizing;
 pub(crate) struct OfferedFactors {
     pub password: Option<SecBuffer>,
     pub security_key: Option<SecurityKeyPrf>,
-    pub recovery_code: Option<RecoveryCode>,
     pub recovery_phrase: Option<RecoveryPhrase>,
     pub admission: Option<AdmissionToken>,
 }
@@ -26,7 +24,7 @@ pub(crate) struct OfferedFactors {
 /// Kept in the connect state.
 pub(crate) struct PqConnectState {
     /// Both sides: what the session may do. `Recovery` (the recovery console) after a sign-in
-    /// with the recovery phrase or a recovery code.
+    /// with the recovery phrase.
     pub scope: SessionScope,
     /// Both sides: until when a sign-in may wait for a security-key touch.
     pub presence_until: Option<Instant>,

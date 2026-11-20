@@ -1,6 +1,6 @@
 //! The change a management exchange makes, as it travels.
 
-use citadel_types::auth::{FactorId, SignInPolicy};
+use citadel_types::auth::{FactorId, RecoveryCodesRetired, SignInPolicy};
 use serde::{Deserialize, Serialize};
 
 /// A change on the wire: `SignInManagementOp` as it travels.
@@ -17,7 +17,11 @@ pub enum ManagementOp {
     SetSignInPolicy {
         policy: SignInPolicy,
     },
-    RegenerateRecoveryCodes,
+    /// Retired: regenerating recovery codes. Its slot keeps the later changes' encoding, and
+    /// reading it is refused.
+    #[doc(hidden)]
+    #[serde(rename = "RegenerateRecoveryCodes")]
+    RetiredRegenerateRecoveryCodes(RecoveryCodesRetired),
     /// The client creates the credential once the challenge has named the relying party.
     AddSecurityKey {
         label: String,
@@ -50,7 +54,6 @@ impl ManagementOp {
     /// How many recovery keys `ManagementBegin::recovery_eks` carries for this change.
     pub fn recovery_key_count(&self) -> usize {
         match self {
-            Self::RegenerateRecoveryCodes => crate::auth::pq::recovery::RECOVERY_CODE_COUNT,
             Self::RegenerateRecoveryPhrase => 1,
             _ => 0,
         }

@@ -10,6 +10,6 @@ export type SignInCredential = { id: number, kind: FactorKind, label: string,
  */
 credential_id: Array<number> | null, created_ms: bigint, last_used_ms: bigint | null, 
 /**
- * A recovery code that has been used. It can never sign in again.
+ * A factor that can never sign in again. No current kind is consumed by use.
  */
 consumed: boolean, };

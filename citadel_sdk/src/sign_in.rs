@@ -2,7 +2,7 @@
 //! security key, rename, remove, set the policy, set the password, replace the recovery phrase.
 //!
 //! Every change carries a fresh step-up (the account's factors, proven again, bound to the change)
-//! except in a recovery console session (signed in with the phrase or a code), which proves nothing again
+//! except in a recovery console session (signed in with the phrase), which proves nothing again
 //! and may only manage credentials (`SignInManagementOp::allowed_in_recovery`).
 //!
 //! Security keys need the server to name its relying party, with
@@ -137,13 +137,6 @@ async fn run<R: Ratchet>(
         ServerOutcome::Renamed => SignInManagementOutcome::Renamed,
         ServerOutcome::Removed => SignInManagementOutcome::Removed,
         ServerOutcome::PolicySet => SignInManagementOutcome::PolicySet,
-        ServerOutcome::RecoveryCodesReplaced => SignInManagementOutcome::RecoveryCodes(
-            committed
-                .into_recovery_codes()
-                .iter()
-                .map(|code| code.display().to_string())
-                .collect(),
-        ),
         ServerOutcome::PasswordSet => SignInManagementOutcome::PasswordSet,
         ServerOutcome::RecoveryPhraseReplaced => match committed.into_recovery_phrase() {
             Some(seed) => SignInManagementOutcome::RecoveryPhrase(seed.words()),

@@ -4,7 +4,7 @@ use super::register::RegReply;
 use super::transcript_bytes;
 use crate::auth::pq::kem::{EncapsulationKey, KemCiphertext};
 use crate::auth::pq::proof::Tag;
-use citadel_types::auth::{FactorId, SignInCredential, SignInPolicy};
+use citadel_types::auth::{FactorId, RecoveryCodesRetired, SignInCredential, SignInPolicy};
 use serde::{Deserialize, Serialize};
 
 /// The management exchange, in an authenticated session:
@@ -29,8 +29,7 @@ pub struct ManagementBegin {
     pub op: ManagementOp,
     /// The step-up. A recovery session sends one too; the server challenges no factor in it.
     pub step_up: LoginStart,
-    /// `RegenerateRecoveryCodes`: the new codes' keys. `RegenerateRecoveryPhrase`: the new
-    /// phrase's key, alone.
+    /// `RegenerateRecoveryPhrase`: the new phrase's key, alone.
     pub recovery_eks: Vec<EncapsulationKey>,
 }
 
@@ -108,7 +107,7 @@ pub enum ManagementDone {
     Refused(String),
 }
 
-/// What the server did. (The recovery codes themselves never reach it.)
+/// What the server did. (A new recovery phrase itself never reaches it.)
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ServerOutcome {
     Credentials {
@@ -121,7 +120,11 @@ pub enum ServerOutcome {
     Renamed,
     Removed,
     PolicySet,
-    RecoveryCodesReplaced,
+    /// Retired: recovery codes replaced. Its slot keeps the later outcomes' encoding, and
+    /// reading it is refused.
+    #[doc(hidden)]
+    #[serde(rename = "RecoveryCodesReplaced")]
+    RetiredRecoveryCodesReplaced(RecoveryCodesRetired),
     PasswordSet,
     RecoveryPhraseReplaced,
 }

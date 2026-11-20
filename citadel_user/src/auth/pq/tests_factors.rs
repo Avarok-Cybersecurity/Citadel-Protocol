@@ -22,7 +22,7 @@ fn touch(prf: u8) -> SecurityKeyAnswer {
 
 /// Alice's record with a security key (PRF output `[7; 32]`) and `policy`.
 async fn with_key(policy: SignInPolicy) -> PqAuthRecord {
-    let (mut record, _) = register("correct horse").await;
+    let mut record = register("correct horse").await;
     let seed = security_key_seed(&PrfOutput::new([7u8; 32]), CRED);
     let ek = FactorKeypair::derive(&seed)
         .unwrap()

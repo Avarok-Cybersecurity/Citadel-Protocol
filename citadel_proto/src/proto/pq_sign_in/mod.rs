@@ -53,7 +53,6 @@ pub(crate) fn store_offered<R: Ratchet>(
             state.connect_state.pq.offered = Some(OfferedFactors {
                 password: Some(password.clone()),
                 security_key: None,
-                recovery_code: None,
                 recovery_phrase: None,
                 admission: None,
             });
@@ -62,7 +61,6 @@ pub(crate) fn store_offered<R: Ratchet>(
             state.connect_state.pq.offered = Some(OfferedFactors {
                 password: factors.password.clone(),
                 security_key: factors.security_key.clone(),
-                recovery_code: factors.recovery_code.clone(),
                 recovery_phrase: factors.recovery_phrase.clone(),
                 admission: factors.admission.clone().map(AdmissionToken::new),
             });

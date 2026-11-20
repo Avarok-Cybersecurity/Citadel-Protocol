@@ -1,6 +1,6 @@
 //! A new account is given the recovery phrase, and the phrase signs it in.
 
-use super::client::{ClientRegistration, NewRecovery, RecoveryOffer};
+use super::client::{ClientRegistration, NewRecovery};
 use super::kem::{EncapsulationKey, FactorKeypair, FactorSeed, SEED_LEN};
 use super::messages::RegFinish;
 use super::phrase::RecoveryPhrase;
@@ -42,10 +42,10 @@ async fn a_new_account_gets_a_phrase_and_no_codes() {
     );
 
     let phrase = RecoveryPhrase::new(seed, DOMAIN).unwrap();
-    let verified = sign_in(&record, None, Some(RecoveryOffer::Phrase(&phrase))).await;
+    let verified = sign_in(&record, None, Some(&phrase)).await;
     assert_eq!(verified.unwrap().scope, SessionScope::Recovery);
     let elsewhere = RecoveryPhrase::new(phrase.seed().clone(), "example.org").unwrap();
-    let refused = sign_in(&record, None, Some(RecoveryOffer::Phrase(&elsewhere))).await;
+    let refused = sign_in(&record, None, Some(&elsewhere)).await;
     assert!(
         refused.is_err(),
         "the phrase is bound to the domain it was issued for"

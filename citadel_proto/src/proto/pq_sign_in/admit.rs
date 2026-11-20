@@ -70,8 +70,7 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
             let verified = pending.verify(&finish).ok().filter(|_| named);
             throttle_outcome(session, &username, verified.is_some());
             let verified = verified.ok_or_else(failed)?;
-            // Spends a recovery code under the record lock: of two logins that both verified the
-            // same code, only the first gets here without an error.
+            // Records the factors' use under the record lock; a factor removed meanwhile fails it.
             account_manager
                 .record_pq_sign_in(cid, &verified.used)
                 .await

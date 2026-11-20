@@ -70,7 +70,7 @@ impl AdmissionPolicy for Challenges {
 
 #[tokio::test]
 async fn a_challenging_policy_is_still_asked_before_the_oprf() {
-    let (record, _) = register("pw").await;
+    let record = register("pw").await;
     let asked = Arc::new(Challenges(AtomicBool::new(false)));
     let policy: Arc<dyn AdmissionPolicy> = asked.clone();
     let reached = AtomicBool::new(false);

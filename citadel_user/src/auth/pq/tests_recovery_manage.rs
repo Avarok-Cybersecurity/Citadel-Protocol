@@ -10,7 +10,7 @@ use citadel_types::auth::{FactorKind, SessionScope, SignInManagementOp};
 /// factor-count and old-password assertions go red.
 #[tokio::test]
 async fn a_recovery_session_sets_a_forgotten_password() {
-    let (mut record, _) = register("pw").await;
+    let mut record = register("pw").await;
     let before = record.clone();
     let set = manage(
         &mut record,
@@ -37,7 +37,7 @@ async fn a_recovery_session_sets_a_forgotten_password() {
 
 #[tokio::test]
 async fn a_full_session_changes_the_password_only_with_the_current_one() {
-    let (mut record, _) = register("pw").await;
+    let mut record = register("pw").await;
     let op = || SignInManagementOp::SetPassword;
     let wrong = manage(
         &mut record,
@@ -66,8 +66,8 @@ async fn a_full_session_changes_the_password_only_with_the_current_one() {
 }
 
 #[tokio::test]
-async fn a_recovery_session_replaces_the_phrase_but_not_with_codes() {
-    let (mut record, _) = register("pw").await;
+async fn a_recovery_session_replaces_the_phrase() {
+    let mut record = register("pw").await;
     let old = phrase_of(&with_phrase(&mut record).await, DOMAIN);
     let op = SignInManagementOp::RegenerateRecoveryPhrase {
         canonical_domain: DOMAIN.into(),
@@ -79,15 +79,4 @@ async fn a_recovery_session_replaces_the_phrase_but_not_with_codes() {
     let new = phrase_of(&committed.into_recovery_phrase().unwrap(), DOMAIN);
     assert!(failed(recover(Some(&record), "alice", &old).await));
     assert!(recover(Some(&record), "alice", &new).await.is_ok());
-    let codes = manage(
-        &mut record,
-        SessionScope::Recovery,
-        SignInManagementOp::RegenerateRecoveryCodes,
-        None,
-        None,
-    );
-    assert_eq!(
-        codes.await.err().map(|e| e.code),
-        Some(ErrorCode::PqSignInRestricted)
-    );
 }

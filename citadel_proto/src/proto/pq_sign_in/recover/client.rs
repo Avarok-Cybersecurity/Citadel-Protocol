@@ -15,7 +15,7 @@ use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use citadel_crypt::prelude::Toolset;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
-use citadel_user::auth::pq::client::{ClientLogin, ClientProof, RecoveryOffer};
+use citadel_user::auth::pq::client::{ClientLogin, ClientProof};
 use citadel_user::auth::pq::messages::{
     AuthChallenge, DeviceOffer, LoginProof, RecoverDone, RecoverProof, RecoverStart,
 };
@@ -63,7 +63,7 @@ pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
         .take()
         .ok_or_else(|| NetworkError::msg("The recovery's STAGE0 was not kept"))?;
     let binding = channel_binding(&sent_stage0, stage1_payload);
-    let offer = Some(RecoveryOffer::Phrase(&ask.phrase));
+    let offer = Some(&ask.phrase);
     let (mut login, client) = ClientLogin::start(&ask.username, None, offer)?;
     login.admission = ask.admission;
     let start = RecoverStart {

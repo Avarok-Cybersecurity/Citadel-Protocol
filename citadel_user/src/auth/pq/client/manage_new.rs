@@ -1,12 +1,9 @@
-//! What a change brings that the client makes: recovery codes, a recovery phrase, or a password
-//! factor. None of it reaches the server but the keys.
+//! What a change brings that the client makes: a recovery phrase or a password factor. None of it reaches the server but the keys.
 
 use super::register::ClientRegistration;
-use crate::auth::pq::kem::{EncapsulationKey, FactorKeypair};
+use crate::auth::pq::kem::EncapsulationKey;
 use crate::auth::pq::messages::ManagementOp;
 use crate::auth::pq::phrase::{RecoveryPhrase, RecoverySeed};
-use crate::auth::pq::recovery::RecoveryCode;
-use crate::auth::pq::seed::recovery_seed;
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::SignInManagementOp;
@@ -15,7 +12,6 @@ use citadel_types::crypto::SecBuffer;
 /// The secrets behind a change's new keys, kept on the client until the change is done.
 #[derive(Default)]
 pub(super) struct NewCredentials {
-    pub codes: Vec<RecoveryCode>,
     pub phrase: Option<RecoverySeed>,
     pub password: Option<ClientRegistration>,
 }
@@ -36,14 +32,6 @@ pub(super) fn prepare(
         }
         SignInManagementOp::RemoveCredential { id } => ManagementOp::RemoveCredential { id },
         SignInManagementOp::SetSignInPolicy { policy } => ManagementOp::SetSignInPolicy { policy },
-        SignInManagementOp::RegenerateRecoveryCodes => {
-            new.codes = RecoveryCode::generate_set();
-            for code in &new.codes {
-                let keypair = FactorKeypair::derive(&recovery_seed(code))?;
-                recovery_eks.push(keypair.encapsulation_key().clone());
-            }
-            ManagementOp::RegenerateRecoveryCodes
-        }
         SignInManagementOp::RegenerateRecoveryPhrase { canonical_domain } => {
             let phrase = RecoveryPhrase::new(RecoverySeed::generate(), canonical_domain)?;
             let keypair = phrase.keypair(username)?;
