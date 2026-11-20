@@ -72,6 +72,8 @@ pub mod message_group;
 pub mod p2p_conn_handler;
 
 pub mod class_gates;
+/// End-to-end signatures over a P2P key exchange by each account's identity key.
+pub mod kex_auth;
 pub mod kex_path;
 /// The SDK adapters of the in-session negotiation layer.
 pub mod negotiation;

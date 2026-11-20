@@ -1379,4 +1379,19 @@ pub enum ErrorCode {
     /// A connection that requires a verified certificate was asked of a node built to accept any.
     #[form = "This connection requires a verified TLS certificate, and this node was built to accept any certificate (with_insecure_skip_cert_verification); nothing was dialled"]
     CertVerificationUnavailable = 548,
+
+    // --- P2P key exchanges signed by each account's identity key ---
+    /// A peer's key-exchange stage carries a signature that does not verify (peer cid, why).
+    #[form = "Peer {}'s key exchange is not signed by the identity key it names: {}; nothing was built"]
+    P2pKexSignatureInvalid = 660,
+    /// A peer whose identity key this account has pinned sent an unsigned key exchange (peer cid).
+    #[form = "Peer {} has a pinned identity key and sent an unsigned key exchange; nothing was built"]
+    P2pKexSignatureMissing = 661,
+    /// A peer's key exchange is signed by a key other than the one pinned for it (peer cid).
+    #[form = "Peer {}'s identity key changed; no link is built until the new key is accepted"]
+    P2pKexPeerKeyChanged = 662,
+    /// A peer's first verified identity key could not be kept, so the exchange stops before it
+    /// is reported verified (peer cid, why).
+    #[form = "Peer {}'s identity key could not be pinned: {}; nothing was built"]
+    P2pKexPinNotSaved = 663,
 }

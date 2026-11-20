@@ -38,6 +38,7 @@ use crate::proto::packet_processor::PrimaryProcessorResult;
 use crate::proto::peer::peer_layer::Answer;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
+use crate::proto::state_container::relay_route::ForgedRoute;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::{SessionSecuritySettings, UdpMode};
@@ -103,8 +104,9 @@ pub(crate) async fn handle_response_phase_post_connect<R: Ratchet, T: PlatformOp
                                       // Each vConn records the incarnation of the session it points AT,
                                       // so a lingering session's teardown can tell its own vConn from a
                                       // replacement's. See VirtualConnection::peer_session_init_time.
-                                      this_sess_state_container.insert_new_virtual_connection_as_server(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender, peer_sess.init_time);
-                                      peer_sess_state_container.insert_new_virtual_connection_as_server(session_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender, this_sess.init_time);
+                                      let forged = ForgedRoute::forged(ticket, this_sess_state_container.active_virtual_connections.get(&target_cid));
+                                      this_sess_state_container.insert_new_virtual_connection_as_server(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender, peer_sess.init_time, forged.clone());
+                                      peer_sess_state_container.insert_new_virtual_connection_as_server(session_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender, this_sess.init_time, forged);
                                       log::trace!(target: "citadel", "Virtual connection between {session_cid} <-> {target_cid} forged");
                                       // TODO: Ensure that, upon disconnect, the corresponding entry gets dropped in the connection table of not the dropped peer
                                   }

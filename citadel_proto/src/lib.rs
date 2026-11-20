@@ -610,6 +610,10 @@ pub mod prelude {
     pub use crate::proto::peer::group_channel::{
         GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
     };
+    pub use crate::proto::peer::kex_auth::{
+        transcript_message, KexAuth, P2pKexIdentities, P2pKexIdentity, PeerKexIdentity,
+        KEX_TRANSCRIPT_DOMAIN,
+    };
     pub use crate::proto::peer::kex_path::KexPath;
     /// The SDK adapters of the in-session negotiation layer (`citadel_negotiation`).
     pub use crate::proto::peer::negotiation;
