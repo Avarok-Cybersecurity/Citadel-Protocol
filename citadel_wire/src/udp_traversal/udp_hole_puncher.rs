@@ -702,7 +702,7 @@ mod tests {
         let punched = async move { citadel_io::tokio::join!(server, client) };
         // Counted as the punch's own time, the way its receive window is: a stall, injected here
         // or the host's, is one tick, whatever its length.
-        let budget_spent = crate::udp_traversal::linear::runnable_window::runnable_window(BUDGET);
+        let budget_spent = citadel_io::time::runnable_window(BUDGET);
         let (res0, res1) = citadel_io::tokio::select! {
             biased;
             punched = punched => punched,

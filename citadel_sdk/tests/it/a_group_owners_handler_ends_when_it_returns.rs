@@ -83,7 +83,7 @@ mod tests {
             })
             .unwrap();
         // An upper bound only: the owner's node finishes as soon as its handler has returned.
-        let outcome = tokio::time::timeout(Duration::from_secs(60), async move {
+        let outcome = citadel_io::time::runnable_timeout(Duration::from_secs(60), async move {
             tokio::select! {
                 res = server => Err(format!("the server ended first: {:?}", res.map(|_| ()))),
                 res = client => res.map(|_| ()).map_err(|err| err.into_string()),

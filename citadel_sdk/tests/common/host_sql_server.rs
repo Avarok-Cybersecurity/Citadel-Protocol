@@ -124,7 +124,7 @@ where
     let client = builder.build(client_kernel).unwrap();
     // Polled here, not spawned: a node future is not `Send` in every feature set.
     let mut rx = rx;
-    tokio::time::timeout(MUST_FINISH_WITHIN, async move {
+    citadel_io::time::runnable_timeout(MUST_FINISH_WITHIN, async move {
         tokio::pin!(server);
         tokio::pin!(client);
         tokio::select! {

@@ -132,7 +132,7 @@ mod tests {
             client(kernel, mode, &backend).await.map(|_| ())
         };
         // A hang guard, not a latency assertion.
-        let result = tokio::time::timeout(Duration::from_secs(120), async move {
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(120), async move {
             tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
                 res = run => res,

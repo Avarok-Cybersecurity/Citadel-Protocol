@@ -111,7 +111,7 @@ mod tests {
             node(a.clone(), b.clone(), localhost_max_security_level()),
             node(b, a, high),
         );
-        let outcome = tokio::time::timeout(Duration::from_secs(150), async move {
+        let outcome = citadel_io::time::runnable_timeout(Duration::from_secs(150), async move {
             tokio::select! {
                 res = server => Err(NetworkError::msg(format!("server ended: {:?}", res.map(|_| ())))),
                 res = clients => res.map(|_| ()),

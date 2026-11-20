@@ -93,7 +93,7 @@ mod tests {
                 res = client => res.map(|_| ()),
             }
         };
-        let result = tokio::time::timeout(Duration::from_secs(60), task)
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(60), task)
             .await
             .expect("test timed out");
         assert!(result.is_ok(), "test failed: {result:?}");

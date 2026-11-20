@@ -622,7 +622,7 @@ mod tests {
             }
         };
 
-        let _ = citadel_io::time::timeout(Duration::from_secs(120), task)
+        let _ = citadel_io::time::runnable_timeout(Duration::from_secs(120), task)
             .await
             .unwrap();
 

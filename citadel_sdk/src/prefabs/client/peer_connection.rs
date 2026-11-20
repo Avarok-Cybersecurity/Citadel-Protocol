@@ -1459,7 +1459,7 @@ mod tests {
             }
         };
 
-        tokio::time::timeout(Duration::from_secs(120), task)
+        citadel_io::time::runnable_timeout(Duration::from_secs(120), task)
             .await
             .unwrap()
             .unwrap();

@@ -27,7 +27,7 @@ mod tests {
         clients: impl std::future::Future<Output = Result<(), NetworkError>>,
     ) {
         // A hang guard for the whole scenario, not a latency assertion.
-        let result = tokio::time::timeout(Duration::from_secs(120), async move {
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(120), async move {
             tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.is_ok()))),
                 res = clients => res,

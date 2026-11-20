@@ -67,7 +67,7 @@ mod tests {
             .with_stun_servers(LOCALHOST_STUN_SERVERS)
             .build(kernel)
             .unwrap();
-        let result = tokio::time::timeout(Duration::from_secs(120), async move {
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(120), async move {
             tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
                 res = client => res.map(|_| ()),

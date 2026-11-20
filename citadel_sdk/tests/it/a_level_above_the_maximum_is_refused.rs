@@ -199,7 +199,7 @@ mod tests {
         };
         let clients =
             futures::future::try_join(node(a.clone(), b.clone(), a_max), node(b, a, b_max));
-        let outcome = tokio::time::timeout(Duration::from_secs(150), async move {
+        let outcome = citadel_io::time::runnable_timeout(Duration::from_secs(150), async move {
             tokio::select! {
                 res = server => Err(NetworkError::msg(format!("server ended: {:?}", res.map(|_| ())))),
                 res = clients => res.map(|_| ()),

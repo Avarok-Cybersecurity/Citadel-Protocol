@@ -133,7 +133,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), task)
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(120), task)
             .await
             .expect("C2S stress test timed out");
 
