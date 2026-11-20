@@ -27,6 +27,7 @@
 //! - `NetworkListener`: Manages network socket listeners
 //!
 
+use crate::proto::misc::early_accept::{accept_during, EarlyAccepted};
 use citadel_user::auth::pq::admission::AdmissionToken;
 use std::collections::HashMap;
 use std::io;
@@ -75,7 +76,7 @@ define_outer_struct_wrapper!(CitadelNode, CitadelNodeInner, <R: Ratchet, T: Plat
 
 /// Inner device for the [`CitadelNode`]
 pub struct CitadelNodeInner<R: Ratchet, T: PlatformOps> {
-    primary_socket: Option<citadel_io::Mutex<T::Listener>>,
+    primary_socket: Option<citadel_io::Mutex<EarlyAccepted<T::Listener>>>,
     /// Server bind address (set during init for server nodes).
     bind_address: Option<T::Addr>,
     /// Key: cid (to account for multiple clients from the same node)
@@ -121,13 +122,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                 if let Some(listener) = pre_built_listener {
                     // Serverless mode: use injected listener.
                     let addr = T::from_socket_addr(bind_addr);
-                    (Some(citadel_io::Mutex::new(listener)), Some(addr))
+                    (Some(listener), Some(addr))
                 } else {
                     // Normal mode: bind to address.
                     let (listener, addr) =
                         T::bind(underlying_proto.clone(), T::from_socket_addr(bind_addr)).await?;
                     let listener = T::bind_with_websocket(listener, websocket_listener).await?;
-                    (Some(citadel_io::Mutex::new(listener)), Some(addr))
+                    (Some(listener), Some(addr))
                 }
             }
 
@@ -140,11 +141,28 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
             log::info!(target: "citadel", "Citadel client established")
         }
 
-        let client_config = if let Some(config) = client_config {
-            config
-        } else {
-            T::default_client_config().await?
+        let startup = async {
+            let client_config = match client_config {
+                Some(config) => config,
+                None => T::default_client_config().await?,
+            };
+            let nat_type = T::identify_nat_type(stun_servers.clone()).await?;
+            Ok::<_, io::Error>((client_config, nat_type))
         };
+        // The node's own set, so the handshakes the listener spawns meanwhile carry on in it.
+        let localset_opt = crate::proto::misc::threading::create_localset();
+        let (startup, primary_socket) = match primary_socket {
+            Some(listener) => {
+                let (startup, listener) = crate::proto::misc::threading::run_in_localset(
+                    localset_opt.as_ref(),
+                    accept_during(listener, startup),
+                )
+                .await;
+                (startup, Some(citadel_io::Mutex::new(listener)))
+            }
+            None => (startup.await, None),
+        };
+        let (client_config, nat_type) = startup?;
 
         let time_tracker = TimeTracker::new();
         let session_manager = CitadelSessionManager::new(
@@ -161,7 +179,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         );
 
         log::info!(target: "citadel", "Links: {:?}", session_manager.link_mode());
-        let nat_type = T::identify_nat_type(stun_servers).await?;
 
         let inner = CitadelNodeInner {
             underlying_proto,
@@ -176,7 +193,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         };
 
         let this = Self::from(inner);
-        Ok(CitadelNode::load(this, account_manager, shutdown))
+        Ok(CitadelNode::load(
+            this,
+            account_manager,
+            shutdown,
+            localset_opt,
+        ))
     }
 
     /// Note: spawning via handle is more efficient than joining futures. Source: https://cafbit.com/post/tokio_internals/
@@ -189,6 +211,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         this: CitadelNode<R, T>,
         account_manager: AccountManager<R, R>,
         shutdown: citadel_io::tokio::sync::oneshot::Sender<()>,
+        localset_opt: Option<LocalSet>,
     ) -> (
         NodeRemote<R>,
         Pin<Box<dyn RuntimeFuture>>,
@@ -230,7 +253,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
 
         drop(read);
 
-        let localset_opt = crate::proto::misc::threading::create_localset();
         let outbound_kernel_request_handler = Self::outbound_kernel_request_handler(
             this.clone(),
             kernel_tx.clone(),
@@ -337,7 +359,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         to_kernel: UnboundedSender<NodeResult<R>>,
         local_nat_type: NatType,
         session_manager: CitadelSessionManager<R, T>,
-        mut socket: T::Listener,
+        mut socket: EarlyAccepted<T::Listener>,
         server_only_session_init_settings: ServerOnlySessionInitSettings,
     ) -> Result<(), NetworkError> {
         loop {
