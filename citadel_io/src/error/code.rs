@@ -1202,9 +1202,7 @@ pub enum ErrorCode {
     /// A server probe was asked of a session that is not connected (cid).
     #[form = "Cannot probe the server: session {} is not connected"]
     ServerProbeNotConnected = 372,
-    /// A P2P path upgrade was asked of a peer whose protocol cannot re-arm the campaign.
-    #[form = "The peer cannot re-arm its P2P path campaign; update it"]
-    P2pUpgradeUnsupported = 373,
+    // 373 is retired: never reuse it.
     /// A P2P path upgrade was asked of a connection with no campaign left to re-arm (reason).
     #[form = "No P2P path campaign to re-arm: {}"]
     P2pUpgradeUnavailable = 374,
