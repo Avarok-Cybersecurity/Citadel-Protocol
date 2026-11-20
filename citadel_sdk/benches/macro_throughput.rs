@@ -19,6 +19,17 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+/// Progress marker that flushes immediately (piped stderr is otherwise fully buffered, so a hang
+/// would swallow all markers). Used only for liveness/diagnosis, not measurement.
+macro_rules! mark {
+    ($($a:tt)*) => {{
+        use std::io::Write;
+        let mut e = std::io::stderr();
+        let _ = writeln!(e, $($a)*);
+        let _ = e.flush();
+    }};
+}
+
 #[cfg(all(
     feature = "localhost-testing",
     feature = "multi-threaded",
@@ -34,17 +45,6 @@ mod imp {
     use futures::StreamExt;
     use std::time::Instant;
     use uuid::Uuid;
-
-    /// Progress marker that flushes immediately (piped stderr is otherwise fully buffered, so a hang
-    /// would swallow all markers). Used only for liveness/diagnosis, not measurement.
-    macro_rules! mark {
-        ($($a:tt)*) => {{
-            use std::io::Write;
-            let mut e = std::io::stderr();
-            let _ = writeln!(e, $($a)*);
-            let _ = e.flush();
-        }};
-    }
 
     /// 4 KiB: a representative application message — above the small-control-packet regime, below
     /// the file-transfer scramble path, so it exercises the per-message AEAD+serialization hot path.

@@ -71,6 +71,10 @@ jobs:
       - run: cargo clippy --locked --features=webrtc,sql,redis -- -D warnings
       - run: cargo clippy --locked --features=webrtc,sql,redis --release -- -D warnings
       - run: cargo clippy --locked --tests --examples -- -D warnings
+      # Benches are built by no other job; check them in both threading modes so one that compiles
+      # only under multi-threaded cannot go unnoticed.
+      - run: cargo check --locked --workspace --benches --features=citadel_sdk/localhost-testing,citadel_sdk/multi-threaded
+      - run: cargo check --locked --workspace --benches --features=citadel_sdk/localhost-testing
 
   wasm_lint:
     name: wasm32 clippy and graph gates
