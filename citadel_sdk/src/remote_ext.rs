@@ -23,12 +23,13 @@
 //!         "127.0.0.1:25021",
 //!         "John Doe",
 //!         "john.doe",
-//!         "password123"
+//!         "password123",
+//!         CertVerification::Required,
 //!     ).await?;
 //!
 //!     // Connect to a peer
 //!     let auth = AuthenticationRequest::credentialed("john.doe", "password123");
-//!     let conn = remote.connect_with_defaults(auth).await?;
+//!     let conn = remote.connect_with_defaults(auth, CertVerification::Required).await?;
 //!
 //!     // Send a file to a peer
 //!     remote.find_target("john.doe", "peer.name")

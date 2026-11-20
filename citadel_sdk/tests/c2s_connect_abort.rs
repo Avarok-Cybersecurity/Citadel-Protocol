@@ -28,6 +28,7 @@ mod tests {
             keep_alive_timeout: None,
             session_password: Default::default(),
             session_security_settings: Default::default(),
+            cert_verification: CertVerification::SelfSignedAccepted,
         })
     }
 

@@ -20,7 +20,7 @@
 //!
 //! # fn main() -> Result<(), NetworkError> {
 //! // Create transient connection settings
-//! let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//! let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021", CertVerification::Required)
 //!     .with_udp_mode(UdpMode::Enabled)
 //!     .build()?;
 //! # Ok(())
