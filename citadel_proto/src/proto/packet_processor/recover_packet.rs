@@ -126,7 +126,7 @@ pub(super) fn fail_client<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     err: NetworkError,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    log::warn!(target: "citadel", "The recovery could not complete: {err}");
+    log::warn!(target: "citadel", "The registration could not complete: {err}");
     inner_mut_state!(session.state_container)
         .register_state
         .on_fail();
@@ -138,6 +138,6 @@ pub(super) fn fail_client<R: Ratchet, T: PlatformOps>(
     }))?;
     session.shutdown();
     Ok(PrimaryProcessorResult::EndSession(
-        "Recovery could not complete",
+        "Registration could not complete",
     ))
 }

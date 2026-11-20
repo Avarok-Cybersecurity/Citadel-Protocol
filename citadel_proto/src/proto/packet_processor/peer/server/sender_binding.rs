@@ -106,7 +106,7 @@ mod tests {
             PeerSignal::Kex {
                 peer_conn_type: naming(NAMED),
                 kex_payload: KeyExchangeProcess::HolePunchFailed,
-                sender_protocol_version: None,
+                sender_protocol_version: *crate::constants::PROTOCOL_VERSION,
                 path: None,
                 auth: None,
             },

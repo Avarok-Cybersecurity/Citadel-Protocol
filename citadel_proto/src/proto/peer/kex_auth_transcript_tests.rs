@@ -219,7 +219,7 @@ fn kex(auth: Option<KexAuth>) -> PeerSignal {
             UdpMode::Disabled,
             Ticket(3),
         ),
-        sender_protocol_version: Some(*crate::constants::PROTOCOL_VERSION),
+        sender_protocol_version: *crate::constants::PROTOCOL_VERSION,
         path: Some(KexPath::default()),
         auth,
     }

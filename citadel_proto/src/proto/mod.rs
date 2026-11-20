@@ -95,6 +95,8 @@ mod udp_packet_tests;
 mod udp_routing_tests;
 /// Packet validations. This is not the same as encryption
 pub(crate) mod validation;
+/// Which adjacent nodes this node takes part with
+pub mod version_gate;
 /// Which wave layout a group uses
 pub(crate) mod wave_gate;
 

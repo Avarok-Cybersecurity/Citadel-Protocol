@@ -78,6 +78,7 @@ use crate::proto::remote::Ticket;
 use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::state_container::relay_route::{admits_key_exchange, end_refused_route};
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
+use crate::proto::version_gate::check_peer_protocol_version;
 use citadel_io::tokio::sync::oneshot;
 
 #[allow(unused_results)]
@@ -543,9 +544,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 *udp_enabled,
                                                 p2p_connection_id,
                                             ),
-                                            sender_protocol_version: Some(
+                                            sender_protocol_version:
                                                 *crate::constants::PROTOCOL_VERSION,
-                                            ),
                                             path: Some(stage0_path),
                                             auth: stage0_auth,
                                         };
@@ -597,6 +597,20 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             path: kex_path_in,
                             auth: kex_auth_in,
                         } => {
+                            if let Err(err) = check_peer_protocol_version(*peer_protocol_version) {
+                                return refuse_link(
+                                    &mut inner_mut_state!(session.state_container),
+                                    &session.kernel_tx,
+                                    session_cid,
+                                    conn.get_original_session_cid(),
+                                    err.into_string(),
+                                    ticket,
+                                    &sess_ratchet,
+                                    timestamp,
+                                    security_level,
+                                );
+                            }
+                            let peer_protocol_version = &Some(*peer_protocol_version);
                             return match kep {
                                 KeyExchangeProcess::Stage0(
                                     transfer,
@@ -833,9 +847,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             local_is_file_transfer_compat,
                                             *p2p_connection_id,
                                         ),
-                                        sender_protocol_version: Some(
+                                        sender_protocol_version:
                                             *crate::constants::PROTOCOL_VERSION,
-                                        ),
                                         path: Some(stage1_signal_path),
                                         auth: stage1_auth,
                                     };
@@ -1110,9 +1123,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 None,
                                                 local_is_file_transfer_compat,
                                             ),
-                                            sender_protocol_version: Some(
+                                            sender_protocol_version:
                                                 *crate::constants::PROTOCOL_VERSION,
-                                            ),
                                             path: Some(stage2_path),
                                             auth: None,
                                         };

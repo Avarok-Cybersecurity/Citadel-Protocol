@@ -48,7 +48,7 @@ fn signed_stage0(level: SecurityLevel) -> (Vec<u8>, usize) {
             peer_cid: BOB,
         },
         kex_payload: KeyExchangeProcess::Stage0(transfer, settings, UdpMode::Disabled, Ticket(3)),
-        sender_protocol_version: Some(*crate::constants::PROTOCOL_VERSION),
+        sender_protocol_version: *crate::constants::PROTOCOL_VERSION,
         path: Some(KexPath::default()),
         auth: Some(auth),
     };

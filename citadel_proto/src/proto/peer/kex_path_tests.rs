@@ -133,7 +133,7 @@ fn kex(path: Option<KexPath>) -> PeerSignal {
             peer_cid: 2,
         },
         kex_payload: KeyExchangeProcess::Stage2(7, None, true),
-        sender_protocol_version: Some(*PROTOCOL_VERSION),
+        sender_protocol_version: *PROTOCOL_VERSION,
         path,
         auth: None,
     }

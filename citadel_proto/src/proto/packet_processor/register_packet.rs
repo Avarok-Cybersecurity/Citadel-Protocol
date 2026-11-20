@@ -35,6 +35,7 @@ use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};
 use crate::proto::pq_sign_in;
+use crate::proto::version_gate::check_peer_protocol_version;
 use citadel_crypt::endpoint_crypto_container::{
     AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto,
 };
@@ -85,6 +86,22 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                 match validation::do_register::validate_stage0::<R>(&payload) {
                     Some((transfer, transient_mode_requested)) => {
                         let timestamp = session.time_tracker.get_global_time_ns();
+                        if let Err(err) = check_peer_protocol_version(header.protocol_version.get())
+                        {
+                            let reason = err.into_string();
+                            log::warn!(target: "citadel", "Refusing a registration: {reason}");
+                            let err = packet_crafter::do_register::craft_failure(
+                                algorithm,
+                                timestamp,
+                                &reason,
+                                header.session_cid.get(),
+                                ticket,
+                            );
+                            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+                                err,
+                                "registration protocol version refused",
+                            ));
+                        }
                         // Check server config for transient mode
                         if transient_mode_requested
                             && !session
@@ -212,6 +229,9 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
 
             packet_flags::cmd::aux::do_register::STAGE1 => {
                 log::trace!(target: "citadel", "STAGE 1 REGISTER PACKET");
+                if let Err(err) = check_peer_protocol_version(header.protocol_version.get()) {
+                    return super::recover_packet::fail_client(&session, err);
+                }
                 // Node is Alice. This packet will contain Bob's ciphertext; Alice will now be able to create the shared private key
                 // Release state_container before heavy crypto
                 let (algorithm, alice_constructor_opt, proposed_credentials_opt) = {

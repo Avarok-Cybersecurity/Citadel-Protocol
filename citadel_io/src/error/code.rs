@@ -1390,6 +1390,10 @@ pub enum ErrorCode {
     /// The system's trusted roots could not be read in full (what the OS reported).
     #[form = "The system's trusted certificates could not be read in full ({}); a store missing some of them is not used"]
     TrustStoreUnavailable = 549,
+    /// The other node announced a protocol version this node does not take part with (its
+    /// version, the oldest this node admits). Nothing is translated for an older node.
+    #[form = "The other node speaks protocol {}; this node takes part only with {} or a later patch of that release. Update the older node"]
+    ProtocolVersionUnsupported = 550,
 
     // --- P2P key exchanges signed by each account's identity key ---
     /// A peer's key-exchange stage carries a signature that does not verify (peer cid, why).

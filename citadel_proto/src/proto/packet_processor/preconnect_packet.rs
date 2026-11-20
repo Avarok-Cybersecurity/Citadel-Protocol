@@ -31,7 +31,6 @@ use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::peer::coordination::coordination_wire;
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::{error, ErrorCode};
 use netbeam::sync::RelativeNodeType;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
@@ -53,6 +52,7 @@ use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_r
 use crate::proto::session_manager::{CidAdmission, SESSION_ALREADY_CONNECTED};
 use crate::proto::session_resume;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
+use crate::proto::version_gate::check_peer_protocol_version;
 
 /// Handles preconnect packets. Handles the NAT traversal
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -86,11 +86,9 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
         match header.cmd_aux {
             packet_flags::cmd::aux::do_preconnect::SYN => {
                 log::trace!(target: "citadel", "RECV STAGE SYN PRE_CONNECT PACKET");
-                // TODO: prevent logins if semvers out of sync. For now, don't
                 let adjacent_proto_version = header.protocol_version.get();
-                if proto_version_out_of_sync(adjacent_proto_version)? {
-                    log::warn!(target: "citadel", "\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", *crate::constants::PROTOCOL_VERSION, adjacent_proto_version);
-                    // TODO: protocol translations for inter-version compatibility
+                if let Err(err) = check_peer_protocol_version(adjacent_proto_version) {
+                    return refuse_protocol_version(&header, err);
                 }
                 // first make sure the cid isn't already connected
                 let admission = session
@@ -220,6 +218,18 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
 
             packet_flags::cmd::aux::do_preconnect::SYN_ACK => {
                 log::trace!(target: "citadel", "RECV STAGE SYN_ACK PRE_CONNECT PACKET");
+                if let Err(err) = check_peer_protocol_version(header.protocol_version.get()) {
+                    log::warn!(target: "citadel", "Refusing the server: {err}");
+                    session.fail_connect(ConnectFail {
+                        ticket: session.kernel_ticket.get(),
+                        cid_opt: Some(header.session_cid.get()),
+                        error_message: err.into_string(),
+                        admission_challenge: None,
+                    })?;
+                    return Ok(PrimaryProcessorResult::EndSession(
+                        "server protocol version refused",
+                    ));
+                }
                 let cnac = &(return_if_none!(
                     inner_state!(session.state_container).cnac.clone(),
                     "SESS Cnac not loaded"
@@ -831,21 +841,6 @@ pub fn calculate_sync_time(current: i64, header: i64) -> (Instant, i64) {
     (sync_time_instant, sync_time_ns)
 }
 
-fn proto_version_out_of_sync(adjacent_proto_version: u32) -> Result<bool, NetworkError> {
-    use embedded_semver::Semver;
-    match Semver::from_u32(adjacent_proto_version) {
-        Ok(their_version) => {
-            // if either major or minor releases are not equal, assume breaking change
-            Ok(
-                their_version.major != crate::constants::MAJOR_VERSION as usize
-                    || their_version.minor != crate::constants::MINOR_VERSION as usize,
-            )
-        }
-
-        Err(_) => Err(error!(ErrorCode::PreconnectSemverParseFailed)),
-    }
-}
-
 pub fn send_error_and_end_session(
     header: &HdpHeader,
     err: Option<NetworkError>,
@@ -879,52 +874,63 @@ fn refuse_syn(
     ))
 }
 
+/// Ends the session with a refusal that names the protocol versions, which say nothing about any
+/// account.
+fn refuse_protocol_version(
+    header: &HdpHeader,
+    err: NetworkError,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let reason = err.into_string();
+    log::warn!(target: "citadel", "Refusing a SYN: {reason}");
+    let packet = packet_crafter::pre_connect::craft_halt(header, reason);
+    Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+        packet,
+        "protocol version refused",
+    ))
+}
+
 #[cfg(test)]
-mod tests {
-    use crate::constants::PROTOCOL_VERSION;
-    use crate::proto::packet_processor::preconnect_packet::proto_version_out_of_sync;
+mod version_refusal_tests {
+    use super::*;
+    use crate::proto::version_gate::OLDEST_PEER_PROTOCOL_VERSION;
+    use embedded_semver::prelude::*;
+    use zerocopy::FromZeroes;
 
-    #[test]
-    fn test_good_version() {
-        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
-        for shift in 1..3 {
-            let their_version = embedded_semver::Semver::new(
-                our_version.major,
-                our_version.minor,
-                our_version.patch + shift,
-            );
-            assert!(!proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap())
-        }
+    fn header_announcing(version: u32) -> HdpHeader {
+        let mut header = HdpHeader::new_zeroed();
+        header.protocol_version = version.into();
+        header
+    }
+
+    fn older_than_admitted() -> u32 {
+        let (major, minor, patch) = OLDEST_PEER_PROTOCOL_VERSION;
+        Semver::new(major as _, minor as _, patch as usize - 1)
+            .to_u32()
+            .unwrap()
     }
 
     #[test]
-    fn test_bad_major_version() {
-        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
-        for shift in 1..3 {
-            let their_version = embedded_semver::Semver::new(
-                our_version.major + shift,
-                our_version.minor,
-                our_version.patch,
-            );
-            assert!(proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap())
-        }
+    fn an_older_node_is_halted_with_the_named_refusal() {
+        let header = header_announcing(older_than_admitted());
+        let err = check_peer_protocol_version(header.protocol_version.get()).unwrap_err();
+        assert_eq!(
+            err.code(),
+            citadel_io::ErrorCode::ProtocolVersionUnsupported
+        );
+        let expected = err.clone().into_string();
+        let PrimaryProcessorResult::EndSessionAndReplyToSender(packet, _) =
+            refuse_protocol_version(&header, err).unwrap()
+        else {
+            panic!("a refused version must end the session with a reply");
+        };
+        let (halt, reason) = packet.split_at(crate::constants::HDP_HEADER_BYTE_LEN);
+        assert_eq!(halt[1], packet_flags::cmd::aux::do_preconnect::HALT);
+        assert_eq!(std::str::from_utf8(reason).unwrap(), expected);
     }
 
     #[test]
-    fn test_bad_minor_version() {
-        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
-        for shift in 1..3 {
-            let their_version = embedded_semver::Semver::new(
-                our_version.major,
-                our_version.minor + shift,
-                our_version.patch,
-            );
-            assert!(proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap())
-        }
-    }
-
-    #[test]
-    fn test_bad_parse() {
-        assert!(proto_version_out_of_sync(u32::MAX).is_err());
+    fn this_nodes_own_version_is_not_refused() {
+        let header = header_announcing(*crate::constants::PROTOCOL_VERSION);
+        check_peer_protocol_version(header.protocol_version.get()).unwrap();
     }
 }

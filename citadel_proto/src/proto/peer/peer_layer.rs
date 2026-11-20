@@ -1024,11 +1024,9 @@ pub enum PeerSignal {
         peer_conn_type: PeerConnectionType,
         kex_payload: KeyExchangeProcess,
         /// `PROTOCOL_VERSION` of the peer that built this key-exchange stage. The server relays
-        /// it unchanged. Appended last so an older node ignores it (bincode allows trailing
-        /// bytes); a signal from an older node, or one re-serialized by an older server, ends
-        /// before it and reads as `None`.
-        #[serde(default, deserialize_with = "appended_field")]
-        sender_protocol_version: Option<u32>,
+        /// it unchanged; the receiving peer refuses a version it does not take part with
+        /// (`version_gate`).
+        sender_protocol_version: u32,
         /// The offers of both peers and the plan the server stamped (see `kex_path`). Appended
         /// after the version, so an older node ignores it and one from an older node reads as
         /// `None`; an older server drops it while relaying.
@@ -1139,7 +1137,7 @@ mod tests {
         }
     }
 
-    fn kex_stage2(sender_protocol_version: Option<u32>) -> PeerSignal {
+    fn kex_stage2(sender_protocol_version: u32) -> PeerSignal {
         PeerSignal::Kex {
             peer_conn_type: PeerConnectionType::LocalGroupPeer {
                 session_cid: 1,
@@ -1152,7 +1150,7 @@ mod tests {
         }
     }
 
-    fn sender_version_and_sync_time(signal: PeerSignal) -> (Option<u32>, i64) {
+    fn sender_version_and_sync_time(signal: PeerSignal) -> (u32, i64) {
         match signal {
             PeerSignal::Kex {
                 kex_payload: KeyExchangeProcess::Stage2(sync_time, _, _),
@@ -1166,37 +1164,24 @@ mod tests {
     #[test]
     fn a_kex_carries_its_senders_protocol_version() {
         let version = *crate::constants::PROTOCOL_VERSION;
-        let bytes = kex_stage2(Some(version)).serialize_to_vector().unwrap();
+        let bytes = kex_stage2(version).serialize_to_vector().unwrap();
         let signal = PeerSignal::deserialize_from_vector(&bytes).unwrap();
-        assert_eq!(sender_version_and_sync_time(signal), (Some(version), 7));
+        assert_eq!(sender_version_and_sync_time(signal), (version, 7));
     }
 
-    /// A node that predates the field sends the same signal without it (an `Option<u32>`
-    /// that is `Some` occupies five bytes, followed by one byte each of an absent path and an
-    /// absent signature). It must still parse, as "unknown".
+    /// A key exchange encoded without the sender's version (the layout before the field) does
+    /// not parse: there is no "unknown version" to fall back on. The full encoding is the
+    /// control, and parses (above).
     #[test]
-    fn a_kex_from_an_older_node_reads_as_an_unknown_version() {
-        let bytes = kex_stage2(Some(*crate::constants::PROTOCOL_VERSION))
+    fn a_kex_without_its_senders_version_is_refused() {
+        let bytes = kex_stage2(*crate::constants::PROTOCOL_VERSION)
             .serialize_to_vector()
             .unwrap();
-        let legacy = &bytes[..bytes.len() - 7];
-        let signal = PeerSignal::deserialize_from_vector(legacy)
-            .expect("a Kex from an older node must still parse");
-        assert_eq!(sender_version_and_sync_time(signal), (None, 7));
-    }
-
-    /// An older node reads a signal as its own fields followed by bytes it ignores, so the
-    /// new encoding must be the old one with the field appended.
-    #[test]
-    fn a_new_kex_is_the_old_encoding_with_the_version_appended() {
-        // The three appended fields absent: one byte each.
-        let without = kex_stage2(None).serialize_to_vector().unwrap();
-        let legacy = &without[..without.len() - 3];
-        let with = kex_stage2(Some(*crate::constants::PROTOCOL_VERSION))
-            .serialize_to_vector()
-            .unwrap();
-        assert!(with.starts_with(legacy));
-        assert_eq!(with.len(), legacy.len() + 5 + 1 + 1);
+        // The version occupies four bytes, followed by one byte each of an absent path and an
+        // absent signature.
+        let without_version = &bytes[..bytes.len() - 6];
+        assert!(PeerSignal::deserialize_from_vector(without_version).is_err());
+        assert!(PeerSignal::deserialize_from_vector(&bytes).is_ok());
     }
 
     /// Consuming a `PostConnect` response (the establishment commitment) must atomically purge
