@@ -19,10 +19,9 @@
 //! echoed connection id (the server fills in Stage1's NAT info).
 //!
 //! The keys and the pins are the application's, behind [`P2pKexIdentity`]; this module only
-//! decides. A peer with no pin that sends no signature (an older node, a legacy account) still
+//! decides. A peer with no pin that sends no signature (an account with no identity key) still
 //! connects, as [`PeerKexIdentity::Unsigned`]. A peer with a pin must sign with the pinned key.
 
-use crate::constants::{protocol_version_at_least, P2P_KEX_SIGNED_SINCE};
 use crate::proto::peer::p2p_seal_binding::P2pSealContext;
 use crate::proto::remote::Ticket;
 use citadel_io::ErrorCode;
@@ -236,20 +235,14 @@ pub(crate) async fn authenticate(
     }
 }
 
-/// This side's signature for its stage, if it signs one: an initiator always may (an older
-/// responder ignores the field), a responder only toward an initiator at or above the gate.
+/// This side's signature for its stage: every stage is signed when this account has an
+/// identity key, whichever side it is.
 pub(crate) fn sign_stage(
     port: Option<&P2pKexIdentities>,
     local_cid: u64,
     context: &P2pSealContext,
     stage: &KexStage,
-    peer_protocol_version: Option<u32>,
 ) -> Option<KexAuth> {
-    if matches!(stage, KexStage::Responder { .. })
-        && !protocol_version_at_least(peer_protocol_version, P2P_KEX_SIGNED_SINCE)
-    {
-        return None;
-    }
     port?.sign(local_cid, &transcript_body(context, stage))
 }
 

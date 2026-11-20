@@ -529,7 +529,6 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             &KexStage::Initiator {
                                                 stage0: stage0_digest,
                                             },
-                                            None,
                                         );
                                         // finally, prepare the signal and send outbound
                                         // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, entropy_bank: &EntropyBank, ticket: Ticket, timestamp: i64
@@ -773,11 +772,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             );
                                         }
                                     };
-                                    let psks = exchange_psks(
-                                        &session_password,
-                                        seal_context,
-                                        *peer_protocol_version,
-                                    );
+                                    let psks = exchange_psks(&session_password, seal_context);
 
                                     let mut bob_constructor = return_if_none!(
                                         <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
@@ -837,7 +832,6 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             stage0: stage0_digest,
                                             stage1: stage1_digest,
                                         },
-                                        *peer_protocol_version,
                                     );
                                     let signal = PeerSignal::Kex {
                                         peer_conn_type: conn.reverse(),
@@ -1004,7 +998,6 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         let psks = exchange_psks(
                                             &kem_state.session_password,
                                             seal_context,
-                                            *peer_protocol_version,
                                         );
                                         if let Err(err) =
                                             alice_constructor.stage1_alice(deser, &psks)

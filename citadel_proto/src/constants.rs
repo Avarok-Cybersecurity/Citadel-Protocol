@@ -141,9 +141,7 @@ pub const NEGOTIATION_SINCE: (u8, u8, u8) = (0, 12, 3);
 /// The first protocol version whose P2P key exchange binds the keys to the connection they are
 /// for: both peers mix the initiator's CID, the responder's CID and the connection's id into the
 /// exchange (`proto::peer::p2p_seal_binding`), so a packet is accepted only under the connection
-/// it was sealed for. Both peers must agree: each binds only when the other's key-exchange signal
-/// names a version at or above it, and a pair with an older or unknown peer derives its keys as
-/// before.
+/// it was sealed for. Every peer this node takes part with is at or above it (`version_gate`).
 pub const IDENTITY_BOUND_SEAL_SINCE: (u8, u8, u8) = (0, 12, 3);
 
 /// The first protocol version whose hole-punch and P2P coordination endpoints speak
@@ -180,11 +178,9 @@ pub const LINK_REATTACH_SINCE: (u8, u8, u8) = (0, 12, 4);
 pub const LINK_MODE_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 /// The first protocol version whose P2P key-exchange stages carry a signature by the sending
-/// account's identity key over the exchange's transcript (`proto::peer::kex_auth`). A responder
-/// signs its Stage1 only toward an initiator at or above it; an initiator signs its Stage0
-/// whenever its account has an identity key, since an older node ignores the appended field.
-/// Whether an unsigned stage is accepted is decided by the key pinned for the peer, never by the
-/// version a stage claims. Shares the one 0.12.4 bump.
+/// account's identity key over the exchange's transcript (`proto::peer::kex_auth`). Each side
+/// signs its stage whenever its account has an identity key. Whether an unsigned stage is
+/// accepted is decided by the key pinned for the peer, never by the version a stage claims.
 pub const P2P_KEX_SIGNED_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 /// The first protocol version whose P2P campaign shares a lost direct path
