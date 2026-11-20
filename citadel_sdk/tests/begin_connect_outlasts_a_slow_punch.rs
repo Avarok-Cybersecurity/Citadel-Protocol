@@ -168,6 +168,7 @@ mod tests {
                 let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
                     server_addr,
                     Uuid::new_v4(),
+                    CertVerification::SelfSignedAccepted,
                 )
                 .with_udp_mode(UdpMode::Enabled)
                 .build()
@@ -182,7 +183,11 @@ mod tests {
                     },
                 );
                 let client = DefaultNodeBuilder::default()
+                    .with_link_manager(LinkManagerMode::Legacy)
                     .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                    .with_max_security_level(
+                        citadel_sdk::test_common::localhost_max_security_level(),
+                    )
                     .build(client_kernel)
                     .unwrap();
                 tokio::time::timeout(HANG_GUARD, client)

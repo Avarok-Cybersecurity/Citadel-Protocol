@@ -45,12 +45,11 @@ fn seal(
     sender: WaveBinding,
     receiver: WaveBinding,
 ) -> Sealed {
-    let (aux, _) = pair();
     let mut tx = par_scramble_encrypt_group::<_, _, _, HDR>(
         vec![fill; LEN],
         SecurityLevel::Standard,
         alice,
-        &aux,
+        None,
         HDR,
         0,
         ObjectId(object_id),

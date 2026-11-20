@@ -31,7 +31,8 @@ pub(crate) fn attach(
     if let Some(existing) = slot.as_ref() {
         // Determine which connection type we should have based on CIDs
         // If implcid < peer_cid, we should be the listener (peer is client)
-        let should_be_listener = implcid != 0 && implcid < peer_cid;
+        let should_be_listener =
+            implcid != 0 && crate::proto::peer::pair_role::leads(implcid, peer_cid);
 
         if existing.from_listener == should_be_listener {
             // Existing connection is the correct type, discard provisional

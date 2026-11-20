@@ -127,6 +127,10 @@ pub async fn delete<P: Into<PathBuf> + Send, R: Ratchet>(
         .await
 }
 
+#[path = "fs_reseal.rs"]
+mod reseal;
+pub use reseal::{reseal, RevfsPull};
+
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
@@ -195,12 +199,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .disable_udp()
-                .with_session_security_settings(session_security_settings)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security_settings)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -259,7 +266,10 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel)
             .unwrap();
 
@@ -300,12 +310,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .disable_udp()
-                .with_session_security_settings(session_security_settings)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security_settings)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -339,7 +352,10 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel)
             .unwrap();
 
@@ -380,12 +396,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .disable_udp()
-                .with_session_security_settings(session_security_settings)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security_settings)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -420,7 +439,10 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel)
             .unwrap();
 
@@ -463,12 +485,15 @@ mod tests {
 
         let source_dir = &PathBuf::from("../resources/TheBridge.pdf");
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
-                .disable_udp()
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid0,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let peer_conn_0 = PeerConnectionSetupAggregator::default()
             .with_peer_custom(uuid1)
@@ -518,12 +543,15 @@ mod tests {
             },
         );
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
-                .disable_udp()
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid1,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let peer_conn_1 = PeerConnectionSetupAggregator::default()
             .with_peer_custom(uuid0)
@@ -572,11 +600,17 @@ mod tests {
         );
 
         let client0 = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel0)
             .unwrap();
         let client1 = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel1)
             .unwrap();
         let clients = futures::future::try_join(client0, client1);

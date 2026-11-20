@@ -49,7 +49,7 @@ use citadel_user::serialization::SyncIO;
     skip_all,
     ret,
     err,
-    fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = session_ref.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_register<R: Ratchet, T: PlatformOps>(
@@ -102,6 +102,26 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             );
                             return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
                                 err, REASON,
+                            ));
+                        }
+
+                        // Every layer is a key exchange this server runs before anyone has
+                        // authenticated: a level above the node's maximum is refused unbuilt.
+                        if let Err(above) =
+                            session.max_security_level.check(transfer.security_level())
+                        {
+                            let reason = above.to_string();
+                            log::warn!(target: "citadel", "Refusing a registration: {reason}");
+                            let err = packet_crafter::do_register::craft_failure(
+                                algorithm,
+                                timestamp,
+                                &reason,
+                                header.session_cid.get(),
+                                ticket,
+                            );
+                            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+                                err,
+                                "registration above the node's maximum security level",
                             ));
                         }
 
@@ -389,10 +409,22 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             );
                             // we must now create the CNAC
                             async move {
+                                // A legacy STAGE2 has the server hash its password: it needs a
+                                // turn under the server's limits, held until the hash is done,
+                                // and asked for before anything else is spent on it.
+                                let legacy_turn = match (&pq, session.session_manager.server_load())
+                                {
+                                    (None, Some(load)) => Some(load.legacy_hash_turn()),
+                                    _ => None,
+                                };
+                                if let Some(Err(refused)) = &legacy_turn {
+                                    log::warn!(target: "citadel", "Legacy registration not taken: {refused:?}");
+                                }
                                 // A legacy STAGE2 that no `PQ_START` admitted is asked now,
                                 // before the account is created.
-                                let gate = match (&pq, admitted) {
-                                    (None, false) => {
+                                let gate = match (&pq, admitted, legacy_turn.as_ref()) {
+                                    (_, _, Some(Err(refused))) => Err(refused.clone()),
+                                    (None, false, _) => {
                                         let ctx = pq_sign_in::admission::register(
                                             &session,
                                             creds.username(),

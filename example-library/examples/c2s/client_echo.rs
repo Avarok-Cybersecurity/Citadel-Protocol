@@ -28,6 +28,8 @@
 //! 3. Sends a message and waits for the server's echo response
 //! 4. Demonstrates proper connection cleanup on exit
 
+#[path = "../shared/max_level.rs"]
+mod max_level;
 #[path = "../shared/stun.rs"]
 mod stun;
 
@@ -56,6 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "my_username",
             "My Name",
             "notsecurepassword",
+            CertVerification::SelfSignedAccepted,
         )
         .with_session_security_settings(session_security)
         .disable_udp()
@@ -94,7 +97,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the node
     let client = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
+        .with_max_security_level(max_level::extreme())
         .build(kernel)?;
 
     // Run the node

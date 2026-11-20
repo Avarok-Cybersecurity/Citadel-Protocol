@@ -127,10 +127,13 @@ mod tests {
             if let Some(turn) = turn.clone() {
                 peer = peer.with_turn_config(turn);
             }
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuids[me])
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuids[me],
+                CertVerification::SelfSignedAccepted,
+            )
+            .build()
+            .unwrap();
             let kernel = PeerConnectionKernel::new(
                 settings,
                 peer.add(),
@@ -175,7 +178,10 @@ mod tests {
                 },
             );
             let mut builder = DefaultNodeBuilder::default();
-            let _ = builder.with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS);
+            let _ = builder.with_link_manager(LinkManagerMode::Legacy);
+            let _ = builder
+                .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level());
             if let Some(cert) = &trust {
                 builder.with_custom_certs(&[cert]).unwrap();
             }

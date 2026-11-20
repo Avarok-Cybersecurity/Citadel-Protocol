@@ -70,16 +70,17 @@ impl Debug for DirectP2PRemote {
 #[cfg(not(target_family = "wasm"))]
 impl DirectP2PRemote {
     /// - quic_connector should be Some for server conns, None for clients
-    fn new(
+    pub(crate) fn new(
         stopper: Sender<()>,
         p2p_primary_stream: OutboundPrimaryStreamSender,
         from_listener: bool,
+        route_id: u64,
     ) -> Self {
         Self {
             stopper: Some(stopper),
             p2p_primary_stream,
             from_listener,
-            route_id: next_route_id(),
+            route_id,
         }
     }
 }
@@ -138,102 +139,33 @@ pub(crate) fn generic_error<E: Into<Box<dyn std::error::Error + Send + Sync>>>(
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod native_p2p {
     use super::*;
-    use crate::error::NetworkError;
-    use crate::proto::misc;
-    use crate::proto::misc::net::{GenericNetworkListener, GenericNetworkStream};
+    use crate::proto::link::p2p::attach::attach_p2p_stream;
+    use crate::proto::link::p2p::direct::{open_direct_path, DirectStage};
+    use crate::proto::link::p2p::wrap::{wrap_p2p_stream, RouteFacts};
+    use crate::proto::misc::net::GenericNetworkStream;
     use crate::proto::misc::platform_ops::PlatformOps;
-    use crate::proto::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
-    use crate::proto::node_result::PeerEvent;
-    use crate::proto::outbound_budget::MAX_QUEUED_OUTBOUND_BYTES;
-    use crate::proto::outbound_sender::budgeted_primary_channel;
-    use crate::proto::packet::HeaderObfuscator;
-    use crate::proto::packet_crafter;
-    use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
     use crate::proto::packet_processor::includes::{Duration, Instant};
     use crate::proto::peer::p2p_outcome::{
         tried, AtStage, AttemptReport, PathStage, StageError, StageFailure,
     };
     use crate::proto::peer::p2p_path::P2pRoute;
     use crate::proto::peer::peer_crypt::PeerNatInfo;
-    use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
+    use crate::proto::peer::peer_layer::PeerConnectionType;
     use crate::proto::session::{CitadelSession, SessionAliveTracker};
-    use crate::proto::state_container::{P2PDisconnectSignal, RouteEnd, VirtualConnectionType};
-    use crate::proto::traffic::meter::{RouteMeter, StreamMeter};
-    use citadel_io::tokio::sync::oneshot::{channel, Receiver};
-    use citadel_io::tokio_stream::StreamExt;
-    use citadel_io::{error, ErrorCode};
-    use citadel_types::crypto::SecurityLevel;
+    use crate::proto::state_container::VirtualConnectionType;
     use citadel_types::prelude::{SessionSecuritySettings, UdpMode};
     use citadel_wire::exports::tokio_rustls::rustls;
     use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
     use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
-    use citadel_wire::udp_traversal::udp_hole_puncher::{EndpointHolePunchExt, PunchBudget};
+    use citadel_wire::udp_traversal::udp_hole_puncher::PunchBudget;
     use netbeam::sync::network_endpoint::NetworkEndpoint;
     use std::sync::Arc;
 
-    async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
-        receiver
-            .await
-            .map_err(|err| NetworkError::generic(err.to_string()))?;
-        Err(error!(ErrorCode::P2pStopperTriggered))
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn p2p_conn_handler<R: Ratchet, T: PlatformOps>(
-        mut p2p_listener: GenericNetworkListener,
-        session: CitadelSession<R, T>,
-        _necessary_remote_addr: SocketAddr,
-        v_conn: VirtualConnectionType,
-        hole_punched_addr: TargettedSocketAddr,
-        ticket: Ticket,
-        udp_mode: UdpMode,
-        session_security_settings: SessionSecuritySettings,
-        path: P2pRoute,
-    ) -> Result<(), NetworkError> {
-        let kernel_tx = session.kernel_tx.clone();
-        let session_cid = session.session_cid.clone();
-        let weak = &session.as_weak();
-
-        std::mem::drop(session);
-
-        log::trace!(target: "citadel", "[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
-
-        match p2p_listener.next().await {
-            Some(Ok((p2p_stream, _))) => {
-                let session = CitadelSession::upgrade_weak(weak)
-                    .ok_or(error!(ErrorCode::P2pSessionDropped))?;
-
-                handle_p2p_stream(
-                    p2p_stream,
-                    session_cid,
-                    session,
-                    kernel_tx,
-                    true,
-                    v_conn,
-                    hole_punched_addr,
-                    ticket,
-                    udp_mode,
-                    session_security_settings,
-                    path,
-                )?;
-                Ok(())
-            }
-
-            Some(Err(err)) => {
-                log::error!(target: "citadel", "[P2P-stream] ERR: {err:?}");
-                Err(NetworkError::generic(err.to_string()))
-            }
-
-            None => {
-                log::error!(target: "citadel", "P2P listener returned None. Stream dead");
-                Err(error!(ErrorCode::P2pListenerReturnedNone))
-            }
-        }
-    }
-
+    /// Seals and delivers a P2P QUIC stream as its connection's route: [`wrap_p2p_stream`]
+    /// then [`attach_p2p_stream`] (`link::p2p`), the two steps the manager runs apart.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn handle_p2p_stream<R: Ratchet, T: PlatformOps>(
-        mut p2p_stream: GenericNetworkStream,
+        p2p_stream: GenericNetworkStream,
         session_cid: DualRwLock<Option<u64>>,
         session: CitadelSession<R, T>,
         kernel_tx: UnboundedSender<NodeResult<R>>,
@@ -245,311 +177,18 @@ pub(crate) mod native_p2p {
         session_security_settings: SessionSecuritySettings,
         path: P2pRoute,
     ) -> std::io::Result<()> {
-        let remote_peer = p2p_stream.peer_addr()?;
-        let local_bind_addr = p2p_stream.local_addr()?;
-        // Only this connection's client can migrate, and not through its own TURN allocation.
-        let migratable = !from_listener && path != (P2pRoute::Turn { relayed_both: true });
-        if let Some(endpoint) = p2p_stream.p2p_endpoint().filter(|_| migratable) {
-            session
-                .session_manager
-                .local_rebinder()
-                .track_quic_client(endpoint);
-        }
-        let quic_conn = p2p_stream
-            .take_p2p_connection()
-            .ok_or_else(|| generic_error("P2P Stream did not have QUIC connection loaded"))?;
-        let udp_conn = QuicUdpSocketConnector::new(quic_conn, local_bind_addr);
-
-        log::trace!(target: "citadel", "[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), remote_peer);
-        let (sink, stream) = misc::safe_split_stream(p2p_stream);
-        let (p2p_primary_stream_tx, p2p_primary_stream_rx) =
-            budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES);
-        let header_obfuscator = HeaderObfuscator::new(
+        let facts = RouteFacts {
+            route_id: super::next_route_id(),
             from_listener,
-            session_security_settings.header_obfuscator_settings,
-        );
-        let peer_cid = v_conn.get_target_cid();
-
-        let (stopper_tx, stopper_rx) = channel();
-        let session_cid_for_dc = session_cid.clone();
-        let implcid = session_cid.get().unwrap_or(0);
-        let kernel_tx_for_dc = kernel_tx.clone();
-        let (cleanup_connection_id, connection_bytes) = {
-            let state = inner_state!(session.state_container);
-            let vconn = state.active_virtual_connections.get(&peer_cid);
-            let bytes = vconn
-                .and_then(|vconn| vconn.endpoint_container.as_ref())
-                .map(|endpoint| endpoint.p2p_path.byte_counters().clone());
-            (
-                vconn
-                    .map(|vconn| vconn.p2p_connection_id)
-                    .unwrap_or(Ticket(0)),
-                bytes,
-            )
-        };
-        // Without a virtual connection the route is refused below (it has nothing to attach to);
-        // its few packets until then still count toward the node's totals.
-        let route_meter = RouteMeter::new(
-            connection_bytes.unwrap_or_default(),
-            session.session_manager.traffic(),
+            v_conn,
+            hole_punched_addr,
+            ticket,
+            udp_mode,
+            session_security_settings,
             path,
-        );
-        let meter = StreamMeter::Route(route_meter.clone());
-        let p2p_handle = P2PInboundHandle::new(
-            remote_peer,
-            local_bind_addr.port(),
-            session_cid,
-            kernel_tx,
-            p2p_primary_stream_tx.clone(),
-            peer_cid,
-            cleanup_connection_id,
-        );
-        let writer_future = CitadelSession::<R, T>::outbound_stream(
-            p2p_primary_stream_rx,
-            sink,
-            header_obfuscator.clone(),
-            meter.clone(),
-        );
-        let reader_future = CitadelSession::execute_inbound_stream(
-            stream,
-            session.clone(),
-            Some(p2p_handle),
-            header_obfuscator,
-            meter.clone(),
-        );
-        let stopper_future = p2p_stopper(stopper_rx);
-
-        let direct_p2p_remote =
-            DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx, from_listener);
-        let route_id = direct_p2p_remote.route_id;
-        let sess = session;
-
-        let (p2p_dc_tx, p2p_dc_rx) = channel::<P2PDisconnectSignal>();
-
-        let mut state_container = inner_mut_state!(sess.state_container);
-
-        state_container
-            .insert_direct_p2p_connection(
-                direct_p2p_remote,
-                v_conn.get_target_cid(),
-                implcid,
-                Some(p2p_dc_tx),
-            )
-            .map_err(|err| generic_error(err.into_string()))?;
-
-        if let Some(endpoint) = state_container
-            .active_virtual_connections
-            .get(&peer_cid)
-            .and_then(|vconn| vconn.endpoint_container.as_ref())
-        {
-            let is_current = endpoint
-                .direct_p2p_remote
-                .as_ref()
-                .is_some_and(|remote| remote.route_id == route_id);
-            if is_current {
-                endpoint.p2p_path.set(path);
-            }
-        }
-
-        if udp_mode == UdpMode::Enabled {
-            T::spawn_udp_socket_loader(
-                sess.clone(),
-                v_conn,
-                UdpSplittableTypes::Quic(udp_conn.metered(route_meter)),
-                hole_punched_addr,
-                ticket,
-                None,
-            );
-        }
-
-        // Taken now, not when the stream ends: by then the connection's state may be gone. It
-        // holds the reason the peer gives on its lane for closing this connection.
-        let peer_closing = state_container.peer_closing_of(peer_cid, Some(cleanup_connection_id));
-        drop(state_container);
-
-        sess.session_manager
-            .disconnect_tracker()
-            .clear_p2p_peer(sess.kernel_ticket.get(), v_conn.get_target_cid());
-
-        let sess_for_dc = sess.clone();
-        let disconnect_tracker_for_dc = sess.session_manager.disconnect_tracker();
-        let session_ticket_for_dc = sess.kernel_ticket.get();
-        spawn!(async move {
-            if let Ok(signal) = p2p_dc_rx.await {
-                log::trace!(target: "citadel", "P2P disconnect notification received for peer {}: {:?}", signal.peer_cid, signal.reason);
-
-                if !disconnect_tracker_for_dc
-                    .try_p2p_disconnect(session_ticket_for_dc, signal.peer_cid)
-                {
-                    log::trace!(target: "citadel", "Skipping P2P D/C signal - already sent for session {:?} peer {}", session_ticket_for_dc, signal.peer_cid);
-                    return;
-                }
-
-                if let Some(ref token) = signal.disconnect_token {
-                    let state_container = inner_state!(sess_for_dc.state_container);
-                    if let Some(current_vconn) = state_container
-                        .active_virtual_connections
-                        .get(&signal.peer_cid)
-                    {
-                        if current_vconn.p2p_connection_id != token.connection_id {
-                            log::trace!(target: "citadel", "Rejecting stale P2P disconnect signal for peer {} — new connection exists (expected {:?}, got {:?})", signal.peer_cid, current_vconn.p2p_connection_id, token.connection_id);
-                            return;
-                        }
-                    }
-                }
-
-                if let Some(session_cid) = session_cid_for_dc.get() {
-                    let peer_signal = PeerSignal::Disconnect {
-                        peer_conn_type: PeerConnectionType::LocalGroupPeer {
-                            session_cid,
-                            peer_cid: signal.peer_cid,
-                        },
-                        disconnect_response: Some(PeerResponse::Disconnected(format!(
-                            "P2P disconnect: {:?}",
-                            signal.reason
-                        ))),
-                        disconnect_token: signal.disconnect_token,
-                        reason: None,
-                    };
-
-                    if let Some(to_primary_stream) = sess_for_dc.to_primary_stream.as_ref() {
-                        let state_container = inner_state!(sess_for_dc.state_container);
-                        if let Ok(c2s_container) =
-                            state_container.get_endpoint_container(C2S_IDENTITY_CID)
-                        {
-                            if let Some(ratchet) = c2s_container.ratchet_manager.get_ratchet(None) {
-                                let timestamp = sess_for_dc.time_tracker.get_global_time_ns();
-                                let security_level = state_container
-                                    .session_security_settings
-                                    .map(|s| s.security_level)
-                                    .unwrap_or(SecurityLevel::Standard);
-
-                                let packet = packet_crafter::peer_cmd::craft_peer_signal(
-                                    &ratchet,
-                                    peer_signal,
-                                    signal.ticket.unwrap_or(Ticket(0)),
-                                    timestamp,
-                                    security_level,
-                                );
-                                let sent = packet.and_then(|packet| {
-                                    to_primary_stream
-                                        .unbounded_send(packet)
-                                        .map_err(|err| NetworkError::msg(err.to_string()))
-                                });
-                                if let Err(err) = sent {
-                                    log::warn!(target: "citadel", "Failed to send P2P disconnect signal via C2S: {err:?}");
-                                } else {
-                                    log::trace!(target: "citadel", "Sent PeerSignal::Disconnect via C2S for peer {}", signal.peer_cid);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let disconnect_result = NodeResult::PeerEvent(PeerEvent {
-                    event: PeerSignal::Disconnect {
-                        peer_conn_type: PeerConnectionType::LocalGroupPeer {
-                            session_cid: session_cid_for_dc.get().unwrap_or(0),
-                            peer_cid: signal.peer_cid,
-                        },
-                        disconnect_response: Some(PeerResponse::Disconnected(format!(
-                            "P2P disconnect: {:?}",
-                            signal.reason
-                        ))),
-                        disconnect_token: signal.disconnect_token,
-                        reason: peer_closing.as_ref().and_then(|closing| closing.reason()),
-                    },
-                    ticket: signal.ticket.unwrap_or(Ticket(0)),
-                    session_cid: session_cid_for_dc.get().unwrap_or(0),
-                });
-                let _ = kernel_tx_for_dc.unbounded_send(disconnect_result);
-            }
-        });
-
-        let future = async move {
-            let res = citadel_io::tokio::select! {
-                res0 = writer_future => res0,
-                res1 = reader_future => res1,
-                res2 = stopper_future => res2
-            };
-
-            // When the stopper fires, this stream was replaced or discarded
-            // by the CID tie-breaker in insert_direct_p2p_connection. The
-            // surviving stream's handler will manage cleanup when it exits.
-            // Skip cleanup here: both streams share the same p2p_connection_id
-            // (from the same KEX), so is_current_connection would incorrectly
-            // match, destroying the live connection's vconn and ratchet.
-            let was_replaced = res
-                .as_ref()
-                .err()
-                .is_some_and(|e| e.code == ErrorCode::P2pStopperTriggered);
-
-            if was_replaced {
-                log::trace!(target: "citadel", "[P2P-stream] Stream replaced by tie-breaker for peer {peer_cid}, skipping cleanup");
-                return res;
-            }
-
-            if let Err(err) = &res {
-                log::error!(target: "citadel", "[P2P-stream] P2P stream ending. Reason: {err}");
-            }
-
-            let mut state_container = inner_mut_state!(sess.state_container);
-
-            // A live connection outlives its direct route: it falls back to the server relay.
-            // Only a connection that is already closing is torn down here.
-            let route_end = state_container.fall_back_to_server_relay(peer_cid, route_id);
-            let is_current_connection = route_end == RouteEnd::ConnectionClosed
-                && state_container
-                    .active_virtual_connections
-                    .get(&peer_cid)
-                    .map(|vconn| vconn.p2p_connection_id == cleanup_connection_id)
-                    .unwrap_or(false);
-
-            if route_end == RouteEnd::FellBack {
-                log::info!(target: "citadel", "[P2P-stream] Direct route to peer {peer_cid} ended; the channel continues over the server relay");
-            } else if is_current_connection {
-                let _ = state_container.end_virtual_connection(peer_cid);
-                // While C2S is up, dropping the vconn sends a Disconnect over it (the notifier
-                // above), and the server answers down that same connection -- behind whatever
-                // the peer relayed first, such as the final ack of a transfer it has stored.
-                // That answer ends the transfers. Ending them here, on this stream's EOF, beat
-                // the ack whenever the peer closed this stream after finishing.
-                if !sess.state.is_connected() {
-                    let _ = state_container
-                        .fail_transfers_with_peer(peer_cid, "the connection to this peer ended");
-                }
-
-                // Only clean up the kem_state if it belongs to the old
-                // connection. A new connect_to_peer() may have already
-                // inserted fresh state for the next attempt.
-                let kem_belongs_to_old = state_container
-                    .peer_kem_states
-                    .get(&peer_cid)
-                    .map(|kem| kem.p2p_connection_id == cleanup_connection_id);
-                if kem_belongs_to_old == Some(true) {
-                    state_container.peer_kem_states.remove(&peer_cid);
-                }
-                // Never remove `outgoing_peer_connect_attempts` here: the KEM
-                // stage arms CONSUME the entry when the channel is created, so
-                // the old attempt's entry is already gone by teardown time —
-                // any entry present now belongs to the NEXT attempt (inserted
-                // at its connect dispatch). Removing it made that attempt's
-                // PeerChannelCreated fall back to the raw exchange ticket,
-                // orphaning the caller's connect_to_peer subscription
-                // (observed live: both peers' channels emitted under the same
-                // first_ticket during a simultaneous reconnect, and the
-                // second initiator's connect never resolved).
-            } else {
-                log::trace!(target: "citadel", "[P2P-stream] Skipping cleanup for peer {peer_cid} — connection replaced by newer instance");
-            }
-
-            log::trace!(target: "citadel", "[P2P-stream] Dropping tri-joined future");
-            res
         };
-
-        spawn!(future);
-
-        Ok(())
+        let wrapped = wrap_p2p_stream(p2p_stream, session_cid, session, kernel_tx, facts)?;
+        attach_p2p_stream(wrapped)
     }
 
     /// One upgrade attempt: hole punch (unless the plan skips it), then TURN when a relay is
@@ -594,7 +233,6 @@ pub(crate) mod native_p2p {
             );
             return AttemptReport::nothing_attached(vec![unsupported]);
         };
-        let is_initiator = app.is_initiator();
         let kernel_tx = &kernel_tx;
         let v_conn = peer_connection_type.as_virtual_connection();
         let relay_app = app.clone();
@@ -610,77 +248,32 @@ pub(crate) mod native_p2p {
                     "session no longer alive",
                 ));
             }
-            citadel_io::time::sleep_until(sync_time).await;
-
-            let hole_punched_socket = app
-                .begin_udp_hole_punch(encrypted_config_container, stun_servers, punch_budget)
-                .await
-                .at(StageFailure::PunchFailed)?;
-            let direct_ready = app.on(crate::proto::peer::coordination::DIRECT_READY);
-            let remote_connect_addr = hole_punched_socket.addr.send_address;
-            let addr = hole_punched_socket.addr;
-            let local_addr = hole_punched_socket
-                .local_addr()
-                .at(StageFailure::LocalSocket)?;
-            log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {is_initiator}");
-
-            if is_initiator {
-                direct_ready.sync().await.at(StageFailure::Signalling)?;
-                log::trace!(target: "citadel", "Initiator: sync complete, non-initiator listener should be ready");
-
-                let socket = hole_punched_socket.into_socket();
-                let p2p_stream = crate::proto::misc::native_connect::p2p_connect_from_socket(
-                    socket,
-                    remote_connect_addr,
-                    peer_nat_info.tls_domain,
-                    client_config,
-                    None,
-                )
-                .await
-                .at(StageFailure::HandshakeFailed)?;
-
-                log::trace!(target: "citadel", "~!@ P2P UDP Hole-punch + QUIC finished successfully for INITIATOR @!~");
-                handle_p2p_stream(
-                    p2p_stream,
-                    session_cid,
-                    session.clone(),
-                    kernel_tx.clone(),
-                    false,
-                    v_conn,
-                    addr,
-                    ticket,
-                    udp_mode,
-                    session_security_settings,
-                    P2pRoute::Direct,
-                )
-                .at(StageFailure::AttachFailed)
-            } else {
-                log::trace!(target: "citadel", "Non-initiator: creating listener before signaling ready");
-
-                let socket = hole_punched_socket.into_socket();
-
-                let (listener, _) = crate::proto::misc::native_connect::p2p_listener_from_socket(
-                    socket, None, local_addr,
-                )
-                .at(StageFailure::LocalSocket)?;
-                log::trace!(target: "citadel", "Non-initiator: listener created (socket reused) on {:?}, signaling ready", local_addr);
-
-                direct_ready.sync().await.at(StageFailure::Signalling)?;
-
-                p2p_conn_handler(
-                    listener,
-                    session.clone(),
-                    remote_connect_addr,
-                    v_conn,
-                    addr,
-                    ticket,
-                    udp_mode,
-                    session_security_settings,
-                    P2pRoute::Direct,
-                )
-                .await
-                .at(StageFailure::HandshakeFailed)
-            }
+            let direct = open_direct_path(DirectStage {
+                app,
+                sync_time,
+                cipher: encrypted_config_container,
+                stun_servers,
+                tls: client_config,
+                peer_nat_info,
+                budget: punch_budget,
+            })
+            .await?;
+            let punch = direct.punch;
+            log::trace!(target: "citadel", "[Hole-punch] punched on attempt {}/{} in {:?} (local NAT {:?})", punch.attempt, punch.attempts_allowed, punch.elapsed, punch.local_nat);
+            handle_p2p_stream(
+                direct.stream,
+                session_cid,
+                session.clone(),
+                kernel_tx.clone(),
+                direct.from_listener,
+                v_conn,
+                direct.addr,
+                ticket,
+                udp_mode,
+                session_security_settings,
+                P2pRoute::Direct,
+            )
+            .at(StageFailure::AttachFailed)
         };
 
         use crate::proto::peer::p2p_plan::PlanStep;
@@ -724,7 +317,7 @@ pub(crate) mod native_p2p {
                     (PathStage::Direct, result)
                 }
                 PlanStep::Turn(relay) => {
-                    let relayed = crate::proto::peer::turn_p2p::establish_relayed_p2p(
+                    let relayed = crate::proto::link::p2p::turn::establish_relayed_p2p(
                         &relay_app,
                         relay,
                         relay_session.clone(),

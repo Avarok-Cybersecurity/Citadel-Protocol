@@ -31,13 +31,12 @@ fn pair() -> (R, R) {
 /// A sender for 5000 bytes (several waves) and the receiver that pairs with it.
 fn group() -> (GroupSenderDevice<HDR>, GroupReceiver, R) {
     let (alice, bob) = pair();
-    let (aux_a, _aux_b) = pair();
     let data = vec![7u8; 5000];
     let tx = par_scramble_encrypt_group::<_, _, _, HDR>(
         &data[..],
         SecurityLevel::Standard,
         &alice,
-        &aux_a,
+        None,
         HDR,
         0,
         ObjectId::zero(),

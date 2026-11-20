@@ -214,12 +214,15 @@ mod imp {
         let result_c = result.clone();
         let client_barrier = barrier.clone();
 
-        let settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, Uuid::new_v4())
-                .with_udp_mode(UdpMode::Disabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            Uuid::new_v4(),
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(UdpMode::Disabled)
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(settings, move |connection| {
             client_drive(
@@ -234,7 +237,9 @@ mod imp {
         let server = tokio::task::spawn(server);
         let client = tokio::task::spawn(
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap(),
         );

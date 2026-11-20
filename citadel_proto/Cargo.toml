@@ -15,7 +15,7 @@ license = "MIT OR Apache-2.0"
 default = ["filesystem", "std"]
 filesystem = ["citadel_user/filesystem"]
 opfs = ["citadel_user/opfs"]
-multi-threaded = []
+multi-threaded = ["citadel_link/send"]
 # Exposes `citadel_proto::fuzz_targets` (thin pub wrappers over internal parse/validate fns) so the
 # out-of-tree AFL harness in `fuzz/` can reach them without widening the real API. Off by default;
 # never enable in production builds.
@@ -74,6 +74,7 @@ wasm-threads = ["citadel_crypt/wasm-threads"]
 [dependencies]
 citadel_types = { workspace = true }
 citadel_negotiation = { workspace = true }
+citadel_link = { workspace = true }
 embedded-semver = { workspace = true }
 dashmap = { workspace = true }
 lazy_static = { workspace = true }

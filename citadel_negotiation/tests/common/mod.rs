@@ -2,13 +2,14 @@
 #![allow(dead_code)]
 
 use citadel_negotiation::schedule::{Side, World};
-use citadel_negotiation::settings::KeyProfile;
+use citadel_negotiation::settings::{KeyProfile, MediaTransport, TransferMode};
 use citadel_negotiation::{
     ApplyPath, NegotiationPolicy, NegotiationState, NegotiatorConfig, PeerSupport, Setting,
     SettingId,
 };
 use citadel_types::crypto::{
-    CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecurityLevel, SigAlgorithm,
+    CryptoParameters, EncryptionAlgorithm, KemAlgorithm, MaxSecurityLevel, SecurityLevel,
+    SigAlgorithm, STRUCTURAL_MAX_LEVEL,
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -28,7 +29,31 @@ pub fn policy() -> NegotiationPolicy {
     }
 }
 
-pub fn config<S: Setting>(
+/// The bound a test negotiator runs with when the test is not about the bound: the widest one,
+/// so the test's values are decided by everything else.
+pub trait WidestBound: Setting {
+    fn widest() -> Self::Bound;
+}
+
+impl WidestBound for Tier {
+    fn widest() {}
+}
+
+impl WidestBound for MediaTransport {
+    fn widest() {}
+}
+
+impl WidestBound for TransferMode {
+    fn widest() {}
+}
+
+impl WidestBound for KeyProfile {
+    fn widest() -> MaxSecurityLevel {
+        MaxSecurityLevel::new(SecurityLevel::Custom(STRUCTURAL_MAX_LEVEL)).unwrap()
+    }
+}
+
+pub fn config<S: WidestBound>(
     local: u64,
     initial: S,
     minimum: S,
@@ -40,17 +65,23 @@ pub fn config<S: Setting>(
         peer,
         initial,
         minimum,
+        bound: S::widest(),
         support,
         policy: policy(),
     }
 }
 
 /// A world of A (cid 1, the Leader) and B (cid 2), both in band, minimum = the initial value.
-pub fn world<S: Setting>(initial: S, follow_minimum: bool) -> World<S> {
+pub fn world<S: WidestBound>(initial: S, follow_minimum: bool) -> World<S> {
     world_with_minimums(initial.clone(), initial.clone(), initial, follow_minimum)
 }
 
-pub fn world_with_minimums<S: Setting>(initial: S, min_a: S, min_b: S, follow: bool) -> World<S> {
+pub fn world_with_minimums<S: WidestBound>(
+    initial: S,
+    min_a: S,
+    min_b: S,
+    follow: bool,
+) -> World<S> {
     let a = config(A, initial.clone(), min_a, PeerSupport::InBand);
     let b = config(B, initial, min_b, PeerSupport::InBand);
     World::new(a, b, follow)
@@ -74,6 +105,10 @@ impl Setting for Tier {
     }
     fn is_supported(&self) -> bool {
         self.0 < 3
+    }
+    type Bound = ();
+    fn exceeds(&self, _bound: &()) -> bool {
+        false
     }
 }
 

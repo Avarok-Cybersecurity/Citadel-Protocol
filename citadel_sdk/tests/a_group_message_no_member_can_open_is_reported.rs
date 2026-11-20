@@ -50,7 +50,13 @@ mod tests {
         sync: &Barrier,
     ) -> Result<(CitadelClientServerConnection<StackedRatchet>, GroupChannel), NetworkError> {
         let reg = remote
-            .register_with_defaults(server_addr, &me, &me, PASSWORD)
+            .register_with_defaults(
+                server_addr,
+                &me,
+                &me,
+                PASSWORD,
+                CertVerification::SelfSignedAccepted,
+            )
             .await?;
         cid_cell.store(reg.cid, Ordering::SeqCst);
         let conn = connect(&remote, &me).await?;
@@ -94,7 +100,13 @@ mod tests {
             GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, _events: Events| async move {
                     let reg = remote
-                        .register_with_defaults(server_addr, &me, &me, PASSWORD)
+                        .register_with_defaults(
+                            server_addr,
+                            &me,
+                            &me,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     let conn = connect(&remote, &me).await?;
                     sync.wait().await;
@@ -205,15 +217,21 @@ mod tests {
         run_trio(
             server,
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(owner)
                 .unwrap(),
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(member_a)
                 .unwrap(),
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(member_c)
                 .unwrap(),
         )

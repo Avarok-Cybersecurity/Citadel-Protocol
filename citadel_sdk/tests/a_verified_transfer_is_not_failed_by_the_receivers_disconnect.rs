@@ -33,7 +33,7 @@ mod tests {
     use citadel_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use citadel_sdk::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use citadel_sdk::prelude::*;
-    use citadel_sdk::test_common::{server_info, TestBarrier};
+    use citadel_sdk::test_common::{localhost_max_security_level, server_info, TestBarrier};
     use futures::StreamExt;
     use std::net::SocketAddr;
     use std::path::{Path, PathBuf};
@@ -85,9 +85,13 @@ mod tests {
             let sender_finished = sender_finished.clone();
             let source_bytes = source_bytes.to_vec();
             PeerConnectionKernel::new(
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, receiver_id)
-                    .build()
-                    .unwrap(),
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    receiver_id,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap(),
                 PeerConnectionSetupAggregator::default()
                     .with_peer_custom(sender_id)
                     .ensure_registered()
@@ -134,6 +138,7 @@ mod tests {
                     DefaultServerConnectionSettingsBuilder::transient_with_id(
                         server_addr,
                         sender_id,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .build()
                     .unwrap(),
@@ -173,7 +178,9 @@ mod tests {
                     .unwrap()
                     .block_on(async move {
                         DefaultNodeBuilder::default()
+                            .with_link_manager(LinkManagerMode::Legacy)
                             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                            .with_max_security_level(localhost_max_security_level())
                             .build(kernel)
                             .unwrap()
                             .await
@@ -181,9 +188,10 @@ mod tests {
                     })
             })
         };
-
         let receiver = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(localhost_max_security_level())
             .build(receiver_kernel)
             .unwrap();
         receiver.await.expect("the receiver's node failed");

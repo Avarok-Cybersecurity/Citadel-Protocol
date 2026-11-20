@@ -54,7 +54,13 @@ pub async fn run_scenario(relogin: Relogin) -> usize {
             Arc::new(NodeState::default()),
             move |remote: NodeRemote<StackedRatchet>, _state: Arc<NodeState>| async move {
                 remote
-                    .register_with_defaults(proxy.addr, &username, &username, PASSWORD)
+                    .register_with_defaults(
+                        proxy.addr,
+                        &username,
+                        &username,
+                        PASSWORD,
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 let first = connect(&remote, &username, PASSWORD, standard(false)).await?;
                 let cid = first.cid;
@@ -117,7 +123,13 @@ pub async fn run_scenario(relogin: Relogin) -> usize {
             state_b.clone(),
             move |remote: NodeRemote<StackedRatchet>, state: Arc<NodeState>| async move {
                 remote
-                    .register_with_defaults(server_addr, &username, &username, PASSWORD)
+                    .register_with_defaults(
+                        server_addr,
+                        &username,
+                        &username,
+                        PASSWORD,
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 let conn = connect(&remote, &username, PASSWORD, standard(false)).await?;
                 connected.wait().await;
@@ -144,11 +156,15 @@ pub async fn run_scenario(relogin: Relogin) -> usize {
     };
 
     let client_a = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .build(kernel_a)
         .unwrap();
     let client_b = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .build(kernel_b)
         .unwrap();
     let result = citadel_io::tokio::time::timeout(Duration::from_secs(180), async move {

@@ -32,10 +32,10 @@ mod tests {
                 let stalled_remote = remote.clone();
                 let stalled = tokio::spawn(async move {
                     stalled_remote
-                        .connect_with_defaults(AuthenticationRequest::transient(
-                            Uuid::new_v4(),
-                            silent_addr,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::transient(Uuid::new_v4(), silent_addr),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await
                         .map(|_| ())
                 });
@@ -43,10 +43,10 @@ mod tests {
                 let (silent_link, _) = silent.accept().await.unwrap();
 
                 let _connected = remote
-                    .connect_with_defaults(AuthenticationRequest::transient(
-                        Uuid::new_v4(),
-                        server_addr,
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::transient(Uuid::new_v4(), server_addr),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
 
                 // The stalled connect closes its link when it gives up; it must not have yet.
@@ -65,7 +65,9 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
         // A hang guard, not a latency assertion.

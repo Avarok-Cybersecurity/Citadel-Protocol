@@ -39,6 +39,10 @@
 
 //! This example demonstrates how to set up a peer connection between two peers and use REVFS to store then take a file
 
+#[path = "../shared/max_level.rs"]
+mod max_level;
+#[path = "../shared/revfs_keys.rs"]
+mod revfs_keys;
 #[path = "../shared/stun.rs"]
 mod stun;
 
@@ -73,6 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             my_user,
             "Name",
             "notsecurepassword",
+            CertVerification::SelfSignedAccepted,
         )
         .with_session_security_settings(session_security)
         .disable_udp()
@@ -136,7 +141,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the peer
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
+        .with_max_security_level(max_level::extreme())
+        .with_revfs_key_source(revfs_keys::per_run("localhost"))
         .build(kernel)?;
 
     // Run the peer

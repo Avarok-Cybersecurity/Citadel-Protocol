@@ -28,7 +28,7 @@
 //!         accept_registrations: true,
 //!     };
 //!
-//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021", CertVerification::Required)
 //!         .build()?;
 //!
 //!     let kernel = BroadcastKernel::new(
@@ -474,9 +474,13 @@ mod tests {
             };
 
             let server_connection_settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .build()
-                    .unwrap();
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    uuid,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap();
 
             let client_kernel = BroadcastKernel::new(
                 server_connection_settings,
@@ -503,7 +507,9 @@ mod tests {
             );
 
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
 
@@ -559,9 +565,13 @@ mod tests {
                 .collect::<Vec<UserIdentifier>>();
 
             let server_connection_settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .build()
-                    .unwrap();
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    uuid,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
@@ -629,7 +639,9 @@ mod tests {
             );
 
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -683,9 +695,13 @@ mod tests {
                 .map(UserIdentifier::from)
                 .collect::<Vec<UserIdentifier>>();
             let server_connection_settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .build()
-                    .unwrap();
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    uuid,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
@@ -760,7 +776,9 @@ mod tests {
                 },
             );
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });

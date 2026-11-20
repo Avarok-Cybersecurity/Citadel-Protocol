@@ -31,6 +31,8 @@ rand = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 url = { workspace = true }
+bincode = { workspace = true }
+serde = { workspace = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true, features = [
@@ -67,3 +69,6 @@ serde = { workspace = true, default-features = false, features = [
     "derive",
     "std",
 ] }
+
+[dev-dependencies]
+serde = { workspace = true, features = ["derive"] }

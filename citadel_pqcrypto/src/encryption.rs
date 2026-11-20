@@ -438,7 +438,7 @@ pub mod kyber_module {
         )?;
         let decrypted_scramble_dict = decrypt_pke(kem_alg, local_sk, encrypted_scramble_dict)?;
         let scram_crypt_dict: ScramCryptDictionary<32> =
-            bincode::deserialize(&decrypted_scramble_dict)
+            citadel_io::decode::deserialize(&decrypted_scramble_dict)
                 .map_err(|err| Error::generic(err.to_string()))?;
         // remove the encrypted scramble data from the input buf
         let truncate_point = input.len().saturating_sub(encrypted_scramble_dict_len);

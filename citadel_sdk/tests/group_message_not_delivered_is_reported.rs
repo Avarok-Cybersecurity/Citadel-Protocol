@@ -41,7 +41,13 @@ mod tests {
             GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, _events: Events| async move {
                     let _ = remote
-                        .register_with_defaults(server_addr, &name, &name, PASSWORD)
+                        .register_with_defaults(
+                            server_addr,
+                            &name,
+                            &name,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     let conn = connect(&remote, &name).await?;
                     let mut channel = conn.create_group(None).await?;
@@ -78,7 +84,9 @@ mod tests {
         };
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client)
             .unwrap();
         let task = async move {

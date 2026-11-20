@@ -59,6 +59,9 @@
 //! - Consider perfect secrecy mode for maximum security
 //! - Properly handle algorithm selection based on requirements
 
+mod level_cap;
+pub use level_cap::{check_structural, LevelAboveMaximum, MaxSecurityLevel, STRUCTURAL_MAX_LEVEL};
+
 use crate::utils::validate_crypto_params;
 use packed_struct::derive::{PackedStruct, PrimitiveEnum_u8};
 use packed_struct::{PackedStruct, PrimitiveEnum};
@@ -673,7 +676,7 @@ mod coverage_extra {
         // serde round-trip
         let original = SecBuffer::from("payload");
         let bytes = bincode::serialize(&original).unwrap();
-        let back: SecBuffer = bincode::deserialize(&bytes).unwrap();
+        let back: SecBuffer = citadel_io::decode::deserialize(&bytes).unwrap();
         assert_eq!(back.as_ref(), b"payload");
     }
 

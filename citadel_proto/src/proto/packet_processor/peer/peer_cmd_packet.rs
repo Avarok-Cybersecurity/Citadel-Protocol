@@ -31,16 +31,13 @@
 //! - `StackedRatchet`: Cryptographic operations
 //! - `StateContainer`: State management
 
-use crate::proto::peer::class_gates::ClassGates;
 use crate::proto::peer::kex_path::{self, KexPath};
-use crate::proto::peer::p2p_campaign;
-use crate::proto::peer::p2p_path::CampaignEndGuard;
-use crate::proto::peer::p2p_plan::execution_plan;
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
 use crate::proto::misc::platform_ops::PlatformOps;
+use crate::proto::peer::negotiation::level_cap::{above_maximum_error, refuse_if_above_maximum};
 use crate::proto::peer::negotiation::reason::reported_reason;
 use crate::proto::peer::negotiation::refusal::{
     decline_dial, end_attempt_refused_by, held_dial_password, refuse_accept, refuse_stamp,
@@ -54,8 +51,10 @@ use citadel_types::proto::{stronger_offer, UdpMode};
 use citadel_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
+use super::server::relay_consent::unconsented_relay;
 use crate::error::NetworkError;
-use crate::proto::node_result::{PeerChannelCreated, PeerEvent};
+use crate::proto::link::p2p::launch::{launch_link, LaunchedPair};
+use crate::proto::node_result::PeerEvent;
 use crate::proto::outbound_sender::OutboundPrimaryStreamSender;
 use crate::proto::packet_processor::includes::*;
 use crate::proto::packet_processor::peer::{group_broadcast, send_dc_signal_peer};
@@ -76,7 +75,6 @@ use crate::proto::pq_sign_in;
 use crate::proto::remote::Ticket;
 use crate::proto::session_manager::CitadelSessionManager;
 use crate::proto::state_container::relay_route::admits_key_exchange;
-use crate::proto::state_container::OutgoingPeerConnectionAttempt;
 use crate::proto::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use citadel_io::tokio::sync::oneshot;
 
@@ -89,7 +87,7 @@ use citadel_io::tokio::sync::oneshot;
     skip_all,
     ret,
     err,
-    fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = session_orig.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
@@ -129,8 +127,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
 
     let task = async move {
         let session = &session;
-        // we can unwrap below safely since the header layout has already been verified
-        let header = Ref::new(&*header).unwrap();
+        let header = return_if_none!(Ref::new(&*header), "Malformed peer CMD header");
 
         match aux_cmd {
             packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST => {
@@ -169,18 +166,11 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                 vconn.get_original_session_cid()
                             };
 
-                            // Validate disconnect token against the active vconn to
-                            // reject stale signals from a previous P2P connection
-                            if let Some(token) = disconnect_token {
-                                let state_container = inner_state!(session.state_container);
-                                if let Some(current_vconn) =
-                                    state_container.active_virtual_connections.get(&target)
-                                {
-                                    if current_vconn.p2p_connection_id != token.connection_id {
-                                        log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal from server for peer {} — token mismatch", target);
-                                        return Ok(PrimaryProcessorResult::Void);
-                                    }
-                                }
+                            if inner_state!(session.state_container)
+                                .is_stale_disconnect(target, disconnect_token.as_ref())
+                            {
+                                log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal from server for peer {} — token mismatch", target);
+                                return Ok(PrimaryProcessorResult::Void);
                             }
 
                             let mut state_container = inner_mut_state!(session.state_container);
@@ -326,6 +316,21 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         //let mut state_container = inner_mut!(session.state_container);
                                         //let peer_cid = conn.get_original_session_cid();
 
+                                        // Nor above this node's maximum.
+                                        if let Some(refused) = refuse_if_above_maximum(
+                                            session.max_security_level,
+                                            endpoint_security_settings.security_level,
+                                            &mut inner_mut_state!(session.state_container),
+                                            &session.kernel_tx,
+                                            session_cid,
+                                            *original_session_cid,
+                                            ticket,
+                                            &sess_ratchet,
+                                            timestamp,
+                                            security_level,
+                                        ) {
+                                            return refused;
+                                        }
                                         // R-DIAL 3: never build a link below our own offer.
                                         let stamped_below = take_attempt_stamped_below(
                                             &mut inner_mut_state!(session.state_container),
@@ -577,6 +582,20 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     //let mut state_container = inner_mut!(session.state_container);
                                     //let this_cid = conn.get_original_target_cid();
                                     let peer_cid = conn.get_original_session_cid();
+                                    if let Some(refused) = refuse_if_above_maximum(
+                                        session.max_security_level,
+                                        session_security_settings.security_level,
+                                        &mut inner_mut_state!(session.state_container),
+                                        &session.kernel_tx,
+                                        session_cid,
+                                        peer_cid,
+                                        ticket,
+                                        &sess_ratchet,
+                                        timestamp,
+                                        security_level,
+                                    ) {
+                                        return refused;
+                                    }
                                     let transfer_deser = return_if_none!(
                                         SyncIO::deserialize_from_vector(transfer).ok()
                                     );
@@ -641,7 +660,9 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 drop(state_container);
                                                 return Ok(PrimaryProcessorResult::Void);
                                             }
-                                            if our_cid < peer_cid {
+                                            if crate::proto::peer::pair_role::leads(
+                                                our_cid, peer_cid,
+                                            ) {
                                                 log::info!(target: "citadel",
                                                     "Simultaneous P2P KEX race: dropping \
                                                      Stage0 from {peer_cid} (our exchange as \
@@ -844,7 +865,10 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         // now, register the loaded PQC + toolset into the virtual conn
                                         // Use CID comparison as deterministic tie-breaker for is_initiator
                                         // This ensures consistent behavior even under race conditions
-                                        let local_is_initiator = this_cid > peer_cid;
+                                        let local_is_initiator =
+                                            crate::proto::peer::pair_role::follows(
+                                                this_cid, peer_cid,
+                                            );
                                         log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
                                         let peer_crypto =
                                             PeerSessionCrypto::new(toolset, local_is_initiator);
@@ -966,70 +990,27 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         )
                                     };
 
-                                    let udp_mode = if udp_rx_opt.is_some() {
-                                        UdpMode::Enabled
-                                    } else {
-                                        UdpMode::Disabled
-                                    };
-
-                                    // For initiators: use ticket from outgoing_peer_connect_attempts
-                                    // For responders (shouldn't happen in Stage1, but for robustness): use fallback
-                                    let (init_ticket, session_security_settings) = if let Some(
-                                        OutgoingPeerConnectionAttempt {
-                                            ticket: stored_ticket,
-                                            session_security_settings: stored_settings,
-                                        },
-                                    ) =
-                                        local_outgoing_attempt_metadata
-                                    {
-                                        (stored_ticket, stored_settings)
-                                    } else {
-                                        // Fallback case: use packet header ticket and KEM state settings
-                                        log::trace!(target: "citadel", "Using fallback ticket for Stage1 (peer_cid: {peer_cid})");
-                                        (ticket, kem_session_security_settings)
-                                    };
-
-                                    let guard = CampaignEndGuard::start(channel.p2p_path_cell());
-                                    let channel_signal =
-                                        NodeResult::PeerChannelCreated(PeerChannelCreated {
-                                            ticket: init_ticket,
-                                            channel: channel.into(),
-                                            udp_rx_opt,
-                                        });
-
-                                    let direct_impossible = needs_turn;
-                                    let stamped = kex_path::stamped_plan(
-                                        kex_path_in.as_ref(),
-                                        *peer_protocol_version,
-                                    );
-                                    guard
-                                        .cell()
-                                        .set_gates(ClassGates::from_stamped(stamped.as_ref()));
-                                    let plan = execution_plan(
-                                        stamped.as_ref(),
-                                        direct_impossible,
-                                        take_turn_config(session, peer_cid),
-                                    );
-                                    // The channel is usable over the relay now; the campaign
-                                    // releases it (once the receiver's vconn provably exists) and
-                                    // upgrades it in the background.
-                                    p2p_campaign::spawn(p2p_campaign::Campaign {
+                                    // The channel is usable over the relay now; the pair's path
+                                    // work releases it and upgrades it in the background.
+                                    launch_link(LaunchedPair {
                                         session: session.clone(),
                                         peer_connection_type: conn.reverse(),
                                         ticket,
                                         peer_nat_info: bob_nat_info.clone(),
-                                        channel_signal,
+                                        channel,
+                                        udp_rx_opt,
                                         hole_punch_compat_stream,
                                         endpoint_ratchet,
                                         peer_cid,
                                         sync_instant,
                                         node_type: RelativeNodeType::Initiator,
-                                        udp_mode,
-                                        session_security_settings,
+                                        kem_settings: kem_session_security_settings,
+                                        outgoing: local_outgoing_attempt_metadata,
+                                        needs_turn,
                                         cancel_rx: hole_punch_cancel_rx,
-                                        plan,
-                                        direct_impossible,
-                                        guard,
+                                        kex_path: kex_path_in.clone(),
+                                        peer_protocol_version: *peer_protocol_version,
+                                        turn: take_turn_config(session, peer_cid),
                                     });
 
                                     Ok(PrimaryProcessorResult::Void)
@@ -1094,7 +1075,10 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             Toolset::new(this_cid, endpoint_ratchet.clone());
                                         // Use CID comparison as deterministic tie-breaker for is_initiator
                                         // This ensures consistent behavior even under race conditions
-                                        let local_is_initiator = this_cid > peer_cid;
+                                        let local_is_initiator =
+                                            crate::proto::peer::pair_role::follows(
+                                                this_cid, peer_cid,
+                                            );
                                         log::trace!(target: "citadel", "P2P session {this_cid} <-> {peer_cid}: local_is_initiator={local_is_initiator} (CID comparison)");
                                         let peer_crypto =
                                             PeerSessionCrypto::new(toolset, local_is_initiator);
@@ -1164,75 +1148,32 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         )
                                     };
 
-                                    let udp_mode = if udp_rx_opt.is_some() {
-                                        UdpMode::Enabled
-                                    } else {
-                                        UdpMode::Disabled
-                                    };
-
-                                    // For initiators: use ticket from outgoing_peer_connect_attempts
-                                    // For responders: use ticket from packet header (they didn't initiate, so no entry exists)
-                                    let (init_ticket, session_security_settings) = if let Some(
-                                        OutgoingPeerConnectionAttempt {
-                                            ticket: stored_ticket,
-                                            session_security_settings: stored_settings,
-                                        },
-                                    ) =
-                                        local_outgoing_connection_attempt_metadata
-                                    {
-                                        (stored_ticket, stored_settings)
-                                    } else {
-                                        // Responder case: use packet header ticket and KEM state settings
-                                        log::trace!(target: "citadel", "Using fallback ticket for responder (peer_cid: {peer_cid})");
-                                        (ticket, kem_session_security_settings)
-                                    };
-
-                                    let guard = CampaignEndGuard::start(channel.p2p_path_cell());
-                                    let channel_signal =
-                                        NodeResult::PeerChannelCreated(PeerChannelCreated {
-                                            ticket: init_ticket,
-                                            channel: channel.into(),
-                                            udp_rx_opt,
-                                        });
-
-                                    let direct_impossible = needs_turn;
-                                    let stamped = kex_path::stamped_plan(
-                                        kex_path_in.as_ref(),
-                                        *peer_protocol_version,
-                                    );
-                                    guard
-                                        .cell()
-                                        .set_gates(ClassGates::from_stamped(stamped.as_ref()));
-                                    let plan = execution_plan(
-                                        stamped.as_ref(),
-                                        direct_impossible,
-                                        take_turn_config(session, peer_cid),
-                                    );
                                     let diff = Duration::from_nanos(i64::abs(
                                         timestamp - *sync_time_ns,
                                     )
                                         as u64);
                                     let sync_instant = Instant::now() + diff;
-                                    // The initiator's vconn already exists, so the campaign
-                                    // releases this channel at once and upgrades it in the
-                                    // background.
-                                    p2p_campaign::spawn(p2p_campaign::Campaign {
+                                    // The channel is usable over the relay now; the pair's path
+                                    // work releases it and upgrades it in the background.
+                                    launch_link(LaunchedPair {
                                         session: session.clone(),
                                         peer_connection_type: conn.reverse(),
                                         ticket,
                                         peer_nat_info: alice_nat_info.clone(),
-                                        channel_signal,
+                                        channel,
+                                        udp_rx_opt,
                                         hole_punch_compat_stream,
                                         endpoint_ratchet,
                                         peer_cid,
                                         sync_instant,
                                         node_type: RelativeNodeType::Receiver,
-                                        udp_mode,
-                                        session_security_settings,
+                                        kem_settings: kem_session_security_settings,
+                                        outgoing: local_outgoing_connection_attempt_metadata,
+                                        needs_turn,
                                         cancel_rx: hole_punch_cancel_rx,
-                                        plan,
-                                        direct_impossible,
-                                        guard,
+                                        kex_path: kex_path_in.clone(),
+                                        peer_protocol_version: *peer_protocol_version,
+                                        turn: take_turn_config(session, peer_cid),
                                     });
 
                                     Ok(PrimaryProcessorResult::Void)
@@ -1263,6 +1204,21 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             ..
                         } => {
                             let peer_cid = conn.get_original_session_cid();
+                            if let Err(above) = session
+                                .max_security_level
+                                .check(endpoint_security_settings.security_level)
+                            {
+                                log::warn!(target: "citadel", "Declining a dial from {peer_cid}: {above}");
+                                return decline_dial(
+                                    &sess_ratchet,
+                                    *conn,
+                                    ticket,
+                                    *endpoint_security_settings,
+                                    *udp_enabled,
+                                    timestamp,
+                                    security_level,
+                                );
+                            }
                             let (our_offer, connected, exchanging) = {
                                 let state_container = inner_state!(session.state_container);
                                 (
@@ -1317,7 +1273,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             if let Some(our_offer) = our_offer {
                                 // Both sides are trying to connect to each other.
                                 // Use CID-based tiebreaker: lower CID auto-accepts.
-                                let we_are_lower = session_cid < peer_cid;
+                                let we_are_lower =
+                                    crate::proto::peer::pair_role::leads(session_cid, peer_cid);
                                 if we_are_lower {
                                     log::trace!(target: "citadel", "Simultaneous connect detected client-side: {session_cid} auto-accepting incoming PostConnect from {peer_cid}");
                                     // Nobody was asked to accept: both dialled. The link
@@ -1824,16 +1781,31 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             udp_mode: udp_enabled,
             session_password,
         } => {
+            // A dial above this server's maximum is neither routed nor merged. An answer is
+            // relayed as it stands: the dialler, the side that builds from it, checks it.
+            if let (true, Err(above)) = (
+                peer_response.is_none(),
+                session
+                    .max_security_level
+                    .check(endpoint_security_level.security_level),
+            ) {
+                log::warn!(target: "citadel", "Refusing a connect signal: {above}");
+                let refusal = PeerSignal::SignalError {
+                    ticket,
+                    error: above_maximum_error(above),
+                    peer_connection_type: peer_conn_type,
+                };
+                return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+            }
             match peer_conn_type {
                 PeerConnectionType::LocalGroupPeer {
                     session_cid,
                     peer_cid: target_cid,
                 } => {
-                    // Server-side pending-connect TTL. The SDK's `connect_to_peer` gives up
-                    // after 60s (RemoteP2pConnectTimeout, remote_ext.rs), so a posting older
-                    // than that can only ever mis-route a future handshake; expire it just
-                    // after the client's own deadline.
-                    const TIMEOUT: Duration = Duration::from_secs(65);
+                    // Server-side pending-connect TTL: just after the dialler's own wait
+                    // (`P2P_CONNECT_TIMEOUT`), past which a posting can only ever mis-route a
+                    // future handshake.
+                    const TIMEOUT: Duration = citadel_types::proto::timing::POSTING_TTL;
                     if let Some(peer_response) = peer_response {
                         super::server::post_connect::handle_response_phase_post_connect(
                             peer_conn_type,
@@ -1983,7 +1955,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                     //    with no ordering assumption, and a fresh reconnect posting made after
                     //    the route ended stays mergeable (R-DIAL's crossed redials),
                     //  - a receiver's decline (or refusal) consumes the dial it answers, and
-                    //  - the 65s posting TTL.
+                    //  - the posting TTL (`timing::POSTING_TTL`).
                     let mut state_container = inner_mut_state!(session.state_container);
                     state_container.remove_udp_channel(target_cid);
                     // Mark vconn inactive but do NOT remove from HashMap.
@@ -2204,12 +2176,36 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                 }))?;
 
             let peer_cid = peer_connection_type.get_original_target_cid();
+            // Only along the pair's accepted route, as for a key exchange: every refusal a peer
+            // sends answers a dial or an accept, and the accept forged the route.
+            if !admits_key_exchange(
+                &inner_state!(session.state_container).active_virtual_connections,
+                peer_cid,
+            ) {
+                log::warn!(target: "citadel", "Not relaying an error from {authenticated_cid} to {peer_cid}: the pair has no accepted connection");
+                let refusal = unconsented_relay(authenticated_cid, peer_cid, ticket);
+                return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+            }
             // If this was a simultaneous connect, we need to remap the ticket
             let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
             let ticket = peer_layer
                 .take_mapped_ticket(peer_cid, ticket)
                 .unwrap_or(ticket);
             drop(peer_layer);
+            // The refusal names the request it refuses by the receiver's own ticket, so a
+            // crossed dial's refusal ends the receiver's attempt and not only its dial's wait.
+            let signal = match signal {
+                PeerSignal::SignalError {
+                    error,
+                    peer_connection_type,
+                    ..
+                } => PeerSignal::SignalError {
+                    ticket,
+                    error,
+                    peer_connection_type,
+                },
+                other => other,
+            };
 
             let res = inner!(session.session_manager).send_signal_to_peer_direct(
                 peer_cid,
@@ -2269,6 +2265,16 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                 payload,
             };
             let sess_mgr = inner!(session.session_manager);
+            // Only along the pair's accepted route, as for a key exchange (and under the same lock).
+            if !admits_key_exchange(
+                &inner_state!(session.state_container).active_virtual_connections,
+                peer_cid,
+            ) {
+                drop(sess_mgr);
+                log::warn!(target: "citadel", "Not relaying WebRTC signalling from {authenticated_cid} to {peer_cid}: the pair has no accepted connection");
+                let refusal = unconsented_relay(authenticated_cid, peer_cid, ticket);
+                return reply_to_sender(refusal, &sess_ratchet, ticket, timestamp, security_level);
+            }
             let res = sess_mgr.send_signal_to_peer_direct(peer_cid, move |peer_ratchet| {
                 packet_crafter::peer_cmd::craft_peer_signal(
                     peer_ratchet,

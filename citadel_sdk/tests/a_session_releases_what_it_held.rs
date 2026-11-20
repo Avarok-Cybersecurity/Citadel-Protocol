@@ -155,10 +155,11 @@ mod tests {
                         username.as_str(),
                         username.as_str(),
                         password,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .await?;
                 remote
-                    .connect_with_defaults(login())
+                    .connect_with_defaults(login(), CertVerification::SelfSignedAccepted)
                     .await?
                     .disconnect()
                     .await?;
@@ -170,13 +171,18 @@ mod tests {
                 let baseline = released(&remote, &server, None).await?;
 
                 for cycle in 0..CYCLES {
-                    let connection = remote.connect_with_defaults(login()).await?;
+                    let connection = remote
+                        .connect_with_defaults(login(), CertVerification::SelfSignedAccepted)
+                        .await?;
                     connection.disconnect().await?;
                     let refused = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            "not the password",
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(
+                                username.clone(),
+                                "not the password",
+                            ),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await;
                     if refused.is_ok() {
                         return Err(NetworkError::msg(format!(
@@ -184,7 +190,9 @@ mod tests {
                         )));
                     }
 
-                    let cut = remote.connect_with_defaults(login()).await?;
+                    let cut = remote
+                        .connect_with_defaults(login(), CertVerification::SelfSignedAccepted)
+                        .await?;
                     proxy.cut_client_side();
                     until_client_session_ended(&remote).await?;
                     drop(cut);
@@ -196,6 +204,7 @@ mod tests {
                             None,
                             citadel_sdk::prelude::default_session_security_settings(),
                             Default::default(),
+                            CertVerification::SelfSignedAccepted,
                         )
                         .await?
                         .disconnect()
@@ -208,7 +217,9 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
         let result = tokio::time::timeout(Duration::from_secs(180), async move {

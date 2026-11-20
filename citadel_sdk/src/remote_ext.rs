@@ -23,12 +23,13 @@
 //!         "127.0.0.1:25021",
 //!         "John Doe",
 //!         "john.doe",
-//!         "password123"
+//!         "password123",
+//!         CertVerification::Required,
 //!     ).await?;
 //!
 //!     // Connect to a peer
 //!     let auth = AuthenticationRequest::credentialed("john.doe", "password123");
-//!     let conn = remote.connect_with_defaults(auth).await?;
+//!     let conn = remote.connect_with_defaults(auth, CertVerification::Required).await?;
 //!
 //!     // Send a file to a peer
 //!     remote.find_target("john.doe", "peer.name")
@@ -225,12 +226,22 @@ pub struct RegisterSuccess {
 }
 
 /// Waits for the outcome of a registration request.
-async fn await_registration<R: Ratchet, Rem: Remote<R>>(
+async fn await_registration<R: Ratchet, Rem: ProtocolRemoteExt<R>>(
     remote: &Rem,
     register_request: NodeRequest,
 ) -> Result<RegisterSuccess, NetworkError> {
-    let mut subscription = remote.send_callback_subscription(register_request).await?;
+    // As for connect: a caller that stops waiting before the first answer aborts the
+    // registration instead of leaving it holding its provisional slot.
+    let ticket = remote.get_next_ticket();
+    let mut abort = Some(AbortGuard::new(remote.remote_ref().clone(), ticket));
+    let mut subscription = remote
+        .remote_ref()
+        .send_callback_subscription_custom_ticket(register_request, ticket)
+        .await?;
     while let Some(status) = subscription.next().await {
+        if let Some(abort) = abort.take() {
+            abort.disarm();
+        }
         match status.into_result()? {
             NodeResult::RegisterOkay(RegisterOkay {
                 cid,
@@ -288,6 +299,7 @@ async fn registration_credentials<
 pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     /// Registers with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
+    #[allow(clippy::too_many_arguments)]
     async fn register<
         T: std::net::ToSocketAddrs + Send,
         P: Into<String> + Send,
@@ -301,6 +313,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         proposed_password: K,
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         self.register_admitted(
             addr,
@@ -310,6 +323,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             default_security_settings,
             server_password,
             None,
+            cert_verification,
         )
         .await
     }
@@ -332,6 +346,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
         admission: Option<String>,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         let (creds, password) =
             registration_credentials(full_name, username, proposed_password).await?;
@@ -344,6 +359,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             session_password: server_password.unwrap_or_default(),
             endpoint: None,
             password: Some(password),
+            cert_verification,
             admission,
         });
 
@@ -355,6 +371,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     /// which is told apart from the edge's other servers by hostname and path. The account
     /// remembers the URL, so a later [`connect`](Self::connect) with credentials dials it too.
     #[cfg(not(target_family = "wasm"))]
+    #[allow(clippy::too_many_arguments)]
     async fn register_to_endpoint<
         P: Into<String> + Send,
         V: Into<String> + Send,
@@ -367,6 +384,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         proposed_password: K,
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         self.register_to_endpoint_admitted(
             endpoint,
@@ -376,6 +394,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             default_security_settings,
             server_password,
             None,
+            cert_verification,
         )
         .await
     }
@@ -396,6 +415,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
         admission: Option<String>,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         let remote_addr = endpoint.resolve().await?;
         let (creds, password) =
@@ -407,6 +427,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             session_password: server_password.unwrap_or_default(),
             endpoint: Some(endpoint),
             password: Some(password),
+            cert_verification,
             admission,
         });
 
@@ -437,6 +458,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         full_name: P,
         username: V,
         proposed_password: K,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         self.register(
             addr,
@@ -445,12 +467,14 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             proposed_password,
             default_session_security_settings(),
             None,
+            cert_verification,
         )
         .await
     }
 
     /// Connects with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
+    #[allow(clippy::too_many_arguments)]
     async fn connect(
         &self,
         auth: AuthenticationRequest,
@@ -459,6 +483,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         keep_alive_timeout: Option<Duration>,
         session_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
+        cert_verification: CertVerification,
     ) -> Result<CitadelClientServerConnection<R>, NetworkError> {
         let connect_request = NodeRequest::ConnectToHypernode(ConnectToHypernode {
             auth_request: auth,
@@ -467,13 +492,22 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             keep_alive_timeout: keep_alive_timeout.map(|r| r.as_secs()),
             session_security_settings,
             session_password: server_password.unwrap_or_default(),
+            cert_verification,
         });
 
-        let mut subscription = self.send_callback_subscription(connect_request).await?;
+        // Armed before the request is sent: a caller that stops waiting at any point after
+        // this (a timeout, a sign-out) aborts the connect instead of leaving it to run.
+        let ticket = self.get_next_ticket();
+        let abort = AbortGuard::new(self.remote_ref().clone(), ticket);
+        let mut subscription = self
+            .remote_ref()
+            .send_callback_subscription_custom_ticket(connect_request, ticket)
+            .await?;
         let status = subscription.next().await.ok_or(citadel_io::error!(
             citadel_io::ErrorCode::RemoteKernelStreamDied,
             "connect"
         ))?;
+        abort.disarm();
 
         return match status.into_result()? {
             NodeResult::ConnectSuccess(ConnectSuccess {
@@ -531,6 +565,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     async fn connect_with_defaults(
         &self,
         auth: AuthenticationRequest,
+        cert_verification: CertVerification,
     ) -> Result<CitadelClientServerConnection<R>, NetworkError> {
         self.connect(
             auth,
@@ -539,6 +574,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             None,
             default_session_security_settings(),
             Default::default(),
+            cert_verification,
         )
         .await
     }
@@ -548,7 +584,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     /// use citadel_sdk::prelude::*;
     /// # use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     ///
-    /// let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password").build().unwrap();
+    /// let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password", CertVerification::Required).build().unwrap();
     ///
     /// # SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
     /// conn.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await
@@ -925,17 +961,37 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
     }
 
     /// Pulls a virtual file from the RE-VFS. If `delete_on_pull` is true, then, the virtual file
-    /// will be taken from the RE-VFS
+    /// will be taken from the RE-VFS. An object stored before account keys is sealed again under
+    /// the account's key as it is read (see [`Self::remote_encrypted_virtual_filesystem_pull_resealing`]).
     async fn remote_encrypted_virtual_filesystem_pull<P: Into<PathBuf> + Send>(
         &self,
         virtual_directory: P,
         transfer_security_level: SecurityLevel,
         delete_on_pull: bool,
     ) -> Result<PathBuf, NetworkError> {
+        self.remote_encrypted_virtual_filesystem_pull_resealing(
+            virtual_directory,
+            transfer_security_level,
+            delete_on_pull,
+        )
+        .await
+        .map(|pulled| pulled.path)
+    }
+
+    /// Pulls a virtual file, and says whether it was sealed again. An object stored before
+    /// account keys (under a key its server also holds) is pushed back to the same path, sealed
+    /// under the account's key, once it has been read; a taken object is not.
+    async fn remote_encrypted_virtual_filesystem_pull_resealing<P: Into<PathBuf> + Send>(
+        &self,
+        virtual_directory: P,
+        transfer_security_level: SecurityLevel,
+        delete_on_pull: bool,
+    ) -> Result<crate::fs::RevfsPull, NetworkError> {
         self.can_use_revfs()?;
+        let virtual_dir = virtual_directory.into();
         let request = NodeRequest::PullObject(PullObject {
             v_conn: *self.user(),
-            virtual_dir: virtual_directory.into(),
+            virtual_dir: virtual_dir.clone(),
             delete_on_pull,
             transfer_security_level,
         });
@@ -945,12 +1001,30 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         while let Some(event) = stream.next().await {
             match event.into_result()? {
                 NodeResult::ObjectTransferHandle(ObjectTransferHandle { mut handle, .. }) => {
-                    return handle.receive_file().await.map_err(|err| {
+                    let path = handle.receive_file().await.map_err(|err| {
                         citadel_io::error!(
                             citadel_io::ErrorCode::RemoteFileTransferFailed,
                             err.into_string()
                         )
-                    });
+                    })?;
+                    let legacy_level = handle.legacy_seal_received().filter(|_| !delete_on_pull);
+                    // Sealing again re-reads the pulled object from the local filesystem; a build
+                    // without one returns the object as stored, and says it was not resealed.
+                    #[cfg(feature = "filesystem")]
+                    if let Some(level) = legacy_level {
+                        self.remote_encrypted_virtual_filesystem_push(
+                            path.clone(),
+                            virtual_dir,
+                            level,
+                        )
+                        .await?;
+                    }
+                    #[cfg(not(feature = "filesystem"))]
+                    if let Some(level) = legacy_level {
+                        log::warn!(target: "citadel", "RE-VFS object {virtual_dir:?} is sealed under a key its server holds (level {level:?}); without a filesystem it is not sealed again");
+                    }
+                    let resealed = cfg!(feature = "filesystem") && legacy_level.is_some();
+                    return Ok(crate::fs::RevfsPull { path, resealed });
                 }
 
                 NodeResult::PeerEvent(PeerEvent {
@@ -1034,14 +1108,12 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         udp_mode: UdpMode,
         peer_session_password: Option<PreSharedKey>,
     ) -> Result<PeerConnectSuccess<R>, NetworkError> {
-        use std::time::Duration;
-
         // Bounds the wait for the peer to accept and for the key exchange to finish: the
         // channel is delivered as soon as it works over the server relay, so NAT traversal is no
         // longer inside this wait (it runs in the background; see `PeerChannel::ensure_direct`).
         // What remains is the peer's answer — it has to be online and accept — plus two relayed
         // key-exchange round trips; this prevents an indefinite hang when neither arrives.
-        const P2P_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+        use citadel_types::proto::timing::P2P_CONNECT_TIMEOUT;
 
         let session_cid = self.user().get_session_cid();
         let peer_target = self.try_as_peer_connection().await?;
@@ -1870,12 +1942,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_session_security_settings(session_security_settings)
-                .disable_udp()
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_session_security_settings(session_security_settings)
+        .disable_udp()
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -1896,7 +1971,9 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
 

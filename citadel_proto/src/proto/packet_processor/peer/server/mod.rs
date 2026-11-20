@@ -27,4 +27,5 @@
 
 pub mod post_connect;
 pub mod post_register;
+pub(crate) mod relay_consent;
 pub(crate) mod sender_binding;

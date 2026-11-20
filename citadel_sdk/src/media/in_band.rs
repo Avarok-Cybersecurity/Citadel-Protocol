@@ -82,6 +82,7 @@ pub(super) async fn agree<R: Ratchet>(
         peer: cids.1,
         initial: lowest,
         minimum: lowest,
+        bound: (),
         support: PeerSupport::InBand,
         policy: cfg.negotiation,
     })

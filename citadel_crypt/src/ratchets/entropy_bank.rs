@@ -336,7 +336,7 @@ impl EntropyBank {
 
     /// Deserializes self from a set of bytes
     pub fn deserialize_from<T: AsRef<[u8]>>(entropy_bank: T) -> Result<Self, CryptError> {
-        bincode::deserialize(entropy_bank.as_ref())
+        citadel_io::decode::deserialize(entropy_bank.as_ref())
             .map_err(|err| CryptError::rekey_update(err.to_string()))
     }
 }

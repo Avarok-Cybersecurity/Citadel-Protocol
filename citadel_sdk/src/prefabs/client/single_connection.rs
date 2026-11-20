@@ -19,7 +19,7 @@
 //!
 //! # fn main() -> Result<(), NetworkError> {
 //! async fn connect_to_server() -> Result<(), NetworkError> {
-//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021", CertVerification::Required)
 //!         .with_udp_mode(UdpMode::Enabled)
 //!         .build()?;
 //!
@@ -81,6 +81,7 @@ pub struct SingleClientServerConnectionKernel<F, Fut, R: Ratchet> {
     claims: Mutex<Option<Claims<R>>>,
     remote: Option<NodeRemote<R>>,
     server_password: Option<PreSharedKey>,
+    cert_verification: CertVerification,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> Fut>,
 }
@@ -116,6 +117,7 @@ where
         let (udp_mode, session_security_settings) =
             (settings.udp_mode(), settings.session_security_settings());
         let server_password = settings.pre_shared_key().cloned();
+        let cert_verification = settings.cert_verification();
         let (unprocessed_signals, signals_claim) = inbox();
         let (incoming_file_transfers, file_transfers_claim) = inbox();
 
@@ -156,6 +158,7 @@ where
             incoming_file_transfers,
             claims: Mutex::new(Some((signals_claim, file_transfers_claim))),
             server_password,
+            cert_verification,
             remote: None,
             _pd: Default::default(),
         }
@@ -209,6 +212,7 @@ where
                             password.clone(),
                             self.session_security_settings,
                             self.server_password.clone(),
+                            self.cert_verification,
                         )
                         .await?;
                 }
@@ -233,6 +237,7 @@ where
                 None,
                 self.session_security_settings,
                 self.server_password.clone(),
+                self.cert_verification,
             )
             .await?;
 
@@ -323,19 +328,9 @@ mod tests {
         TestBarrier::setup(2);
 
         // Skip TLS tests on Windows since self-signed certs may not work
-        // Skip QUIC tests on Windows since socket binding often fails with error 10013
-        if cfg!(windows) {
-            match &underlying_protocol {
-                ServerMode::OrderedReliableSecure(..) => {
-                    citadel_logging::warn!(target: "citadel", "Skipping TLS test on Windows - self-signed certs may not work");
-                    return;
-                }
-                ServerMode::P2P(..) => {
-                    citadel_logging::warn!(target: "citadel", "Skipping QUIC test on Windows - socket binding may fail with error 10013");
-                    return;
-                }
-                _ => {}
-            }
+        if cfg!(windows) && matches!(underlying_protocol, ServerMode::OrderedReliableSecure(..)) {
+            citadel_logging::warn!(target: "citadel", "Skipping TLS test on Windows - self-signed certs may not work");
+            return;
         }
 
         let client_success = &AtomicBool::new(false);
@@ -355,6 +350,7 @@ mod tests {
             "nologik",
             "Some Alias",
             "password",
+            CertVerification::SelfSignedAccepted,
         )
         .with_udp_mode(udp_mode)
         .build()
@@ -372,13 +368,15 @@ mod tests {
             });
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -425,14 +423,18 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let mut server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .with_session_security_settings(
-                    SessionSecuritySettingsBuilder::default()
-                        .with_header_obfuscator_settings(header_obfuscator_settings)
-                        .build()
-                        .unwrap(),
-                );
+            DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuid,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(udp_mode)
+            .with_session_security_settings(
+                SessionSecuritySettingsBuilder::default()
+                    .with_header_obfuscator_settings(header_obfuscator_settings)
+                    .build()
+                    .unwrap(),
+            );
 
         if let Some(server_password) = server_password {
             server_connection_settings =
@@ -459,13 +461,15 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -493,12 +497,15 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .with_session_password("wrong-password")
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(udp_mode)
+        .with_session_password("wrong-password")
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -506,7 +513,9 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
 
@@ -547,11 +556,14 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(udp_mode)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -568,13 +580,15 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -600,11 +614,14 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(udp_mode)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -654,13 +671,15 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -686,11 +705,14 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(udp_mode)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -712,12 +734,14 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));

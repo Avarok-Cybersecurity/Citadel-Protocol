@@ -103,11 +103,14 @@ mod imp {
                 .ensure_registered()
                 .with_udp_mode(UdpMode::Disabled)
                 .add();
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuids[me])
-                    .with_udp_mode(UdpMode::Disabled)
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuids[me],
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Disabled)
+            .build()
+            .unwrap();
             let (connected, done, received) = (connected.clone(), done.clone(), received.clone());
             let kernel =
                 PeerConnectionKernel::new(settings, agg, move |mut rx, remote| async move {
@@ -140,7 +143,11 @@ mod imp {
                 });
             clients.push(tokio::task::spawn(
                 DefaultNodeBuilder::default()
+                    .with_link_manager(LinkManagerMode::Legacy)
                     .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                    .with_max_security_level(
+                        citadel_sdk::test_common::localhost_max_security_level(),
+                    )
                     .build(kernel)
                     .unwrap(),
             ));

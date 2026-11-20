@@ -75,10 +75,10 @@ pub async fn login(
     password: &str,
 ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
     remote
-        .connect_with_defaults(AuthenticationRequest::credentialed(
-            user.to_string(),
-            password,
-        ))
+        .connect_with_defaults(
+            AuthenticationRequest::credentialed(user.to_string(), password),
+            CertVerification::SelfSignedAccepted,
+        )
         .await
 }
 
@@ -97,6 +97,7 @@ pub async fn register_legacy(
         session_password: Default::default(),
         endpoint: None,
         password: None,
+        cert_verification: CertVerification::SelfSignedAccepted,
         admission: None,
     });
     let mut results = remote.send_callback_subscription(request).await?;
@@ -141,7 +142,9 @@ where
     Fut: std::future::Future<Output = Result<(), NetworkError>> + Send + 'static,
 {
     let client = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .build(GroupTestKernel::new(client))
         .unwrap();
     tokio::select! {

@@ -20,7 +20,7 @@
 //!
 //! # fn main() -> Result<(), NetworkError> {
 //! // Create transient connection settings
-//! let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//! let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021", CertVerification::Required)
 //!     .with_udp_mode(UdpMode::Enabled)
 //!     .build()?;
 //! # Ok(())
@@ -122,6 +122,7 @@ pub struct ServerConnectionSettingsBuilder<R: Ratchet, T: ToSocketAddrs> {
     session_security_settings: Option<SessionSecuritySettings>,
     transient_uuid: Option<Uuid>,
     is_connect: bool,
+    cert_verification: CertVerification,
     _ratchet: PhantomData<R>,
 }
 
@@ -129,7 +130,7 @@ pub type DefaultServerConnectionSettingsBuilder<T> =
     ServerConnectionSettingsBuilder<StackedRatchet, T>;
 
 impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
-    fn base(addr: T) -> Self {
+    fn base(addr: T, cert_verification: CertVerification) -> Self {
         Self {
             password: None,
             username: None,
@@ -140,6 +141,7 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
             transient_uuid: None,
             address: Some(addr),
             is_connect: false,
+            cert_verification,
             _ratchet: PhantomData,
         }
     }
@@ -147,15 +149,22 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
     /// Creates a new connection to a central server that does not persist client metadata and account information
     /// after the connection is dropped to the server. This is ideal for applications that do not require
     /// persistence.
-    pub fn transient(addr: T) -> Self {
-        Self::transient_with_id(addr, Uuid::new_v4())
+    ///
+    /// Every constructor takes `cert_verification`: what this connection demands of the server's
+    /// certificate. There is no default.
+    pub fn transient(addr: T, cert_verification: CertVerification) -> Self {
+        Self::transient_with_id(addr, Uuid::new_v4(), cert_verification)
     }
 
     /// See docs for `transient`. This function allows you to specify a custom UUID for the transient connection.
-    pub fn transient_with_id(addr: T, id: impl Into<Uuid>) -> Self {
+    pub fn transient_with_id(
+        addr: T,
+        id: impl Into<Uuid>,
+        cert_verification: CertVerification,
+    ) -> Self {
         Self {
             transient_uuid: Some(id.into()),
-            ..Self::base(addr)
+            ..Self::base(addr, cert_verification)
         }
     }
 
@@ -166,12 +175,13 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
         username: U,
         alias: N,
         password: P,
+        cert_verification: CertVerification,
     ) -> Self {
         Self {
             password: Some(password.into()),
             username: Some(username.into()),
             name: Some(alias.into()),
-            ..Self::base(addr)
+            ..Self::base(addr, cert_verification)
         }
     }
 
@@ -180,12 +190,13 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
         addr: T,
         username: U,
         password: P,
+        cert_verification: CertVerification,
     ) -> Self {
         Self {
             password: Some(password.into()),
             username: Some(username.into()),
             is_connect: true,
-            ..Self::base(addr)
+            ..Self::base(addr, cert_verification)
         }
     }
 
@@ -242,6 +253,7 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
                     .session_security_settings
                     .unwrap_or_else(default_session_security_settings),
                 pre_shared_key: self.psk,
+                cert_verification: self.cert_verification,
                 _ratchet: PhantomData,
             })
         } else if self.is_connect {
@@ -257,6 +269,7 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
                     .session_security_settings
                     .unwrap_or_else(default_session_security_settings),
                 pre_shared_key: self.psk,
+                cert_verification: self.cert_verification,
                 _ratchet: PhantomData,
             })
         } else {
@@ -277,6 +290,7 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
                 session_security_settings: self
                     .session_security_settings
                     .unwrap_or_else(default_session_security_settings),
+                cert_verification: self.cert_verification,
                 _ratchet: PhantomData,
             })
         }
@@ -291,6 +305,7 @@ pub enum ServerConnectionSettings<R: Ratchet> {
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         pre_shared_key: Option<PreSharedKey>,
+        cert_verification: CertVerification,
         _ratchet: PhantomData<R>,
     },
     CredentialedConnect {
@@ -299,6 +314,7 @@ pub enum ServerConnectionSettings<R: Ratchet> {
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
         pre_shared_key: Option<PreSharedKey>,
+        cert_verification: CertVerification,
         _ratchet: PhantomData<R>,
     },
     CredentialedRegister {
@@ -309,6 +325,7 @@ pub enum ServerConnectionSettings<R: Ratchet> {
         pre_shared_key: Option<PreSharedKey>,
         udp_mode: UdpMode,
         session_security_settings: SessionSecuritySettings,
+        cert_verification: CertVerification,
         _ratchet: PhantomData<R>,
     },
 }
@@ -336,6 +353,20 @@ impl<R: Ratchet> ServerConnectionSettings<R> {
                 session_security_settings,
                 ..
             } => *session_security_settings,
+        }
+    }
+
+    pub(crate) fn cert_verification(&self) -> CertVerification {
+        match self {
+            Self::Transient {
+                cert_verification, ..
+            }
+            | Self::CredentialedRegister {
+                cert_verification, ..
+            }
+            | Self::CredentialedConnect {
+                cert_verification, ..
+            } => *cert_verification,
         }
     }
 

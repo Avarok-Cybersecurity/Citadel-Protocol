@@ -53,10 +53,13 @@ mod tests {
         TestBarrier::setup(1);
         let (server, server_addr) = server_info::<StackedRatchet>();
         let owner = Uuid::new_v4();
-        let settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, owner)
-                .build()
-                .unwrap();
+        let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            owner,
+            CertVerification::SelfSignedAccepted,
+        )
+        .build()
+        .unwrap();
         let kernel = BroadcastKernel::<_, _, StackedRatchet>::new(
             settings,
             GroupInitRequestType::Create {
@@ -71,7 +74,9 @@ mod tests {
             },
         );
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(EndsAfterStart {
                 inner: kernel,
                 remote: None,

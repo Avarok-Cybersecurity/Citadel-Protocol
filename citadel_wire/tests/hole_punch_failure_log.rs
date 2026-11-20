@@ -7,8 +7,9 @@
 //! Its own test binary, so this is the only test in the process: the backtrace
 //! setting is read once per process, on the first capture.
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use citadel_io::tokio;
+use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use citadel_wire::udp_traversal::udp_hole_puncher::{
     PunchBudget, UdpHolePuncher, HOLE_PUNCH_CONTROL, PAIRED_ATTEMPTS_HELLO,
 };
@@ -188,7 +189,8 @@ async fn a_failed_punch_is_reported_without_a_backtrace() {
     .unwrap();
     let punch = UdpHolePuncher::new(
         &local,
-        Default::default(),
+        // An identity cipher (rationale: these tests read the punch, not its sealing).
+        HolePunchConfigContainer::new(|p| BytesMut::from(p), |p| Some(BytesMut::from(p))),
         stun,
         PunchBudget::per_attempt(Duration::from_secs(20)),
     );

@@ -37,9 +37,13 @@ mod tests {
         let group_id = Uuid::new_v4();
 
         let owner_kernel = SingleClientServerConnectionKernel::new(
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, owner_uuid)
-                .build()
-                .unwrap(),
+            DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                owner_uuid,
+                CertVerification::SelfSignedAccepted,
+            )
+            .build()
+            .unwrap(),
             move |connection| async move {
                 let mut signals = connection
                     .remote
@@ -80,9 +84,13 @@ mod tests {
         );
 
         let joiner_kernel = BroadcastKernel::new(
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, joiner_uuid)
-                .build()
-                .unwrap(),
+            DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                joiner_uuid,
+                CertVerification::SelfSignedAccepted,
+            )
+            .build()
+            .unwrap(),
             GroupInitRequestType::Join {
                 local_user: UserIdentifier::from(joiner_uuid),
                 owner: owner_uuid.into(),
@@ -98,11 +106,15 @@ mod tests {
         );
 
         let owner = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(owner_kernel)
             .unwrap();
         let joiner = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(joiner_kernel)
             .unwrap();
 

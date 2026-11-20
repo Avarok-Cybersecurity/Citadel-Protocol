@@ -8,9 +8,11 @@
 //! per-attempt timeout is an hour, so a fall-back that waited on any attempt
 //! timer would trip the hang guard instead. Outcomes only, no latency.
 
+use bytes::BytesMut;
 use citadel_io::tokio;
 use citadel_wire::nat_identification::NatType;
 use citadel_wire::stun_servers::StunServers;
+use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
 use citadel_wire::udp_traversal::udp_hole_puncher::{
     PunchBudget, UdpHolePuncher, HOLE_PUNCH_CONTROL,
 };
@@ -44,7 +46,8 @@ async fn a_peer_on_the_unpaired_protocol_is_refused_without_waiting_on_a_timer()
     let stun = StunServers::new(["127.0.0.1:3478", "127.0.0.1:3479", "127.0.0.1:3480"]).unwrap();
     let punch = UdpHolePuncher::new(
         &local,
-        Default::default(),
+        // An identity cipher (rationale: these tests read the punch, not its sealing).
+        HolePunchConfigContainer::new(|p| BytesMut::from(p), |p| Some(BytesMut::from(p))),
         stun,
         PunchBudget::per_attempt(ATTEMPT_TIMEOUT),
     );

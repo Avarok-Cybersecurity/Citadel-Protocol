@@ -23,7 +23,13 @@ mod tests {
         let user = username("pqsql");
         run(server, move |remote, _| async move {
             let _ = remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             let mode = server_mode(&slot, &user).await;
             assert!(mode.post_quantum && !mode.argon, "registered as {mode:?}");

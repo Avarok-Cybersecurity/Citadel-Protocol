@@ -49,6 +49,7 @@ mod tests {
                 username.as_str(),
                 username.as_str(),
                 password,
+                CertVerification::SelfSignedAccepted,
             )
             .with_udp_mode(UdpMode::Disabled)
             .build()
@@ -90,7 +91,9 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
 

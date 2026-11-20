@@ -101,13 +101,14 @@ mod tests {
                         username.as_str(),
                         username.as_str(),
                         password,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .await?;
                 let first = remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(
-                        username.clone(),
-                        password,
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username.clone(), password),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 let cid = first.cid;
                 // Let the keep-alive exchange start, so a handler is in flight on the server.
@@ -118,10 +119,10 @@ mod tests {
                 loop {
                     citadel_io::tokio::time::sleep(Duration::from_secs(1)).await;
                     let last_error = match remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await
                     {
                         Ok(again) => {
@@ -140,7 +141,9 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
         let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), async move {

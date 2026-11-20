@@ -157,6 +157,8 @@ mod outbound_transfer;
 pub(crate) mod peer_keys;
 mod rekey_and_groups;
 pub(crate) mod relay_route;
+mod revfs_open;
+mod stale_token;
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod test_support;
 mod transfer_error;
@@ -167,6 +169,8 @@ pub(crate) use virtual_connections::RouteEnd;
 
 /// For keeping track of the stages
 pub struct StateContainerInner<R: Ratchet> {
+    /// Where this node gets each account's RE-VFS key; `None` when the node was given none.
+    pub(crate) revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
     pub(super) pre_connect_state: PreConnectState<R>,
     pub(super) node_remote: NodeRemote<R>,
     /// No hashmap here, since register is only for a single target
@@ -287,6 +291,8 @@ pub(crate) struct InboundFileTransfer {
     /// The header of the packet that completed the object, and the wave count of its group.
     pub reception_complete_tx: citadel_io::tokio::sync::oneshot::Sender<(HdpHeader, u32)>,
     pub local_encryption_level: Option<SecurityLevel>,
+    /// Whether the handle was told this object holds groups sealed before account keys.
+    pub legacy_seal_reported: bool,
 }
 
 #[allow(dead_code)]
@@ -598,8 +604,10 @@ impl<R: Ratchet> StateContainerInner<R> {
         transfer_stats: TransferStats,
         udp_mode: UdpMode,
         ledger: crate::proto::session_ledger::SessionLedger,
+        revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
     ) -> StateContainer<R> {
         let inner = Self {
+            revfs_keys,
             outgoing_peer_connect_attempts: Default::default(),
             peer_closings: Default::default(),
             peer_turn_configs: Default::default(),
@@ -653,5 +661,26 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     pub fn get_session_password(&self, peer_cid: u64) -> Option<&PreSharedKey> {
         self.peer_keys.password(peer_cid)
+    }
+
+    /// The key a transfer is sealed under: none for a plain transfer; for a RE-VFS one, the
+    /// account's key, without which nothing is sent.
+    pub(crate) fn revfs_key_for_transfer(
+        &self,
+        transfer_type: &citadel_types::proto::TransferType,
+        cid: u64,
+    ) -> Result<Option<citadel_crypt::revfs_seal::RevfsKey>, NetworkError> {
+        match transfer_type {
+            citadel_types::proto::TransferType::RemoteEncryptedVirtualFilesystem { .. } => self
+                .revfs_key(cid)
+                .map(Some)
+                .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RevfsKeyMissing, cid)),
+            _ => Ok(None),
+        }
+    }
+
+    /// The account's RE-VFS key, if this node was given a source and it has one for `cid`.
+    pub(crate) fn revfs_key(&self, cid: u64) -> Option<citadel_crypt::revfs_seal::RevfsKey> {
+        self.revfs_keys.as_ref()?.revfs_key(cid)
     }
 }

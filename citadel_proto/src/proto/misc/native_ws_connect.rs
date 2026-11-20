@@ -19,12 +19,18 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 /// negotiation), which is also what the wasm client does. For `wss://` the TLS handshake presents
 /// the URL's host as SNI and verifies the edge's certificate with the node's client config — the
 /// native roots by default, or the accept-any verifier under `insecure_skip_cert_verification`.
-/// There is no downgrade: nothing the server sends can switch verification off.
+/// There is no downgrade: nothing the server sends can switch verification off. A connection that
+/// requires a verified certificate refuses a `ws://` URL, which has no TLS to verify.
 pub async fn c2s_connect_endpoint(
     timeout: Option<Duration>,
     endpoint: &citadel_io::WebSocketEndpoint,
     client_config: &NativeClientConfig,
+    verification: citadel_io::CertVerification,
 ) -> io::Result<GenericNetworkStream> {
+    client_config.admits(verification)?;
+    if verification.is_required() && !endpoint.is_secure() {
+        return Err(super::native_connect::plaintext_refused());
+    }
     citadel_io::time::timeout(
         timeout.unwrap_or(TCP_CONN_TIMEOUT),
         dial_endpoint(endpoint, client_config),
@@ -154,13 +160,16 @@ mod tests {
             let (port, server) = wss_echo_server().await;
             let endpoint =
                 WebSocketEndpoint::parse(&format!("wss://localhost:{port}/acme")).unwrap();
-            let skip_verify = NativeClientConfig::new(Arc::new(
-                citadel_wire::quic::insecure::rustls_client_config(),
-            ));
+            let skip_verify = NativeClientConfig::accepting_any_certificate();
 
-            let mut stream = c2s_connect_endpoint(None, &endpoint, &skip_verify)
-                .await
-                .expect("wss dial with verification skipped");
+            let mut stream = c2s_connect_endpoint(
+                None,
+                &endpoint,
+                &skip_verify,
+                citadel_io::CertVerification::SelfSignedAccepted,
+            )
+            .await
+            .expect("wss dial with verification skipped");
             assert!(matches!(stream, GenericNetworkStream::WebSocket(..)));
             stream.write_all(b"ping").await.unwrap();
             stream.flush().await.unwrap();
@@ -186,7 +195,13 @@ mod tests {
                 citadel_wire::tls::create_rustls_client_config(&native_roots).unwrap(),
             ));
 
-            let refused = c2s_connect_endpoint(None, &endpoint, &verifying).await;
+            let refused = c2s_connect_endpoint(
+                None,
+                &endpoint,
+                &verifying,
+                citadel_io::CertVerification::Required,
+            )
+            .await;
             assert!(
                 refused.is_err(),
                 "a self-signed edge must be refused under the native roots"

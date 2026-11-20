@@ -51,11 +51,14 @@ mod tests {
                 .ensure_registered()
                 .with_udp_mode(UdpMode::Disabled)
                 .with_session_security_settings(asks[me]);
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuids[me])
-                    .with_session_security_settings(asks[me])
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuids[me],
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_session_security_settings(asks[me])
+            .build()
+            .unwrap();
             let seen = seen.clone();
             let kernel = PeerConnectionKernel::new(
                 settings,
@@ -94,6 +97,8 @@ mod tests {
                 },
             );
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
                 .build(kernel)
                 .unwrap();

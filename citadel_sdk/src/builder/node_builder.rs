@@ -10,6 +10,7 @@
 //! - Customizable security settings (TLS, certificates)
 //! - Google services integration (optional)
 //! - STUN servers for NAT traversal: required for every node, with no default list
+//! - The link mode ([`NodeBuilder::with_link_manager`]): required for every node, with no default
 //! - Server authentication via pre-shared keys
 //!
 //! # Example
@@ -20,8 +21,10 @@
 //!
 //! // Create a basic server node
 //! let builder = DefaultNodeBuilder::default()
+//!     .with_link_manager(LinkManagerMode::Legacy)
 //!     .with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()))
 //!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//!     .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme).unwrap())
 //!     .with_backend(BackendType::InMemory);
 //! ```
 //!
@@ -64,8 +67,12 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     turn_servers: Option<Vec<TurnServerConfig>>,
     local_only_server_settings: Option<ServerOnlySessionInitSettings>,
     path_policy: Option<PathPolicy>,
+    server_limits: Option<ServerLimits>,
+    max_security_level: Option<citadel_types::crypto::MaxSecurityLevel>,
+    revfs_keys: Option<citadel_proto::prelude::RevfsKeys>,
     websocket_listener: Option<citadel_io::WebSocketListen>,
     injected_listener: Option<T::Listener>,
+    link_mode: Option<LinkManagerMode>,
     #[cfg(target_family = "wasm")]
     serverless_config: Option<ServerlessConfig>,
     _ratchet: PhantomData<R>,
@@ -93,8 +100,12 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             turn_servers: None,
             local_only_server_settings: None,
             path_policy: None,
+            server_limits: None,
+            max_security_level: None,
+            revfs_keys: None,
             websocket_listener: None,
             injected_listener: None,
+            link_mode: None,
             #[cfg(target_family = "wasm")]
             serverless_config: None,
             _ratchet: Default::default(),
@@ -152,6 +163,8 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         kernel: K,
     ) -> anyhow::Result<NodeFuture<'b, K>> {
         self.check()?;
+        let max_security_level = required_max_security_level(self.max_security_level)?;
+        let revfs_keys = self.revfs_keys.clone();
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let backend_type = match self.backend_type.take() {
             Some(backend_type) => backend_type,
@@ -169,11 +182,15 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         let turn_servers = self.turn_servers.take();
         let underlying_proto = self.underlying_protocol.take();
         let server_only_session_init_settings = server_settings(
-            self.local_only_server_settings.take(),
+            with_limits(
+                self.local_only_server_settings.take(),
+                self.server_limits.take(),
+            ),
             self.path_policy.take(),
         );
         let websocket_listener = self.websocket_listener.take();
         let injected_listener = self.injected_listener.take();
+        let link_mode = required_link_mode(self.link_mode.take())?;
         #[cfg(target_family = "wasm")]
         let serverless_config = self.serverless_config.take();
 
@@ -244,9 +261,12 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                     kernel_executor_settings,
                     stun_servers,
                     turn_servers,
+                    max_security_level,
+                    revfs_keys,
                     server_only_session_init_settings,
                     websocket_listener,
                     pre_built_listener,
+                    link_mode,
                 };
 
                 log::trace!(target: "citadel", "[NodeBuilder] Creating KernelExecutor ...");
@@ -259,10 +279,10 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 
     /// Defines the node type. By default, Peer is used. If a server is desired, a bind address is expected
     /// ```
-    /// use citadel_sdk::prelude::DefaultNodeBuilder;
+    /// use citadel_sdk::prelude::{DefaultNodeBuilder, LinkManagerMode};
     /// use citadel_proto::prelude::NodeType;
     ///
-    /// DefaultNodeBuilder::default().with_node_type(NodeType::server("0.0.0.0:25021").unwrap());
+    /// DefaultNodeBuilder::default().with_link_manager(LinkManagerMode::Legacy).with_node_type(NodeType::server("0.0.0.0:25021").unwrap());
     /// ```
     pub fn with_node_type(&mut self, node_type: NodeType) -> &mut Self {
         self.hypernode_type = Some(node_type);
@@ -436,6 +456,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 
     fn check(&self) -> anyhow::Result<()> {
         check_path_policy(self.hypernode_type.as_ref(), self.path_policy.as_ref())?;
+        check_server_limits(self.hypernode_type.as_ref(), self.server_limits.as_ref())?;
         if self.injected_listener.is_some()
             && !matches!(self.hypernode_type, Some(NodeType::Server(_)))
         {
@@ -460,22 +481,13 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 /// NativeIO-specific builder methods for TLS certificate configuration
 #[cfg(not(target_family = "wasm"))]
 impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
-    /// Wraps a rustls client config, preserving any previously-set `require_cert_verification`
-    /// policy so that the ordering of `with_*_certs` and `with_require_cert_verification` does not
-    /// matter.
+    /// The roots and verifier a connection that requires verification checks a server against
+    /// (each connection chooses, see [`CertVerification`](crate::prelude::CertVerification)).
     fn set_client_rustls_config(
         &mut self,
         config: std::sync::Arc<citadel_proto::re_imports::RustlsClientConfig>,
     ) {
-        let require_cert_verification = self
-            .client_tls_config
-            .as_ref()
-            .map(|cfg| cfg.require_cert_verification)
-            .unwrap_or(false);
-        self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig {
-            config,
-            require_cert_verification,
-        });
+        self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig::new(config));
     }
 
     /// Loads the accepted cert chain stored by the local operating system
@@ -488,29 +500,13 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
         Ok(self)
     }
 
-    /// The client will skip unconditionally server certificate verification
-    /// This is not recommended
+    /// The client takes any server certificate unverified. A connection that requires a verified
+    /// certificate (`CertVerification::Required`) is refused on such a node before it dials,
+    /// with `CertVerificationUnavailable`. This is not recommended
     pub fn with_insecure_skip_cert_verification(&mut self) -> &mut Self {
-        // Explicit opt-out: this clears any require-verification policy by design.
-        self.client_tls_config = Some(citadel_proto::re_imports::NativeClientConfig::new(
-            std::sync::Arc::new(citadel_proto::re_imports::insecure::rustls_client_config()),
-        ));
+        self.client_tls_config =
+            Some(citadel_proto::re_imports::NativeClientConfig::accepting_any_certificate());
         self
-    }
-
-    /// Requires server certificate verification, refusing to fall back to the accept-any-cert path
-    /// even if the peer advertises a self-signed server (i.e. an attacker cannot downgrade the
-    /// transport by flipping the `is_self_signed`/`domain` signal). If no client TLS config has been
-    /// set yet, the OS-native cert roots are loaded first. Order-independent with respect to the
-    /// `with_*_certs` methods.
-    pub async fn with_require_cert_verification(&mut self) -> anyhow::Result<&mut Self> {
-        if self.client_tls_config.is_none() {
-            let _ = self.with_native_certs().await?;
-        }
-        if let Some(cfg) = self.client_tls_config.as_mut() {
-            cfg.require_cert_verification = true;
-        }
-        Ok(self)
     }
 
     /// Loads a custom list of certs into the acceptable certificate list. Connections that present server certificates
@@ -556,6 +552,8 @@ mod tests {
     #[cfg(feature = "google-services")]
     fn okay_config() {
         let _ = DefaultNodeBuilder::default()
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .with_google_realtime_database_config("123", "456")
             .with_google_services_json_path("abc")
             .build(EmptyKernel::default())
@@ -566,6 +564,8 @@ mod tests {
     #[cfg(feature = "google-services")]
     fn bad_config() {
         assert!(DefaultNodeBuilder::default()
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_google_realtime_database_config("123", "456")
             .build(EmptyKernel::default())
             .is_err());
@@ -589,6 +589,7 @@ mod tests {
         backend_type: BackendType,
     ) {
         let mut builder = DefaultNodeBuilder::default();
+        let _ = builder.with_link_manager(crate::prelude::LinkManagerMode::Legacy);
         let _ = builder
             .with_underlying_protocol(underlying_protocol.clone())
             .with_backend(backend_type.clone())
@@ -596,12 +597,15 @@ mod tests {
             .with_kernel_executor_settings(kernel_settings.clone())
             .with_insecure_skip_cert_verification()
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_native_certs()
             .await
             .unwrap();
 
         if node_type.is_server() {
-            let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
+            let _ = builder
+                .with_path_policy(crate::test_common::localhost_path_policy())
+                .with_server_limits(crate::test_common::localhost_server_limits());
         }
         assert!(builder.underlying_protocol.is_some());
         assert_eq!(backend_type, builder.backend_type.clone().unwrap());
@@ -619,6 +623,22 @@ mod tests {
 #[path = "node_builder_stun_tests.rs"]
 mod stun_tests;
 
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "node_builder_link_manager_tests.rs"]
+mod link_manager_tests;
+
 #[path = "node_builder_path_policy.rs"]
 mod path_policy;
+#[path = "node_builder_server_limits.rs"]
+mod server_limits;
 use path_policy::{check_path_policy, server_settings};
+use server_limits::{check_server_limits, with_limits};
+
+#[path = "node_builder_level_cap.rs"]
+mod level_cap;
+#[path = "node_builder_revfs.rs"]
+mod revfs;
+use level_cap::required_max_security_level;
+#[path = "node_builder_link_mode.rs"]
+mod link_mode;
+use link_mode::required_link_mode;

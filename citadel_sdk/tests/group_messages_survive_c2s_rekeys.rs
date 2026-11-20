@@ -53,6 +53,7 @@ mod tests {
                 PASSWORD,
                 default_session_security_settings(),
                 None,
+                CertVerification::SelfSignedAccepted,
             )
             .await?;
         let conn = connect(remote, me).await?;
@@ -151,11 +152,15 @@ mod tests {
         };
 
         let owner = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(owner)
             .unwrap();
         let member = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(member)
             .unwrap();
         let clients = async move { futures::future::try_join(owner, member).await };

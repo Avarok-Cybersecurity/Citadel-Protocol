@@ -157,7 +157,7 @@ enum EarlierProposal {
 fn key_packages_and_additions_keep_the_layout_earlier_releases_read() {
     let current = KeyPackage::generate(7, &[7u8; 32]).unwrap();
     let bytes = bincode::serialize(&current).unwrap();
-    let read_by_earlier: EarlierKeyPackage = bincode::deserialize(&bytes).unwrap();
+    let read_by_earlier: EarlierKeyPackage = citadel_io::decode::deserialize(&bytes).unwrap();
     assert_eq!(
         read_by_earlier.leaf, current.leaf,
         "an earlier owner reads the round-3 leaf"
@@ -167,7 +167,7 @@ fn key_packages_and_additions_keep_the_layout_earlier_releases_read() {
         leaf: current.leaf.clone(),
     })
     .unwrap();
-    let read: KeyPackage = bincode::deserialize(&from_earlier).unwrap();
+    let read: KeyPackage = citadel_io::decode::deserialize(&from_earlier).unwrap();
     assert_eq!(read.current_kem_public, None);
     assert_eq!(read.leaf_to_insert(), current.leaf);
 

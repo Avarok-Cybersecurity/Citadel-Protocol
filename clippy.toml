@@ -1,0 +1,15 @@
+# Bytes this node did not produce are decoded through `citadel_io::decode`, whose bound stops a
+# length prefix that claims more than the input holds. The free functions have no such bound.
+disallowed-methods = [
+    { path = "bincode::deserialize", reason = "use citadel_io::decode::deserialize (bounded by the input length)" },
+    { path = "bincode::deserialize_from", reason = "use citadel_io::decode::deserialize_from (bounded by the input length)" },
+    { path = "bincode::deserialize_in_place", reason = "no input length to bound it by; decode with citadel_io::decode" },
+    { path = "bincode::deserialize_from_custom", reason = "use citadel_io::decode (bounded by the input length)" },
+    # A length-delimited reader reserves a frame's declared length as soon as it reads the
+    # prefix. Received frames are read with citadel_proto's primary_stream_reader, which grows
+    # its buffer with the bytes that arrive.
+    { path = "tokio_util::codec::length_delimited::LengthDelimitedCodec::new", reason = "read frames with primary_stream_reader (misc::primary_frame); write with LengthDelimitedCodec::builder().new_write" },
+    { path = "tokio_util::codec::length_delimited::Builder::new_codec", reason = "read frames with primary_stream_reader (misc::primary_frame)" },
+    { path = "tokio_util::codec::length_delimited::Builder::new_read", reason = "read frames with primary_stream_reader (misc::primary_frame)" },
+    { path = "tokio_util::codec::length_delimited::Builder::new_framed", reason = "read frames with primary_stream_reader (misc::primary_frame)" },
+]

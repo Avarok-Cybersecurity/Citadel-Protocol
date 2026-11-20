@@ -66,6 +66,7 @@ mod tests {
                                 "password123",
                                 citadel_sdk::prelude::default_session_security_settings(),
                                 None,
+                                CertVerification::SelfSignedAccepted,
                             )
                             .await?;
                     }
@@ -76,15 +77,16 @@ mod tests {
                                 username.as_str(),
                                 username.as_str(),
                                 "password123",
+                                CertVerification::SelfSignedAccepted,
                             )
                             .await?;
                     }
                 }
                 let mut conn = remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(
-                        username.clone(),
-                        "password123",
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username.clone(), "password123"),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 probes_answer(&remote, conn.cid).await;
                 echo_once(&mut conn).await;
@@ -92,7 +94,9 @@ mod tests {
             },
         );
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .with_backend(BackendType::InMemory)
             .build(client_kernel)
             .unwrap();

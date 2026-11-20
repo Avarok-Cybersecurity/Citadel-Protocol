@@ -30,7 +30,11 @@
 //!     // Create socket and config
 //!     let socket = UdpSocket::bind("0.0.0.0:0").await?;
 //!     let target_addr = "127.0.0.1:8080".parse::<SocketAddr>().unwrap();
-//!     let config = HolePunchConfigContainer::default();
+//!     // An identity cipher, for the example only: production passes the session's AEAD.
+//!     let config = HolePunchConfigContainer::new(
+//!         |p| bytes::BytesMut::from(p),
+//!         |p| Some(bytes::BytesMut::from(p)),
+//!     );
 //!     
 //!     // Create method3 instance
 //!     let method = Method3::new(
@@ -179,24 +183,22 @@ impl Method3 {
 
         let receiver_task = async move {
             // we are only interested in the first receiver to receive a value
-            let timeout = citadel_io::time::timeout(
-                Duration::from_millis(3000),
-                Self::recv_until(
-                    socket_wrapper,
-                    encryptor,
-                    unique_id,
-                    observed_addrs_on_syn,
-                    MILLIS_DELTA,
-                    this_node_type,
-                    packet_send_params,
-                ),
+            let received = Self::recv_until(
+                socket_wrapper,
+                encryptor,
+                unique_id,
+                observed_addrs_on_syn,
+                MILLIS_DELTA,
+                this_node_type,
+                packet_send_params,
             );
-
-            timeout.await.unwrap_or_else(|_| {
-                Err(citadel_io::error!(
-                    citadel_io::ErrorCode::FirewallPenetrationTimeout
-                ))
-            })
+            citadel_io::tokio::select! {
+                biased;
+                received = received => received,
+                _ = super::runnable_window::runnable_window(Duration::from_millis(3000)) => {
+                    Err(citadel_io::error!(citadel_io::ErrorCode::FirewallPenetrationTimeout))
+                }
+            }
         };
 
         let sender_task = async move {
@@ -329,7 +331,7 @@ impl Method3 {
                         }
                     };
 
-                    match bincode::deserialize(&packet)
+                    match citadel_io::decode::deserialize(&packet)
                         .map_err(|err| FirewallError::firewall_hole_punch(err.to_string()))
                     {
                         Ok(NatPacket::Check) => {

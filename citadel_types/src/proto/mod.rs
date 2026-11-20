@@ -20,6 +20,7 @@ mod path_policy;
 mod path_policy_error;
 #[cfg(test)]
 mod path_policy_tests;
+pub mod timing;
 pub use group_limits::{GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal};
 pub use nat_class::{IpTranslationClass, NatClass, PortTranslationClass};
 pub use offer_strength::{falls_short_of, stronger_offer};
@@ -123,7 +124,7 @@ impl VirtualObjectMetadata {
     }
 
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(input: T) -> Option<Self> {
-        bincode::deserialize(input.as_ref()).ok()
+        citadel_io::decode::deserialize(input.as_ref()).ok()
     }
 
     pub fn get_security_level(&self) -> Option<SecurityLevel> {
@@ -157,6 +158,10 @@ pub enum ObjectTransferStatus {
     TransferComplete,
     ReceptionComplete,
     Fail(String),
+    /// A pulled RE-VFS object holds groups sealed before account keys, under a key its server
+    /// also holds, at this level. Sent before `ReceptionComplete`; the object should be sealed
+    /// again.
+    LegacySealReceived(SecurityLevel),
 }
 
 impl ObjectTransferStatus {
@@ -208,6 +213,13 @@ impl std::fmt::Display for ObjectTransferStatus {
 
             ObjectTransferStatus::Fail(reason) => {
                 write!(f, "Failure. Reason: {reason}")
+            }
+
+            ObjectTransferStatus::LegacySealReceived(level) => {
+                write!(
+                    f,
+                    "Object sealed before account keys received (level {level:?})"
+                )
             }
         }
     }
@@ -689,7 +701,7 @@ impl VirtualConnectionType {
 
     /// Deserializes from bytes.
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(this: T) -> Option<Self> {
-        bincode::deserialize(this.as_ref()).ok()
+        citadel_io::decode::deserialize(this.as_ref()).ok()
     }
 
     /// Gets the target CID, agnostic to connection type.

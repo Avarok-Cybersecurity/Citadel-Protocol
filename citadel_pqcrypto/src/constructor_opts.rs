@@ -18,7 +18,7 @@
 //!
 //! ```rust
 //! use citadel_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
-//! use citadel_types::crypto::{CryptoParameters, KemAlgorithm};
+//! use citadel_types::crypto::{check_structural, CryptoParameters, KemAlgorithm};
 //!
 //! // Create initial constructor options
 //! let opts = ConstructorOpts::new_init(CryptoParameters::from(KemAlgorithm::MlKem1024Fips203));
@@ -43,7 +43,7 @@
 //! - [`citadel_pqcrypto::wire`] - Wire protocol for PQC operations
 //! - [`citadel_pqcrypto::key_store`] - Secure key storage functionality
 
-use citadel_types::crypto::CryptoParameters;
+use citadel_types::crypto::{check_structural, CryptoParameters};
 use citadel_types::prelude::SecurityLevel;
 use serde::{Deserialize, Serialize};
 
@@ -55,20 +55,15 @@ pub struct ConstructorOpts {
 }
 
 pub trait ImpliedSecurityLevel {
-    fn implied_security_level(&self) -> SecurityLevel;
+    /// The level a set of layers builds, or `None` for no layers or more than a ratchet can carry.
+    fn implied_security_level(&self) -> Option<SecurityLevel>;
 }
 
 impl ImpliedSecurityLevel for Vec<ConstructorOpts> {
-    fn implied_security_level(&self) -> SecurityLevel {
-        assert!(
-            !self.is_empty(),
-            "Security level cannot be derived from an empty vector"
-        );
-        assert!(
-            self.len() < u8::MAX as usize,
-            "Security level does not fit in u8"
-        );
-        SecurityLevel::from(self.len().saturating_sub(1) as u8)
+    fn implied_security_level(&self) -> Option<SecurityLevel> {
+        let top = u8::try_from(self.len().checked_sub(1)?).ok()?;
+        let level = SecurityLevel::from(top);
+        check_structural(level).ok().map(|_| level)
     }
 }
 

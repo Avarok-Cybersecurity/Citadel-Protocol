@@ -9,6 +9,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use citadel_negotiation::settings::KeyProfile;
 use citadel_negotiation::{ConnectionId, Envelope};
+use citadel_types::crypto::MaxSecurityLevel;
 use std::sync::Arc;
 
 /// One P2P connection's key-epoch surface: its ratchet manager, its message floor and its id.
@@ -17,6 +18,7 @@ pub struct KeyEpochHandle<R: Ratchet> {
     pub(super) manager: ProtocolRatchetManager<R>,
     pub(super) floor: Arc<MessageFloor>,
     pub(super) connection: ConnectionId,
+    pub(super) max_security_level: MaxSecurityLevel,
 }
 
 impl<R: Ratchet> std::fmt::Debug for KeyEpochHandle<R> {
@@ -33,12 +35,20 @@ impl<R: Ratchet> KeyEpochHandle<R> {
         manager: ProtocolRatchetManager<R>,
         floor: Arc<MessageFloor>,
         connection: ConnectionId,
+        max_security_level: MaxSecurityLevel,
     ) -> Self {
         Self {
             manager,
             floor,
             connection,
+            max_security_level,
         }
+    }
+
+    /// The most security layers this node builds: the bound a key-profile negotiator for this
+    /// connection is configured with, and what a steered round is checked against.
+    pub fn max_security_level(&self) -> MaxSecurityLevel {
+        self.max_security_level
     }
 
     pub fn connection_id(&self) -> ConnectionId {

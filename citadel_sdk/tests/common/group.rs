@@ -80,7 +80,13 @@ pub async fn register_connect_and_befriend(
     peer: &str,
 ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
     let reg = remote
-        .register_with_defaults(server_addr, username, username, PASSWORD)
+        .register_with_defaults(
+            server_addr,
+            username,
+            username,
+            PASSWORD,
+            CertVerification::SelfSignedAccepted,
+        )
         .await?;
     let conn = connect(remote, username).await?;
     wait_for_peers().await;
@@ -103,10 +109,10 @@ pub async fn connect(
     username: &str,
 ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
     remote
-        .connect_with_defaults(AuthenticationRequest::credentialed(
-            username.to_string(),
-            PASSWORD,
-        ))
+        .connect_with_defaults(
+            AuthenticationRequest::credentialed(username.to_string(), PASSWORD),
+            CertVerification::SelfSignedAccepted,
+        )
         .await
 }
 

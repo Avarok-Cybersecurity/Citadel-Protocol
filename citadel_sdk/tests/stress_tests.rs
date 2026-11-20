@@ -287,12 +287,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(UdpMode::Enabled)
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -312,7 +315,9 @@ mod tests {
 
         let client = spawner.spawn(
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap(),
         );
@@ -376,10 +381,13 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security);
+        let mut connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(UdpMode::Enabled)
+        .with_session_security_settings(session_security);
 
         if let Some(password) = server_password {
             connection_settings = connection_settings.with_session_password(password);
@@ -405,7 +413,9 @@ mod tests {
 
         let client = spawner.spawn(
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap(),
         );
@@ -504,11 +514,15 @@ mod tests {
         let peer1_connection = peer1_agg.add();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(server_addr, uuid0)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(
+                server_addr,
+                uuid0,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Enabled)
+            .with_session_security_settings(session_security)
+            .build()
+            .unwrap();
 
         let client_kernel0 = PeerConnectionKernel::new(
             server_connection_settings,
@@ -527,11 +541,15 @@ mod tests {
         );
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(server_addr, uuid1)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(
+                server_addr,
+                uuid1,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Enabled)
+            .with_session_security_settings(session_security)
+            .build()
+            .unwrap();
 
         let client_kernel1 = PeerConnectionKernel::new(
             server_connection_settings,
@@ -550,11 +568,15 @@ mod tests {
         );
 
         let client0 = NodeBuilder::<R, NativeIO>::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel0)
             .unwrap();
         let client1 = NodeBuilder::<R, NativeIO>::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel1)
             .unwrap();
         let clients = futures::future::try_join(client0, client1);
@@ -614,9 +636,13 @@ mod tests {
             };
 
             let server_connection_settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .build()
-                    .unwrap();
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    uuid,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap();
 
             let client_kernel = BroadcastKernel::new(
                 server_connection_settings,
@@ -634,7 +660,9 @@ mod tests {
             );
 
             let client = DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
             let task = async move { client.await.map(|_| ()) };

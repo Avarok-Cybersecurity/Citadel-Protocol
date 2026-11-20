@@ -90,6 +90,7 @@ pub async fn register(
             citadel_sdk::prelude::default_session_security_settings(),
             None,
             admission,
+            CertVerification::SelfSignedAccepted,
         )
         .await
 }
@@ -100,6 +101,9 @@ pub async fn sign_in(
     factors: SignInFactors,
 ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
     remote
-        .connect_with_defaults(AuthenticationRequest::sign_in(user.to_string(), factors))
+        .connect_with_defaults(
+            AuthenticationRequest::sign_in(user.to_string(), factors),
+            CertVerification::SelfSignedAccepted,
+        )
         .await
 }

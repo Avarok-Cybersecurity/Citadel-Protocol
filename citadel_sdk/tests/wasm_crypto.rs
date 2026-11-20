@@ -139,7 +139,6 @@ async fn scramble_and_reassemble() {
 
     let params = KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256;
     let (alice, bob) = pair(params);
-    let (aux, _) = pair(params);
     let plaintext: Vec<u8> = (0..200 * 1024).map(|i| (i % 251) as u8).collect();
     let (tx, mut rx) = citadel_io::tokio::sync::mpsc::channel(1);
     let (_stop_tx, stop_rx) = citadel_io::tokio::sync::oneshot::channel();
@@ -151,7 +150,7 @@ async fn scramble_and_reassemble() {
         stop_rx,
         SecurityLevel::Standard,
         alice,
-        aux,
+        None,
         HEADER_LEN,
         bob.get_cid(),
         0,

@@ -68,10 +68,14 @@ pub async fn citadel(p: Params) -> ArmResult {
                 SessionSecuritySettingsBuilder::default().build().unwrap(),
             )
             .add();
-        let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, id)
-            .with_udp_mode(UdpMode::Enabled)
-            .build()
-            .unwrap();
+        let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            id,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(UdpMode::Enabled)
+        .build()
+        .unwrap();
         let (ready, done, sender_done, result) = (
             ready.clone(),
             done.clone(),
@@ -111,7 +115,9 @@ pub async fn citadel(p: Params) -> ArmResult {
         });
         clients.push(tokio::task::spawn(
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(kernel)
                 .unwrap(),
         ));

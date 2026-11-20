@@ -702,6 +702,7 @@ dependencies = [
  "citadel_media",
  "citadel_sdk",
  "futures",
+ "getrandom 0.3.4",
  "tokio",
 ]
 
@@ -719,6 +720,7 @@ dependencies = [
  "bytemuck",
  "byteorder",
  "bytes",
+ "chacha20poly1305",
  "citadel_io",
  "citadel_logging",
  "citadel_negotiation",
@@ -726,6 +728,7 @@ dependencies = [
  "citadel_types",
  "criterion",
  "futures",
+ "hkdf",
  "lazy_static",
  "log",
  "num-integer",
@@ -752,6 +755,7 @@ dependencies = [
 name = "citadel_io"
 version = "0.14.0"
 dependencies = [
+ "bincode",
  "bytes",
  "citadel_io_macros",
  "futures",
@@ -786,6 +790,7 @@ dependencies = [
  "citadel_negotiation",
  "citadel_types",
  "proptest",
+ "serde",
  "strum",
 ]
 
@@ -811,6 +816,7 @@ name = "citadel_negotiation"
 version = "0.14.0"
 dependencies = [
  "bincode",
+ "citadel_io",
  "citadel_negotiation",
  "citadel_types",
  "proptest",
@@ -866,6 +872,7 @@ dependencies = [
  "chrono",
  "citadel_crypt",
  "citadel_io",
+ "citadel_link",
  "citadel_logging",
  "citadel_negotiation",
  "citadel_pqcrypto",

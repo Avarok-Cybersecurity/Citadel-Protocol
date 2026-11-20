@@ -44,7 +44,10 @@ mod tests {
         factors: SignInFactors,
     ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
         remote
-            .connect_with_defaults(AuthenticationRequest::sign_in(user.to_string(), factors))
+            .connect_with_defaults(
+                AuthenticationRequest::sign_in(user.to_string(), factors),
+                CertVerification::SelfSignedAccepted,
+            )
             .await
     }
 
@@ -68,7 +71,13 @@ mod tests {
             let key = SecurityKey::new(Terminal);
             let password = || SignInFactors::password(PASSWORD);
             remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
 
             step("Enrol the key: it is created, then evaluated (PIN once, two touches)");

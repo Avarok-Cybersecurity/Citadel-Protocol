@@ -95,6 +95,7 @@ mod tests {
                             username.as_str(),
                             username.as_str(),
                             password,
+                            CertVerification::SelfSignedAccepted,
                         )
                         .await?;
                     log::info!(target: "citadel", "[Peer A] Registered CID={}", reg.cid);
@@ -102,10 +103,10 @@ mod tests {
 
                     // Connect
                     let conn = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     log::info!(target: "citadel", "[Peer A] C2S Connected");
 
@@ -288,6 +289,7 @@ mod tests {
                             username.as_str(),
                             username.as_str(),
                             password,
+                            CertVerification::SelfSignedAccepted,
                         )
                         .await?;
                     log::info!(target: "citadel", "[Peer B] Registered CID={}", reg.cid);
@@ -295,10 +297,10 @@ mod tests {
 
                     // Connect
                     let conn = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     log::info!(target: "citadel", "[Peer B] C2S Connected");
 
@@ -416,11 +418,15 @@ mod tests {
         );
 
         let client_a = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_a_kernel)
             .unwrap();
         let client_b = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_b_kernel)
             .unwrap();
 

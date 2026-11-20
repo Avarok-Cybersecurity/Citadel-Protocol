@@ -10,7 +10,7 @@ impl<S: Setting> Negotiator<S> {
     pub(super) fn on_request(&mut self, now: Millis, value: S, out: &mut Vec<Command<S>>) {
         let refused = if self.phase != Phase::Idle {
             Some(RejectReason::Busy)
-        } else if !value.is_supported() {
+        } else if !value.is_supported() || value.exceeds(&self.bound) {
             Some(RejectReason::Unsupported)
         } else if is_below(&self.minimum, &value) {
             Some(RejectReason::BelowPolicy)

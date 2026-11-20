@@ -100,17 +100,25 @@ mod tests {
                         && server.session_footprint().sessions == 0
                 };
                 remote
-                    .register_with_defaults(server_addr, &username, &username, password)
+                    .register_with_defaults(
+                        server_addr,
+                        &username,
+                        &username,
+                        password,
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 remote
-                    .connect_with_defaults(login())
+                    .connect_with_defaults(login(), CertVerification::SelfSignedAccepted)
                     .await?
                     .disconnect()
                     .await?;
                 within("the first sessions were not released", nothing_held).await?;
                 let baseline = live_tasks();
 
-                let connection = remote.connect_with_defaults(login()).await?;
+                let connection = remote
+                    .connect_with_defaults(login(), CertVerification::SelfSignedAccepted)
+                    .await?;
                 let sender = connection.remote.clone();
                 let sending = tokio::spawn(async move {
                     let source = BytesSource {
@@ -154,7 +162,9 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
         let result = tokio::time::timeout(Duration::from_secs(120), async move {

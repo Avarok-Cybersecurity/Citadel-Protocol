@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use citadel_io::tokio::io::AsyncRead;
-use citadel_io::{ProtocolUpgrade, ServerMode};
+use citadel_io::{CertVerification, ProtocolUpgrade, ServerMode};
 use citadel_wire::exports::tokio_rustls::rustls::{pki_types, ClientConfig};
 use citadel_wire::quic::{
     QuicClient, QuicEndpointConnector, QuicPath, QuicServer, SELF_SIGNED_DOMAIN,
@@ -28,12 +28,14 @@ use crate::proto::peer::p2p_conn_handler::generic_error;
 ///
 /// 1. Creates a TCP connection to `remote`
 /// 2. Reads the server's [`FirstPacket`] to discover the transport mode
-/// 3. Upgrades to TLS or QUIC as directed by the server
+/// 3. Upgrades to TLS or QUIC as directed by the server, as far as `verification` allows
 pub async fn c2s_connect(
     timeout: Option<Duration>,
     remote: SocketAddr,
     default_client_config: &super::native_io::NativeClientConfig,
+    verification: CertVerification,
 ) -> io::Result<GenericNetworkStream> {
+    default_client_config.admits(verification)?;
     log::trace!(target: "citadel", "C2S connect defaults to {remote:?}");
     let mut stream =
         citadel_wire::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT))
@@ -46,6 +48,11 @@ pub async fn c2s_connect(
     match first_packet {
         FirstPacket::OrderedReliable { external_addr } => {
             log::trace!(target: "citadel", "Host claims OrderedReliable (TCP) DEFAULT CONNECTION. External ADDR: {external_addr:?}");
+            // The offer is unauthenticated: a connection that requires a verified certificate
+            // cannot take plain TCP, whoever offers it.
+            if verification.is_required() {
+                return Err(plaintext_refused());
+            }
             Ok(GenericNetworkStream::OrderedReliable(stream))
         }
 
@@ -57,9 +64,9 @@ pub async fn c2s_connect(
             log::trace!(target: "citadel", "Host claims OrderedReliableSecure (TLS) CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", domain, external_addr, is_self_signed);
 
             // Only fall back to the accept-any-cert connector when the server advertises self-signed
-            // AND the local client policy permits it. Otherwise an active attacker could flip
+            // AND this connection permits it. Otherwise an active attacker could flip
             // `is_self_signed` to force the insecure path even against a CA-backed server.
-            let connector = if is_self_signed && !default_client_config.require_cert_verification {
+            let connector = if is_self_signed && !verification.is_required() {
                 citadel_wire::tls::create_client_dangerous_config()
             } else {
                 client_config_to_tls_connector(default_client_config.config.clone())
@@ -101,10 +108,19 @@ pub async fn c2s_connect(
                 bind_addr,
                 remote,
                 default_client_config,
+                verification,
             )
             .await
         }
     }
+}
+
+/// The refusal a connection that requires a verified certificate gives a server offering no TLS.
+pub(crate) fn plaintext_refused() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        citadel_io::error!(citadel_io::ErrorCode::PlaintextOfferRefused).into_string(),
+    )
 }
 
 /// Read the server's first-packet protocol signal.
@@ -114,7 +130,7 @@ async fn read_first_packet<Read: AsyncRead + Unpin>(
 ) -> io::Result<FirstPacket> {
     let (_stream, ret) = citadel_io::time::timeout(
         timeout.unwrap_or(TCP_CONN_TIMEOUT),
-        super::read_one_packet_as_framed(stream),
+        super::read_one_packet_as_framed(stream, super::MAX_FIRST_PACKET_LEN),
     )
     .await
     .map_err(|err| io::Error::new(io::ErrorKind::TimedOut, err.to_string()))?

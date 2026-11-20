@@ -21,7 +21,13 @@ mod tests {
         let user = username("pq");
         run(server, move |remote, _| async move {
             let _ = remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             let mode = server_mode(&slot, &user).await;
             assert!(mode.post_quantum && !mode.argon, "registered as {mode:?}");
@@ -91,7 +97,13 @@ mod tests {
         let user = username("leg");
         run(server, move |remote, _| async move {
             let _ = remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             assert!(server_mode(&slot, &user).await.argon);
             let conn = login(&remote, &user, PASSWORD).await?;
