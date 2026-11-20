@@ -40,6 +40,10 @@ pub(crate) mod sizes {
 
 /// AES-GCM nonce length used by the KEM-DEM path below.
 const DEM_NONCE_LEN: usize = 12;
+/// AES-GCM tag length the KEM-DEM path appends to the sealed message.
+const DEM_TAG_LEN: usize = 16;
+/// What the KEM-DEM framing adds to a message besides the KEM ciphertext.
+pub const DEM_OVERHEAD: usize = DEM_NONCE_LEN + DEM_TAG_LEN;
 
 // provenance-id: 526f6e616c6420522e205374657369616b
 

@@ -293,8 +293,46 @@ pub mod kyber_module {
         citadel_io::error!(citadel_io::ErrorCode::KeyMaterialMissing, what)
     }
 
+    /// The block the hybrid scheme scrambles in; its symmetric ciphertext is padded to a multiple.
+    const SCRAMBLE_BLOCK_LEN: usize = 32;
     /// The serialized length of the scramble dictionary the hybrid scheme seals with the PKE.
-    const SCRAMBLE_DICT_LEN: usize = 32;
+    const SCRAMBLE_DICT_LEN: usize = SCRAMBLE_BLOCK_LEN;
+    /// Each length the hybrid frame records is a big-endian `u64`.
+    const LENGTH_FIELD_LEN: usize = 8;
+    /// The SHA3-256 checksum over the frame.
+    const CHECKSUM_LEN: usize = 32;
+
+    /// The length [`encrypt_pke`] produces for `plaintext_len` bytes under `kem_alg`.
+    pub fn pke_ciphertext_len(kem_alg: KemAlgorithm, plaintext_len: usize) -> usize {
+        match kem_alg {
+            KemAlgorithm::MlKem => kyber_pke::ct_len(plaintext_len),
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
+                crate::kem_key_check::ciphertext_len(kem_alg)
+                    + crate::libcrux_kem::DEM_OVERHEAD
+                    + plaintext_len
+            }
+        }
+    }
+
+    /// The most a hybrid frame whose symmetric ciphertext is `symmetric_len` bytes can be: that
+    /// ciphertext padded to a scramble block (fewer than [`SCRAMBLE_BLOCK_LEN`] bytes of padding),
+    /// its length, the sealed scramble dictionary and its length, the checksum, and the signature
+    /// and its length. The bound grows one for one with `symmetric_len`, so a caller that sizes
+    /// by its overhead at one length can rely on that overhead at every length.
+    pub fn hybrid_max_ciphertext_len(
+        symmetric_len: usize,
+        kem_alg: KemAlgorithm,
+        sig_alg: SigAlgorithm,
+    ) -> usize {
+        symmetric_len
+            + (SCRAMBLE_BLOCK_LEN - 1)
+            + LENGTH_FIELD_LEN
+            + pke_ciphertext_len(kem_alg, SCRAMBLE_DICT_LEN)
+            + LENGTH_FIELD_LEN
+            + CHECKSUM_LEN
+            + crate::functions::signature_bytes(sig_alg)
+            + LENGTH_FIELD_LEN
+    }
 
     pub fn encrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>, V: AsRef<[u8]>>(
         kem_alg: KemAlgorithm,
@@ -386,7 +424,7 @@ pub mod kyber_module {
         let pre_scramble_len = input.len();
         // scramble the AES GCM encrypted ciphertext
         // use N=32 bytes to ensure that we get only a single output ciphertext block from kyber (~1100 bytes)
-        let scram_crypt_dict = ScramCryptDictionary::<32>::new().unwrap();
+        let scram_crypt_dict = ScramCryptDictionary::<SCRAMBLE_BLOCK_LEN>::new().unwrap();
         scram_crypt_dict.scramble_in_place(input)?;
         // encode the pre-scramble length
         encode_length_be_bytes(pre_scramble_len, input)?;
@@ -416,7 +454,9 @@ pub mod kyber_module {
         ad: &[u8],
         input: &mut dyn Buffer,
     ) -> Result<(), Error> {
-        let (ciphertext, sha_required) = input.as_ref().split_at(input.len().saturating_sub(32));
+        let (ciphertext, sha_required) = input
+            .as_ref()
+            .split_at(input.len().saturating_sub(CHECKSUM_LEN));
         let sha_ciphertext = sha3_256(ciphertext);
         if sha_ciphertext != sha_required {
             return Err(citadel_io::error!(
@@ -426,7 +466,7 @@ pub mod kyber_module {
             ));
         }
 
-        input.truncate(input.len().saturating_sub(32));
+        input.truncate(input.len().saturating_sub(CHECKSUM_LEN));
 
         let encrypted_scramble_dict_len = decode_length(input)?;
         let split_pt = input.len().saturating_sub(encrypted_scramble_dict_len);
@@ -437,7 +477,7 @@ pub mod kyber_module {
             SCRAMBLE_DICT_LEN,
         )?;
         let decrypted_scramble_dict = decrypt_pke(kem_alg, local_sk, encrypted_scramble_dict)?;
-        let scram_crypt_dict: ScramCryptDictionary<32> =
+        let scram_crypt_dict: ScramCryptDictionary<SCRAMBLE_BLOCK_LEN> =
             citadel_io::decode::deserialize(&decrypted_scramble_dict)
                 .map_err(|err| Error::generic(err.to_string()))?;
         // remove the encrypted scramble data from the input buf

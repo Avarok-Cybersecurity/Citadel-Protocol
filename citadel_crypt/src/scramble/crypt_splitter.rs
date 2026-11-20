@@ -54,16 +54,16 @@ pub const MAX_WAVEFORM_PACKET_SIZE: usize = 480;
 pub const AES_GCM_GHASH_OVERHEAD: usize = 16;
 
 /// Returns the max packet size based on security level
-pub fn get_max_packet_size(
-    enx: EncryptionAlgorithm,
-    sig_alg: SigAlgorithm,
-    security_level: SecurityLevel,
-) -> usize {
+pub fn get_max_packet_size(params: CryptoParameters, security_level: SecurityLevel) -> usize {
     const BASE: usize = 2;
     // for now, limit the security level to standard
     let security_exponent =
         std::cmp::min(security_level.value(), SecurityLevel::Standard.value()) as u32;
-    let mut starting_max_packet_size = enx.max_ciphertext_len(MAX_WAVEFORM_PACKET_SIZE, sig_alg);
+    let mut starting_max_packet_size = params.encryption_algorithm.max_ciphertext_len(
+        MAX_WAVEFORM_PACKET_SIZE,
+        params.kem_algorithm,
+        params.sig_algorithm,
+    );
     starting_max_packet_size += 8; // for the overhead from each encryption adding 8 bytes in the nonce tag
     std::cmp::max(
         starting_max_packet_size / (BASE.pow(security_exponent)),
@@ -92,8 +92,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     security_level: SecurityLevel,
     group_id: u64,
     object_id: ObjectId,
-    enx: EncryptionAlgorithm,
-    sig_alg: SigAlgorithm,
+    params: CryptoParameters,
     transfer_type: &TransferType,
     empty_transfer: bool,
 ) -> Result<GroupReceiverConfig, CryptError> {
@@ -103,7 +102,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
         return Err(citadel_io::error!(citadel_io::ErrorCode::EmptyInput));
     }
 
-    let max_packet_payload_size = get_max_packet_size(enx, sig_alg, security_level);
+    let max_packet_payload_size = get_max_packet_size(params, security_level);
     let overhead = max_packet_payload_size - MAX_WAVEFORM_PACKET_SIZE;
     let max_packets_per_wave = msg_entropy_bank.get_multiport_width();
     //let aes_gcm_overhead = get_aes_gcm_overhead();
@@ -135,7 +134,11 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     // calculate buffer of last wave. In the case of plain_text.len() == max_plaintext_bytes, we have 1 wave.
     let ciphertext_len_last_wave = if number_of_partial_waves != 0 {
         //calculate_aes_gcm_output_length(bytes_in_last_wave)
-        8 + enx.max_ciphertext_len(bytes_in_last_wave, sig_alg)
+        8 + params.encryption_algorithm.max_ciphertext_len(
+            bytes_in_last_wave,
+            params.kem_algorithm,
+            params.sig_algorithm,
+        )
     } else {
         // this will ensure that the calculation below is adjusted for the equals case
         // Also, adjust the bytes in the last wave. Since there is no partial wave, but n full waves, the last
@@ -191,8 +194,7 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
         security_level,
         group_id,
         object_id,
-        msg_pqc.params.encryption_algorithm,
-        msg_pqc.params.sig_algorithm,
+        msg_pqc.params,
         transfer_type,
         empty_transfer,
     )?;
@@ -500,7 +502,7 @@ pub struct GroupReceiver {
 use crate::secure_buffer::sec_packet::SecureMessagePacket;
 use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
 use citadel_types::crypto::SecurityLevel;
-use citadel_types::crypto::{EncryptionAlgorithm, SigAlgorithm};
+use citadel_types::crypto::{CryptoParameters, EncryptionAlgorithm};
 use citadel_types::proto::TransferType;
 use serde::{Deserialize, Serialize};
 

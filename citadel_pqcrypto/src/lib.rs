@@ -1289,7 +1289,18 @@ impl Debug for PostQuantumContainer {
 
 pub trait EncryptionAlgorithmExt {
     fn nonce_len(&self) -> usize;
-    fn max_ciphertext_len(&self, plaintext_length: usize, sig_alg: SigAlgorithm) -> usize;
+    /// The most ciphertext this algorithm produces for `plaintext_length` bytes under a session
+    /// that names `kem_alg` and `sig_alg`, as `plaintext_length` plus a fixed overhead. For
+    /// [`EncryptionAlgorithm::MlKemHybrid`] the public-key part is sized by the KEM the session
+    /// runs, and the bound exceeds the real length by less than one scramble block.
+    fn max_ciphertext_len(
+        &self,
+        plaintext_length: usize,
+        kem_alg: KemAlgorithm,
+        sig_alg: SigAlgorithm,
+    ) -> usize;
+    /// The plaintext length a ciphertext carries, where the ciphertext length alone determines it.
+    /// [`EncryptionAlgorithm::MlKemHybrid`] pads its body to a block, so it returns `None` there.
     fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize>;
 }
 
@@ -1304,26 +1315,23 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
     }
 
     // calculates the max ciphertext len given an input plaintext length
-    fn max_ciphertext_len(&self, plaintext_length: usize, sig_alg: SigAlgorithm) -> usize {
+    fn max_ciphertext_len(
+        &self,
+        plaintext_length: usize,
+        kem_alg: KemAlgorithm,
+        sig_alg: SigAlgorithm,
+    ) -> usize {
         const SYMMETRIC_CIPHER_OVERHEAD: usize = 16;
         match self {
             Self::AES_GCM_256 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             // plaintext len + 128 bit tag
             Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
-            // Add 32 for internal apendees
-            Self::MlKemHybrid => {
-                const LENGTH_FIELD: usize = 8;
-                let signature_len = functions::signature_bytes(sig_alg);
-
-                let aes_input_len = signature_len + LENGTH_FIELD;
-                let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;
-                let kyber_input_len = 32 + LENGTH_FIELD; // the size of the mapping + encoded len
-                let kyber_output_len = kyber_pke::ct_len(kyber_input_len);
-
-                // add 8 for the length encoding
-                aes_output_len + kyber_output_len + LENGTH_FIELD
-            }
+            Self::MlKemHybrid => encryption::kyber_module::hybrid_max_ciphertext_len(
+                plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+                kem_alg,
+                sig_alg,
+            ),
         }
     }
 
@@ -1336,7 +1344,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             Self::AES_GCM_256 => Some(ciphertext.len() - 16),
             Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
             Self::Ascon80pq => Some(ciphertext.len() - 16),
-            Self::MlKemHybrid => kyber_pke::plaintext_len(ciphertext),
+            Self::MlKemHybrid => None,
         }
     }
 }

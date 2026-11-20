@@ -75,14 +75,12 @@ pub(crate) fn check_pke_ciphertext(
     ciphertext: &[u8],
     plaintext_len: usize,
 ) -> Result<(), Error> {
-    let well_formed = match kem_alg {
-        KemAlgorithm::MlKem => {
-            ciphertext.len() == kyber_pke::ct_len(plaintext_len)
-                && kyber_pke::plaintext_len(ciphertext) == Some(plaintext_len)
-        }
-        // The KEM-DEM backend frames its own ciphertext and checks every length before use.
-        KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => true,
-    };
+    let well_formed = ciphertext.len()
+        == crate::encryption::kyber_module::pke_ciphertext_len(kem_alg, plaintext_len)
+        && match kem_alg {
+            KemAlgorithm::MlKem => kyber_pke::plaintext_len(ciphertext) == Some(plaintext_len),
+            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => true,
+        };
     if well_formed {
         Ok(())
     } else {
