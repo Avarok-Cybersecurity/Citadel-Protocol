@@ -41,12 +41,12 @@ pub(crate) fn draw_pair<T, U>(
     };
     let mut last = None;
     for draw in 0..draws {
+        // Either bind of a draw can be refused for its port alone: on GitHub's Windows runners even
+        // an any-port UDP bind was answered WSAEACCES (run 44824431193), so both count as a draw.
         let pair = if draw % 2 == 0 {
-            let (tcp, at) = bind_tcp(addr)?;
-            bind_udp(at).map(|(udp, _)| (tcp, udp))
+            bind_tcp(addr).and_then(|(tcp, at)| bind_udp(at).map(|(udp, _)| (tcp, udp)))
         } else {
-            let (udp, at) = bind_udp(addr)?;
-            bind_tcp(at).map(|(tcp, _)| (tcp, udp))
+            bind_udp(addr).and_then(|(udp, at)| bind_tcp(at).map(|(tcp, _)| (tcp, udp)))
         };
         match pair {
             Ok(pair) => return Ok(pair),
