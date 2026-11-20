@@ -1,7 +1,7 @@
 //! TCP and UDP ports are allocated separately, so the UDP twin of a TCP socket's port can be
 //! held by an unrelated socket. These hold it on purpose, which is what full-suite load did by
 //! chance to `connections::test_many_proto_conns`.
-use super::{client_quic_socket, server_socket_pair};
+use super::{client_quic_socket, server_socket_pair, twin_unavailable};
 use citadel_io::tokio;
 use citadel_wire::socket_helpers::is_ipv6_enabled;
 use std::net::{SocketAddr, UdpSocket};
@@ -48,7 +48,9 @@ async fn a_server_asked_for_a_held_port_reports_it() {
     for any in loopbacks() {
         let (_holder, held) = held_udp_port(any);
         let err = server_socket_pair(held).expect_err("bound a QUIC socket on a held UDP port");
-        assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse, "{held}: {err}");
+        // Windows answers WSAEACCES (PermissionDenied), not WSAEADDRINUSE, when the holder's
+        // port is one it treats as exclusive; the server reports either as the same refusal.
+        assert!(twin_unavailable(&err), "{held}: {err} ({:?})", err.kind());
     }
 }
 
