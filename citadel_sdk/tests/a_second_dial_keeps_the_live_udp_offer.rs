@@ -128,7 +128,11 @@ mod tests {
                 let first = conn
                     .find_target(conn.cid, peer)
                     .await?
-                    .connect_to_peer_custom(Default::default(), UdpMode::Enabled, None)
+                    .connect_to_peer_custom(
+                        citadel_sdk::prelude::default_session_security_settings(),
+                        UdpMode::Enabled,
+                        None,
+                    )
                     .await?;
                 let accepting = tokio::spawn(accept_all(events, remote.clone()));
                 let udp = expect_udp("dialer", first.udp_channel_rx).await;
@@ -152,7 +156,11 @@ mod tests {
                     dialing
                         .find_target(cid, peer)
                         .await?
-                        .connect_to_peer_custom(Default::default(), UdpMode::Enabled, None)
+                        .connect_to_peer_custom(
+                            citadel_sdk::prelude::default_session_security_settings(),
+                            UdpMode::Enabled,
+                            None,
+                        )
                         .await
                         .map(|_| ())
                 });

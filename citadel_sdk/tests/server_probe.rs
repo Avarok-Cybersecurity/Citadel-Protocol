@@ -64,7 +64,7 @@ mod tests {
                                 username.as_str(),
                                 username.as_str(),
                                 "password123",
-                                Default::default(),
+                                citadel_sdk::prelude::default_session_security_settings(),
                                 None,
                             )
                             .await?;

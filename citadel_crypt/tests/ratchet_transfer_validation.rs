@@ -39,7 +39,7 @@ fn with_nonce(bytes: &[u8], nonce_len: usize, tail: usize, len: usize) -> Vec<u8
 
 fn stacked_bob_accepts(params: CryptoParameters, nonce_len: Option<usize>) -> bool {
     type C = <StackedRatchet as Ratchet>::Constructor;
-    let opts = ConstructorOpts::new_vec_init(Some(params), SecurityLevel::Standard);
+    let opts = ConstructorOpts::new_vec_init(params, SecurityLevel::Standard);
     let alice = C::new_alice(opts.clone(), 7, 0).unwrap();
     let mut bytes = bincode::serialize(&alice.stage0_alice().unwrap()).unwrap();
     if let Some(len) = nonce_len {
@@ -52,7 +52,7 @@ fn stacked_bob_accepts(params: CryptoParameters, nonce_len: Option<usize>) -> bo
 
 fn mono_bob_accepts(params: CryptoParameters, nonce_len: Option<usize>) -> bool {
     type C = <MonoRatchet as Ratchet>::Constructor;
-    let opts = vec![ConstructorOpts::new_init(Some(params))];
+    let opts = vec![ConstructorOpts::new_init(params)];
     let alice = C::new_alice(opts.clone(), 7, 0).unwrap();
     let mut bytes = bincode::serialize(&alice.stage0_alice().unwrap()).unwrap();
     if let Some(len) = nonce_len {

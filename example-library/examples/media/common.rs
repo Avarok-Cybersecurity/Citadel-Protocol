@@ -84,7 +84,7 @@ where
     // BestEffort secrecy: per-message rekeying would throttle the control lane.
     let session_security = SessionSecuritySettingsBuilder::default()
         .with_secrecy_mode(SecrecyMode::BestEffort)
-        .with_crypto_params(KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256)
+        .with_crypto_params(KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256)
         .build()?;
     let server_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration(
         server_addr,

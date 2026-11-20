@@ -869,7 +869,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 let alice_constructor =
                     <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
                         ConstructorOpts::new_vec_init(
-                            Some(session_security_settings.crypto_params),
+                            session_security_settings.crypto_params,
                             session_security_settings.security_level,
                         ),
                         proposed_cid,

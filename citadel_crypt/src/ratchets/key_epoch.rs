@@ -88,10 +88,7 @@ pub fn opts_for_profile(
             false,
         )
         .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::KeyEpochChainMissing))?;
-        base.push(ConstructorOpts::new_ratcheted(
-            Some(profile.params()),
-            chain,
-        ));
+        base.push(ConstructorOpts::new_ratcheted(profile.params(), chain));
     }
     Ok(base)
 }
@@ -223,19 +220,22 @@ impl Drop for PriorityClaim {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use citadel_types::crypto::CryptoParameters;
+    use citadel_types::crypto::{CryptoParameters, KemAlgorithm};
+
+    // Any suite will do: these tests are about the layer count, not the algorithms.
+    fn params() -> CryptoParameters {
+        CryptoParameters::from(KemAlgorithm::MlKem1024Fips203)
+    }
 
     fn base(layers: usize) -> Vec<ConstructorOpts> {
         let chain = RecursiveChain::new([7u8; 32], [8u8; 32], [9u8; 32], false).unwrap();
         (0..layers)
-            .map(|_| {
-                ConstructorOpts::new_ratcheted(Some(CryptoParameters::default()), chain.clone())
-            })
+            .map(|_| ConstructorOpts::new_ratcheted(params(), chain.clone()))
             .collect()
     }
 
     fn profile(level: SecurityLevel) -> KeyProfile {
-        KeyProfile::new(level, CryptoParameters::default())
+        KeyProfile::new(level, params())
     }
 
     #[test]
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn a_raise_without_a_chain_is_refused() {
-        let opts = vec![ConstructorOpts::new_init(Some(CryptoParameters::default()))];
+        let opts = vec![ConstructorOpts::new_init(params())];
         let Err(err) = opts_for_profile(opts, &profile(SecurityLevel::High)) else {
             panic!("a raise without a chain must be refused");
         };

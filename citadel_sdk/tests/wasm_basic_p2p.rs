@@ -17,7 +17,7 @@ fn test_p2p_type_construction() {
         .with_udp_mode(UdpMode::Disabled)
         .add()
         .with_peer_custom("bob")
-        .with_session_security_settings(SessionSecuritySettings::default())
+        .with_session_security_settings(SessionSecuritySettingsBuilder::default().build().unwrap())
         .add();
 }
 

@@ -90,6 +90,22 @@
 
 ### Breaking
 
+- **Sessions default to ML-KEM-1024, and nothing else defaults a KEM.** `KemAlgorithm`,
+  `CryptoParameters` and `SessionSecuritySettings` no longer implement `Default`, and
+  `ConstructorOpts` takes its `CryptoParameters` rather than an `Option`. The one default is
+  `DEFAULT_SESSION_CRYPTO_PARAMS` (AES-256-GCM, `MlKem1024Fips203`, no signature), applied by
+  `SessionSecuritySettingsBuilder` and `default_session_security_settings()`, both in the proto and
+  SDK preludes. A sum of algorithms builds `CryptoParameters` only once it names a KEM
+  (`KemAlgorithm::X + EncryptionAlgorithm::Y`, or `EncryptionAlgorithm::Y + KemAlgorithm::X`);
+  `From<EncryptionAlgorithm>` and `From<SigAlgorithm>` are gone, and
+  `CryptoParameters::new(encryption, kem, signature)` names all three. Every node from protocol
+  0.10.1 on runs ML-KEM-1024, and both ends take the suite from what the initiator sends, so an
+  older node still connects; to reach a node older than 0.10.1, name `KemAlgorithm::MlKem`.
+  Accounts keep the suite they registered with. The round-3 suite (`MlKem`) stays for nodes before
+  0.12.4 and is to be retired once every supported node is at 0.12.4 or later.
+- **`MlKemHybrid` runs on every KEM**, the FIPS 203 suites included; a node before 0.12.4 refuses
+  that combination, so name `MlKem` with hybrid encryption to reach one.
+- **RE-VFS runs on every KEM.** `ErrorCode::RemoteRevfsRequiresKyber` is no longer returned.
 - `BackendType` no longer implements `Default`. Use `BackendType::platform_default()`, which
   returns `ErrorCode::BackendHomeDirUnavailable` instead of panicking when there is no usable home
   directory; `NodeBuilder::build` returns that error when no backend is set.

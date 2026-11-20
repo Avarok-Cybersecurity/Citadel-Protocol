@@ -63,7 +63,7 @@ impl<R: Ratchet> NetKernel<R> for ServerlessKernel<R> {
                     ConnectMode::Standard { force_login: false },
                     UdpMode::Disabled,
                     None,
-                    Default::default(),
+                    default_session_security_settings(),
                     None,
                 )
                 .await?;

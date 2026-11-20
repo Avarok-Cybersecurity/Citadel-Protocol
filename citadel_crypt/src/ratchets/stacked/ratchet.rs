@@ -21,11 +21,11 @@
 //! use crate::citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 //! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 //! use citadel_crypt::ratchets::Ratchet;
-//! use citadel_types::crypto::SecurityLevel;
+//! use citadel_types::crypto::{KemAlgorithm, SecurityLevel};
 //!
 //! fn setup_ratchet() -> Option<StackedRatchet> {
-//!     // Create constructor options
-//!     let opts = vec![ConstructorOpts::default()];
+//!     // Create constructor options, naming the KEM
+//!     let opts = vec![ConstructorOpts::new_init(KemAlgorithm::MlKem1024Fips203)];
 //!     
 //!     // Initialize Alice's constructor
 //!     let constructor = StackedRatchetConstructor::new_alice(
@@ -138,7 +138,7 @@ impl Ratchet for StackedRatchet {
                 let next_chain =
                     RecursiveChain::new(&meta_chain[..], prev_chain.alice, prev_chain.bob, false)
                         .unwrap();
-                ConstructorOpts::new_ratcheted(Some(r.pqc.params), next_chain)
+                ConstructorOpts::new_ratcheted(r.pqc.params, next_chain)
             })
             .collect()
     }
@@ -230,7 +230,7 @@ pub mod constructor {
             log::trace!(target: "citadel", "[ALICE] Client {cid} creating container with {security_level:?} security level");
             //let count = security_level.value() as usize + 1;
             let len = opts.len();
-            let params = opts[0].cryptography.unwrap_or_default();
+            let params = opts[0].cryptography;
             let keys = opts
                 .into_iter()
                 .filter_map(|opts| {
@@ -250,8 +250,7 @@ pub mod constructor {
                 message: MessageRatchetConstructor { inner: keys },
                 scramble: ScrambleRatchetConstructor {
                     entropy_bank: None,
-                    pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params)))
-                        .ok()?,
+                    pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(params)).ok()?,
                 },
                 nonce_message: EntropyBank::generate_public_nonce(params.encryption_algorithm),
                 nonce_scramble: EntropyBank::generate_public_nonce(params.encryption_algorithm),
@@ -307,7 +306,7 @@ pub mod constructor {
                 scramble: ScrambleRatchetConstructor {
                     entropy_bank: Some(scramble_entropy_bank),
                     pqc: PostQuantumContainer::new_bob(
-                        ConstructorOpts::new_init(Some(params)),
+                        ConstructorOpts::new_init(params),
                         transfer.scramble_alice_params,
                         psks,
                     )

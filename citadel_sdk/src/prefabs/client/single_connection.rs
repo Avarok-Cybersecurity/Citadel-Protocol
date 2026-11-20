@@ -427,12 +427,12 @@ mod tests {
         let mut server_connection_settings =
             DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
                 .with_udp_mode(udp_mode)
-                .with_session_security_settings(SessionSecuritySettings {
-                    security_level: Default::default(),
-                    secrecy_mode: Default::default(),
-                    crypto_params: Default::default(),
-                    header_obfuscator_settings,
-                });
+                .with_session_security_settings(
+                    SessionSecuritySettingsBuilder::default()
+                        .with_header_obfuscator_settings(header_obfuscator_settings)
+                        .build()
+                        .unwrap(),
+                );
 
         if let Some(server_password) = server_password {
             server_connection_settings =

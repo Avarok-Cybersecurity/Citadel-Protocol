@@ -121,7 +121,7 @@ impl Ratchet for MonoRatchet {
 
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts> {
         vec![ConstructorOpts::new_ratcheted(
-            Some(self.inner.pqc.params),
+            self.inner.pqc.params,
             self.inner.pqc.get_chain().unwrap().clone(),
         )]
     }
@@ -250,7 +250,7 @@ impl AssociatedSecurityLevel for MonoBobToAliceTransfer {
 impl MonoRatchetConstructor {
     /// FCM limits messages to 4Kb, so we need to use firesaber alone
     pub fn new_alice_constructor(cid: u64, version: u32, opts: ConstructorOpts) -> Option<Self> {
-        let params = opts.cryptography.unwrap_or_default();
+        let params = opts.cryptography;
         let pqc = PostQuantumContainer::new_alice(opts).ok()?;
 
         Some(Self {

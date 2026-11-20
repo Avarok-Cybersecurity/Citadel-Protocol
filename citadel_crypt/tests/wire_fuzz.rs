@@ -39,7 +39,7 @@ fn suites() -> [CryptoParameters; 2] {
 }
 
 fn stacked_opts(params: CryptoParameters) -> Vec<ConstructorOpts> {
-    ConstructorOpts::new_vec_init(Some(params), SecurityLevel::Standard)
+    ConstructorOpts::new_vec_init(params, SecurityLevel::Standard)
 }
 
 fn stacked_pair(params: CryptoParameters) -> (StackedRatchet, StackedRatchet) {
@@ -108,7 +108,7 @@ fn received_stacked_transfers_never_panic() {
 #[test]
 fn received_mono_transfers_never_panic() {
     for params in suites() {
-        let opts = vec![ConstructorOpts::new_init(Some(params))];
+        let opts = vec![ConstructorOpts::new_init(params)];
         let alice = Mono::new_alice(opts.clone(), 9, 0).unwrap();
         let to_bob = alice.stage0_alice().unwrap();
         let to_bob_bytes = bincode::serialize(&to_bob).unwrap();

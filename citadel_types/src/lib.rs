@@ -41,7 +41,7 @@
 //!
 //! // Use crypto types
 //! let secure_buffer = SecBuffer::empty();
-//! let params = CryptoParameters::default();
+//! let params = CryptoParameters::from(KemAlgorithm::MlKem1024Fips203);
 //! ```
 //!
 //! ## Features

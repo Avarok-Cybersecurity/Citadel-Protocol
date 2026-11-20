@@ -38,7 +38,7 @@ const RELEASED_WITHIN: Duration = Duration::from_secs(10);
 /// Two connected managers, plus a `Weak` to each side's toolset.
 fn managers() -> (Mgr, Mgr, Vec<Weak<impl Sized>>) {
     let opts = ConstructorOpts::new_vec_init(
-        Some(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem),
+        EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem,
         SecurityLevel::Standard,
     );
     let mut a = <R as Ratchet>::Constructor::new_alice(opts.clone(), 10, 0).unwrap();

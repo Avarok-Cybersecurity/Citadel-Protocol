@@ -90,7 +90,7 @@ mod tests {
         SessionSecuritySettings {
             security_level: level,
             secrecy_mode: secrecy,
-            crypto_params: CryptoParameters::default(),
+            crypto_params: CryptoParameters::from(KemAlgorithm::MlKem1024Fips203),
             header_obfuscator_settings: HeaderObfuscatorSettings::Disabled,
         }
     }

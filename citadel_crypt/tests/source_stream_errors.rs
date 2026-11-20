@@ -25,7 +25,7 @@ const GROUP: usize = 16 * 1024;
 
 fn pair() -> (R, R) {
     let opts = ConstructorOpts::new_vec_init(
-        Some(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem),
+        EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem,
         SecurityLevel::Standard,
     );
     let mut a = <R as Ratchet>::Constructor::new_alice(opts.clone(), 99, 0).unwrap();

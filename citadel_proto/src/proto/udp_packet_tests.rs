@@ -13,7 +13,6 @@ use citadel_types::crypto::{CryptoParameters, EncryptionAlgorithm, KemAlgorithm,
 
 pub(crate) fn connected_pair(max_level: SecurityLevel) -> (StackedRatchet, StackedRatchet) {
     let params: CryptoParameters = KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256;
-    let params = Some(params);
     let psks = vec![b"udp".to_vec(), b"test".to_vec()];
     let mut alice = <StackedRatchet as Ratchet>::Constructor::new_alice(
         ConstructorOpts::new_vec_init(params, max_level),

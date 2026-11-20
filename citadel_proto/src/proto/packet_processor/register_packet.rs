@@ -115,7 +115,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                     <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                         cid,
                                         ConstructorOpts::new_vec_init(
-                                            Some(transfer.crypto_params()),
+                                            transfer.crypto_params(),
                                             transfer.security_level(),
                                         ),
                                         transfer,

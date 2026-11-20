@@ -443,8 +443,8 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             full_name,
             username,
             proposed_password,
-            Default::default(),
-            Default::default(),
+            default_session_security_settings(),
+            None,
         )
         .await
     }
@@ -537,7 +537,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             ConnectMode::Standard { force_login: false },
             Default::default(),
             None,
-            Default::default(),
+            default_session_security_settings(),
             Default::default(),
         )
         .await
@@ -1177,8 +1177,12 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
 
     /// Connects to the target peer with default settings
     async fn connect_to_peer(&self) -> Result<PeerConnectSuccess<R>, NetworkError> {
-        self.connect_to_peer_custom(Default::default(), Default::default(), Default::default())
-            .await
+        self.connect_to_peer_custom(
+            default_session_security_settings(),
+            Default::default(),
+            Default::default(),
+        )
+        .await
     }
 
     /// Posts a registration request to a peer
@@ -1579,21 +1583,13 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         }
     }
 
+    /// RE-VFS objects are sealed under the session's symmetric keys, which every KEM suite derives
+    /// alike, so any session to a server can use it.
     #[doc(hidden)]
     fn can_use_revfs(&self) -> Result<(), NetworkError> {
-        if let Some(sess) = self.session_security_settings() {
-            if sess.crypto_params.kem_algorithm == KemAlgorithm::MlKem {
-                Ok(())
-            } else {
-                Err(citadel_io::error!(
-                    citadel_io::ErrorCode::RemoteRevfsRequiresKyber
-                ))
-            }
-        } else {
-            Err(citadel_io::error!(
-                citadel_io::ErrorCode::RemoteRevfsUnsupportedRemote
-            ))
-        }
+        self.session_security_settings()
+            .map(|_| ())
+            .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RemoteRevfsUnsupportedRemote))
     }
 }
 
@@ -1844,6 +1840,16 @@ mod tests {
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
         KemAlgorithm::MlKem,
+        SigAlgorithm::MlDsa65
+    )]
+    #[case(
+        EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem1024Fips203,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem1024Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[timeout(std::time::Duration::from_secs(90))]

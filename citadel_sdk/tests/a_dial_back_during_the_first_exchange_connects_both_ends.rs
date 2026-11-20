@@ -74,7 +74,11 @@ mod tests {
         let dial = async {
             conn.find_target(conn.cid, peer.to_string())
                 .await?
-                .connect_to_peer_custom(Default::default(), UdpMode::Enabled, None)
+                .connect_to_peer_custom(
+                    citadel_sdk::prelude::default_session_security_settings(),
+                    UdpMode::Enabled,
+                    None,
+                )
                 .await
         };
         tokio::pin!(dial);

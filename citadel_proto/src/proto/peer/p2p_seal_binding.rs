@@ -65,7 +65,7 @@ mod tests {
     use citadel_crypt::prelude::ConstructorOpts;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
-    use citadel_types::crypto::{CryptoParameters, SecurityLevel};
+    use citadel_types::crypto::SecurityLevel;
     use citadel_types::proto::ClientConnectionType;
     use embedded_semver::Semver;
 
@@ -94,7 +94,7 @@ mod tests {
     /// One exchange, each end with its own pre-shared keys; `None` if it did not complete.
     fn exchange(alice: &[Vec<u8>], bob: &[Vec<u8>]) -> Option<(StackedRatchet, StackedRatchet)> {
         let opts = ConstructorOpts::new_vec_init(
-            Some(CryptoParameters::default()),
+            crate::proto::misc::session_security_settings::DEFAULT_SESSION_CRYPTO_PARAMS,
             SecurityLevel::Standard,
         );
         let mut a = Constructor::new_alice(opts.clone(), ALICE, 0)?;

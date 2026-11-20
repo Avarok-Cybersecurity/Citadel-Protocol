@@ -51,7 +51,8 @@ mod tests {
                 connect_mode: ConnectMode::Standard { force_login: false },
                 udp_mode: Default::default(),
                 keep_alive_timeout: None,
-                session_security_settings: Default::default(),
+                session_security_settings: citadel_sdk::prelude::default_session_security_settings(
+                ),
                 session_password: Default::default(),
             }))
             .await?;

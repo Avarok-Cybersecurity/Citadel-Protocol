@@ -159,7 +159,7 @@ pub async fn connect(
             connect_mode,
             Default::default(),
             None,
-            Default::default(),
+            citadel_sdk::prelude::default_session_security_settings(),
             Default::default(),
         )
         .await

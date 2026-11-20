@@ -115,9 +115,10 @@ pub trait AlgorithmsExt:
     fn set_crypto_param(&self, params: &mut CryptoParameters);
 }
 
-pub fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoParameters {
-    let mut ret = CryptoParameters::default();
-    lhs.set_crypto_param(&mut ret);
+/// Parameters that name `kem`, with `rhs` applied on top. Every sum that builds a
+/// [`CryptoParameters`] goes through here, so none is built without its KEM being named.
+fn with_kem<R: AlgorithmsExt>(kem: KemAlgorithm, rhs: R) -> CryptoParameters {
+    let mut ret = CryptoParameters::from(kem);
     rhs.set_crypto_param(&mut ret);
     ret
 }
@@ -125,7 +126,7 @@ pub fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoPa
 mod sec_buffer;
 pub use sec_buffer::{SecBuffer, SecureBufMutHandle};
 
-#[derive(PackedStruct, Default, Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(PackedStruct, Serialize, Deserialize, Copy, Clone, Debug)]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
 #[packed_struct(bit_numbering = "msb0")]
@@ -136,6 +137,38 @@ pub struct CryptoParameters {
     pub kem_algorithm: KemAlgorithm,
     #[packed_field(bits = "6..=7", ty = "enum")]
     pub sig_algorithm: SigAlgorithm,
+}
+
+impl CryptoParameters {
+    /// Parameters naming each algorithm. There is no default: the KEM in particular is always
+    /// chosen by the caller, so a sum of algorithms builds parameters only once it names one.
+    ///
+    /// ```
+    /// use citadel_types::crypto::*;
+    /// let params = KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256;
+    /// assert_eq!(params.kem_algorithm, KemAlgorithm::MlKem1024Fips203);
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use citadel_types::crypto::*;
+    /// let params: CryptoParameters = EncryptionAlgorithm::AES_GCM_256 + SigAlgorithm::None;
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use citadel_types::crypto::*;
+    /// let params = CryptoParameters::default();
+    /// ```
+    pub const fn new(
+        encryption_algorithm: EncryptionAlgorithm,
+        kem_algorithm: KemAlgorithm,
+        sig_algorithm: SigAlgorithm,
+    ) -> Self {
+        Self {
+            encryption_algorithm,
+            kem_algorithm,
+            sig_algorithm,
+        }
+    }
 }
 
 const _: () = _compile_time_check();
@@ -260,7 +293,6 @@ impl TryFrom<u8> for SecrecyMode {
 }
 
 #[derive(
-    Default,
     Copy,
     Clone,
     Debug,
@@ -279,11 +311,11 @@ impl TryFrom<u8> for SecrecyMode {
 #[cfg_attr(feature = "typescript", ts(export))]
 #[repr(u8)]
 pub enum KemAlgorithm {
-    /// Kyber768-90s via `kyber-pke` (AES-256-CTR + SHA-2 internals). The
-    /// original scheme; wire-format unchanged and still the default, so
-    /// existing peers negotiate this and observe no difference.
+    /// Kyber768-90s (round 3) via `kyber-pke` (AES-256-CTR + SHA-2 internals). The scheme every
+    /// node before 0.12.4 offers by default, kept so such a node still connects; a node of this
+    /// release offers it only when its application names it.
+    /// To be retired once every supported node is at 0.12.4 or later.
     #[strum(ascii_case_insensitive)]
-    #[default]
     MlKem = 0,
     /// ML-KEM-768 (FIPS 203) via `libcrux-ml-kem`: SHAKE internals, formally
     /// verified in F* via hax, with runtime-detected AVX2/NEON backends.
@@ -489,23 +521,23 @@ impl<R: AlgorithmsExt> Add<R> for KemAlgorithm {
     type Output = CryptoParameters;
 
     fn add(self, rhs: R) -> Self::Output {
-        add_inner(self, rhs)
+        with_kem(self, rhs)
     }
 }
 
-impl<R: AlgorithmsExt> Add<R> for EncryptionAlgorithm {
+impl Add<KemAlgorithm> for EncryptionAlgorithm {
     type Output = CryptoParameters;
 
-    fn add(self, rhs: R) -> Self::Output {
-        add_inner(self, rhs)
+    fn add(self, kem: KemAlgorithm) -> Self::Output {
+        with_kem(kem, self)
     }
 }
 
-impl<R: AlgorithmsExt> Add<R> for SigAlgorithm {
+impl Add<KemAlgorithm> for SigAlgorithm {
     type Output = CryptoParameters;
 
-    fn add(self, rhs: R) -> Self::Output {
-        add_inner(self, rhs)
+    fn add(self, kem: KemAlgorithm) -> Self::Output {
+        with_kem(kem, self)
     }
 }
 
@@ -518,11 +550,9 @@ impl<R: AlgorithmsExt> Add<R> for CryptoParameters {
     }
 }
 
-impl<T: AlgorithmsExt> From<T> for CryptoParameters {
-    fn from(this: T) -> Self {
-        let mut ret = CryptoParameters::default();
-        this.set_crypto_param(&mut ret);
-        ret
+impl From<KemAlgorithm> for CryptoParameters {
+    fn from(kem: KemAlgorithm) -> Self {
+        CryptoParameters::new(EncryptionAlgorithm::default(), kem, SigAlgorithm::default())
     }
 }
 
@@ -675,7 +705,7 @@ mod coverage_extra {
 
     #[test]
     fn crypto_parameters_u8_roundtrip() {
-        let params = add_inner(KemAlgorithm::MlKem, EncryptionAlgorithm::AES_GCM_256);
+        let params = KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256;
         let byte: u8 = params.into();
         let back = CryptoParameters::try_from(byte).unwrap();
         assert_eq!(u8::from(back), byte);

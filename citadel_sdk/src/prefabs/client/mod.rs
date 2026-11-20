@@ -238,7 +238,9 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
                     .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoAddress))?,
                 uuid,
                 udp_mode: self.udp_mode.unwrap_or_default(),
-                session_security_settings: self.session_security_settings.unwrap_or_default(),
+                session_security_settings: self
+                    .session_security_settings
+                    .unwrap_or_else(default_session_security_settings),
                 pre_shared_key: self.psk,
                 _ratchet: PhantomData,
             })
@@ -251,7 +253,9 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
                     .password
                     .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoPassword))?,
                 udp_mode: self.udp_mode.unwrap_or_default(),
-                session_security_settings: self.session_security_settings.unwrap_or_default(),
+                session_security_settings: self
+                    .session_security_settings
+                    .unwrap_or_else(default_session_security_settings),
                 pre_shared_key: self.psk,
                 _ratchet: PhantomData,
             })
@@ -270,7 +274,9 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
                     .ok_or(citadel_io::error!(citadel_io::ErrorCode::BuilderNoPassword))?,
                 pre_shared_key: self.psk,
                 udp_mode: self.udp_mode.unwrap_or_default(),
-                session_security_settings: self.session_security_settings.unwrap_or_default(),
+                session_security_settings: self
+                    .session_security_settings
+                    .unwrap_or_else(default_session_security_settings),
                 _ratchet: PhantomData,
             })
         }

@@ -319,7 +319,8 @@ pub enum ErrorCode {
     FirewallUpnpLanIpv6Unsupported = 92,
 
     // --- citadel_types: crypto parameter validation ---
-    /// ML-KEM hybrid encryption was selected without the ML-KEM key-exchange algorithm.
+    /// ML-KEM hybrid encryption was selected without the round-3 ML-KEM key exchange. Returned
+    /// only by nodes before 0.12.4; from 0.12.4 hybrid encryption runs on every KEM.
     #[form = "Invalid crypto parameter combination. ML-KEM hybrid encryption must be paired with ML-KEM"]
     CryptoParamsHybridRequiresMlKem = 93,
     /// ML-KEM hybrid encryption was selected without a post-quantum signature scheme.
@@ -995,7 +996,8 @@ pub enum ErrorCode {
     /// A target_cid of 0 was used without supplying a username.
     #[form = "target_cid=0, yet, no username was provided"]
     RemoteTargetCidZeroNoUsername = 300,
-    /// RE-VFS can only be used with the Kyber/ML-KEM KEM.
+    /// RE-VFS was refused for a session on another KEM. Returned only by nodes before 0.12.4; from
+    /// 0.12.4 RE-VFS runs on every KEM.
     #[form = "RE-VFS can only be used with Kyber KEM"]
     RemoteRevfsRequiresKyber = 301,
     /// RE-VFS cannot be used with this remote type.

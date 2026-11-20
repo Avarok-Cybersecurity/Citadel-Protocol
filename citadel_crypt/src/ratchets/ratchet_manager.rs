@@ -1985,7 +1985,7 @@ pub(crate) mod tests {
         enx: EncryptionAlgorithm,
         kem: KemAlgorithm,
     ) -> (PeerSessionCrypto<R>, PeerSessionCrypto<R>) {
-        let opts = ConstructorOpts::new_vec_init(Some(enx + kem), security_level);
+        let opts = ConstructorOpts::new_vec_init(enx + kem, security_level);
         let (hr_alice, hr_bob) = gen::<R, _>(START_VERSION, opts, TEST_PSKS);
         assert_eq!(hr_alice.version(), START_VERSION);
         assert_eq!(hr_bob.version(), START_VERSION);

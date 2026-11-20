@@ -93,7 +93,7 @@ pub async fn register_legacy(
         remote_addr: server_addr,
         proposed_credentials: ProposedCredentials::new_register(user, user, PASSWORD.into())
             .await?,
-        static_security_settings: Default::default(),
+        static_security_settings: citadel_sdk::prelude::default_session_security_settings(),
         session_password: Default::default(),
         endpoint: None,
         password: None,

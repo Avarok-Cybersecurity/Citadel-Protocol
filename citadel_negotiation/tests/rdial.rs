@@ -79,11 +79,11 @@ proptest! {
 fn rdial_extreme_with_a_weak_kem_beats_standard_with_a_strong_one() {
     let weak = CryptoParameters {
         kem_algorithm: KemAlgorithm::MlKem,
-        ..CryptoParameters::default()
+        ..common::BASE_PARAMS
     };
     let strong = CryptoParameters {
         kem_algorithm: KemAlgorithm::MlKem1024Fips203,
-        ..CryptoParameters::default()
+        ..common::BASE_PARAMS
     };
     let extreme = KeyProfile::new(SecurityLevel::Extreme, weak);
     let standard = KeyProfile::new(SecurityLevel::Standard, strong);

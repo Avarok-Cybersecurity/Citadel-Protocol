@@ -27,8 +27,8 @@
 //! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 //! use citadel_types::crypto::{KemAlgorithm, SigAlgorithm};
 //!
-//! // Define the cryptographic parameters
-//! let opts = ConstructorOpts::default();
+//! // Define the cryptographic parameters, naming the KEM
+//! let opts = ConstructorOpts::new_init(KemAlgorithm::MlKem1024Fips203);
 //!
 //! // Create a new Alice instance
 //! let mut alice = PostQuantumContainer::new_alice(
@@ -372,7 +372,7 @@ impl PostQuantumContainer {
     ///
     /// `algorithm`: If this is None, a random algorithm will be used
     pub fn new_alice(opts: ConstructorOpts) -> Result<Self, Error> {
-        let params = opts.cryptography.unwrap_or_default();
+        let params = opts.cryptography;
         citadel_types::utils::validate_crypto_params(&params)?;
         let previous_symmetric_key = opts.chain;
         let data = Self::create_new_alice(params.kem_algorithm, params.sig_algorithm)
@@ -406,7 +406,7 @@ impl PostQuantumContainer {
         psks: &[T],
     ) -> Result<Self, Error> {
         let pq_node = PQNode::Bob;
-        let params = opts.cryptography.unwrap_or_default();
+        let params = opts.cryptography;
         citadel_types::utils::validate_crypto_params(&params)?;
 
         let chain = opts.chain;
@@ -1399,7 +1399,8 @@ mod in_place_aead_tests {
     // AEAD keys are directional (a container's tx key differs from its rx key), mirroring the
     // protocol's sender/receiver split. So encrypt on alice (tx) is decrypted on bob (rx).
     fn keyed_pair() -> (PostQuantumContainer, PostQuantumContainer) {
-        let opts = ConstructorOpts::default();
+        // The KEM is incidental here: the test is about directional AEAD keys.
+        let opts = ConstructorOpts::new_init(citadel_types::crypto::KemAlgorithm::MlKem1024Fips203);
         let mut alice = PostQuantumContainer::new_alice(opts.clone()).unwrap();
         let a2b = alice.generate_alice_to_bob_transfer().unwrap();
         let bob = PostQuantumContainer::new_bob(opts, a2b, &[b"psk"]).unwrap();

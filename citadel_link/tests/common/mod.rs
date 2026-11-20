@@ -64,12 +64,12 @@ pub fn nat() -> NatClass {
     }
 }
 
+/// The KEM these tests start from; any one will do, as only a change of KEM matters to them.
+const BASE_KEM: KemAlgorithm = KemAlgorithm::MlKem1024Fips203;
+
 pub fn security(level: SecurityLevel, kem: KemAlgorithm) -> SessionSecuritySettings {
     // The SDK's default suite: only the KEM varies in these tests (rationale for a test default).
-    let crypto_params = CryptoParameters {
-        kem_algorithm: kem,
-        ..CryptoParameters::default()
-    };
+    let crypto_params = CryptoParameters::from(kem);
     SessionSecuritySettings {
         security_level: level,
         secrecy_mode: SecrecyMode::BestEffort,
@@ -80,7 +80,7 @@ pub fn security(level: SecurityLevel, kem: KemAlgorithm) -> SessionSecuritySetti
 
 pub fn settings(level: SecurityLevel) -> LinkSettings {
     LinkSettings {
-        security: security(level, KemAlgorithm::default()),
+        security: security(level, BASE_KEM),
         udp_mode: UdpMode::Enabled,
     }
 }
@@ -88,7 +88,7 @@ pub fn settings(level: SecurityLevel) -> LinkSettings {
 /// The same level on another KEM: a change that needs a new handshake (D3).
 pub fn other_kem(level: SecurityLevel) -> LinkSettings {
     use strum::IntoEnumIterator;
-    let base = KemAlgorithm::default() as u8;
+    let base = BASE_KEM as u8;
     let kem = KemAlgorithm::iter()
         .find(|k| *k as u8 != base)
         .expect("more than one KEM");

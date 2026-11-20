@@ -194,7 +194,7 @@ mod tests {
                             ConnectMode::Standard { force_login: true },
                             Default::default(),
                             None,
-                            Default::default(),
+                            citadel_sdk::prelude::default_session_security_settings(),
                             Default::default(),
                         )
                         .await?

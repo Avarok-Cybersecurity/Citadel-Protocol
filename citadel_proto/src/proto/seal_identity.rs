@@ -35,7 +35,7 @@ mod tests {
     use citadel_crypt::prelude::ConstructorOpts;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
-    use citadel_types::crypto::{CryptoParameters, SecurityLevel};
+    use citadel_types::crypto::SecurityLevel;
     use citadel_types::proto::ClientConnectionType;
 
     type Constructor = <StackedRatchet as Ratchet>::Constructor;
@@ -46,7 +46,7 @@ mod tests {
     /// One C2S session's keys: the client's end seals as `sealed_as`, the server's end opens.
     fn session_keys(sealed_as: u64) -> (StackedRatchet, StackedRatchet) {
         let opts = ConstructorOpts::new_vec_init(
-            Some(CryptoParameters::default()),
+            crate::proto::misc::session_security_settings::DEFAULT_SESSION_CRYPTO_PARAMS,
             SecurityLevel::Standard,
         );
         let psks: &[&[u8]] = &[b"session"];

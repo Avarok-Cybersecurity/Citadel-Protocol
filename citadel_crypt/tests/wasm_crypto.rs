@@ -22,7 +22,7 @@ fn create_ratchet_pair(
     let version = 0u32;
 
     let mut alice = <StackedRatchet as Ratchet>::Constructor::new_alice(
-        ConstructorOpts::new_vec_init(Some(algorithm), security_level),
+        ConstructorOpts::new_vec_init(algorithm, security_level),
         cid,
         version,
     )
@@ -30,7 +30,7 @@ fn create_ratchet_pair(
 
     let mut bob = <StackedRatchet as Ratchet>::Constructor::new_bob(
         cid,
-        ConstructorOpts::new_vec_init(Some(algorithm), security_level),
+        ConstructorOpts::new_vec_init(algorithm, security_level),
         alice.stage0_alice().expect("stage0_alice"),
         &[] as &[Vec<u8>],
     )

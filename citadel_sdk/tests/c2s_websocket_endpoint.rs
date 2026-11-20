@@ -64,7 +64,7 @@ mod tests {
                         username.as_str(),
                         username.as_str(),
                         password,
-                        Default::default(),
+                        citadel_sdk::prelude::default_session_security_settings(),
                         None,
                     )
                     .await?;
@@ -159,7 +159,7 @@ mod tests {
                         user_a.as_str(),
                         user_a.as_str(),
                         password,
-                        Default::default(),
+                        citadel_sdk::prelude::default_session_security_settings(),
                         None,
                     ),
                     remote.register_to_endpoint(
@@ -167,7 +167,7 @@ mod tests {
                         user_b.as_str(),
                         user_b.as_str(),
                         password,
-                        Default::default(),
+                        citadel_sdk::prelude::default_session_security_settings(),
                         None,
                     ),
                 );
@@ -244,7 +244,7 @@ mod tests {
                         username.as_str(),
                         username.as_str(),
                         "password123",
-                        Default::default(),
+                        citadel_sdk::prelude::default_session_security_settings(),
                         None,
                     )
                     .await?;
@@ -289,7 +289,7 @@ mod tests {
                         "nobody_home",
                         "nobody_home",
                         "password123",
-                        Default::default(),
+                        citadel_sdk::prelude::default_session_security_settings(),
                         None,
                     )
                     .await;

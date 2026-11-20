@@ -122,7 +122,11 @@ mod tests {
             let mut ok = conn
                 .find_target(conn.cid, peer)
                 .await?
-                .connect_to_peer_custom(Default::default(), UdpMode::Enabled, None)
+                .connect_to_peer_custom(
+                    citadel_sdk::prelude::default_session_security_settings(),
+                    UdpMode::Enabled,
+                    None,
+                )
                 .await?;
             let offer = ok.udp_channel_rx.take();
             lose_the_direct_route(true, ok.channel, offer, &mut events).await;

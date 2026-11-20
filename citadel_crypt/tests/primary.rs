@@ -169,9 +169,9 @@ mod tests {
 
         let chain = CryptoRelayChain::<R>::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
-                let mut alice_hr = R::Constructor::new_alice(vec![ConstructorOpts::new_init(Some(algo))], 0, 0, None);
+                let mut alice_hr = R::Constructor::new_alice(vec![ConstructorOpts::new_init(algo)], 0, 0, None);
                 let transfer = alice_hr.stage0_alice();
-                let bob_hr = R::Constructor::new_bob(0, 0, vec![ConstructorOpts::new_init(Some(algo))], transfer).unwrap();
+                let bob_hr = R::Constructor::new_bob(0, 0, vec![ConstructorOpts::new_init(algo)], transfer).unwrap();
                 let transfer = bob_hr.stage0_bob().unwrap();
                 alice_hr.stage1_alice(&transfer).unwrap();
                 let toolset = Toolset::new(cid, alice_hr.finish().unwrap());
@@ -337,7 +337,6 @@ mod tests {
     ) -> (R, R) {
         let algorithm = algorithm.into();
         log::trace!(target: "citadel", "Using {:?} with {:?} @ {:?} security level", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level);
-        let algorithm = Some(algorithm);
         let mut alice_ratchet = R::Constructor::new_alice(
             ConstructorOpts::new_vec_init(algorithm, security_level),
             99,
@@ -418,6 +417,11 @@ mod tests {
         EncryptionAlgorithm::MlKemHybrid,
         KemAlgorithm::MlKem,
         SigAlgorithm::FnDsa512
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem1024Fips203,
+        SigAlgorithm::MlDsa65
     )]
     fn toolsets(
         #[case] enx: EncryptionAlgorithm,
@@ -536,15 +540,12 @@ mod tests {
         bob_psks: &[Vec<u8>],
         alice_psks: &[Vec<u8>],
     ) -> Result<(R, R), citadel_crypt::misc::CryptError> {
-        let mut alice = R::Constructor::new_alice(
-            ConstructorOpts::new_vec_init(Some(algorithm), sec),
-            cid,
-            version,
-        )
-        .unwrap();
+        let mut alice =
+            R::Constructor::new_alice(ConstructorOpts::new_vec_init(algorithm, sec), cid, version)
+                .unwrap();
         let mut bob = R::Constructor::new_bob(
             cid,
-            ConstructorOpts::new_vec_init(Some(algorithm), sec),
+            ConstructorOpts::new_vec_init(algorithm, sec),
             alice.stage0_alice().unwrap(),
             bob_psks,
         )
@@ -734,6 +735,11 @@ mod tests {
         EncryptionAlgorithm::MlKemHybrid,
         KemAlgorithm::MlKem,
         SigAlgorithm::FnDsa512
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem1024Fips203,
+        SigAlgorithm::MlDsa65
     )]
     #[timeout(std::time::Duration::from_secs(240))]
     fn scrambler_transmission_length_spectrum_remote(
@@ -937,6 +943,11 @@ mod tests {
         EncryptionAlgorithm::MlKemHybrid,
         KemAlgorithm::MlKem,
         SigAlgorithm::FnDsa512
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem1024Fips203,
+        SigAlgorithm::MlDsa65
     )]
     #[tokio::test]
     async fn encrypt_decrypt_file_transfer_remote(

@@ -26,7 +26,7 @@
 //!         .with_udp_mode(UdpMode::Enabled)
 //!         .add()
 //!         .with_peer_custom("bob")
-//!         .with_session_security_settings(Default::default())
+//!         .with_session_security_settings(default_session_security_settings())
 //!         .add();
 //!
 //!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
@@ -296,7 +296,9 @@ impl AddedPeer {
     pub fn add(mut self) -> PeerConnectionSetupAggregator {
         let new = PeerConnectionSettings {
             id: self.id,
-            session_security_settings: self.session_security_settings.unwrap_or_default(),
+            session_security_settings: self
+                .session_security_settings
+                .unwrap_or_else(default_session_security_settings),
             udp_mode: self.udp_mode.unwrap_or_default(),
             ensure_registered: self.ensure_registered,
             peer_session_password: self.peer_session_password,
@@ -378,7 +380,7 @@ impl PeerConnectionSetupAggregator {
     ///     .add()
     ///     .with_peer_custom("alice")
     ///     .with_udp_mode(UdpMode::Disabled)
-    ///     .with_session_security_settings(Default::default())
+    ///     .with_session_security_settings(default_session_security_settings())
     ///     .add();
     /// ```
     pub fn with_peer_custom<T: Into<UserIdentifier>>(self, peer: T) -> AddedPeer {
@@ -704,7 +706,9 @@ mod tests {
                     .with_peer_custom(peer)
                     .ensure_registered()
                     .with_udp_mode(udp_mode)
-                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .with_session_security_settings(
+                        SessionSecuritySettingsBuilder::default().build().unwrap(),
+                    )
                     .add();
             }
 
@@ -826,10 +830,10 @@ mod tests {
             let mut agg = PeerConnectionSetupAggregator::default();
 
             for peer in peers {
-                let security_settings = SessionSecuritySettings {
-                    header_obfuscator_settings,
-                    ..Default::default()
-                };
+                let security_settings = SessionSecuritySettingsBuilder::default()
+                    .with_header_obfuscator_settings(header_obfuscator_settings)
+                    .build()
+                    .unwrap();
                 agg = agg
                     .with_peer_custom(peer)
                     .with_udp_mode(udp_mode)
@@ -952,7 +956,9 @@ mod tests {
                     .with_peer_custom(peer)
                     .ensure_registered()
                     .with_udp_mode(udp_mode)
-                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .with_session_security_settings(
+                        SessionSecuritySettingsBuilder::default().build().unwrap(),
+                    )
                     .add();
             }
 
@@ -1144,7 +1150,9 @@ mod tests {
                     .with_peer_custom(peer)
                     .ensure_registered()
                     .with_udp_mode(udp_mode)
-                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .with_session_security_settings(
+                        SessionSecuritySettingsBuilder::default().build().unwrap(),
+                    )
                     .add();
             }
 
@@ -1244,7 +1252,9 @@ mod tests {
                     .with_peer_custom(peer)
                     .ensure_registered()
                     .with_udp_mode(udp_mode)
-                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .with_session_security_settings(
+                        SessionSecuritySettingsBuilder::default().build().unwrap(),
+                    )
                     .add();
             }
 

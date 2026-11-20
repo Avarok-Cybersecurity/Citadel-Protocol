@@ -349,7 +349,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         let alice_constructor = return_if_none!(
                                             <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
                                                 ConstructorOpts::new_vec_init(
-                                                    Some(endpoint_security_settings.crypto_params),
+                                                    endpoint_security_settings.crypto_params,
                                                     endpoint_security_settings.security_level
                                                 ),
                                                 conn.get_original_target_cid(),
@@ -679,7 +679,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                             conn.get_original_target_cid(),
                                             ConstructorOpts::new_vec_init(
-                                                Some(session_security_settings.crypto_params),
+                                                session_security_settings.crypto_params,
                                                 session_security_settings.security_level,
                                             ),
                                             transfer_deser,

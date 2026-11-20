@@ -17,7 +17,6 @@ pub fn make_ratchets(
     sec: SecurityLevel,
 ) -> (StackedRatchet, StackedRatchet) {
     let params: CryptoParameters = KemAlgorithm::MlKem + enc;
-    let params = Some(params);
     let psks = psks();
 
     let mut alice = <StackedRatchet as Ratchet>::Constructor::new_alice(

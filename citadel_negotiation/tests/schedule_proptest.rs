@@ -61,10 +61,10 @@ fn run<S: Setting>(
 fn profiles() -> Vec<KeyProfile> {
     let wider = CryptoParameters {
         kem_algorithm: KemAlgorithm::MlKem1024Fips203,
-        ..CryptoParameters::default()
+        ..common::BASE_PARAMS
     };
     let mut values: Vec<KeyProfile> = (0..=4)
-        .map(|l| KeyProfile::new(SecurityLevel::from(l), CryptoParameters::default()))
+        .map(|l| KeyProfile::new(SecurityLevel::from(l), common::BASE_PARAMS))
         .collect();
     values.push(KeyProfile::new(SecurityLevel::Extreme, wider)); // a KEM change: the handshake path
     values

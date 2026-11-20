@@ -9,11 +9,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 const PSKS: &[&[u8]] = &[b"psk"];
 
 fn pair(params: CryptoParameters) -> (PostQuantumContainer, PostQuantumContainer) {
-    let mut alice =
-        PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params))).unwrap();
+    let mut alice = PostQuantumContainer::new_alice(ConstructorOpts::new_init(params)).unwrap();
     let tx = alice.generate_alice_to_bob_transfer().unwrap();
-    let bob =
-        PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(params)), tx, PSKS).unwrap();
+    let bob = PostQuantumContainer::new_bob(ConstructorOpts::new_init(params), tx, PSKS).unwrap();
     alice
         .alice_on_receive_ciphertext(bob.generate_bob_to_alice_transfer().unwrap(), PSKS)
         .unwrap();
@@ -23,12 +21,10 @@ fn pair(params: CryptoParameters) -> (PostQuantumContainer, PostQuantumContainer
 /// Alice built with `alice_params` sends her transfer to a Bob built with `bob_params`.
 fn bob_receives(alice_params: CryptoParameters, bob_params: CryptoParameters) -> bool {
     citadel_types::utils::validate_crypto_params(&bob_params).expect("Bob's params are valid");
-    let alice =
-        PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(alice_params))).unwrap();
+    let alice = PostQuantumContainer::new_alice(ConstructorOpts::new_init(alice_params)).unwrap();
     let tx = alice.generate_alice_to_bob_transfer().unwrap();
     catch_unwind(AssertUnwindSafe(|| {
-        PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(bob_params)), tx, PSKS)
-            .is_err()
+        PostQuantumContainer::new_bob(ConstructorOpts::new_init(bob_params), tx, PSKS).is_err()
     }))
     .expect("constructing Bob panicked")
 }
@@ -76,11 +72,11 @@ fn a_matching_transfer_is_accepted() {
 /// Alice built with `alice_params` receives the reply of a Bob built with `bob_params`.
 fn alice_refuses_reply(alice_params: CryptoParameters, bob_params: CryptoParameters) -> bool {
     let mut alice =
-        PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(alice_params))).unwrap();
+        PostQuantumContainer::new_alice(ConstructorOpts::new_init(alice_params)).unwrap();
     let other_alice =
-        PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(bob_params))).unwrap();
+        PostQuantumContainer::new_alice(ConstructorOpts::new_init(bob_params)).unwrap();
     let bob = PostQuantumContainer::new_bob(
-        ConstructorOpts::new_init(Some(bob_params)),
+        ConstructorOpts::new_init(bob_params),
         other_alice.generate_alice_to_bob_transfer().unwrap(),
         PSKS,
     )

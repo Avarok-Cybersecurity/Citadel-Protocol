@@ -78,7 +78,7 @@ fn test_transient_credentials_custom() {
 /// Verify the default SessionSecuritySettings are sound on WASM.
 #[wasm_bindgen_test]
 fn test_default_session_security() {
-    let settings = SessionSecuritySettings::default();
+    let settings = SessionSecuritySettingsBuilder::default().build().unwrap();
     // Default should use Standard security level
     assert!(matches!(settings.security_level, SecurityLevel::Standard));
 }
@@ -123,7 +123,7 @@ async fn scramble_and_reassemble() {
 
     fn pair(params: CryptoParameters) -> (StackedRatchet, StackedRatchet) {
         use citadel_pqcrypto::constructor_opts::ConstructorOpts;
-        let opts = || ConstructorOpts::new_vec_init(Some(params), SecurityLevel::Standard);
+        let opts = || ConstructorOpts::new_vec_init(params, SecurityLevel::Standard);
         let psks: &[&[u8]] = &[b"psk"];
         let mut alice = <StackedRatchet as Ratchet>::Constructor::new_alice(opts(), 1, 0).unwrap();
         let mut bob = <StackedRatchet as Ratchet>::Constructor::new_bob(

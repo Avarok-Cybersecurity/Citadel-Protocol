@@ -30,7 +30,7 @@ mod tests {
     fn settings_at(level: SecurityLevel) -> SessionSecuritySettings {
         SessionSecuritySettings {
             security_level: level,
-            ..Default::default()
+            ..citadel_sdk::prelude::default_session_security_settings()
         }
     }
 

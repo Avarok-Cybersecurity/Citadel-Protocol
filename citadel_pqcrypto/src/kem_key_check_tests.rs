@@ -83,7 +83,7 @@ fn bob_refuses_an_invalid_key_from_alice() {
     use crate::PostQuantumContainer;
     for alg in ALL {
         let params = alg + citadel_types::crypto::EncryptionAlgorithm::AES_GCM_256;
-        let opts = ConstructorOpts::new_init(Some(params));
+        let opts = ConstructorOpts::new_init(params);
         let alice = PostQuantumContainer::new_alice(opts.clone()).unwrap();
         let mut transfer = alice.generate_alice_to_bob_transfer().unwrap();
         let AliceToBobTransferParameters::PureSymmetric { alice_pk, .. } = &mut transfer else {

@@ -27,7 +27,7 @@ fn suites() -> Vec<CryptoParameters> {
 }
 
 fn opts(params: CryptoParameters) -> ConstructorOpts {
-    ConstructorOpts::new_init(Some(params))
+    ConstructorOpts::new_init(params)
 }
 
 fn pair(params: CryptoParameters) -> (PostQuantumContainer, PostQuantumContainer) {

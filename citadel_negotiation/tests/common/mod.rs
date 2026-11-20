@@ -7,7 +7,9 @@ use citadel_negotiation::{
     ApplyPath, NegotiationPolicy, NegotiationState, NegotiatorConfig, PeerSupport, Setting,
     SettingId,
 };
-use citadel_types::crypto::{CryptoParameters, SecurityLevel};
+use citadel_types::crypto::{
+    CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecurityLevel, SigAlgorithm,
+};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -75,8 +77,15 @@ impl Setting for Tier {
     }
 }
 
+/// The suite these worlds start from; a change of KEM is measured against it.
+pub const BASE_PARAMS: CryptoParameters = CryptoParameters::new(
+    EncryptionAlgorithm::AES_GCM_256,
+    KemAlgorithm::MlKem,
+    SigAlgorithm::None,
+);
+
 pub fn profile(level: SecurityLevel) -> KeyProfile {
-    KeyProfile::new(level, CryptoParameters::default())
+    KeyProfile::new(level, BASE_PARAMS)
 }
 
 pub fn states<S: Setting>(world: &World<S>, side: Side) -> Vec<NegotiationState<S>> {

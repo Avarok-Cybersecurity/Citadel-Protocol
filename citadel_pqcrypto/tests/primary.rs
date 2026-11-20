@@ -30,14 +30,14 @@ mod tests {
         alice_psks: &[R],
     ) -> (PostQuantumContainer, PostQuantumContainer) {
         log::trace!(target: "citadel", "Test algorithm {kem_algorithm:?} w/ {encryption_algorithm:?}");
-        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
+        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(
             kem_algorithm + encryption_algorithm + sig_alg,
-        )))
+        ))
         .unwrap();
 
         let tx_params = alice_container.generate_alice_to_bob_transfer().unwrap();
         let bob_container = PostQuantumContainer::new_bob(
-            ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm + sig_alg)),
+            ConstructorOpts::new_init(kem_algorithm + encryption_algorithm + sig_alg),
             tx_params,
             bob_psks,
         )
@@ -100,25 +100,21 @@ mod tests {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
         log::trace!(target: "citadel", "Test: {kem_algorithm:?} w/ {encryption_algorithm:?} w/ {signature_algorithm:?}");
         // Alice wants to share data with Bob. She first creates a PostQuantumContainer
-        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(
+        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(
             kem_algorithm + encryption_algorithm + signature_algorithm,
-        )))
+        ))
         .unwrap();
         // Then, alice sends her public key to Bob. She must also send the byte value of algorithm_dictionary::BABYBEAR to him
         let tx_params = alice_container.generate_alice_to_bob_transfer().unwrap();
         //
         // Then, Bob gets the public key. To process it, he must create a PostQuantumContainer for himself
         let bob_container = PostQuantumContainer::new_bob(
-            ConstructorOpts::new_init(Some(
-                kem_algorithm + encryption_algorithm + signature_algorithm,
-            )),
+            ConstructorOpts::new_init(kem_algorithm + encryption_algorithm + signature_algorithm),
             tx_params.clone(),
             bob_psk,
         )?;
         let eve_container = PostQuantumContainer::new_bob(
-            ConstructorOpts::new_init(Some(
-                kem_algorithm + encryption_algorithm + signature_algorithm,
-            )),
+            ConstructorOpts::new_init(kem_algorithm + encryption_algorithm + signature_algorithm),
             tx_params,
             bob_psk,
         )?;
@@ -239,6 +235,28 @@ mod tests {
         for x in 0..256 {
             run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
             run_protection::<BytesMut>(&alice_container, &bob_container, HEADER_LEN, x);
+        }
+    }
+
+    #[test]
+    fn in_place_sequential_hybrid_on_each_fips_kem() {
+        const HEADER_LEN: usize = 50;
+
+        for kem_algorithm in [
+            KemAlgorithm::MlKem768Fips203,
+            KemAlgorithm::MlKem1024Fips203,
+        ] {
+            let (alice_container, bob_container) = gen(
+                kem_algorithm,
+                EncryptionAlgorithm::MlKemHybrid,
+                SigAlgorithm::MlDsa65,
+                &PRE_SHARED_KEYS,
+                &PRE_SHARED_KEYS,
+            );
+
+            for x in 0..64 {
+                run_protection::<Vec<u8>>(&alice_container, &bob_container, HEADER_LEN, x);
+            }
         }
     }
 
@@ -598,12 +616,10 @@ mod tests {
 
                     let check_params_3 = enx + kex + sig;
                     if validate_crypto_params(&check_params_3).is_ok() {
-                        // check all 3-valued combinations
+                        // every order in which the KEM is named before the third algorithm joins
                         test_inner(enx + kex + sig, enx, kex, sig);
-                        test_inner(enx + sig + kex, enx, kex, sig);
                         test_inner(kex + enx + sig, enx, kex, sig);
                         test_inner(kex + sig + enx, enx, kex, sig);
-                        test_inner(sig + enx + kex, enx, kex, sig);
                         test_inner(sig + kex + enx, enx, kex, sig);
                     }
                 }

@@ -64,7 +64,9 @@ pub async fn citadel(p: Params) -> ArmResult {
             .with_peer_custom(other)
             .ensure_registered()
             .with_udp_mode(UdpMode::Enabled)
-            .with_session_security_settings(SessionSecuritySettings::default())
+            .with_session_security_settings(
+                SessionSecuritySettingsBuilder::default().build().unwrap(),
+            )
             .add();
         let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, id)
             .with_udp_mode(UdpMode::Enabled)

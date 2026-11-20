@@ -595,7 +595,10 @@ pub mod prelude {
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     #[doc(hidden)]
     pub use crate::proto::misc::safe_split_stream;
-    pub use crate::proto::misc::session_security_settings::SessionSecuritySettingsBuilder;
+    pub use crate::proto::misc::session_security_settings::{
+        default_session_security_settings, SessionSecuritySettingsBuilder,
+        DEFAULT_SESSION_CRYPTO_PARAMS,
+    };
     pub use crate::proto::node::CitadelNode;
     pub use crate::proto::outbound_sender::OutboundUdpSender;
     pub use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
