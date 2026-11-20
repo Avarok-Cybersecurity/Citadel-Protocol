@@ -1335,6 +1335,9 @@ pub enum ErrorCode {
     /// A RE-VFS key was asked for with a domain that is empty or too long.
     #[form = "A RE-VFS key needs a canonical server domain of 1 to 65535 bytes"]
     RevfsKeyDomainInvalid = 494,
+    /// A stored RE-VFS group does not carry the sealed format's prefix (object, group).
+    #[form = "A RE-VFS group is not in the sealed format (object {}, group {}); it is not opened"]
+    RevfsSealUnrecognised = 495,
 
     // --- account recovery ---
     /// A recovery phrase was bound to a server domain that is empty or too long.

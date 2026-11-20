@@ -1,8 +1,7 @@
 #![cfg(not(target_family = "wasm"))]
 //! RE-VFS objects are sealed under the account's own key before they leave the device. The
-//! server stores bytes it cannot open, a group it moves or replaces does not open, and an
-//! object stored the old way (under the session's static auxiliary ratchet, which the server
-//! also holds) is read and then sealed again.
+//! server stores bytes it cannot open, and a group it moves or replaces does not open: nor does
+//! an object stored before the sealed format (under the session's static auxiliary ratchet).
 
 #[cfg(feature = "localhost-testing")]
 #[path = "../../citadel_user/tests/common/sqlite_host.rs"]
@@ -117,16 +116,12 @@ mod tests {
 
     async fn pull(
         conn: &CitadelClientServerConnection<StackedRatchet>,
-    ) -> Result<(Vec<u8>, bool), NetworkError> {
+    ) -> Result<Vec<u8>, NetworkError> {
         let pulled = conn
             .remote
-            .remote_encrypted_virtual_filesystem_pull_resealing(
-                VIRTUAL_PATH,
-                SecurityLevel::Standard,
-                false,
-            )
+            .remote_encrypted_virtual_filesystem_pull(VIRTUAL_PATH, SecurityLevel::Standard, false)
             .await?;
-        Ok((std::fs::read(&pulled.path).unwrap(), pulled.resealed))
+        Ok(std::fs::read(&pulled).unwrap())
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]
@@ -157,37 +152,34 @@ mod tests {
             assert!(!group.windows(64).any(|w| w == &plaintext[..64]));
         }
         assert_eq!(aux_opens, 0, "the server's key opened a stored group");
-        assert_eq!(pulled.unwrap(), (plaintext, false));
+        assert_eq!(pulled.unwrap(), plaintext);
     }
 
+    /// An object stored before the sealed format is refused by name; the same object stored
+    /// sealed (the upload just before) is the control, and still reads after the refusal.
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn an_object_stored_the_old_way_is_read_and_sealed_again() {
+    async fn an_object_stored_before_the_sealed_format_is_refused() {
         let host = SqliteHost::handle();
         let plaintext = object(GROUP / 2);
         let h = host.clone();
         let sent = plaintext.clone();
-        let (first, after, second, listed) = against_server(host, |conn| async move {
+        let (sealed, unsealed) = against_server(host, |conn| async move {
             store(&conn, sent.clone()).await.expect("the upload failed");
+            let sealed = pull(&conn).await;
             let aux = static_aux(&conn).await;
             let legacy = aux
                 .local_encrypt(sent.as_slice(), SecurityLevel::Standard)
                 .unwrap();
-            replace_stored(&h, std::slice::from_ref(&legacy)).await;
-            let first = pull(&conn).await;
-            let after = stored_groups(&h).await;
-            let second = pull(&conn).await;
             replace_stored(&h, &[legacy]).await;
-            let listed =
-                citadel_sdk::fs::reseal(&conn.remote, SecurityLevel::Standard, [VIRTUAL_PATH])
-                    .await
-                    .map(|pulled| pulled.iter().map(|p| p.resealed).collect::<Vec<_>>());
-            (first, after, second, listed)
+            (sealed, pull(&conn).await)
         })
         .await;
-        assert_eq!(first.unwrap(), (plaintext.clone(), true));
-        assert_eq!(&after[0][..4], MAGIC, "the object was not sealed again");
-        assert_eq!(second.unwrap(), (plaintext, false));
-        assert_eq!(listed.unwrap(), vec![true]);
+        assert_eq!(sealed.unwrap(), plaintext);
+        let err = unsealed.expect_err("an object stored before the sealed format was opened");
+        assert!(
+            err.to_string().contains("not in the sealed format"),
+            "{err}"
+        );
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]

@@ -293,8 +293,6 @@ pub(crate) struct InboundFileTransfer {
     /// The header of the packet that completed the object, and the wave count of its group.
     pub reception_complete_tx: citadel_io::tokio::sync::oneshot::Sender<(HdpHeader, u32)>,
     pub local_encryption_level: Option<SecurityLevel>,
-    /// Whether the handle was told this object holds groups sealed before account keys.
-    pub legacy_seal_reported: bool,
 }
 
 #[allow(dead_code)]

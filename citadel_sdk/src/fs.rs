@@ -127,10 +127,6 @@ pub async fn delete<P: Into<PathBuf> + Send, R: Ratchet>(
         .await
 }
 
-#[path = "fs_reseal.rs"]
-mod reseal;
-pub use reseal::{reseal, RevfsPull};
-
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;

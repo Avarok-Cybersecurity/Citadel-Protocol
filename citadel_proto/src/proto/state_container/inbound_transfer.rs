@@ -137,7 +137,6 @@ impl<R: Ratchet> StateContainerInner<R> {
                 reception_complete_tx,
                 stream_to_hd,
                 local_encryption_level,
-                legacy_seal_reported: false,
             };
 
             let (start_recv_tx, start_recv_rx) = if !is_revfs_pull {
@@ -473,13 +472,9 @@ impl<R: Ratchet> StateContainerInner<R> {
                 if let Some(local_encryption_level) = local_encryption_level {
                     // Groups arrive in order, one at a time, so this is the group's position.
                     let group_index = (groups_rendered - 1) as u64;
-                    let (opened, legacy) = self
+                    chunk = self
                         .open_revfs_group(object_id, group_index, local_encryption_level, chunk)
                         .map_err(|err| (err, ticket, object_id))?;
-                    chunk = opened;
-                    if legacy {
-                        self.report_legacy_seal(file_key, local_encryption_level);
-                    }
                 }
 
                 stream_to_hd

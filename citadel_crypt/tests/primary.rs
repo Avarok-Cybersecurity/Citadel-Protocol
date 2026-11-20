@@ -12,13 +12,14 @@ mod tests {
     use citadel_crypt::ratchets::entropy_bank::EntropyBank;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
-    use citadel_crypt::revfs_seal::{self, Opened, RevfsKey};
+    use citadel_crypt::revfs_seal::{self, RevfsKey};
     use citadel_crypt::scramble::crypt_splitter::{
         par_scramble_encrypt_group, GroupReceiver, RevfsGroupSeal, WaveBinding,
     };
     use citadel_crypt::toolset::{Toolset, ToolsetUpdateStatus, MAX_RATCHETS_IN_MEMORY};
     #[cfg(not(target_family = "wasm"))]
     use citadel_io::tokio;
+    use citadel_io::ErrorCode;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::crypto::{
@@ -760,11 +761,13 @@ mod tests {
                 return;
             }
             assert_ne!(decrypted, plaintext);
-            let open = |key| {
-                revfs_seal::open(Some(key), 0, 0, 0, SecurityLevel::Standard, decrypted).unwrap()
-            };
-            assert_eq!(open(alice), Opened::Sealed(plaintext.to_vec()));
-            assert_eq!(open(bob), Opened::Legacy { foreign_key: true });
+            let open =
+                |key| revfs_seal::open(Some(key), 0, 0, 0, SecurityLevel::Standard, decrypted);
+            assert_eq!(open(alice).unwrap(), plaintext.to_vec());
+            assert_eq!(
+                open(bob).unwrap_err().code(),
+                ErrorCode::RevfsSealedUnderAnotherKey
+            );
         }
 
         scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type.clone(), verifier);
@@ -972,9 +975,12 @@ mod tests {
         )
         .await;
         assert_ne!(plaintext, bytes_ret);
-        let open = |key| revfs_seal::open(Some(key), 0, 0, 0, security_level, &bytes_ret).unwrap();
-        assert_eq!(open(&alice), Opened::Sealed(plaintext.to_vec()));
-        assert_eq!(open(&bob), Opened::Legacy { foreign_key: true });
+        let open = |key| revfs_seal::open(Some(key), 0, 0, 0, security_level, &bytes_ret);
+        assert_eq!(open(&alice).unwrap(), plaintext.to_vec());
+        assert_eq!(
+            open(&bob).unwrap_err().code(),
+            ErrorCode::RevfsSealedUnderAnotherKey
+        );
     }
 
     #[cfg(not(target_family = "wasm"))]

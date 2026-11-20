@@ -12,9 +12,9 @@
 //! ```
 //!
 //! The additional data binds every group to its object and position, so a group moved to
-//! another object or position does not open. A group without the prefix was sealed before this
-//! format, under the session's static auxiliary ratchet; [`open`] reports it as
-//! [`Opened::Legacy`] for the caller to open the old way.
+//! another object or position does not open. A group without the prefix is refused
+//! (`RevfsSealUnrecognised`), and one under another key's id is refused
+//! (`RevfsSealedUnderAnotherKey`).
 //!
 //! Pure: no I/O, no key storage.
 
@@ -40,17 +40,6 @@ const LAYER_OVERHEAD: usize = NONCE_LEN + TAG_LEN;
 /// stored object's fixed group boundaries rely on.
 pub fn sealed_len(plaintext_len: usize, level: SecurityLevel) -> usize {
     HEADER_LEN + (level.value() as usize + 1) * LAYER_OVERHEAD + plaintext_len
-}
-
-/// What a stored group turned out to be.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Opened {
-    /// A v2 group, opened under this account's key.
-    Sealed(Vec<u8>),
-    /// Not opened here. `foreign_key` is set when the group carries the v2 prefix with another
-    /// key's id: either another account sealed it, or (2^-32 for a group sealed before this
-    /// format) its first bytes happen to match the prefix.
-    Legacy { foreign_key: bool },
 }
 
 /// Seals one group of an object. `level` is the object's level: `level + 1` layers.
@@ -89,9 +78,8 @@ pub fn seal(
     Ok(out)
 }
 
-/// Opens one stored group. `level` is the object's level as its metadata states it; a group
-/// naming another level is refused. Without a key, only a group sealed before this format can
-/// be read, and the caller learns so through [`Opened::Legacy`].
+/// Opens one stored group under this account's key. `level` is the object's level as its
+/// metadata states it; a group naming another level is refused.
 pub fn open(
     key: Option<&RevfsKey>,
     cid: u64,
@@ -99,13 +87,17 @@ pub fn open(
     group_index: u64,
     level: SecurityLevel,
     group: &[u8],
-) -> Result<Opened, CryptError> {
+) -> Result<Vec<u8>, CryptError> {
     if group.len() < HEADER_LEN || &group[..MAGIC.len()] != MAGIC {
-        return Ok(Opened::Legacy { foreign_key: false });
+        return Err(citadel_io::error!(
+            ErrorCode::RevfsSealUnrecognised,
+            object_id,
+            group_index
+        ));
     }
     let key = key.ok_or_else(|| citadel_io::error!(ErrorCode::RevfsKeyMissing, cid))?;
     if group[MAGIC.len()..HEADER_LEN - 1] != key.id() {
-        return Ok(Opened::Legacy { foreign_key: true });
+        return Err(citadel_io::error!(ErrorCode::RevfsSealedUnderAnotherKey));
     }
     let stated = group[HEADER_LEN - 1];
     if stated != level.value() {
@@ -134,7 +126,7 @@ pub fn open(
             )
             .map_err(|_| broken())?;
     }
-    Ok(Opened::Sealed(inner))
+    Ok(inner)
 }
 
 fn layer_count(level: SecurityLevel) -> Result<u8, CryptError> {

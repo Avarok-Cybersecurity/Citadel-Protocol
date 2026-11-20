@@ -976,32 +976,14 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
     }
 
     /// Pulls a virtual file from the RE-VFS. If `delete_on_pull` is true, then, the virtual file
-    /// will be taken from the RE-VFS. An object stored before account keys is sealed again under
-    /// the account's key as it is read (see [`Self::remote_encrypted_virtual_filesystem_pull_resealing`]).
+    /// will be taken from the RE-VFS. A stored group that does not open under the account's key
+    /// fails the pull.
     async fn remote_encrypted_virtual_filesystem_pull<P: Into<PathBuf> + Send>(
         &self,
         virtual_directory: P,
         transfer_security_level: SecurityLevel,
         delete_on_pull: bool,
     ) -> Result<PathBuf, NetworkError> {
-        self.remote_encrypted_virtual_filesystem_pull_resealing(
-            virtual_directory,
-            transfer_security_level,
-            delete_on_pull,
-        )
-        .await
-        .map(|pulled| pulled.path)
-    }
-
-    /// Pulls a virtual file, and says whether it was sealed again. An object stored before
-    /// account keys (under a key its server also holds) is pushed back to the same path, sealed
-    /// under the account's key, once it has been read; a taken object is not.
-    async fn remote_encrypted_virtual_filesystem_pull_resealing<P: Into<PathBuf> + Send>(
-        &self,
-        virtual_directory: P,
-        transfer_security_level: SecurityLevel,
-        delete_on_pull: bool,
-    ) -> Result<crate::fs::RevfsPull, NetworkError> {
         self.can_use_revfs()?;
         let virtual_dir = virtual_directory.into();
         let request = NodeRequest::PullObject(PullObject {
@@ -1022,24 +1004,7 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                             err.into_string()
                         )
                     })?;
-                    let legacy_level = handle.legacy_seal_received().filter(|_| !delete_on_pull);
-                    // Sealing again re-reads the pulled object from the local filesystem; a build
-                    // without one returns the object as stored, and says it was not resealed.
-                    #[cfg(feature = "filesystem")]
-                    if let Some(level) = legacy_level {
-                        self.remote_encrypted_virtual_filesystem_push(
-                            path.clone(),
-                            virtual_dir,
-                            level,
-                        )
-                        .await?;
-                    }
-                    #[cfg(not(feature = "filesystem"))]
-                    if let Some(level) = legacy_level {
-                        log::warn!(target: "citadel", "RE-VFS object {virtual_dir:?} is sealed under a key its server holds (level {level:?}); without a filesystem it is not sealed again");
-                    }
-                    let resealed = cfg!(feature = "filesystem") && legacy_level.is_some();
-                    return Ok(crate::fs::RevfsPull { path, resealed });
+                    return Ok(path);
                 }
 
                 NodeResult::PeerEvent(PeerEvent {

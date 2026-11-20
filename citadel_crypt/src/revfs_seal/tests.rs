@@ -13,8 +13,12 @@ fn code(err: CryptError) -> ErrorCode {
     err.code()
 }
 
-fn opened(key: &RevfsKey, group_index: u64, level: SecurityLevel, group: &[u8]) -> Opened {
+fn opened(key: &RevfsKey, group_index: u64, level: SecurityLevel, group: &[u8]) -> Vec<u8> {
     open(Some(key), CID, OBJECT, group_index, level, group).unwrap()
+}
+
+fn refused(key: Option<&RevfsKey>, group: &[u8]) -> ErrorCode {
+    code(open(key, CID, OBJECT, 0, SecurityLevel::Standard, group).unwrap_err())
 }
 
 #[test]
@@ -32,10 +36,7 @@ fn a_group_opens_at_every_level_it_was_sealed_at() {
         assert_eq!(&group[..4], MAGIC);
         assert_eq!(group[4..12], key.id());
         assert!(!group.windows(plaintext.len()).any(|w| w == plaintext));
-        assert_eq!(
-            opened(&key, 3, level, &group),
-            Opened::Sealed(plaintext.clone())
-        );
+        assert_eq!(opened(&key, 3, level, &group), plaintext.clone());
     }
 }
 
@@ -43,10 +44,7 @@ fn a_group_opens_at_every_level_it_was_sealed_at() {
 fn an_empty_group_seals_and_opens() {
     let key = key();
     let group = seal(&key, OBJECT, 0, SecurityLevel::Standard, &[]).unwrap();
-    assert_eq!(
-        opened(&key, 0, SecurityLevel::Standard, &group),
-        Opened::Sealed(vec![])
-    );
+    assert_eq!(opened(&key, 0, SecurityLevel::Standard, &group), vec![]);
 }
 
 #[test]
@@ -125,7 +123,7 @@ fn a_level_no_ratchet_carries_is_refused_before_any_work() {
 }
 
 #[test]
-fn another_accounts_group_is_reported_as_foreign() {
+fn another_accounts_group_is_refused() {
     let mine = key();
     for theirs in [
         RevfsKey::derive(&ROOT, DOMAIN, CID + 1).unwrap(),
@@ -135,26 +133,27 @@ fn another_accounts_group_is_reported_as_foreign() {
         assert_ne!(theirs.id(), mine.id());
         let group = seal(&theirs, OBJECT, 0, SecurityLevel::Standard, b"x").unwrap();
         assert_eq!(
-            opened(&mine, 0, SecurityLevel::Standard, &group),
-            Opened::Legacy { foreign_key: true }
+            refused(Some(&mine), &group),
+            ErrorCode::RevfsSealedUnderAnotherKey
         );
+        // Control: its own key opens it.
+        assert_eq!(opened(&theirs, 0, SecurityLevel::Standard, &group), b"x");
     }
 }
 
+/// A group stored before the sealed format (no prefix) is refused, with or without a key. The
+/// sealed groups above, which open, are the control.
 #[test]
-fn a_group_without_the_prefix_is_legacy_with_or_without_a_key() {
-    let legacy = vec![0xAAu8; 64];
+fn a_group_without_the_prefix_is_refused_with_or_without_a_key() {
+    let unsealed = vec![0xAAu8; 64];
     assert_eq!(
-        opened(&key(), 0, SecurityLevel::Standard, &legacy),
-        Opened::Legacy { foreign_key: false }
+        refused(Some(&key()), &unsealed),
+        ErrorCode::RevfsSealUnrecognised
     );
+    assert_eq!(refused(None, &unsealed), ErrorCode::RevfsSealUnrecognised);
     assert_eq!(
-        open(None, CID, OBJECT, 0, SecurityLevel::Standard, &legacy).unwrap(),
-        Opened::Legacy { foreign_key: false }
-    );
-    assert_eq!(
-        opened(&key(), 0, SecurityLevel::Standard, b"RVF"),
-        Opened::Legacy { foreign_key: false }
+        refused(Some(&key()), b"RVF"),
+        ErrorCode::RevfsSealUnrecognised
     );
 }
 
