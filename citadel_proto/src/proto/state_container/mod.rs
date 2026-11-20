@@ -171,6 +171,8 @@ pub(crate) use virtual_connections::RouteEnd;
 pub struct StateContainerInner<R: Ratchet> {
     /// Where this node gets each account's RE-VFS key; `None` when the node was given none.
     pub(crate) revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+    /// The accounts' identity keys and pins for P2P key exchanges; `None` when the node was given none.
+    pub(crate) p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     pub(super) pre_connect_state: PreConnectState<R>,
     pub(super) node_remote: NodeRemote<R>,
     /// No hashmap here, since register is only for a single target
@@ -603,9 +605,11 @@ impl<R: Ratchet> StateContainerInner<R> {
         udp_mode: UdpMode,
         ledger: crate::proto::session_ledger::SessionLedger,
         revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+        p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     ) -> StateContainer<R> {
         let inner = Self {
             revfs_keys,
+            p2p_kex_identity,
             outgoing_peer_connect_attempts: Default::default(),
             peer_closings: Default::default(),
             peer_turn_configs: Default::default(),

@@ -1333,4 +1333,15 @@ pub enum ErrorCode {
     /// A RE-VFS key was asked for with a domain that is empty or too long.
     #[form = "A RE-VFS key needs a canonical server domain of 1 to 65535 bytes"]
     RevfsKeyDomainInvalid = 494,
+
+    // --- P2P key exchanges signed by each account's identity key ---
+    /// A peer's key-exchange stage carries a signature that does not verify (peer cid, why).
+    #[form = "Peer {}'s key exchange is not signed by the identity key it names: {}; nothing was built"]
+    P2pKexSignatureInvalid = 660,
+    /// A peer whose identity key this account has pinned sent an unsigned key exchange (peer cid).
+    #[form = "Peer {} has a pinned identity key and sent an unsigned key exchange; nothing was built"]
+    P2pKexSignatureMissing = 661,
+    /// A peer's key exchange is signed by a key other than the one pinned for it (peer cid).
+    #[form = "Peer {}'s identity key changed; no link is built until the new key is accepted"]
+    P2pKexPeerKeyChanged = 662,
 }

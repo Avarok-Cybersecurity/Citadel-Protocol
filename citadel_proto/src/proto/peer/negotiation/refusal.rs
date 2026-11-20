@@ -159,6 +159,13 @@ pub(crate) fn end_attempt_refused_by<R: Ratchet>(
             state_container.peer_kem_states.remove(&peer_cid);
         }
     }
+    // A refused Stage1 gets no Stage2; left in place, it turns away the peer's next Stage0.
+    let answered = state_container.peer_kem_states.get(&peer_cid);
+    if answered.is_some_and(|kem| kem.answers(refused_ticket))
+        && !state_container.has_live_peer_connection(peer_cid)
+    {
+        state_container.peer_kem_states.remove(&peer_cid);
+    }
 }
 
 /// The session password of a dial this side holds toward `peer_cid`: `None` unless a dial (or an

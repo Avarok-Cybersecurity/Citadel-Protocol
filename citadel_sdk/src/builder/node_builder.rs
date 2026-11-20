@@ -69,6 +69,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     path_policy: Option<PathPolicy>,
     max_security_level: Option<citadel_types::crypto::MaxSecurityLevel>,
     revfs_keys: Option<citadel_proto::prelude::RevfsKeys>,
+    p2p_kex_identity: Option<citadel_proto::prelude::P2pKexIdentities>,
     websocket_listener: Option<citadel_io::WebSocketListen>,
     injected_listener: Option<T::Listener>,
     link_mode: Option<LinkManagerMode>,
@@ -101,6 +102,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             path_policy: None,
             max_security_level: None,
             revfs_keys: None,
+            p2p_kex_identity: None,
             websocket_listener: None,
             injected_listener: None,
             link_mode: None,
@@ -163,6 +165,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         self.check()?;
         let max_security_level = required_max_security_level(self.max_security_level)?;
         let revfs_keys = self.revfs_keys.clone();
+        let p2p_kex_identity = self.p2p_kex_identity.clone();
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let backend_type = match self.backend_type.take() {
             Some(backend_type) => backend_type,
@@ -258,6 +261,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                     turn_servers,
                     max_security_level,
                     revfs_keys,
+                    p2p_kex_identity,
                     server_only_session_init_settings,
                     websocket_listener,
                     pre_built_listener,
@@ -648,6 +652,8 @@ mod link_manager_tests;
 mod path_policy;
 use path_policy::{check_path_policy, server_settings};
 
+#[path = "node_builder_kex_identity.rs"]
+mod kex_identity;
 #[path = "node_builder_level_cap.rs"]
 mod level_cap;
 #[path = "node_builder_revfs.rs"]

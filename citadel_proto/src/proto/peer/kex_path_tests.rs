@@ -135,6 +135,7 @@ fn kex(path: Option<KexPath>) -> PeerSignal {
         kex_payload: KeyExchangeProcess::Stage2(7, None, true),
         sender_protocol_version: Some(*PROTOCOL_VERSION),
         path,
+        auth: None,
     }
 }
 
@@ -146,7 +147,7 @@ fn path_of(signal: PeerSignal) -> Option<KexPath> {
 }
 
 /// An older node reads a signal as its own fields followed by bytes it ignores, and sends one
-/// that ends before the path: both directions must parse.
+/// that ends before the path (and the signature appended after it): both directions must parse.
 #[test]
 fn the_path_is_appended_to_the_kex_and_absent_from_an_older_nodes() {
     let stamped = stamp(Some(&policy()), Some(both()), || Some(DIRECT_OK));
@@ -155,7 +156,7 @@ fn the_path_is_appended_to_the_kex_and_absent_from_an_older_nodes() {
     assert_eq!(path_of(read), stamped);
 
     let without = kex(None).serialize_to_vector().unwrap();
-    let legacy = &without[..without.len() - 1];
+    let legacy = &without[..without.len() - 2];
     assert!(
         with.starts_with(legacy),
         "the old encoding, with the path appended"

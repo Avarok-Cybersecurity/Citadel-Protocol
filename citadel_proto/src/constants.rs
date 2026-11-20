@@ -72,7 +72,9 @@ pub const MINOR_VERSION: u8 = 12;
 // Bumped 3 -> 4 (the RobustConnectionManager release, one bump shared by every lane, §12.2): a
 // P2P pair exchanges its ends' link-manager modes and runs the manager only when both are
 // Managed (see `LINK_MODE_SINCE`), and a client may reattach a held session over a new path (see
-// `LINK_REATTACH_SINCE`). Additive: with a peer below it, each behaves as before.
+// `LINK_REATTACH_SINCE`). Additive: with a peer below it, each behaves as before. In the same
+// bump, P2P key-exchange stages carry the sending account's identity signature (see
+// `P2P_KEX_SIGNED_SINCE`).
 pub const PATCH_VERSION: u8 = 4;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
@@ -167,6 +169,14 @@ pub const LINK_REATTACH_SINCE: (u8, u8, u8) = (0, 12, 4);
 /// coordination endpoint before any path work (`link::p2p::agree`). With a peer below it the
 /// pair runs the Legacy campaign, whatever this node's mode.
 pub const LINK_MODE_SINCE: (u8, u8, u8) = (0, 12, 4);
+
+/// The first protocol version whose P2P key-exchange stages carry a signature by the sending
+/// account's identity key over the exchange's transcript (`proto::peer::kex_auth`). A responder
+/// signs its Stage1 only toward an initiator at or above it; an initiator signs its Stage0
+/// whenever its account has an identity key, since an older node ignores the appended field.
+/// Whether an unsigned stage is accepted is decided by the key pinned for the peer, never by the
+/// version a stage claims. Shares the one 0.12.4 bump.
+pub const P2P_KEX_SIGNED_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.

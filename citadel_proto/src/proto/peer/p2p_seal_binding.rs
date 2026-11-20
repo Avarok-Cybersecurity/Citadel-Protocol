@@ -55,7 +55,7 @@ pub(crate) fn exchange_psks(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::constants::PROTOCOL_VERSION;
     use crate::proto::packet_crafter::peer_cmd::craft_peer_signal;
@@ -69,7 +69,7 @@ mod tests {
     use citadel_types::proto::ClientConnectionType;
     use embedded_semver::Semver;
 
-    type Constructor = <StackedRatchet as Ratchet>::Constructor;
+    pub(crate) type Constructor = <StackedRatchet as Ratchet>::Constructor;
 
     const ALICE: u64 = 10;
     const BOB: u64 = 20;
@@ -104,7 +104,7 @@ mod tests {
     }
 
     /// Whether a packet Alice seals opens under Bob's end.
-    fn opens(ends: Option<(StackedRatchet, StackedRatchet)>) -> bool {
+    pub(crate) fn opens(ends: Option<(StackedRatchet, StackedRatchet)>) -> bool {
         let Some((alice, bob)) = ends else {
             return false;
         };

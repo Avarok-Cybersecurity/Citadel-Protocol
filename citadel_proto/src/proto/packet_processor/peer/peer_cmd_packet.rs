@@ -38,6 +38,7 @@ use bytes::BytesMut;
 
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::peer::negotiation::level_cap::{above_maximum_error, refuse_if_above_maximum};
+use crate::proto::peer::negotiation::link_refusal::refuse_link;
 use crate::proto::peer::negotiation::reason::reported_reason;
 use crate::proto::peer::negotiation::refusal::{
     decline_dial, end_attempt_refused_by, held_dial_password, refuse_accept, refuse_stamp,
@@ -65,6 +66,7 @@ use crate::proto::packet_processor::primary_group_packet::{
 use crate::proto::peer::hole_punch_compat_sink_stream::{
     CompatStreamKey, ReliableOrderedCompatStream,
 };
+use crate::proto::peer::kex_auth::{self, KexStage};
 use crate::proto::peer::p2p_seal_binding::{exchange_psks, P2pSealContext};
 use crate::proto::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::proto::peer::peer_layer::{
@@ -452,6 +454,15 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             Some(alice_constructor);
                                         peer_kem_state_container.p2p_connection_id =
                                             p2p_connection_id;
+                                        let stage0_digest =
+                                            return_if_none!(kex_auth::stage0_digest(
+                                                &msg_bytes,
+                                                *endpoint_security_settings,
+                                                *udp_enabled,
+                                                p2p_connection_id,
+                                            ));
+                                        peer_kem_state_container.stage0_digest =
+                                            Some(stage0_digest);
                                         // This accepted dial makes us alice for the pair.
                                         // Record the role so the Stage0 tie-break and the
                                         // Stage2 handler can tell our alice constructor
@@ -503,8 +514,22 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             *original_session_cid,
                                             peer_kem_state_container,
                                         );
+                                        let kex_identity = state_container.p2p_kex_identity.clone();
 
                                         drop(state_container);
+                                        let stage0_auth = kex_auth::sign_stage(
+                                            kex_identity.as_ref(),
+                                            *original_target_cid,
+                                            &P2pSealContext {
+                                                initiator: *original_target_cid,
+                                                responder: *original_session_cid,
+                                                connection: p2p_connection_id,
+                                            },
+                                            &KexStage::Initiator {
+                                                stage0: stage0_digest,
+                                            },
+                                            None,
+                                        );
                                         // finally, prepare the signal and send outbound
                                         // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, entropy_bank: &EntropyBank, ticket: Ticket, timestamp: i64
                                         let signal = PeerSignal::Kex {
@@ -522,6 +547,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 *crate::constants::PROTOCOL_VERSION,
                                             ),
                                             path: Some(stage0_path),
+                                            auth: stage0_auth,
                                         };
 
                                         let stage0_peer_kem =
@@ -569,6 +595,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                             kex_payload: kep,
                             sender_protocol_version: peer_protocol_version,
                             path: kex_path_in,
+                            auth: kex_auth_in,
                         } => {
                             return match kep {
                                 KeyExchangeProcess::Stage0(
@@ -686,13 +713,48 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         log::warn!(target: "citadel", "Refusing a key exchange from {peer_cid}: no connection request with it");
                                         return Ok(PrimaryProcessorResult::Void);
                                     };
+                                    let this_cid = conn.get_original_target_cid();
+                                    let seal_context = P2pSealContext {
+                                        initiator: peer_cid,
+                                        responder: this_cid,
+                                        connection: *p2p_connection_id,
+                                    };
+                                    let stage0_digest = return_if_none!(kex_auth::stage0_digest(
+                                        transfer,
+                                        *session_security_settings,
+                                        *udp_enabled,
+                                        *p2p_connection_id,
+                                    ));
+                                    let peer_kex_identity = match kex_auth::authenticate(
+                                        state_container.p2p_kex_identity.as_ref(),
+                                        this_cid,
+                                        peer_cid,
+                                        kex_auth_in.as_ref(),
+                                        &kex_auth::transcript_body(
+                                            &seal_context,
+                                            &KexStage::Initiator {
+                                                stage0: stage0_digest,
+                                            },
+                                        ),
+                                    ) {
+                                        Ok(identity) => identity,
+                                        Err(error) => {
+                                            return refuse_link(
+                                                &mut state_container,
+                                                &session.kernel_tx,
+                                                session_cid,
+                                                peer_cid,
+                                                error,
+                                                ticket,
+                                                &sess_ratchet,
+                                                timestamp,
+                                                security_level,
+                                            );
+                                        }
+                                    };
                                     let psks = exchange_psks(
                                         &session_password,
-                                        P2pSealContext {
-                                            initiator: peer_cid,
-                                            responder: conn.get_original_target_cid(),
-                                            connection: *p2p_connection_id,
-                                        },
+                                        seal_context,
                                         *peer_protocol_version,
                                     );
 
@@ -725,6 +787,21 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         plan: None,
                                     };
                                     // Echo back the p2p_connection_id from Stage0
+                                    let stage1_digest = return_if_none!(kex_auth::stage1_digest(
+                                        &bob_transfer,
+                                        local_is_file_transfer_compat,
+                                        *p2p_connection_id,
+                                    ));
+                                    let stage1_auth = kex_auth::sign_stage(
+                                        state_container.p2p_kex_identity.as_ref(),
+                                        this_cid,
+                                        &seal_context,
+                                        &KexStage::Responder {
+                                            stage0: stage0_digest,
+                                            stage1: stage1_digest,
+                                        },
+                                        *peer_protocol_version,
+                                    );
                                     let signal = PeerSignal::Kex {
                                         peer_conn_type: conn.reverse(),
                                         kex_payload: KeyExchangeProcess::Stage1(
@@ -737,6 +814,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             *crate::constants::PROTOCOL_VERSION,
                                         ),
                                         path: Some(stage1_path.clone()),
+                                        auth: stage1_auth,
                                     };
 
                                     let mut state_container_kem = PeerKemStateContainer::new(
@@ -747,6 +825,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     state_container_kem.constructor = Some(bob_constructor);
                                     state_container_kem.p2p_connection_id = *p2p_connection_id;
                                     state_container_kem.path = stage1_path;
+                                    state_container_kem.peer_kex_identity = Some(peer_kex_identity);
+                                    state_container_kem.answered_ticket = Some(ticket);
                                     state_container
                                         .peer_kem_states
                                         .insert(peer_cid, state_container_kem);
@@ -767,7 +847,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                     transfer,
                                     Some(bob_nat_info),
                                     peer_file_transfer_compat,
-                                    _p2p_connection_id,
+                                    echoed_connection_id,
                                 ) => {
                                     // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
                                     // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
@@ -817,13 +897,50 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             "bad deser"
                                         );
 
+                                        let seal_context = P2pSealContext {
+                                            initiator: this_cid,
+                                            responder: peer_cid,
+                                            connection: kem_state.p2p_connection_id,
+                                        };
+                                        let stage0_digest =
+                                            return_if_none!(kem_state.stage0_digest);
+                                        let stage1_digest =
+                                            return_if_none!(kex_auth::stage1_digest(
+                                                transfer,
+                                                *peer_file_transfer_compat,
+                                                *echoed_connection_id,
+                                            ));
+                                        let peer_kex_identity = match kex_auth::authenticate(
+                                            state_container.p2p_kex_identity.as_ref(),
+                                            this_cid,
+                                            peer_cid,
+                                            kex_auth_in.as_ref(),
+                                            &kex_auth::transcript_body(
+                                                &seal_context,
+                                                &KexStage::Responder {
+                                                    stage0: stage0_digest,
+                                                    stage1: stage1_digest,
+                                                },
+                                            ),
+                                        ) {
+                                            Ok(identity) => identity,
+                                            Err(error) => {
+                                                return refuse_link(
+                                                    &mut state_container,
+                                                    &session.kernel_tx,
+                                                    session_cid,
+                                                    peer_cid,
+                                                    error,
+                                                    ticket,
+                                                    &sess_ratchet,
+                                                    timestamp,
+                                                    security_level,
+                                                );
+                                            }
+                                        };
                                         let psks = exchange_psks(
                                             &kem_state.session_password,
-                                            P2pSealContext {
-                                                initiator: this_cid,
-                                                responder: peer_cid,
-                                                connection: kem_state.p2p_connection_id,
-                                            },
+                                            seal_context,
                                             *peer_protocol_version,
                                         );
                                         if let Err(err) =
@@ -909,7 +1026,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 log::info!(target: "citadel", "Dual-connect race: duplicate Kex suppressed (Stage1, peer {peer_cid}): {err}");
                                                 return Ok(PrimaryProcessorResult::Void);
                                             }
-                                        };
+                                        }
+                                        .with_kex_identity(peer_kex_identity);
                                         // load the channel now that the keys have been exchanged
 
                                         // Create cancellation channel for hole punch operation.
@@ -946,6 +1064,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 *crate::constants::PROTOCOL_VERSION,
                                             ),
                                             path: Some(stage2_path),
+                                            auth: None,
                                         };
 
                                         let endpoint_security_level =
@@ -1065,6 +1184,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         // other side's toolset
                                         let bob_constructor =
                                             return_if_none!(kem.constructor.take());
+                                        let peer_kex_identity =
+                                            return_if_none!(kem.peer_kex_identity.take());
                                         let udp_rx_opt = kem.udp_channel_sender.rx.take();
                                         let endpoint_ratchet = return_if_none!(
                                             bob_constructor.finish_with_custom_cid(this_cid)
@@ -1121,7 +1242,8 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                                 log::info!(target: "citadel", "Dual-connect race: duplicate Kex suppressed (Stage2, peer {peer_cid}): {err}");
                                                 return Ok(PrimaryProcessorResult::Void);
                                             }
-                                        };
+                                        }
+                                        .with_kex_identity(peer_kex_identity);
 
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
                                         let local_outgoing_connection_attempt_metadata =
@@ -1441,6 +1563,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
             kex_payload: mut kep,
             sender_protocol_version,
             path,
+            auth,
         } => {
             // before just routing the signals, we also need to add socket information into intercepted stage1 and stage2 signals
             // to allow for STUN-like NAT traversal
@@ -1495,6 +1618,7 @@ async fn process_signal_command_as_server<R: Ratchet, T: PlatformOps>(
                 kex_payload: kep,
                 sender_protocol_version,
                 path,
+                auth,
             };
             if sess_ratchet.get_cid() == conn.get_original_target_cid() {
                 log::error!(target: "citadel", "Error (equivalent CIDs)");

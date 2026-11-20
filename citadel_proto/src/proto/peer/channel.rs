@@ -95,6 +95,8 @@ pub struct PeerChannel<R: Ratchet> {
     lane: Option<Arc<LaneShared<R>>>,
     /// The connection's key-epoch surface; `Some` on a P2P channel.
     key_epoch: Option<KeyEpochHandle<R>>,
+    /// What the key exchange proved about the peer's identity; `Some` on a P2P channel.
+    kex_identity: Option<crate::proto::peer::kex_auth::PeerKexIdentity>,
 }
 
 /// Every UDP channel a P2P path recovery restores, in order (see `PeerChannel::upgrade`).
@@ -163,7 +165,17 @@ impl<R: Ratchet> PeerChannel<R> {
             security_settings,
             lane,
             key_epoch,
+            kex_identity: None,
         }
+    }
+
+    /// Records what the P2P key exchange proved about the peer.
+    pub(crate) fn with_kex_identity(
+        mut self,
+        identity: crate::proto::peer::kex_auth::PeerKexIdentity,
+    ) -> Self {
+        self.kex_identity = Some(identity);
+        self
     }
 
     /// On a P2P channel, starts the lane's driver over the reliable stream and receives the
@@ -277,6 +289,12 @@ impl<R: Ratchet> PeerChannel<R> {
     /// server relaying for it) predates carrying it.
     pub fn peer_protocol_version(&self) -> Option<u32> {
         self.peer_protocol_version
+    }
+
+    /// What the key exchange proved about the peer: signed by the identity key pinned for it, or
+    /// unsigned (an older peer, a legacy account). `None` on a client-server channel.
+    pub fn peer_kex_identity(&self) -> Option<&crate::proto::peer::kex_auth::PeerKexIdentity> {
+        self.kex_identity.as_ref()
     }
 
     /// The path this connection's traffic currently takes (direct, TURN relay, or the Citadel

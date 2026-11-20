@@ -55,6 +55,13 @@ pub struct PeerKemStateContainer<R: Ratchet> {
     /// The offers this exchange carries (see `kex_path`): this peer's own, sent at its first
     /// stage, and the other peer's, echoed in this peer's next stage.
     pub(crate) path: crate::proto::peer::kex_path::KexPath,
+    /// The initiator's digest of the Stage0 it sent, which the responder's signature covers.
+    pub(crate) stage0_digest: Option<[u8; 32]>,
+    /// The responder's check of the initiator's Stage0, for the channel it builds at Stage2.
+    pub(crate) peer_kex_identity: Option<crate::proto::peer::kex_auth::PeerKexIdentity>,
+    /// The ticket of the Stage0 this side answered as responder; a refusal on it ends the
+    /// exchange.
+    pub(crate) answered_ticket: Option<Ticket>,
 }
 
 impl<R: Ratchet> PeerKemStateContainer<R> {
@@ -76,6 +83,17 @@ impl<R: Ratchet> PeerKemStateContainer<R> {
             hole_punch_cancel_tx: None,
             p2p_connection_id: Ticket(0),
             path: Default::default(),
+            stage0_digest: None,
+            peer_kex_identity: None,
+            answered_ticket: None,
         }
+    }
+
+    /// Whether this is a responder's exchange, still awaiting its Stage2, for the Stage0 that
+    /// came on `ticket`.
+    pub(crate) fn answers(&self, ticket: Ticket) -> bool {
+        !self.local_is_initiator
+            && self.constructor.is_some()
+            && self.answered_ticket == Some(ticket)
     }
 }

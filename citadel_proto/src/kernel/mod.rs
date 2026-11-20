@@ -83,6 +83,9 @@ pub struct KernelExecutorArguments<K, R: Ratchet, T: PlatformOps> {
     pub turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
     pub max_security_level: citadel_types::crypto::MaxSecurityLevel,
     pub revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+    /// The accounts' identity keys and their pins of peers' keys, which sign and check every P2P
+    /// key exchange (`proto::peer::kex_auth`); `None` when this node signs and checks none.
+    pub p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
     pub websocket_listener: Option<citadel_io::WebSocketListen>,
     /// Pre-built listener for serverless server-role mode.
