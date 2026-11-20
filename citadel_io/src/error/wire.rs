@@ -49,6 +49,20 @@ mod tests {
     }
 
     #[test]
+    fn a_retired_code_reads_as_generic_with_its_text_kept() {
+        let message = "CID 7 is not registered to this node".to_string();
+        assert!(ErrorCode::from_u16(240).is_none());
+        let read = NetworkError::from_wire(240, message.clone());
+        assert_eq!(read.code(), ErrorCode::Generic);
+        assert_eq!(read.to_string(), message);
+        // Control: a live neighbour still decodes as itself.
+        assert_eq!(
+            ErrorCode::from_u16(241),
+            Some(ErrorCode::PreconnectSemverParseFailed)
+        );
+    }
+
+    #[test]
     fn a_reported_error_keeps_its_code_and_its_text() {
         for err in [
             error!(ErrorCode::PqSignInFailed),

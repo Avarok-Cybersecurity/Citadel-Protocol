@@ -803,10 +803,7 @@ pub enum ErrorCode {
     /// A keep-alive packet could not be sent (reason).
     #[form = "Unable to send keep-alive: {}"]
     KeepAliveSendFailed = 239,
-    /// A pre-connect SYN referenced a CID that is not registered to this node (cid). No longer
-    /// sent to a client: the server answers [`ErrorCode::PreconnectRefused`] instead.
-    #[form = "CID {} is not registered to this node"]
-    PreconnectCidNotRegistered = 240,
+    // 240 is retired: never reuse it.
     /// The incoming protocol semver could not be parsed.
     #[form = "Unable to parse incoming protocol semver"]
     PreconnectSemverParseFailed = 241,
