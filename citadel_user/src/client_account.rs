@@ -163,7 +163,7 @@ struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = Mon
     #[serde(bound = "")]
     pub crypto_session_state: Option<PeerSessionCrypto<R>>,
     /// For storing critical ID information for this CNAC. Behind a lock because a post-quantum
-    /// record changes after creation (a legacy upgrade, a used recovery code, a managed factor).
+    /// record changes after creation (a legacy upgrade, a factor's use, a managed factor).
     pub auth_store: RwLock<DeclaredAuthenticationMode>,
     peer_state: RwLock<AccountState>,
     // For future use cases

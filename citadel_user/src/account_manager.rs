@@ -132,8 +132,7 @@ pub struct AccountManager<R: Ratchet = StackedRatchet, Fcm: Ratchet = MonoRatche
     /// to save (last-writer-wins / duplicate account). Shared across clones via `Arc`.
     registration_lock: std::sync::Arc<citadel_io::tokio::sync::Mutex<()>>,
     /// Serializes every read-modify-write of an account's sign-in record (a post-quantum record,
-    /// or the Argon2 hash a login replaces), so a recovery code cannot be spent twice by two
-    /// logins that both verified it.
+    /// or the Argon2 hash a login replaces), so two changes to it never interleave.
     pq_record_lock: std::sync::Arc<citadel_io::tokio::sync::Mutex<()>>,
 }
 

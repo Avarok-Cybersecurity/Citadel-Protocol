@@ -9,6 +9,6 @@ mod manage_new;
 mod register;
 
 pub use key_request::{RelyingParty, SecurityKeyCeremony, SecurityKeyRequest};
-pub use login::{ClientLogin, ClientProof, RecoveryOffer, SecurityKeyAnswer};
+pub use login::{ClientLogin, ClientProof, SecurityKeyAnswer};
 pub use manage::{ClientCommitted, ClientManagement};
 pub use register::{ClientRegistration, IssuedRecovery, NewRecovery};

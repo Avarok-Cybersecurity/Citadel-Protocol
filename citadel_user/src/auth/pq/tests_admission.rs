@@ -83,7 +83,7 @@ async fn challenge(
 
 #[tokio::test]
 async fn a_sign_in_is_refused_before_the_oprf_runs() {
-    let (record, _) = register("pw").await;
+    let record = register("pw").await;
     let wants = Arc::new(Wants::default());
     let policy: Arc<dyn AdmissionPolicy> = wants.clone();
     let (missing, reached) = challenge(&policy, &record, None).await;
@@ -140,7 +140,7 @@ async fn a_registration_is_refused_before_the_oprf_runs() {
 
 #[tokio::test]
 async fn without_a_policy_everyone_is_admitted_and_a_login_not_asked_is_not() {
-    let (record, _) = register("pw").await;
+    let record = register("pw").await;
     let ran = admission::then(None, Some(ctx(AdmissionKind::SignIn, None)), || Ok(7)).await;
     assert_eq!(ran.unwrap(), 7);
     let wants = Arc::new(Wants::default());

@@ -90,8 +90,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         Ok(out)
     }
 
-    /// Server side: a verified login's factors get `last_used_ms`, and a recovery code among them
-    /// is spent. Fails, saving nothing, if a factor was spent meanwhile.
+    /// Server side: a verified login's factors get `last_used_ms`. Fails, saving nothing, if a
+    /// factor was removed meanwhile.
     pub async fn record_pq_sign_in(&self, cid: u64, used: &[FactorId]) -> Result<(), AccountError> {
         self.update_pq_record(cid, |record| record.record_use(used, now_ms()))
             .await

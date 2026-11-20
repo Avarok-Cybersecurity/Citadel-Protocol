@@ -18,7 +18,7 @@ pub fn required_kinds(policy: SignInPolicy) -> &'static [FactorKind] {
     }
 }
 
-/// Whether the proven kinds give a full sign-in under `policy`. Recovery codes never do.
+/// Whether the proven kinds give a full sign-in under `policy`. The recovery phrase never does.
 pub fn satisfied(policy: SignInPolicy, proven: &[FactorKind]) -> bool {
     required_kinds(policy)
         .iter()
@@ -48,13 +48,16 @@ mod tests {
             &[SecurityKey, Password]
         ));
         assert!(satisfied(SignInPolicy::KeyOnly, &[SecurityKey]));
-        assert!(!satisfied(SignInPolicy::KeyOnly, &[Password, RecoveryCode]));
+        assert!(!satisfied(
+            SignInPolicy::KeyOnly,
+            &[Password, RecoveryPhrase]
+        ));
         for policy in [
             SignInPolicy::Password,
             SignInPolicy::PasswordAndKey,
             SignInPolicy::KeyOnly,
         ] {
-            assert!(!satisfied(policy, &[RecoveryCode]));
+            assert!(!satisfied(policy, &[RecoveryPhrase]));
             assert!(!satisfied(policy, &[]));
         }
     }

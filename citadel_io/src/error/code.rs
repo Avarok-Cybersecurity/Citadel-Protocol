@@ -1167,8 +1167,8 @@ pub enum ErrorCode {
     /// The account needs a factor the caller did not supply (which).
     #[form = "This sign-in needs a factor that was not supplied: {}"]
     PqSignInFactorMissing = 348,
-    /// A session signed in with a recovery code asked for something other than enrolling a key or
-    /// setting the policy.
+    /// A session signed in with the recovery phrase asked for something other than managing the
+    /// account's credentials.
     #[form = "A recovery session may only enrol a security key or set the sign-in policy"]
     PqSignInRestricted = 349,
     /// The server requires an admission check (a Turnstile token) for a fresh sign-in or

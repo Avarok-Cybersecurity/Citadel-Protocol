@@ -12,7 +12,7 @@ use crate::auth::pq::messages::{
     ManagementCeremony, ManagementChallenge, ManagementCommit, ManagementOp, NewSecurityKey,
     RegStart,
 };
-use crate::auth::pq::record::{PqAuthRecord, RecoverySecret};
+use crate::auth::pq::record::PqAuthRecord;
 use crate::auth::pq::{management_transcript, random_32};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
@@ -50,7 +50,7 @@ pub fn begin_management(
         return Err(error!(ErrorCode::PqSignInRestricted));
     }
     if begin.step_up.recovery.is_some() {
-        return Err(malformed("a step-up with a recovery code"));
+        return Err(malformed("a step-up with a recovery factor"));
     }
     if begin.recovery_eks.len() != begin.op.recovery_key_count() {
         return Err(malformed("the recovery key count"));
@@ -176,13 +176,10 @@ impl PendingManagement {
             (ManagementOp::RenameCredential { id, label }, None) => Change::Rename { id, label },
             (ManagementOp::RemoveCredential { id }, None) => Change::Remove { id },
             (ManagementOp::SetSignInPolicy { policy }, None) => Change::SetPolicy(policy),
-            (ManagementOp::RegenerateRecoveryCodes, None) => {
-                Change::ReplaceRecovery(RecoverySecret::Codes(recovery_eks))
-            }
             (ManagementOp::RegenerateRecoveryPhrase, None) => {
                 let ek = recovery_eks.into_iter().next();
                 let ek = ek.ok_or_else(|| malformed("the recovery key count"))?;
-                Change::ReplaceRecovery(RecoverySecret::Phrase(ek))
+                Change::ReplaceRecoveryPhrase(ek)
             }
             (ManagementOp::SetPassword { .. }, None) => return Err(malformed("a new password")),
         };

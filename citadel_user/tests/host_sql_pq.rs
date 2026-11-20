@@ -11,12 +11,10 @@ use citadel_io::tokio;
 use citadel_types::crypto::SecBuffer;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::pq::client::{ClientRegistration, NewRecovery};
-use citadel_user::auth::pq::kem::FactorKeypair;
+use citadel_user::auth::pq::kem::{FactorKeypair, FactorSeed, SEED_LEN};
 use citadel_user::auth::pq::messages::ServerOutcome;
 use citadel_user::auth::pq::oprf::OprfSeed;
-use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord, RecoverySecret};
-use citadel_user::auth::pq::recovery::RecoveryCode;
-use citadel_user::auth::pq::seed::recovery_seed;
+use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
 use citadel_user::auth::pq::server::{registration_reply, Change, PqAuthServerSettings};
 use citadel_user::auth::pq::throttle::ThrottlePolicy;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
@@ -46,16 +44,11 @@ async fn record(username: &str) -> PqAuthRecord {
     let (reply, pending) = registration_reply(&settings(), &start).unwrap();
     let (finish, _) = client.finish(&reply, NewRecovery::None).await.unwrap();
     let mut record = pending.finish(finish, 5).unwrap();
-    // The account holds recovery codes, as `RegenerateRecoveryCodes` gives it.
-    let eks = RecoveryCode::generate_set()
-        .iter()
-        .map(|code| {
-            let keypair = FactorKeypair::derive(&recovery_seed(code)).unwrap();
-            keypair.encapsulation_key().clone()
-        })
-        .collect();
-    let replaced = Change::ReplaceRecovery(RecoverySecret::Codes(eks)).apply(&mut record, 5);
-    assert_eq!(replaced.unwrap(), ServerOutcome::RecoveryCodesReplaced);
+    // The account holds a recovery phrase, as `RegenerateRecoveryPhrase` gives it.
+    let phrase = FactorKeypair::derive(&FactorSeed::new([3u8; SEED_LEN])).unwrap();
+    let ek = phrase.encapsulation_key().clone();
+    let replaced = Change::ReplaceRecoveryPhrase(ek).apply(&mut record, 5);
+    assert_eq!(replaced.unwrap(), ServerOutcome::RecoveryPhraseReplaced);
     record
 }
 
@@ -115,12 +108,12 @@ async fn a_post_quantum_record_round_trips_through_host_sql() {
     let stored = after.auth_store().pq_record().cloned().unwrap();
     assert!(stored.factor(1).unwrap().last_used_ms.is_some());
     assert!(
-        stored.factor(2).unwrap().consumed,
-        "the recovery code was not spent in the row"
+        stored.factor(2).unwrap().last_used_ms.is_some(),
+        "the recovery phrase's use did not reach the row"
     );
     assert!(
-        manager.record_pq_sign_in(4242, &[2]).await.is_err(),
-        "a spent code was spent again"
+        manager.record_pq_sign_in(4242, &[99]).await.is_err(),
+        "a sign-in by a factor the account does not have was recorded"
     );
 }
 

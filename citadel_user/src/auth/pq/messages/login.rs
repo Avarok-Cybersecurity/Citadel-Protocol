@@ -15,7 +15,7 @@ pub struct LoginStart {
     /// offer (a key-only or recovery sign-in).
     pub oprf_blinded: Option<Vec<u8>>,
     /// Present for a recovery sign-in: the fingerprint of the encapsulation key the client's
-    /// recovery code gives, so the server challenges that code alone.
+    /// recovery phrase gives, so the server challenges that factor alone.
     pub recovery: Option<[u8; 32]>,
     /// A fresh sign-in's admission token, when the client has one (see `auth::pq::admission`).
     pub admission: Option<AdmissionToken>,

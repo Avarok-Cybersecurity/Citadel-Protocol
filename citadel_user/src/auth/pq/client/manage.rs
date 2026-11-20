@@ -11,7 +11,6 @@ use crate::auth::pq::messages::{
 };
 use crate::auth::pq::phrase::RecoverySeed;
 use crate::auth::pq::proof::{factor_tag, TranscriptHash, TranscriptPurpose, ENROL_LABEL};
-use crate::auth::pq::recovery::RecoveryCode;
 use crate::auth::pq::seed::security_key_seed;
 use crate::auth::pq::{management_transcript, random_32};
 use crate::misc::AccountError;
@@ -28,7 +27,7 @@ pub struct ClientManagement {
 
 impl ClientManagement {
     /// `password` is the step-up's password, when the account's policy asks for one;
-    /// `new_password` is `SetPassword`'s. New recovery codes or a new phrase are drawn here.
+    /// `new_password` is `SetPassword`'s. A new recovery phrase is drawn here.
     pub fn begin(
         username: &str,
         op: SignInManagementOp,
@@ -146,7 +145,6 @@ impl ClientManagement {
         let committed = ClientCommitted {
             transcript,
             new_key: new_key.map(|(_, keypair)| keypair),
-            codes: self.new.codes,
             phrase: self.new.phrase,
         };
         Ok((commit, committed))
@@ -157,7 +155,6 @@ impl ClientManagement {
 pub struct ClientCommitted {
     transcript: TranscriptHash,
     new_key: Option<FactorKeypair>,
-    codes: Vec<RecoveryCode>,
     phrase: Option<RecoverySeed>,
 }
 
@@ -183,11 +180,6 @@ impl ClientCommitted {
         Ok(EnrolProof {
             tag: factor_tag(&k, ENROL_LABEL, 0, &transcript),
         })
-    }
-
-    /// The new recovery codes (`RegenerateRecoveryCodes`), to show the user once.
-    pub fn into_recovery_codes(self) -> Vec<RecoveryCode> {
-        self.codes
     }
 
     /// The new recovery phrase (`RegenerateRecoveryPhrase`), to show the user once. Its seed is

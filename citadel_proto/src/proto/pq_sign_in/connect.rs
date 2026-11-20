@@ -13,10 +13,9 @@ use crate::proto::session_resume::ResumeToken;
 use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::{error, ErrorCode};
 use citadel_types::auth::SessionScope;
 use citadel_user::auth::pq::admission;
-use citadel_user::auth::pq::client::{ClientLogin, ClientProof, RecoveryOffer, RelyingParty};
+use citadel_user::auth::pq::client::{ClientLogin, ClientProof, RelyingParty};
 use citadel_user::auth::pq::login_transcript;
 use citadel_user::auth::pq::messages::{LoginProof, LoginStart};
 use citadel_user::auth::pq::throttle::Attempt;
@@ -49,17 +48,7 @@ pub(crate) fn begin<R: Ratchet>(
         .as_ref()
         .map(|creds| creds.username().to_string())
         .ok_or_else(|| NetworkError::msg("Proposed credentials not loaded at AUTH_START"))?;
-    let recovery = match (&offered.recovery_code, &offered.recovery_phrase) {
-        (Some(_), Some(_)) => {
-            return Err(error!(
-                ErrorCode::PqSignInMalformed,
-                "a sign-in offering both a recovery code and a recovery phrase"
-            ))
-        }
-        (None, Some(phrase)) => Some(RecoveryOffer::Phrase(phrase)),
-        (Some(code), None) => Some(RecoveryOffer::Code(code)),
-        (None, None) => None,
-    };
+    let recovery = offered.recovery_phrase.as_ref();
     let (mut start, client) = ClientLogin::start(&username, offered.password.as_ref(), recovery)?;
     start.admission = offered.admission.clone();
     start.resume = resume.map(ResumeToken::to_bytes);

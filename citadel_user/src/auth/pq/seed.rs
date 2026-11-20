@@ -1,15 +1,12 @@
-//! The seeds of the factors that need no stretching: a security key's WebAuthn PRF output and a
-//! recovery code. (The password's seed needs Argon2id, which only the client runs; see
-//! [`super::client::ksf`].)
+//! The seed of a security key's factor, which needs no stretching. (The password's seed needs
+//! Argon2id, which only the client runs; see [`super::client::ksf`].)
 
 use super::kem::{FactorSeed, SEED_LEN};
-use super::recovery::RecoveryCode;
 use hkdf::Hkdf;
 use sha3::Sha3_256;
 use zeroize::Zeroizing;
 
 const SECURITY_KEY_SALT: &[u8] = b"citadel-security-key-factor-v1";
-const RECOVERY_SALT: &[u8] = b"citadel-recovery-factor-v1";
 
 /// The 32 bytes a security key's WebAuthn PRF extension (`hmac-secret`) returned for one
 /// credential and the account's PRF evaluation salt. The embedding application runs the WebAuthn
@@ -43,11 +40,6 @@ pub fn security_key_seed(prf: &PrfOutput, credential_id: &[u8]) -> FactorSeed {
     expand(SECURITY_KEY_SALT, prf.0.as_ref(), credential_id)
 }
 
-/// HKDF-SHA3 of a 128-bit recovery code. The code is high-entropy, so it needs no stretching.
-pub fn recovery_seed(code: &RecoveryCode) -> FactorSeed {
-    expand(RECOVERY_SALT, code.as_bytes(), &[])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,16 +62,6 @@ mod tests {
         assert_ne!(
             ek,
             ek_of(security_key_seed(&PrfOutput::new([2u8; 32]), b"cred-a"))
-        );
-    }
-
-    #[test]
-    fn recovery_codes_give_distinct_stable_factors() {
-        let code = RecoveryCode::generate();
-        assert_eq!(ek_of(recovery_seed(&code)), ek_of(recovery_seed(&code)));
-        assert_ne!(
-            ek_of(recovery_seed(&code)),
-            ek_of(recovery_seed(&RecoveryCode::generate()))
         );
     }
 }

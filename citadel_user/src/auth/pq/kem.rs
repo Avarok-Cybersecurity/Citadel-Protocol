@@ -55,7 +55,7 @@ impl EncapsulationKey {
         &self.0
     }
 
-    /// A short, public name for this key: what a client sends to say which recovery code it holds
+    /// A short, public name for this key: what a client sends to say which recovery factor it holds
     /// without sending the key itself.
     pub fn fingerprint(&self) -> [u8; 32] {
         let mut hasher = sha3::Sha3_256::default();

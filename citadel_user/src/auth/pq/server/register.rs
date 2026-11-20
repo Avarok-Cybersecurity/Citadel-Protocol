@@ -2,7 +2,7 @@ use super::PqAuthServerSettings;
 use crate::auth::pq::messages::{RegFinish, RegReply, RegStart};
 use crate::auth::pq::oprf;
 use crate::auth::pq::random_32;
-use crate::auth::pq::record::{KsfParams, PqAuthRecord, RecoverySecret};
+use crate::auth::pq::record::{KsfParams, PqAuthRecord};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
 
@@ -50,20 +50,15 @@ impl PendingRegistration {
 
     /// The new account record. No password hashing happens here: the client sent keys.
     pub fn finish(self, finish: RegFinish, now_ms: u64) -> Result<PqAuthRecord, AccountError> {
-        let recovery = match finish.recovery_phrase_ek {
-            Some(phrase) => RecoverySecret::Phrase(phrase),
-            None => RecoverySecret::Codes(Vec::new()),
-        };
-        let mut seen = vec![finish.password_ek.fingerprint()];
-        for ek in recovery.keys() {
-            let fp = ek.fingerprint();
-            if seen.contains(&fp) {
-                return Err(error!(
-                    ErrorCode::PqSignInMalformed,
-                    "a repeated factor key"
-                ));
-            }
-            seen.push(fp);
+        let recovery = finish.recovery_phrase_ek;
+        let repeated = recovery
+            .as_ref()
+            .is_some_and(|ek| ek.fingerprint() == finish.password_ek.fingerprint());
+        if repeated {
+            return Err(error!(
+                ErrorCode::PqSignInMalformed,
+                "a repeated factor key"
+            ));
         }
         Ok(PqAuthRecord::new(
             self.salt_user,

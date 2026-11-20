@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 mod recovery;
 
-pub use recovery::{is_recovery, RecoverySecret};
+pub use recovery::is_recovery;
 
 /// Argon2id parameters for the password factor. The server chooses them and stores them with the
 /// account, so they can be raised later; the client refuses any below [`KsfParams::FLOOR`].
@@ -50,7 +50,7 @@ pub struct Factor {
     pub label: String,
     pub created_ms: u64,
     pub last_used_ms: Option<u64>,
-    /// Set once a recovery code has signed in. A consumed factor is never challenged again.
+    /// A consumed factor is never challenged again. No current kind is consumed by use.
     pub consumed: bool,
 }
 
@@ -80,13 +80,14 @@ pub struct PqAuthRecord {
 }
 
 impl PqAuthRecord {
-    /// A record with the `Password` policy, its password factor and recovery codes.
+    /// A record with the `Password` policy, its password factor and, when given, the key of its
+    /// recovery phrase.
     pub fn new(
         salt_user: [u8; 32],
         prf_eval_salt: [u8; 32],
         ksf: KsfParams,
         password_ek: EncapsulationKey,
-        recovery: RecoverySecret,
+        recovery_phrase: Option<EncapsulationKey>,
         now_ms: u64,
     ) -> Self {
         let mut record = Self {
@@ -104,7 +105,9 @@ impl PqAuthRecord {
             label: String::from("Password"),
         };
         let _ = record.add(password, now_ms);
-        record.replace_recovery(recovery, now_ms);
+        if let Some(ek) = recovery_phrase {
+            record.replace_recovery_phrase(ek, now_ms);
+        }
         record
     }
 
@@ -147,7 +150,7 @@ impl PqAuthRecord {
     }
 
     /// Refused when the remaining factors could no longer satisfy the policy, which includes
-    /// removing the last one. The recovery phrase and codes go only by regeneration.
+    /// removing the last one. The recovery phrase goes only by regeneration.
     pub fn remove(&mut self, id: FactorId) -> Result<(), AccountError> {
         let index = self.factors.iter().position(|f| f.id == id);
         let index = index.ok_or_else(|| policy::refused("no such credential"))?;
@@ -175,13 +178,12 @@ impl PqAuthRecord {
         Ok(())
     }
 
-    /// Records a sign-in: `used` get `last_used_ms`, and a recovery code among them is consumed.
+    /// Records a sign-in: `used` get `last_used_ms`.
     pub fn record_use(&mut self, used: &[FactorId], now_ms: u64) -> Result<(), AccountError> {
         for id in used {
             let factor = self.factors.iter_mut().find(|f| f.id == *id && f.usable());
             let factor = factor.ok_or_else(|| error!(ErrorCode::PqSignInFailed))?;
             factor.last_used_ms = Some(now_ms);
-            factor.consumed |= factor.kind == FactorKind::RecoveryCode;
         }
         Ok(())
     }

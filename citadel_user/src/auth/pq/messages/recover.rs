@@ -1,5 +1,5 @@
 //! The recovery lane's messages: a device with no bundle proves the account's recovery phrase
-//! (or a recovery code) inside a fresh key exchange, and the server makes that exchange's ratchet
+//! inside a fresh key exchange, and the server makes that exchange's ratchet
 //! the account's device bundle.
 
 use super::login::{LoginFinish, LoginStart};

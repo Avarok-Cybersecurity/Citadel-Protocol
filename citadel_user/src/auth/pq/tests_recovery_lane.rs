@@ -11,7 +11,7 @@ use citadel_io::{tokio, ErrorCode};
 /// Control: leave the channel binding out of `recover_transcript` and the relayed proof verifies.
 #[tokio::test]
 async fn a_proof_fits_one_key_exchange_one_device_and_one_challenge() {
-    let (mut record, _) = register("pw").await;
+    let mut record = register("pw").await;
     let phrase = phrase_of(&with_phrase(&mut record).await, DOMAIN);
     let binding = channel_binding(b"alice-transfer", b"bob-transfer");
 
@@ -49,7 +49,7 @@ async fn a_proof_fits_one_key_exchange_one_device_and_one_challenge() {
 
 #[tokio::test]
 async fn an_unknown_name_gets_a_phrase_shaped_decoy_and_cannot_recover() {
-    let (mut record, _) = register("pw").await;
+    let mut record = register("pw").await;
     let phrase = phrase_of(&with_phrase(&mut record).await, DOMAIN);
     let real = lane(Some(&record), "alice", &phrase).challenge;
     let decoy = lane(None, "nobody", &phrase).challenge;
@@ -67,7 +67,7 @@ async fn an_unknown_name_gets_a_phrase_shaped_decoy_and_cannot_recover() {
 
 #[tokio::test]
 async fn a_password_start_is_not_a_recovery_start() {
-    let (record, _) = register("pw").await;
+    let record = register("pw").await;
     let (login, _) = ClientLogin::start("alice", Some(&password("pw")), None).unwrap();
     let refused = build_recovery_challenge(&settings(), Some(&record), &login);
     assert_eq!(
