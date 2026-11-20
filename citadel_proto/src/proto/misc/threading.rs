@@ -28,6 +28,27 @@ pub(crate) fn create_localset() -> Option<LocalSet> {
     }
 }
 
+/// Runs `fut` where the node's tasks can be spawned: inside `localset` when there is one, the
+/// same set the node then runs in, so what `fut` spawned carries on there.
+pub(crate) async fn run_in_localset<F: std::future::Future>(
+    localset: Option<&LocalSet>,
+    fut: F,
+) -> F::Output {
+    #[cfg(feature = "multi-threaded")]
+    {
+        let _ = localset;
+        fut.await
+    }
+
+    #[cfg(not(feature = "multi-threaded"))]
+    {
+        match localset {
+            Some(localset) => localset.run_until(fut).await,
+            None => fut.await,
+        }
+    }
+}
+
 /// Run the Citadel server future concurrently with the kernel future,
 /// using the appropriate mechanism for the current threading model.
 ///
