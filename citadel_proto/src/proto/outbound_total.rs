@@ -37,12 +37,7 @@ impl OutboundTotal {
 
     /// Counts `len` more bytes, if they fit.
     pub(crate) fn charge(&self, len: usize) -> bool {
-        let queued = self.queued.fetch_add(len, Ordering::AcqRel) + len;
-        if queued > self.limit {
-            let _ = self.queued.fetch_sub(len, Ordering::AcqRel);
-            return false;
-        }
-        true
+        charge_within(&self.queued, len, self.limit)
     }
 
     pub(crate) fn release(&self, len: usize) {
@@ -69,5 +64,20 @@ impl OutboundTotal {
     #[cfg(test)]
     pub(crate) fn queued(&self) -> usize {
         self.queued.load(Ordering::Acquire)
+    }
+}
+
+/// Adds `len` to `queued` if the sum stays within `limit`. The sum is checked, so a limit near
+/// `usize::MAX` (on a 32-bit target, 4 GiB) cannot wrap the count past it.
+pub(crate) fn charge_within(queued: &AtomicUsize, len: usize, limit: usize) -> bool {
+    let mut now = queued.load(Ordering::Acquire);
+    loop {
+        let Some(sum) = now.checked_add(len).filter(|sum| *sum <= limit) else {
+            return false;
+        };
+        match queued.compare_exchange_weak(now, sum, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return true,
+            Err(current) => now = current,
+        }
     }
 }
