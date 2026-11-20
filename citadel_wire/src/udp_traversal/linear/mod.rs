@@ -50,6 +50,8 @@ pub mod encrypted_config_container;
 
 pub mod method3;
 
+mod runnable_window;
+
 /// Whereas UDP hole punching usually entails the connection between two peers (p2p),
 /// linear UDP hole punching is the process of punching a hole through the firewall to allow
 /// the server to reach a single client behind a NAT. The pre-process begins with sending a SYN followed
@@ -117,7 +119,9 @@ impl SingleUDPHolePuncher {
                         Some(UPnPHandler::new(Some(Duration::from_millis(2000))).await?);
                 }
 
-                let handler = self.upnp_handler.1.as_ref().unwrap();
+                let handler = self.upnp_handler.1.as_ref().ok_or_else(|| {
+                    FirewallError::firewall_hole_punch("the UPnP handler is not loaded")
+                })?;
                 let local_addr = self
                     .socket
                     .as_ref()
@@ -213,7 +217,9 @@ impl SingleUDPHolePuncher {
 
                 match res {
                     Either::Right(addr) => Ok(HolePunchedUdpSocket {
-                        socket: self.socket.take().unwrap(),
+                        socket: self.socket.take().ok_or_else(|| {
+                            citadel_io::error!(citadel_io::ErrorCode::FirewallUdpSocketNotLoaded)
+                        })?,
                         addr,
                         local_id: this_local_id,
                     }),

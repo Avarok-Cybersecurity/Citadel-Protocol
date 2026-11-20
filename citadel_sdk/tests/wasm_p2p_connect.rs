@@ -144,6 +144,7 @@ async fn test_wasm_p2p_connect() {
         });
 
     let client_a = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::BROWSER_STUN_SERVERS)
         .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_node_type(NodeType::Peer)
@@ -217,6 +218,7 @@ async fn test_wasm_p2p_connect() {
         });
 
     let client_b = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::BROWSER_STUN_SERVERS)
         .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_node_type(NodeType::Peer)

@@ -10,4 +10,9 @@ on:
 jobs:
   workflow:
     name: Validate PR
+    # `edited` fires for a title or description change too, and each one cancelled the running
+    # pipeline (validate.yml's concurrency group) and started it again on the same commit. Only
+    # a base-branch change alters what is tested, so only that edit reruns it.
+    if: github.event.action != 'edited' || github.event.changes.base != null
     uses: ./.github/workflows/validate.yml
+    secrets: inherit

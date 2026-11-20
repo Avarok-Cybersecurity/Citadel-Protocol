@@ -35,8 +35,8 @@ mod tests {
         addr
     }
 
-    /// Control: drop the expiry check in `CitadelSession::execute` and the registration
-    /// waits until the deadline below instead.
+    /// Control: drop the login-deadline checks in `CitadelSession::execute` and the
+    /// registration is misreported or waits until the deadline below instead.
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn a_stalled_registration_fails_with_the_reason() {
         citadel_logging::setup_log();
@@ -51,9 +51,10 @@ mod tests {
             let Err(err) = answer.expect("the stalled registration never answered") else {
                 panic!("a stalled registration succeeded");
             };
-            let expected = ErrorCode::HandshakeExpired.raw_string();
-            let prefix = expected.split("{}").next().unwrap();
-            assert!(err.into_string().starts_with(prefix), "not the expiry");
+            // A registration past the login deadline is the same condition as a login past it
+            // (`a_late_credentialed_login_is_a_timeout`), reported the same way.
+            assert_eq!(err.code, ErrorCode::Timeout, "misreported as: {err:?}");
+            assert!(err.to_string().contains("login deadline"), "{err}");
             remote.shutdown().await
         })
         .await;

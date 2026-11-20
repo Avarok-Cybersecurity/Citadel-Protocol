@@ -47,36 +47,6 @@ pub mod tests {
         }
     }
 
-    /// Windows denies an ephemeral bind with WSAEACCES (10013) when the port the
-    /// OS happened to hand out lies inside a Hyper-V/WinNAT reserved range. The
-    /// denial is a property of that one port, not of the address, so asking the
-    /// OS for a different port is the correct response — a fresh `:0` bind draws
-    /// a new one.
-    ///
-    /// Deliberately narrow: it retries ONLY WSAEACCES, and ONLY when we asked for
-    /// an ephemeral port. A denial on an explicit port is a real configuration
-    /// error and is returned untouched, as is every other errno.
-    async fn bind_retrying_reserved_ports(
-        proto: ServerMode<NativeIO>,
-        addr: SocketAddr,
-    ) -> std::io::Result<(<NativeIO as ProtocolIO>::Listener, SocketAddr)> {
-        const ATTEMPTS: usize = 8;
-        const WSAEACCES: i32 = 10013;
-        for attempt in 1..=ATTEMPTS {
-            match NativeIO::bind(proto.clone(), addr).await {
-                Ok(bound) => return Ok(bound),
-                Err(e) if addr.port() == 0 && e.raw_os_error() == Some(WSAEACCES) => {
-                    log::warn!(target: "citadel", "bind {addr} denied (WSAEACCES) on attempt {attempt}/{ATTEMPTS}: the OS-chosen port is reserved; drawing another");
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            format!("{ATTEMPTS} consecutive ephemeral ports for {addr} were reserved"),
-        ))
-    }
-
     /// A bind failure must arrive with its errno and kind intact. These were
     /// destroyed by `err.to_string()` conversions, so every failure read as
     /// `ConnectionRefused` — a kind a bind cannot produce — and the errno
@@ -228,7 +198,7 @@ pub mod tests {
             log::trace!(target: "citadel", "Testing proto {:?}", proto);
             let cnt = &AtomicUsize::new(0);
 
-            let res = bind_retrying_reserved_ports(proto.clone(), addr).await;
+            let res = NativeIO::bind(proto.clone(), addr).await;
 
             if let Err(err) = res.as_ref() {
                 log::error!(target: "citadel", "Error creating primary socket w/mode {proto:?}: {err:?}");
@@ -275,8 +245,10 @@ pub mod tests {
                 }
             };
 
-            log::trace!(target: "citadel", "Res: {res:?}");
-
+            // The round trips' own error is the verdict. Asserting only the count discarded it:
+            // a Windows run (44212780505) failed with "left: 0, right: 32" after 86 ms and no
+            // way to tell which connect or which side had failed.
+            res?;
             assert_eq!(cnt.load(Ordering::SeqCst), count);
 
             log::trace!(target: "citadel", "Ended proto test for singular proto successfully");
@@ -314,7 +286,7 @@ pub mod tests {
     {
         log::trace!(target: "citadel", "Testing proto {:?} @ {:?}", proto, addr);
 
-        let res = bind_retrying_reserved_ports(proto.clone(), addr).await;
+        let res = NativeIO::bind(proto.clone(), addr).await;
 
         if let Err(err) = res.as_ref() {
             log::error!(target: "citadel", "Error creating primary socket: {err:?}");

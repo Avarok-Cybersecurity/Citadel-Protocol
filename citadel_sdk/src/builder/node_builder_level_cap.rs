@@ -35,6 +35,7 @@ mod tests {
     fn a_node_without_a_maximum_security_level_is_refused() {
         let mut builder = DefaultNodeBuilder::default();
         let _ = builder
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
             .with_node_type(NodeType::Peer)
             .with_stun_servers(LOCALHOST_STUN_SERVERS);
         let Err(err) = builder.build(EmptyKernel::default()) else {

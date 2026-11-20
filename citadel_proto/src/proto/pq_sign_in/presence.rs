@@ -47,7 +47,7 @@ pub(crate) fn provisional_check<R: Ratchet>(
         }
         _ => {
             log::warn!(target: "citadel", "A session still unconnected {LOGIN_EXPIRATION_TIME:?} after it began is ended");
-            state.connect_state.pq.handshake_expired = true;
+            state.connect_state.login_deadline_passed = true;
             QueueWorkerResult::EndSession
         }
     }

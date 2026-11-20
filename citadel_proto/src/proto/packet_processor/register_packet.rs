@@ -50,7 +50,7 @@ use citadel_user::serialization::SyncIO;
     skip_all,
     ret,
     err,
-    fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = session_ref.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_register<R: Ratchet, T: PlatformOps>(

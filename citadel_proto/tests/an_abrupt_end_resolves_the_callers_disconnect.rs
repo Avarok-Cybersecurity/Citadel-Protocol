@@ -40,7 +40,7 @@ fn session_source() -> String {
 fn the_stream_ending_does_not_claim_the_disconnect_ticket() {
     let code = session_source();
     assert!(
-        code.contains(r#"send_session_dc_signal(None, false, "Inbound stream ending")"#),
+        code.contains(r#"send_session_dc_signal(None, false, "Inbound stream ending", None)"#),
         "the inbound-stream-ending signal no longer passes None.\n\
          Passing Some(kernel_ticket) takes the (Some(explicit), _) branch, which skips \
          pending_c2s_disconnect_ticket — so an application's disconnect() is answered on a \
@@ -82,7 +82,7 @@ fn the_pending_ticket_fallback_still_exists_for_it_to_reach() {
         "the pending-disconnect ticket is no longer consumed when the signal is sent",
     );
     assert!(
-        code.contains("(None, Some(pending)) => (pending, true)"),
+        code.contains("(None, Some(pending)) => (pending, true, Some(own_disconnect))"),
         "the fallback that resolves an application disconnect on ITS ticket is gone, \
          so passing None now resolves to the kernel ticket instead",
     );

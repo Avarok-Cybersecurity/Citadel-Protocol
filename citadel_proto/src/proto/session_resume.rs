@@ -60,7 +60,7 @@ impl ResumeToken {
     }
 
     /// Constant-time equality.
-    fn same_as(&self, other: &Self) -> bool {
+    pub(crate) fn same_as(&self, other: &Self) -> bool {
         self.0
             .iter()
             .zip(other.0.iter())

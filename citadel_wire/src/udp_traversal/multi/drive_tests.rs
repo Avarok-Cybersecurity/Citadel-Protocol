@@ -4,6 +4,7 @@ use super::DualStackUdpHolePuncher;
 use crate::nat_identification::NatType;
 use crate::socket_helpers::get_udp_socket;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
+use crate::udp_traversal::linear::encrypted_config_container::identity_for_tests;
 use citadel_io::tokio;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::subscription::Subscribable;
@@ -24,7 +25,7 @@ fn aimed_at_silence(
         vec![get_udp_socket("127.0.0.1:0").unwrap()],
     )
     .unwrap();
-    DualStackUdpHolePuncher::new(app.node_type(), Default::default(), config, app).unwrap()
+    DualStackUdpHolePuncher::new(app.node_type(), identity_for_tests(), config, app).unwrap()
 }
 
 /// When every puncher on both sides has failed, no winner can appear. Both
@@ -72,7 +73,8 @@ async fn both_sides_hold_the_same_pair_when_every_socket_reaches_every_other() {
         let (a_at, b_at) = (addrs(&a_sockets), addrs(&b_sockets));
         let puncher = |app: NetworkEndpoint, peer: &[std::net::SocketAddr], mine| {
             let config = HolePunchConfig::new(&NatType::default(), peer, &[], mine).unwrap();
-            DualStackUdpHolePuncher::new(app.node_type(), Default::default(), config, app).unwrap()
+            DualStackUdpHolePuncher::new(app.node_type(), identity_for_tests(), config, app)
+                .unwrap()
         };
         let (res_a, res_b) = tokio::time::timeout(Duration::from_secs(30), async {
             tokio::join!(puncher(a, &b_at, a_sockets), puncher(b, &a_at, b_sockets))

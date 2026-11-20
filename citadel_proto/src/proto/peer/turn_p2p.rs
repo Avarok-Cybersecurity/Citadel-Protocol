@@ -28,10 +28,8 @@ use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
-use citadel_crypt::ratchets::Ratchet;
 use citadel_io::tokio::net::UdpSocket;
 use citadel_io::Rng;
-use citadel_types::proto::{SessionSecuritySettings, UdpMode};
 use citadel_wire::exports::tokio_rustls::rustls;
 use citadel_wire::udp_traversal::hole_punched_socket::TargettedSocketAddr;
 use citadel_wire::udp_traversal::turn_relay::TurnRelayConfig;
@@ -41,13 +39,12 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::subscription::Subscribable;
 use serde::{Deserialize, Serialize};
 
-use crate::proto::misc::dual_rwlock::DualRwLock;
+use crate::proto::link::p2p::direct::accept_one;
+pub(crate) use crate::proto::link::p2p::turn::RelayedPath;
 use crate::proto::misc::native_connect::{
     p2p_connect_relayed, p2p_listener_from_relay, RelayDialerSocket,
 };
-use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::peer::p2p_conn_handler::generic_error;
-use crate::proto::peer::p2p_conn_handler::native_p2p::{handle_p2p_stream, p2p_conn_handler};
 use crate::proto::peer::p2p_outcome::{AtStage, StageError, StageFailure};
 use crate::proto::peer::p2p_path::P2pRoute;
 use crate::proto::peer::peer_crypt::PeerNatInfo;
@@ -56,9 +53,6 @@ use crate::proto::peer::turn_rendezvous::{
     permission_candidates, probe_until_acked, unspecified_like, ProbeLeg, PROBE_TIMEOUT,
     UDP_PROBE_TIMEOUT,
 };
-use crate::proto::remote::Ticket;
-use crate::proto::session::CitadelSession;
-use crate::proto::state_container::VirtualConnectionType;
 use citadel_wire::udp_traversal::turn_relay::TurnAllocation;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -97,34 +91,26 @@ async fn face_peer_relay(allocation: &TurnAllocation, peer_relayed: SocketAddr) 
     allocation.bind_channel(peer_relayed).await.map(|_| ())
 }
 
-/// Connects the two peers through TURN and installs the result as their direct P2P connection
-/// (path [`P2pPath::Turn`](crate::proto::peer::p2p_path::P2pPath::Turn)); the UDP channel is then
-/// fulfilled over it. Returns the route it attached, or the step that failed.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
+/// Path: the TURN stage of an attempt, up to the QUIC connection through the relay (the seal and
+/// the delivery are the caller's). `local_cid` and `peer_cid` fix the roles.
+pub(crate) async fn open_relayed_path(
     app: &NetworkEndpoint,
-    config: TurnRelayConfig,
-    session: CitadelSession<R, T>,
-    session_cid: DualRwLock<Option<u64>>,
+    config: &TurnRelayConfig,
+    local_cid: u64,
+    peer_cid: u64,
     peer_nat_info: &PeerNatInfo,
-    v_conn: VirtualConnectionType,
-    ticket: Ticket,
-    udp_mode: UdpMode,
-    session_security_settings: SessionSecuritySettings,
     tls: Arc<rustls::ClientConfig>,
-) -> Result<P2pRoute, StageError> {
+) -> Result<RelayedPath, StageError> {
     use StageFailure::{
-        AllocationFailed, AttachFailed, HandshakeFailed, LocalSocket, PeerUnavailable,
-        PermissionFailed, ProbeFailed, SessionGone, Signalling,
+        AllocationFailed, HandshakeFailed, LocalSocket, PeerUnavailable, PermissionFailed,
+        ProbeFailed, Signalling,
     };
-    let local_cid = session_cid
-        .get()
-        .ok_or_else(|| StageError::new(SessionGone, "session CID not loaded"))?;
+    let config = config.clone();
     let signalling = app.on(crate::proto::peer::coordination::TURN_SIGNALLING);
     let stream = signalling.initiate_subscription().await.at(Signalling)?;
     let hole_punched_like = TargettedSocketAddr::new_invariant;
 
-    if local_cid < v_conn.get_target_cid() {
+    if crate::proto::peer::pair_role::leads(local_cid, peer_cid) {
         let allocation = match allocate_first_usable(&config, tls, false).await {
             Ok(a) => a,
             Err(err) => {
@@ -196,20 +182,13 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
             .await
             .at(Signalling)?;
         log::info!(target: "citadel", "[TURN] listening on relayed {relayed} for dialer {dialer} ({route:?})");
-        p2p_conn_handler(
-            listener,
-            session,
-            dialer,
-            v_conn,
-            hole_punched_like(dialer),
-            ticket,
-            udp_mode,
-            session_security_settings,
+        let stream = accept_one(listener).await?;
+        Ok(RelayedPath {
+            stream,
+            addr: hole_punched_like(dialer),
+            from_listener: true,
             route,
-        )
-        .await
-        .at(HandshakeFailed)?;
-        Ok(route)
+        })
     } else {
         let (relayed, nonce) = match recv(&stream).await.at(Signalling)? {
             RelaySignal::Offer { relayed, nonce } => (relayed, nonce),
@@ -270,22 +249,12 @@ pub(crate) async fn establish_relayed_p2p<R: Ratchet, T: PlatformOps>(
         .at(HandshakeFailed)?;
         let route = P2pRoute::Turn { relayed_both };
         log::info!(target: "citadel", "[TURN] connected to peer via relayed {relayed} ({route:?})");
-        let kernel_tx = session.kernel_tx.clone();
-        handle_p2p_stream(
-            p2p_stream,
-            session_cid,
-            session,
-            kernel_tx,
-            false,
-            v_conn,
-            hole_punched_like(relayed),
-            ticket,
-            udp_mode,
-            session_security_settings,
+        Ok(RelayedPath {
+            stream: p2p_stream,
+            addr: hole_punched_like(relayed),
+            from_listener: false,
             route,
-        )
-        .at(AttachFailed)?;
-        Ok(route)
+        })
     }
 }
 

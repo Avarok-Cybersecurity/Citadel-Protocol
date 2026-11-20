@@ -1,3 +1,9 @@
+codecov:
+  notify:
+    # One upload per coverage shard (.github/workflows/coverage.yml's matrix.shard). Codecov
+    # waits for all of them before it reports, so a partial upload is never read as the total.
+    after_n_builds: 3
+
 comment:
   layout: "reach, diff, flags, files"
   behavior: default

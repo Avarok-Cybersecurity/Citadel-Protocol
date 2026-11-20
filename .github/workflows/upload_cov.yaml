@@ -5,37 +5,8 @@ on:
     branches:
       - master
   workflow_dispatch:
-    name: Upload Coverage
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: full
-  # 40 MiB stack
-  RUST_MIN_STACK: 40971520
-  RUST_LOG: "citadel=warn"
 
 jobs:
   coverage:
-    runs-on: macos-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        run: rustup toolchain install stable --component llvm-tools-preview
-      - uses: taiki-e/install-action@nextest
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: Swatinem/rust-cache@v1
-      - name: Run llvm-cov nextest
-        uses: nick-fields/retry@v3
-        env:
-          SKIP_EXT_BACKENDS: "true"
-        with:
-          max_attempts: 3
-          timeout_minutes: 50
-          retry_on: error
-          command: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip -p citadel_treekem -p citadel_types -p citadel_io --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/standard/upnp_handler.rs"
-      - uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
+    uses: ./.github/workflows/coverage.yml
+    secrets: inherit

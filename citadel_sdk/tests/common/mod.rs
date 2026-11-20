@@ -20,6 +20,8 @@ pub mod group_relay;
 pub mod half_open;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod half_open_scenario;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod link;
 #[cfg(not(target_family = "wasm"))]
 pub mod media;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]

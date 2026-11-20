@@ -180,6 +180,10 @@ pub struct Disconnect {
     /// Token identifying the specific C2S session instance.
     /// Used to reject stale disconnect signals from previous sessions.
     pub disconnect_token: Option<DisconnectToken>,
+    /// Why the link closed, when the protocol knows (`citadel_link::CloseReason`): this node
+    /// disconnected or abandoned it on purpose. `None` is a link that was lost, or ended in a way
+    /// this node cannot attribute; it never stands for a deliberate close.
+    pub reason: Option<citadel_link::CloseReason>,
 }
 
 #[derive(Debug)]
@@ -296,10 +300,14 @@ impl<R: Ratchet> NodeResult<R> {
                 admission_challenge,
                 error_code,
             }) => Err(
-                match (refused_admission(&err, admission_challenge), error_code) {
-                    (Some(admission), _) => admission,
-                    (None, Some(code)) => NetworkError::from_wire(code, err),
-                    (None, None) => NetworkError::generic(err),
+                // The code the failing side sent, unless it names nothing more than the text
+                // does; then the text is read as `refused` reads it.
+                match error_code
+                    .map(|code| NetworkError::from_wire(code, err.clone()))
+                    .filter(|wired| wired.code() != citadel_io::ErrorCode::Generic)
+                {
+                    Some(wired) if admission_challenge.is_none() => wired,
+                    _ => refused(err, admission_challenge),
                 },
             ),
             NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::generic(format!(
@@ -307,6 +315,13 @@ impl<R: Ratchet> NodeResult<R> {
                 String::from_utf8(reason.message_opt.unwrap_or_default())
                     .unwrap_or_else(|_| "Bad request".into())
             ))),
+            NodeResult::InternalServerError(InternalServerError {
+                ticket_opt: _,
+                cid_opt: _,
+                message: err,
+            }) if crate::proto::link::is_login_deadline(&err) => {
+                Err(crate::proto::link::login_deadline_error())
+            }
             NodeResult::InternalServerError(InternalServerError {
                 ticket_opt: _,
                 cid_opt: _,
@@ -430,10 +445,11 @@ impl<R: Ratchet> NodeResult<R> {
 /// its challenge) when the server's admission check refused it
 /// (`citadel_user::auth::pq::admission`), generic otherwise.
 fn refused(message: String, challenge: Option<AdmissionChallenge>) -> NetworkError {
-    refused_admission(&message, challenge).unwrap_or_else(|| NetworkError::generic(message))
-}
-
-/// An admission refusal, rebuilt with its challenge as the error's detail.
-fn refused_admission(message: &str, challenge: Option<AdmissionChallenge>) -> Option<NetworkError> {
-    citadel_user::auth::pq::admission::refusal_from_message(message, challenge)
+    // A server holding the account's session refuses with this reason, verbatim, at SYN and at
+    // STAGE0, in every version; named here once, so a caller matches a code, not a string (S-C8).
+    if message.starts_with(crate::proto::session_manager::SESSION_ALREADY_CONNECTED) {
+        return citadel_io::error!(citadel_io::ErrorCode::RemoteServerHoldsSession, message);
+    }
+    citadel_user::auth::pq::admission::refusal_from_message(&message, challenge)
+        .unwrap_or_else(|| NetworkError::generic(message))
 }

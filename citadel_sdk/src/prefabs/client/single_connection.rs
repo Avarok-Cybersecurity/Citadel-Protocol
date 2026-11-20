@@ -323,19 +323,9 @@ mod tests {
         TestBarrier::setup(2);
 
         // Skip TLS tests on Windows since self-signed certs may not work
-        // Skip QUIC tests on Windows since socket binding often fails with error 10013
-        if cfg!(windows) {
-            match &underlying_protocol {
-                ServerMode::OrderedReliableSecure(..) => {
-                    citadel_logging::warn!(target: "citadel", "Skipping TLS test on Windows - self-signed certs may not work");
-                    return;
-                }
-                ServerMode::P2P(..) => {
-                    citadel_logging::warn!(target: "citadel", "Skipping QUIC test on Windows - socket binding may fail with error 10013");
-                    return;
-                }
-                _ => {}
-            }
+        if cfg!(windows) && matches!(underlying_protocol, ServerMode::OrderedReliableSecure(..)) {
+            citadel_logging::warn!(target: "citadel", "Skipping TLS test on Windows - self-signed certs may not work");
+            return;
         }
 
         let client_success = &AtomicBool::new(false);
@@ -372,6 +362,7 @@ mod tests {
             });
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
@@ -379,7 +370,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -460,6 +451,7 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
@@ -467,7 +459,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -508,6 +500,7 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
@@ -571,6 +564,7 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
@@ -578,7 +572,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -658,6 +652,7 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
@@ -665,7 +660,7 @@ mod tests {
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));
@@ -717,13 +712,14 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
         let joined = futures::future::try_join(server, client);
 
-        let _ = joined.await.expect("Failed to join server and client - possible port binding issue on Windows (error 10013)");
+        let _ = joined.await.expect("Failed to join server and client");
 
         assert!(client_success.load(Ordering::Relaxed));
         assert!(server_success.load(Ordering::Relaxed));

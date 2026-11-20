@@ -102,6 +102,7 @@ async fn test_internal_service_basic_bytes() {
     );
 
     let client = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
         .with_max_security_level(crate::test_common::localhost_max_security_level())
         .with_node_type(NodeType::Peer)
@@ -109,6 +110,7 @@ async fn test_internal_service_basic_bytes() {
         .unwrap();
 
     let server = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
         .with_max_security_level(crate::test_common::localhost_max_security_level())
         .with_node_type(NodeType::Server(server_bind_addr))

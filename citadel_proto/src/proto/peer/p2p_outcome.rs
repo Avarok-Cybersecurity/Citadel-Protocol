@@ -4,6 +4,7 @@
 //! [`NodeResult::PeerPathOutcome`](crate::proto::node_result::NodeResult::PeerPathOutcome).
 //! Measurement only: nothing here changes how a connection is established.
 
+#[cfg(not(target_family = "wasm"))]
 use std::fmt;
 use std::time::Duration;
 
@@ -144,11 +145,13 @@ impl AttemptReport {
 }
 
 /// A stage's failure, with the detail for the log.
+#[cfg(not(target_family = "wasm"))]
 pub(crate) struct StageError {
     pub(crate) failure: StageFailure,
     pub(crate) detail: String,
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl StageError {
     pub(crate) fn new(failure: StageFailure, detail: impl Into<String>) -> Self {
         Self {
@@ -158,6 +161,7 @@ impl StageError {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl fmt::Display for StageError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}: {}", self.failure, self.detail)
@@ -165,10 +169,12 @@ impl fmt::Display for StageError {
 }
 
 /// Classifies an error as the failure of a stage.
+#[cfg(not(target_family = "wasm"))]
 pub(crate) trait AtStage<T> {
     fn at(self, failure: StageFailure) -> Result<T, StageError>;
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl<T, E: fmt::Display> AtStage<T> for Result<T, E> {
     fn at(self, failure: StageFailure) -> Result<T, StageError> {
         self.map_err(|err| StageError {

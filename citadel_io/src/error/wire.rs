@@ -53,7 +53,7 @@ mod tests {
         for err in [
             error!(ErrorCode::PqSignInFailed),
             error!(ErrorCode::PqSignInMalformed, "a device label"),
-            error!(ErrorCode::HandshakeExpired, "20s"),
+            error!(ErrorCode::Timeout, "the login deadline (20s)"),
         ] {
             let read = round_trip(err.clone());
             assert_eq!(read.code(), err.code());

@@ -35,6 +35,7 @@ futures = { workspace = true }
 async-trait-with-sync = { workspace = true }
 bytes = { workspace = true }
 citadel_io = { workspace = true }
+citadel_types = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 log = { workspace = true }

@@ -65,6 +65,7 @@ impl<R: Ratchet> BrowserConnection<R> {
         let kernel = ServerlessKernel::<R>::new(conn_tx);
 
         let node_future = NodeBuilder::<R, DefaultTransport>::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_no_central_server(config)
             .with_backend(BackendType::InMemory)
             .with_stun_servers(stun_servers)

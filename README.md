@@ -119,6 +119,7 @@ use citadel_sdk::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = NodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_node_type(NodeType::server("127.0.0.1:25021")?)
         // Required for every node: there is no built-in STUN list (see "STUN servers" below)
         .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
@@ -177,6 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Execute the application
     NodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
         .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme)?)
         .build(client_kernel)?

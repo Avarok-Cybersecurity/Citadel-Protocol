@@ -42,6 +42,7 @@ mod tests {
         let listener = tokio::net::TcpListener::from_std(listener).unwrap();
         let bound = listener.local_addr().unwrap();
         let mut builder = NodeBuilder::<StackedRatchet>::default();
+        let _ = builder.with_link_manager(LinkManagerMode::Legacy);
         let _ = builder
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level());
@@ -136,6 +137,7 @@ mod tests {
         let user = username("admrestart");
         let never_signed_in = username("admnotoken");
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(GroupTestKernel::new(move |remote, _| async move {

@@ -886,6 +886,19 @@ pub enum ErrorCode {
     /// A provisional outbound connection to the given peer is already in progress (peer addr).
     #[form = "Localhost is already trying to connect to {}"]
     SessionManagerProvisionalConnectionExists = 265,
+    /// A connect stopped because the ticket that requested it aborted it (`AbortLink`) (peer addr).
+    #[form = "The connect to {} was aborted by its requester"]
+    LinkConnectAborted = 480,
+    /// The server already holds a session for the account, and this login neither forced nor
+    /// proved itself that session's own client (the server's refusal).
+    #[form = "The server already holds a session for this account: {}"]
+    RemoteServerHoldsSession = 481,
+    /// A node was built without a link mode; there is no default one.
+    #[form = "A node requires a link mode (NodeBuilder::with_link_manager); there is no default"]
+    NodeLinkManagerMissing = 482,
+    /// A managed node's `LinkPolicy` failed validation (the policy's error).
+    #[form = "A managed node's LinkPolicy is invalid: {}"]
+    LinkPolicyInvalid = 483,
 
     // --- citadel_sdk: builder / node ---
     /// A node could not be built from its configuration (reason).
@@ -1335,8 +1348,4 @@ pub enum ErrorCode {
     /// A sign-in throttle policy with a limit that would admit nothing or lock nothing (reason).
     #[form = "Invalid sign-in throttle policy: {}"]
     SignInThrottlePolicyInvalid = 513,
-    /// A session's handshake (a registration, recovery or sign-in) did not finish within the
-    /// node's limit for an unconnected session (the limit).
-    #[form = "The handshake did not finish within {}"]
-    HandshakeExpired = 514,
 }

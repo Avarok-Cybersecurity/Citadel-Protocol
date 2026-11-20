@@ -144,6 +144,7 @@ Configured through feature flags:
 use citadel_sdk::prelude::*;
 
 let server = NodeBuilder::default()
+    .with_link_manager(LinkManagerMode::Legacy)
     .with_node_type(NodeType::server("127.0.0.1:25021")?)
     .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme)?)
     .build(kernel)?;
@@ -154,6 +155,7 @@ let server = NodeBuilder::default()
 use citadel_sdk::prelude::*;
 
 let client = NodeBuilder::default()
+    .with_link_manager(LinkManagerMode::Legacy)
     .with_node_type(NodeType::client())
     .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme)?)
     .build(kernel)?;

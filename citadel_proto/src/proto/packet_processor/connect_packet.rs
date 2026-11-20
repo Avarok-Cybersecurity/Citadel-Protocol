@@ -58,7 +58,7 @@ use citadel_user::external_services::ServicesObject;
     skip_all,
     ret,
     err,
-    fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = sess_ref.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_connect<R: Ratchet, T: PlatformOps>(
@@ -223,9 +223,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                     session,
                                     header.protocol_version.get(),
                                 );
-                                let session_security_settings = state_container
-                                    .session_security_settings
-                                    .expect("Should be set");
+                                let session_security_settings = return_if_none!(
+                                    state_container.session_security_settings,
+                                    "No session security settings at connect SUCCESS"
+                                );
                                 (udp_channel_rx, channel, session_security_settings)
                             };
 
@@ -452,9 +453,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 session,
                                 adjacent_protocol_version,
                             );
-                            let session_security_settings = state_container
-                                .session_security_settings
-                                .expect("Should be set");
+                            let session_security_settings = return_if_none!(
+                                state_container.session_security_settings,
+                                "No session security settings at connect SUCCESS"
+                            );
                             std::mem::drop(state_container);
 
                             session.session_cid.set(Some(cid)); // This makes is_provisional equal to false

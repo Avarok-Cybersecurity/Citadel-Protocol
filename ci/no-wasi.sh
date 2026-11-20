@@ -21,7 +21,7 @@ fail=0
 
 # `--color never`: CI sets CARGO_TERM_COLOR=always, which wraps cargo tree's repeat marker `(*)` in
 # ANSI codes, so the strip below missed it and a repeated tokio read as a second, non-crates.io one.
-graph="$(cargo tree --color never --workspace --target "$TARGET" --edges normal,build,dev --prefix none --format '{p}' | sed 's/ (\*)$//' | sort -u)"
+graph="$(cargo tree --locked --color never --workspace --target "$TARGET" --edges normal,build,dev --prefix none --format '{p}' | sed 's/ (\*)$//' | sort -u)"
 if [ -z "$graph" ]; then
     echo "cargo tree printed no crates for $TARGET; refusing to pass an empty graph" >&2
     exit 2

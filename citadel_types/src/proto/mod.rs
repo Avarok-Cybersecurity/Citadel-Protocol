@@ -11,6 +11,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 mod group_limits;
+mod nat_class;
 mod offer_strength;
 mod path_plan;
 #[cfg(test)]
@@ -19,7 +20,9 @@ mod path_policy;
 mod path_policy_error;
 #[cfg(test)]
 mod path_policy_tests;
+pub mod timing;
 pub use group_limits::{GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal};
+pub use nat_class::{IpTranslationClass, NatClass, PortTranslationClass};
 pub use offer_strength::{falls_short_of, stronger_offer};
 pub use path_plan::{
     effective_plan, EffectivePlan, PairFeasibility, PathOffer, PathRestrictions, PlannedPath,

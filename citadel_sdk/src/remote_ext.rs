@@ -229,12 +229,22 @@ pub struct RegisterSuccess {
 }
 
 /// Waits for the outcome of a registration request.
-async fn await_registration<R: Ratchet, Rem: Remote<R>>(
+async fn await_registration<R: Ratchet, Rem: ProtocolRemoteExt<R>>(
     remote: &Rem,
     register_request: NodeRequest,
 ) -> Result<RegisterSuccess, NetworkError> {
-    let mut subscription = remote.send_callback_subscription(register_request).await?;
+    // As for connect: a caller that stops waiting before the first answer aborts the
+    // registration instead of leaving it holding its provisional slot.
+    let ticket = remote.get_next_ticket();
+    let mut abort = Some(AbortGuard::new(remote.remote_ref().clone(), ticket));
+    let mut subscription = remote
+        .remote_ref()
+        .send_callback_subscription_custom_ticket(register_request, ticket)
+        .await?;
     while let Some(status) = subscription.next().await {
+        if let Some(abort) = abort.take() {
+            abort.disarm();
+        }
         match status.into_result()? {
             NodeResult::RegisterOkay(RegisterOkay {
                 cid,
@@ -484,11 +494,19 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             session_password: server_password.unwrap_or_default(),
         });
 
-        let mut subscription = self.send_callback_subscription(connect_request).await?;
+        // Armed before the request is sent: a caller that stops waiting at any point after
+        // this (a timeout, a sign-out) aborts the connect instead of leaving it to run.
+        let ticket = self.get_next_ticket();
+        let abort = AbortGuard::new(self.remote_ref().clone(), ticket);
+        let mut subscription = self
+            .remote_ref()
+            .send_callback_subscription_custom_ticket(connect_request, ticket)
+            .await?;
         let status = subscription.next().await.ok_or(citadel_io::error!(
             citadel_io::ErrorCode::RemoteKernelStreamDied,
             "connect"
         ))?;
+        abort.disarm();
 
         return match status.into_result()? {
             NodeResult::ConnectSuccess(ConnectSuccess {
@@ -987,7 +1005,9 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                         )
                     })?;
                     let legacy_level = handle.legacy_seal_received().filter(|_| !delete_on_pull);
-                    let resealed = legacy_level.is_some();
+                    // Sealing again re-reads the pulled object from the local filesystem; a build
+                    // without one returns the object as stored, and says it was not resealed.
+                    #[cfg(feature = "filesystem")]
                     if let Some(level) = legacy_level {
                         self.remote_encrypted_virtual_filesystem_push(
                             path.clone(),
@@ -996,6 +1016,11 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
                         )
                         .await?;
                     }
+                    #[cfg(not(feature = "filesystem"))]
+                    if let Some(level) = legacy_level {
+                        log::warn!(target: "citadel", "RE-VFS object {virtual_dir:?} is sealed under a key its server holds (level {level:?}); without a filesystem it is not sealed again");
+                    }
+                    let resealed = cfg!(feature = "filesystem") && legacy_level.is_some();
                     return Ok(crate::fs::RevfsPull { path, resealed });
                 }
 
@@ -1080,14 +1105,12 @@ pub trait ProtocolRemoteTargetExt<R: Ratchet>: TargetLockedRemote<R> {
         udp_mode: UdpMode,
         peer_session_password: Option<PreSharedKey>,
     ) -> Result<PeerConnectSuccess<R>, NetworkError> {
-        use std::time::Duration;
-
         // Bounds the wait for the peer to accept and for the key exchange to finish: the
         // channel is delivered as soon as it works over the server relay, so NAT traversal is no
         // longer inside this wait (it runs in the background; see `PeerChannel::ensure_direct`).
         // What remains is the peer's answer — it has to be online and accept — plus two relayed
         // key-exchange round trips; this prevents an indefinite hang when neither arrives.
-        const P2P_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+        use citadel_types::proto::timing::P2P_CONNECT_TIMEOUT;
 
         let session_cid = self.user().get_session_cid();
         let peer_target = self.try_as_peer_connection().await?;
@@ -1938,6 +1961,7 @@ mod tests {
         );
 
         let client = DefaultNodeBuilder::default()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel)

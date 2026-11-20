@@ -446,6 +446,13 @@ impl HeaderObfuscator {
     pub fn new_client(header_obfuscator_settings: HeaderObfuscatorSettings) -> Self {
         let key = match header_obfuscator_settings {
             HeaderObfuscatorSettings::Enabled => {
+                #[cfg_attr(
+                    target_family = "wasm",
+                    expect(
+                        clippy::default_constructed_unit_structs,
+                        reason = "the browser's ThreadRng is a unit struct; the native one is not"
+                    )
+                )]
                 let mut rng = ThreadRng::default();
                 rng.gen::<u128>()
             }
@@ -465,6 +472,13 @@ impl HeaderObfuscator {
 
         let key = hash_u128(key);
 
+        #[cfg_attr(
+            target_family = "wasm",
+            expect(
+                clippy::default_constructed_unit_structs,
+                reason = "the browser's ThreadRng is a unit struct; the native one is not"
+            )
+        )]
         let mut rng = ThreadRng::default();
         let bytes_to_add = rng.gen_range(0..(HDP_HEADER_BYTE_LEN - 17));
         let mut packet = vec![0; 16 + bytes_to_add];
