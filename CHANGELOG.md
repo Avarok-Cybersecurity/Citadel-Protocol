@@ -113,22 +113,25 @@
   SDK preludes. A sum of algorithms builds `CryptoParameters` only once it names a KEM
   (`KemAlgorithm::X + EncryptionAlgorithm::Y`, or `EncryptionAlgorithm::Y + KemAlgorithm::X`);
   `From<EncryptionAlgorithm>` and `From<SigAlgorithm>` are gone, and
-  `CryptoParameters::new(encryption, kem, signature)` names all three. Every node from protocol
-  0.10.1 on runs ML-KEM-1024, and both ends take the suite from what the initiator sends, so an
-  older node still connects; to reach a node older than 0.10.1, name `KemAlgorithm::MlKem`.
-  Accounts keep the suite they registered with. The round-3 suite (`MlKem`) stays for nodes before
-  0.12.4 and is to be retired once every supported node is at 0.12.4 or later.
-- **`MlKemHybrid` runs on every KEM**, the FIPS 203 suites included; a node before 0.12.4 refuses
-  that combination, so name `MlKem` with hybrid encryption to reach one.
+  `CryptoParameters::new(encryption, kem, signature)` names all three. Both ends take the suite
+  from what the initiator sends. Accounts keep the suite they registered with.
+- **The round-3 KEM is removed.** `KemAlgorithm::MlKem` (Kyber768-90s through `kyber-pke`) and
+  `KemAlgorithm::is_libcrux` are gone; the KEMs are `MlKem768Fips203` (1) and `MlKem1024Fips203`
+  (2). `0` is unassigned: `KemAlgorithm::try_from(0)` and a `CryptoParameters` byte naming it are
+  refused with `CryptoParamEnumCastFailed`. `kyber-pke` and `pqc_kyber` are no longer
+  dependencies. The TypeScript `KemAlgorithm` lists the two FIPS 203 KEMs.
+- **`MlKemHybrid` runs on every KEM.** `EncryptionAlgorithmExt::max_ciphertext_len` takes the
+  session's KEM and bounds the real length (plaintext included) by less than one scramble block;
+  `plaintext_length` returns `None` for the hybrid scheme, whose body is padded.
+  `get_max_packet_size` and `generate_scrambler_metadata` take `CryptoParameters`.
 - **RE-VFS runs on every KEM.** `ErrorCode::RemoteRevfsRequiresKyber` is no longer returned.
-- **TreeKEM keys on ML-KEM-1024 where every member can.** A `KeyPackage` carries an
-  ML-KEM-1024 leaf key beside its round-3 one (`current_kem_public`, appended so an earlier owner
-  ignores it); an owner inserts it, and re-keys its path on ML-KEM-1024 while every other member's
-  leaf is on it, on round 3 while any is not. Hierarchy messages are sealed on the suite
-  `GroupState::sealing_suite()` names. `Proposal::Add` carries the inserted `leaf: LeafNode`
-  (encoded as before). `kem_keypair_from_seed`, `kem_encapsulate` and `kem_decapsulate` name their
-  suite; `HierarchyScheme::node_keypair`, `DheEnvelope::seal` and `HierarchyMember::seal_message`
-  take one.
+- **TreeKEM keys every tree on ML-KEM-1024 alone.** A `KeyPackage` is its `leaf`, keyed on
+  ML-KEM-1024. `suite_of` and `suite_of_ciphertext` refuse any other KEM by name, and a key
+  package, an added leaf or a path key of another KEM is refused before it changes the group.
+  `Proposal::Add` carries the inserted `leaf: LeafNode`. `kem_keypair_from_seed`,
+  `kem_encapsulate` and `kem_decapsulate` name their suite; `node_keypair_from_path_secret`,
+  `hpke_open`, `generate_update_path`, `HierarchyScheme::node_keypair`, `DheEnvelope::seal` and
+  `HierarchyMember::seal_message` take none.
 - `BackendType` no longer implements `Default`. Use `BackendType::platform_default()`, which
   returns `ErrorCode::BackendHomeDirUnavailable` instead of panicking when there is no usable home
   directory; `NodeBuilder::build` returns that error when no backend is set.
