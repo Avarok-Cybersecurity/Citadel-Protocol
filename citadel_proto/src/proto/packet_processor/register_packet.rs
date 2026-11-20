@@ -450,10 +450,22 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             );
                             // we must now create the CNAC
                             async move {
+                                // A legacy STAGE2 has the server hash its password: it needs a
+                                // turn under the server's limits, held until the hash is done,
+                                // and asked for before anything else is spent on it.
+                                let legacy_turn = match (&pq, session.session_manager.server_load())
+                                {
+                                    (None, Some(load)) => Some(load.legacy_hash_turn()),
+                                    _ => None,
+                                };
+                                if let Some(Err(refused)) = &legacy_turn {
+                                    log::warn!(target: "citadel", "Legacy registration not taken: {refused:?}");
+                                }
                                 // A legacy STAGE2 that no `PQ_START` admitted is asked now,
                                 // before the account is created.
-                                let gate = match (&pq, admitted) {
-                                    (None, false) => {
+                                let gate = match (&pq, admitted, legacy_turn.as_ref()) {
+                                    (_, _, Some(Err(refused))) => Err(refused.clone()),
+                                    (None, false, _) => {
                                         let ctx = pq_sign_in::admission::register(
                                             &session,
                                             creds.username(),

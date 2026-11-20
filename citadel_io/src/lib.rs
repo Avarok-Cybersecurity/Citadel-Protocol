@@ -56,6 +56,9 @@ pub mod standard;
 #[cfg(target_family = "wasm")]
 pub mod wasm;
 
+pub mod cert_verification;
+pub use cert_verification::CertVerification;
+pub mod decode;
 pub mod endpoint;
 pub use endpoint::WebSocketEndpoint;
 

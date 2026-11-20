@@ -168,6 +168,7 @@ mod tests {
                 let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
                     server_addr,
                     Uuid::new_v4(),
+                    CertVerification::SelfSignedAccepted,
                 )
                 .with_udp_mode(UdpMode::Enabled)
                 .build()

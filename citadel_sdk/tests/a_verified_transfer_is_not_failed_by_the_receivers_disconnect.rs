@@ -85,9 +85,13 @@ mod tests {
             let sender_finished = sender_finished.clone();
             let source_bytes = source_bytes.to_vec();
             PeerConnectionKernel::new(
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, receiver_id)
-                    .build()
-                    .unwrap(),
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    receiver_id,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap(),
                 PeerConnectionSetupAggregator::default()
                     .with_peer_custom(sender_id)
                     .ensure_registered()
@@ -134,6 +138,7 @@ mod tests {
                     DefaultServerConnectionSettingsBuilder::transient_with_id(
                         server_addr,
                         sender_id,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .build()
                     .unwrap(),

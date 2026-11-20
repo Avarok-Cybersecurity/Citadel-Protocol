@@ -103,11 +103,14 @@ mod imp {
                 .ensure_registered()
                 .with_udp_mode(UdpMode::Disabled)
                 .add();
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuids[me])
-                    .with_udp_mode(UdpMode::Disabled)
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuids[me],
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Disabled)
+            .build()
+            .unwrap();
             let connected = connected.clone();
             let kernel =
                 PeerConnectionKernel::new(settings, agg, move |mut rx, remote| async move {

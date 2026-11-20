@@ -29,6 +29,7 @@ pub async fn with_phrase(
         None,
         None,
         domain,
+        CertVerification::SelfSignedAccepted,
     );
     let reg = reg.await?;
     assert!(
@@ -75,7 +76,13 @@ pub async fn recover(
     phrase: &RecoveryPhrase,
 ) -> Result<RecoverSuccess, NetworkError> {
     device
-        .recover(addr, asking(user, phrase), Default::default(), None)
+        .recover(
+            addr,
+            asking(user, phrase),
+            Default::default(),
+            None,
+            CertVerification::SelfSignedAccepted,
+        )
         .await
 }
 
@@ -86,7 +93,10 @@ pub async fn phrase_session(
 ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
     let factors = SignInFactors::recovery_phrase(phrase.clone());
     device
-        .connect_with_defaults(AuthenticationRequest::sign_in(user.to_string(), factors))
+        .connect_with_defaults(
+            AuthenticationRequest::sign_in(user.to_string(), factors),
+            CertVerification::SelfSignedAccepted,
+        )
         .await
 }
 

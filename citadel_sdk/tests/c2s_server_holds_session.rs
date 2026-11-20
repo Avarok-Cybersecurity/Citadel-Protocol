@@ -53,12 +53,19 @@ mod tests {
                 Arc::new(NodeState::default()),
                 move |remote: NodeRemote<StackedRatchet>, _| async move {
                     let _ = remote
-                        .register_with_defaults(server_addr, &username, &username, PASSWORD)
+                        .register_with_defaults(
+                            server_addr,
+                            &username,
+                            &username,
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     let _held = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username, PASSWORD,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username, PASSWORD),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     connected.send(()).unwrap();
                     second_was_refused.await.unwrap();
@@ -72,7 +79,10 @@ mod tests {
             Arc::new(NodeState::default()),
             move |remote: NodeRemote<StackedRatchet>, _| async move {
                 let err = remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(username, PASSWORD))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username, PASSWORD),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await
                     .map(|_| ())
                     .expect_err("a second client took the held session without forcing");

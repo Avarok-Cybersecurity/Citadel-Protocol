@@ -23,12 +23,13 @@
 //!         "127.0.0.1:25021",
 //!         "John Doe",
 //!         "john.doe",
-//!         "password123"
+//!         "password123",
+//!         CertVerification::Required,
 //!     ).await?;
 //!
 //!     // Connect to a peer
 //!     let auth = AuthenticationRequest::credentialed("john.doe", "password123");
-//!     let conn = remote.connect_with_defaults(auth).await?;
+//!     let conn = remote.connect_with_defaults(auth, CertVerification::Required).await?;
 //!
 //!     // Send a file to a peer
 //!     remote.find_target("john.doe", "peer.name")
@@ -304,6 +305,7 @@ async fn registration_credentials<
 pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     /// Registers with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
+    #[allow(clippy::too_many_arguments)]
     async fn register<
         T: std::net::ToSocketAddrs + Send,
         P: Into<String> + Send,
@@ -317,6 +319,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         proposed_password: K,
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         self.register_admitted(
             addr,
@@ -327,6 +330,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             server_password,
             None,
             None,
+            cert_verification,
         )
         .await
     }
@@ -352,6 +356,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         server_password: Option<PreSharedKey>,
         admission: Option<String>,
         recovery_domain: Option<String>,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         let (creds, password) =
             registration_credentials(full_name, username, proposed_password).await?;
@@ -364,6 +369,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             session_password: server_password.unwrap_or_default(),
             endpoint: None,
             password: Some(password),
+            cert_verification,
             admission,
             recovery_domain,
         });
@@ -376,6 +382,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     /// which is told apart from the edge's other servers by hostname and path. The account
     /// remembers the URL, so a later [`connect`](Self::connect) with credentials dials it too.
     #[cfg(not(target_family = "wasm"))]
+    #[allow(clippy::too_many_arguments)]
     async fn register_to_endpoint<
         P: Into<String> + Send,
         V: Into<String> + Send,
@@ -388,6 +395,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         proposed_password: K,
         default_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         self.register_to_endpoint_admitted(
             endpoint,
@@ -398,6 +406,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             server_password,
             None,
             None,
+            cert_verification,
         )
         .await
     }
@@ -420,6 +429,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         server_password: Option<PreSharedKey>,
         admission: Option<String>,
         recovery_domain: Option<String>,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         let remote_addr = endpoint.resolve().await?;
         let (creds, password) =
@@ -431,6 +441,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             session_password: server_password.unwrap_or_default(),
             endpoint: Some(endpoint),
             password: Some(password),
+            cert_verification,
             admission,
             recovery_domain,
         });
@@ -462,6 +473,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         full_name: P,
         username: V,
         proposed_password: K,
+        cert_verification: CertVerification,
     ) -> Result<RegisterSuccess, NetworkError> {
         self.register(
             addr,
@@ -470,12 +482,14 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             proposed_password,
             Default::default(),
             Default::default(),
+            cert_verification,
         )
         .await
     }
 
     /// Connects with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
+    #[allow(clippy::too_many_arguments)]
     async fn connect(
         &self,
         auth: AuthenticationRequest,
@@ -484,6 +498,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         keep_alive_timeout: Option<Duration>,
         session_security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
+        cert_verification: CertVerification,
     ) -> Result<CitadelClientServerConnection<R>, NetworkError> {
         let connect_request = NodeRequest::ConnectToHypernode(ConnectToHypernode {
             auth_request: auth,
@@ -492,6 +507,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             keep_alive_timeout: keep_alive_timeout.map(|r| r.as_secs()),
             session_security_settings,
             session_password: server_password.unwrap_or_default(),
+            cert_verification,
         });
 
         // Armed before the request is sent: a caller that stops waiting at any point after
@@ -564,6 +580,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     async fn connect_with_defaults(
         &self,
         auth: AuthenticationRequest,
+        cert_verification: CertVerification,
     ) -> Result<CitadelClientServerConnection<R>, NetworkError> {
         self.connect(
             auth,
@@ -572,6 +589,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
             None,
             Default::default(),
             Default::default(),
+            cert_verification,
         )
         .await
     }
@@ -581,7 +599,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
     /// use citadel_sdk::prelude::*;
     /// # use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     ///
-    /// let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password").build().unwrap();
+    /// let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_login("127.0.0.1:25021", "john.doe", "password", CertVerification::Required).build().unwrap();
     ///
     /// # SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
     /// conn.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await
@@ -1935,12 +1953,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_session_security_settings(session_security_settings)
-                .disable_udp()
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_session_security_settings(session_security_settings)
+        .disable_udp()
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,

@@ -46,10 +46,12 @@ async fn test_internal_service_http() {
         Ok(())
     });
 
-    let server_connection_settings =
-        DefaultServerConnectionSettingsBuilder::transient(server_bind_addr)
-            .build()
-            .unwrap();
+    let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient(
+        server_bind_addr,
+        CertVerification::SelfSignedAccepted,
+    )
+    .build()
+    .unwrap();
 
     let client_kernel = SingleClientServerConnectionKernel::new(
         server_connection_settings,
@@ -127,6 +129,7 @@ async fn test_internal_service_http() {
         .with_max_security_level(crate::test_common::localhost_max_security_level())
         .with_node_type(NodeType::Server(server_bind_addr))
         .with_path_policy(crate::test_common::localhost_path_policy())
+        .with_server_limits(crate::test_common::localhost_server_limits())
         .with_underlying_protocol(ServerMode::OrderedReliable(
             NativeOrderedReliableConfig::from_tokio_listener(server_listener).unwrap(),
         ))

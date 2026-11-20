@@ -561,7 +561,7 @@ pub mod prelude {
     // Unconditional exports available on all platforms
     pub use crate::proto::misc::server_endpoint_store::load as load_server_endpoint;
     pub use async_trait::async_trait;
-    pub use citadel_io::WebSocketEndpoint;
+    pub use citadel_io::{CertVerification, WebSocketEndpoint};
     pub use citadel_wire::hypernode_type::NodeType;
     pub use citadel_wire::quic_rebind::{RebindFailure, RebindReport, Rebound};
     pub use citadel_wire::stun_servers::{StunServers, StunServersError, MIN_STUN_SERVERS};
@@ -651,8 +651,10 @@ pub mod prelude {
     pub use crate::proto::remote::*;
 
     pub use crate::auth::AuthenticationRequest;
+    pub use crate::proto::misc::primary_frame::MAX_PRIMARY_FRAME_LEN;
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
+    pub use crate::proto::server_limits::{LegacyRegistration, ServerLimits};
     pub use crate::proto::session::ServerOnlySessionInitSettings;
     pub use crate::proto::session::TurnServerConfig;
     pub use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;

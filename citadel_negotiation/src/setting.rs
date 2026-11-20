@@ -55,7 +55,7 @@ pub fn encode_value<S: Setting>(value: &S) -> Result<Vec<u8>, ValueCodecError> {
 
 /// Reads a value the peer sent.
 pub fn decode_value<S: Setting>(bytes: &[u8]) -> Result<S, ValueCodecError> {
-    bincode::deserialize(bytes).map_err(|err| ValueCodecError(err.to_string()))
+    citadel_io::decode::deserialize(bytes).map_err(|err| ValueCodecError(err.to_string()))
 }
 
 /// SHA3-256 of a value's wire bytes: the evidence both sides compare after applying.

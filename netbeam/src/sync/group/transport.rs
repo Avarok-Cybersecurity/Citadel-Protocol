@@ -107,7 +107,7 @@ impl GroupTransport {
                 if current != Some(generation) {
                     break;
                 }
-                match bincode::deserialize::<GroupPacket>(&bytes) {
+                match citadel_io::decode::deserialize::<GroupPacket>(&bytes) {
                     Ok(packet) => this.route(peer, packet),
                     Err(err) => {
                         log::warn!(target: "citadel", "[GroupTransport] malformed packet from {peer:?}: {err}")

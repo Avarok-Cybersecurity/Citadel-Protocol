@@ -287,12 +287,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(UdpMode::Enabled)
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -378,10 +381,13 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security);
+        let mut connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(UdpMode::Enabled)
+        .with_session_security_settings(session_security);
 
         if let Some(password) = server_password {
             connection_settings = connection_settings.with_session_password(password);
@@ -508,11 +514,15 @@ mod tests {
         let peer1_connection = peer1_agg.add();
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(server_addr, uuid0)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(
+                server_addr,
+                uuid0,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Enabled)
+            .with_session_security_settings(session_security)
+            .build()
+            .unwrap();
 
         let client_kernel0 = PeerConnectionKernel::new(
             server_connection_settings,
@@ -531,11 +541,15 @@ mod tests {
         );
 
         let server_connection_settings =
-            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(server_addr, uuid1)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+            ServerConnectionSettingsBuilder::<R, _>::transient_with_id(
+                server_addr,
+                uuid1,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Enabled)
+            .with_session_security_settings(session_security)
+            .build()
+            .unwrap();
 
         let client_kernel1 = PeerConnectionKernel::new(
             server_connection_settings,
@@ -622,9 +636,13 @@ mod tests {
             };
 
             let server_connection_settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .build()
-                    .unwrap();
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    uuid,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap();
 
             let client_kernel = BroadcastKernel::new(
                 server_connection_settings,

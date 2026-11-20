@@ -36,15 +36,33 @@ mod tests {
                 move |remote: NodeRemote<StackedRatchet>, _: Events| async move {
                     let (a, b) = (format!("a_{tag}"), format!("b_{tag}"));
                     let (ra, rb) = tokio::join!(
-                        remote.register_with_defaults(addr, a.as_str(), a.as_str(), PASSWORD),
-                        remote.register_with_defaults(addr, b.as_str(), b.as_str(), PASSWORD),
+                        remote.register_with_defaults(
+                            addr,
+                            a.as_str(),
+                            a.as_str(),
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted
+                        ),
+                        remote.register_with_defaults(
+                            addr,
+                            b.as_str(),
+                            b.as_str(),
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted
+                        ),
                     );
                     ra?;
                     rb?;
                     for round in 0..5 {
                         let (ca, cb) = tokio::join!(
-                            remote.connect_with_defaults(sign_in(&a)),
-                            remote.connect_with_defaults(sign_in(&b)),
+                            remote.connect_with_defaults(
+                                sign_in(&a),
+                                CertVerification::SelfSignedAccepted
+                            ),
+                            remote.connect_with_defaults(
+                                sign_in(&b),
+                                CertVerification::SelfSignedAccepted
+                            ),
                         );
                         let at = |who: &str, e: NetworkError| {
                             NetworkError::msg(format!("round {round}: {who}: {e}"))
@@ -58,8 +76,14 @@ mod tests {
                     // The guard still holds for one account: of two simultaneous attempts, exactly
                     // one gets in.
                     let (first, second) = tokio::join!(
-                        remote.connect_with_defaults(sign_in(&a)),
-                        remote.connect_with_defaults(sign_in(&a)),
+                        remote.connect_with_defaults(
+                            sign_in(&a),
+                            CertVerification::SelfSignedAccepted
+                        ),
+                        remote.connect_with_defaults(
+                            sign_in(&a),
+                            CertVerification::SelfSignedAccepted
+                        ),
                     );
                     let outcomes = [&first, &second]
                         .map(|r| r.as_ref().map(|_| ()).map_err(|e| e.to_string()));

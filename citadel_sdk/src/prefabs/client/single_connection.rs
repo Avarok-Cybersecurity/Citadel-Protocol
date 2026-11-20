@@ -19,7 +19,7 @@
 //!
 //! # fn main() -> Result<(), NetworkError> {
 //! async fn connect_to_server() -> Result<(), NetworkError> {
-//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021", CertVerification::Required)
 //!         .with_udp_mode(UdpMode::Enabled)
 //!         .build()?;
 //!
@@ -81,6 +81,7 @@ pub struct SingleClientServerConnectionKernel<F, Fut, R: Ratchet> {
     claims: Mutex<Option<Claims<R>>>,
     remote: Option<NodeRemote<R>>,
     server_password: Option<PreSharedKey>,
+    cert_verification: CertVerification,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> Fut>,
 }
@@ -116,6 +117,7 @@ where
         let (udp_mode, session_security_settings) =
             (settings.udp_mode(), settings.session_security_settings());
         let server_password = settings.pre_shared_key().cloned();
+        let cert_verification = settings.cert_verification();
         let (unprocessed_signals, signals_claim) = inbox();
         let (incoming_file_transfers, file_transfers_claim) = inbox();
 
@@ -156,6 +158,7 @@ where
             incoming_file_transfers,
             claims: Mutex::new(Some((signals_claim, file_transfers_claim))),
             server_password,
+            cert_verification,
             remote: None,
             _pd: Default::default(),
         }
@@ -209,6 +212,7 @@ where
                             password.clone(),
                             self.session_security_settings,
                             self.server_password.clone(),
+                            self.cert_verification,
                         )
                         .await?;
                 }
@@ -233,6 +237,7 @@ where
                 None,
                 self.session_security_settings,
                 self.server_password.clone(),
+                self.cert_verification,
             )
             .await?;
 
@@ -345,6 +350,7 @@ mod tests {
             "nologik",
             "Some Alias",
             "password",
+            CertVerification::SelfSignedAccepted,
         )
         .with_udp_mode(udp_mode)
         .build()
@@ -417,14 +423,18 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let mut server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .with_session_security_settings(SessionSecuritySettings {
-                    security_level: Default::default(),
-                    secrecy_mode: Default::default(),
-                    crypto_params: Default::default(),
-                    header_obfuscator_settings,
-                });
+            DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuid,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(udp_mode)
+            .with_session_security_settings(SessionSecuritySettings {
+                security_level: Default::default(),
+                secrecy_mode: Default::default(),
+                crypto_params: Default::default(),
+                header_obfuscator_settings,
+            });
 
         if let Some(server_password) = server_password {
             server_connection_settings =
@@ -487,12 +497,15 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .with_session_password("wrong-password")
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(udp_mode)
+        .with_session_password("wrong-password")
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -543,11 +556,14 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(udp_mode)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -598,11 +614,14 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(udp_mode)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -686,11 +705,14 @@ mod tests {
 
         let uuid = Uuid::new_v4();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .with_udp_mode(udp_mode)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(udp_mode)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,

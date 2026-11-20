@@ -109,7 +109,7 @@ mod tests {
         assert!(dbg.contains(api) && dbg.contains(client));
         // serde round-trip
         let bytes = bincode::serialize(&keys).unwrap();
-        let back: FcmKeys = bincode::deserialize(&bytes).unwrap();
+        let back: FcmKeys = citadel_io::decode::deserialize(&bytes).unwrap();
         assert_eq!(back.api_key, api);
         assert_eq!(back.client_id, client);
     }

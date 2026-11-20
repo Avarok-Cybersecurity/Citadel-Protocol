@@ -121,6 +121,10 @@ pub mod tests {
         ]
     }
 
+    /// The servers these tests run are self-signed or plain TCP.
+    const SELF_SIGNED_SERVERS: citadel_io::CertVerification =
+        citadel_io::CertVerification::SelfSignedAccepted;
+
     #[fixture]
     #[once]
     fn client_config() -> NativeClientConfig {
@@ -226,7 +230,8 @@ pub mod tests {
 
             for _ in 0..count {
                 client.push(async move {
-                    let stream = NativeIO::connect(client_config, addr).await?;
+                    let stream =
+                        NativeIO::connect(client_config, addr, SELF_SIGNED_SERVERS).await?;
                     on_client_received_stream(stream).await?;
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
                     Ok(())
@@ -303,7 +308,9 @@ pub mod tests {
         };
 
         let client = async move {
-            let stream = NativeIO::connect(client_config, addr).await.unwrap();
+            let stream = NativeIO::connect(client_config, addr, SELF_SIGNED_SERVERS)
+                .await
+                .unwrap();
             on_client_received_stream(stream).await
         };
 

@@ -46,6 +46,7 @@ use crate::proto::state_container::StateContainerInner;
 use citadel_types::proto::{UdpMode, VirtualTargetType};
 
 use super::includes::*;
+use super::syn_refusal::SynRefusal;
 use crate::prelude::Ticket;
 use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
@@ -97,10 +98,16 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     .can_proceed_with_new_incoming_connection(header.session_cid.get(), true)
                     .await;
                 let account_manager = session.account_manager.clone();
-
-                if admission == CidAdmission::Refused {
-                    return send_error_and_end_session(&header, None, SESSION_ALREADY_CONNECTED);
-                }
+                // A refused admission took no reservation, so there is none to release. Whether
+                // the CID is busy is told only to a SYN that authenticates (below).
+                let refuse = |refusal: SynRefusal| {
+                    if admission != CidAdmission::Refused {
+                        session
+                            .session_manager
+                            .release_provisional_cid_reservation(header.session_cid.get());
+                    }
+                    refuse_syn(&header, refusal)
+                };
 
                 if let Some(cnac) = account_manager
                     .get_client_by_cid(header.session_cid.get())
@@ -133,6 +140,13 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             new_ratchet,
                             connect_mode,
                         )) => {
+                            if admission == CidAdmission::Refused {
+                                return send_error_and_end_session(
+                                    &header,
+                                    None,
+                                    SESSION_ALREADY_CONNECTED,
+                                );
+                            }
                             // A connected session holds this account. Going on requires the
                             // client's own, authenticated request to displace it, or a client that
                             // may prove the session its own (session_resume); either way it is
@@ -197,22 +211,10 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             Ok(PrimaryProcessorResult::ReplyToSender(syn_ack))
                         }
 
-                        Err(err) => {
-                            session
-                                .session_manager
-                                .release_provisional_cid_reservation(header.session_cid.get());
-                            const REASON: &str = "Invalid SYN Packet received. Bad PSK or keys?";
-                            send_error_and_end_session(&header, Some(err), REASON)
-                        }
+                        Err(err) => refuse(SynRefusal::Unauthenticated(err)),
                     }
                 } else {
-                    session
-                        .session_manager
-                        .release_provisional_cid_reservation(header.session_cid.get());
-                    const REASON: &str = "CID not registered to this node";
-                    let bad_cid = header.session_cid.get();
-                    let error = error!(ErrorCode::PreconnectCidNotRegistered, bad_cid);
-                    send_error_and_end_session(&header, Some(error), REASON)
+                    refuse(SynRefusal::UnknownAccount(header.session_cid.get()))
                 }
             }
 
@@ -861,6 +863,19 @@ pub fn send_error_and_end_session(
 
     Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
         packet, reason,
+    ))
+}
+
+/// Ends the session with the one reply a refused SYN gets (see [`SynRefusal`]).
+fn refuse_syn(
+    header: &HdpHeader,
+    refusal: SynRefusal,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    log::warn!(target: "citadel", "Refusing a SYN: {refusal}");
+    let packet = packet_crafter::pre_connect::craft_halt(header, refusal.reply());
+    Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+        packet,
+        "SYN refused",
     ))
 }
 

@@ -76,6 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             my_user,
             "Name",
             "notsecurepassword",
+            CertVerification::SelfSignedAccepted,
         )
         .with_session_security_settings(session_security)
         .disable_udp()

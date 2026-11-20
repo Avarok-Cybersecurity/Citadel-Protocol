@@ -52,10 +52,13 @@ pub mod pair {
             if let Some(turn) = turn.clone() {
                 setup = setup.with_turn_config(turn);
             }
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuids[me])
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuids[me],
+                CertVerification::SelfSignedAccepted,
+            )
+            .build()
+            .unwrap();
             let peer = peer.clone();
             let finished = finished.clone();
             let inner = PeerConnectionKernel::new(

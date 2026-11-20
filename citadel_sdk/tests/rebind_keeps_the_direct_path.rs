@@ -35,10 +35,13 @@ mod tests {
                 .with_peer_custom(uuids[1 - me])
                 .ensure_registered()
                 .with_udp_mode(UdpMode::Disabled);
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuids[me])
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuids[me],
+                CertVerification::SelfSignedAccepted,
+            )
+            .build()
+            .unwrap();
             let finished = finished.clone();
             let rebound = rebound.clone();
             let kernel = PeerConnectionKernel::new(

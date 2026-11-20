@@ -133,7 +133,10 @@ fn a_rule_enabled_after_the_server_relay_is_refused() {
 fn a_policy_off_the_wire_is_validated_again() {
     let valid = policy(owner_rules());
     let bytes = bincode::serialize(&valid).unwrap();
-    assert_eq!(bincode::deserialize::<PathPolicy>(&bytes).unwrap(), valid);
+    assert_eq!(
+        citadel_io::decode::deserialize::<PathPolicy>(&bytes).unwrap(),
+        valid
+    );
     // The same bytes with the server relay's control bit cleared: refused on read.
     let mut rules = owner_rules();
     rules[3].classes = PathClasses::of(&[PathClass::Msg, PathClass::File, PathClass::Media]);
@@ -147,5 +150,5 @@ fn a_policy_off_the_wire_is_validated_again() {
         denied: PathClasses::NONE,
     })
     .unwrap();
-    assert!(bincode::deserialize::<PathPolicy>(&forged).is_err());
+    assert!(citadel_io::decode::deserialize::<PathPolicy>(&forged).is_err());
 }

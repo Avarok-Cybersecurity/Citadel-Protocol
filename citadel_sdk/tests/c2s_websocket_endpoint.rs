@@ -66,6 +66,7 @@ mod tests {
                         password,
                         Default::default(),
                         None,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .await?;
                 assert_eq!(
@@ -75,20 +76,20 @@ mod tests {
                 );
 
                 let mut first = remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(
-                        username.clone(),
-                        password,
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username.clone(), password),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 assert_eq!(first.cid, registered.cid);
                 echo_once(&mut first, "over the url").await;
                 first.disconnect().await?;
 
                 let mut second = remote
-                    .connect_with_defaults(AuthenticationRequest::credentialed(
-                        username.clone(),
-                        password,
-                    ))
+                    .connect_with_defaults(
+                        AuthenticationRequest::credentialed(username.clone(), password),
+                        CertVerification::SelfSignedAccepted,
+                    )
                     .await?;
                 assert_eq!(second.cid, registered.cid);
                 echo_once(&mut second, "and again after a reconnect").await;
@@ -163,6 +164,7 @@ mod tests {
                         password,
                         Default::default(),
                         None,
+                        CertVerification::SelfSignedAccepted,
                     ),
                     remote.register_to_endpoint(
                         globex.clone(),
@@ -171,6 +173,7 @@ mod tests {
                         password,
                         Default::default(),
                         None,
+                        CertVerification::SelfSignedAccepted,
                     ),
                 );
                 let (a, b) = (a?, b?);
@@ -178,14 +181,14 @@ mod tests {
                 assert_eq!(remote.server_endpoint(b.cid).await?, Some(globex));
 
                 let (first, second) = tokio::join!(
-                    remote.connect_with_defaults(AuthenticationRequest::credentialed(
-                        user_a.clone(),
-                        password,
-                    )),
-                    remote.connect_with_defaults(AuthenticationRequest::credentialed(
-                        user_b.clone(),
-                        password,
-                    )),
+                    remote.connect_with_defaults(
+                        AuthenticationRequest::credentialed(user_a.clone(), password,),
+                        CertVerification::SelfSignedAccepted,
+                    ),
+                    remote.connect_with_defaults(
+                        AuthenticationRequest::credentialed(user_b.clone(), password,),
+                        CertVerification::SelfSignedAccepted,
+                    ),
                 );
                 let (mut first, mut second) = (first?, second?);
                 assert_eq!((first.cid, second.cid), (a.cid, b.cid));
@@ -250,6 +253,7 @@ mod tests {
                         "password123",
                         Default::default(),
                         None,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .await?;
                 remote.shutdown().await
@@ -297,6 +301,7 @@ mod tests {
                         "password123",
                         Default::default(),
                         None,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .await;
                 assert!(result.is_err(), "registering to a dead URL must fail");

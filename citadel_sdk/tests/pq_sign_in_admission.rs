@@ -78,16 +78,18 @@ mod tests {
             let console = sign_in(&remote, &user, factors.with_admission(GOOD)).await?;
             console.disconnect().await?;
 
+            const SELF_SIGNED: CertVerification = CertVerification::SelfSignedAccepted;
             let device = device.await.unwrap();
             let ask = asking(&user, &phrase);
-            let missing = device.recover(addr, ask.clone(), Default::default(), None);
+            let missing = device.recover(addr, ask.clone(), Default::default(), None, SELF_SIGNED);
             let missing = missing.await;
             assert_eq!(code(&missing), Some(ErrorCode::PqSignInAdmissionRequired));
             let ask = AccountRecovery {
                 admission: Some(GOOD.into()),
                 ..ask
             };
-            let _ = device.recover(addr, ask, Default::default(), None).await?;
+            let recovered = device.recover(addr, ask, Default::default(), None, SELF_SIGNED);
+            let _ = recovered.await?;
             let asked = ["register", "recover", "recover", "recover", "recover"];
             assert_eq!(seen.asked(), asked);
             remote.shutdown().await

@@ -63,7 +63,13 @@ mod tests {
         let user = username("change");
         run(server, move |remote, _| async move {
             let _ = remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             let conn = login(&remote, &user, PASSWORD).await?;
             let bare = conn
@@ -101,7 +107,13 @@ mod tests {
         let user = username("stepup");
         run(server, move |remote, _| async move {
             let _ = remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             let conn = login(&remote, &user, PASSWORD).await?;
             let wrong = SignInFactors::password("not the password");

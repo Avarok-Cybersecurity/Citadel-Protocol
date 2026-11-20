@@ -66,6 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "my_username",
             "My Name",
             "notsecurepassword",
+            CertVerification::SelfSignedAccepted,
         )
         .with_session_security_settings(session_security)
         .with_session_password(connect_password)

@@ -68,6 +68,7 @@ mod tests {
         let _ = builder
             .with_node_type(NodeType::Server(bound))
             .with_path_policy(citadel_sdk::test_common::localhost_path_policy())
+            .with_server_limits(citadel_sdk::test_common::localhost_server_limits())
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(listener).unwrap(),
             ))
@@ -135,7 +136,13 @@ mod tests {
             .build(GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, _| async move {
                     let _ = remote
-                        .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                        .register_with_defaults(
+                            addr,
+                            user.as_str(),
+                            user.as_str(),
+                            PASSWORD,
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
                     assert!(!stored_meets_floor(&first_slot, &user).await);
                     let _ = stop_tx.send(());

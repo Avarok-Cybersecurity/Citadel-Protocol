@@ -46,7 +46,15 @@ mod tests {
         sync: &Barrier,
     ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
         let reg = remote
-            .register_to_endpoint(endpoint, me, me, PASSWORD, Default::default(), None)
+            .register_to_endpoint(
+                endpoint,
+                me,
+                me,
+                PASSWORD,
+                Default::default(),
+                None,
+                CertVerification::SelfSignedAccepted,
+            )
             .await?;
         let conn = connect(remote, me).await?;
         sync.wait().await;

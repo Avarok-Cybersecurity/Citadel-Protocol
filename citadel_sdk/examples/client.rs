@@ -18,6 +18,7 @@ async fn main() {
             "test-username",
             "Test user",
             "notsecurepassword",
+            CertVerification::SelfSignedAccepted,
         )
         .with_udp_mode(UdpMode::Enabled)
         .build()

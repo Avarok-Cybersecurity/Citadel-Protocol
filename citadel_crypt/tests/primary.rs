@@ -139,7 +139,7 @@ mod tests {
         let buf = SecBuffer::from("Hello, world!");
         let serde = bincode::serialize(&buf).unwrap();
         std::mem::drop(buf);
-        let buf = bincode::deserialize::<SecBuffer>(&serde).unwrap();
+        let buf = citadel_io::decode::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();
@@ -208,7 +208,7 @@ mod tests {
         let buf = SecBuffer::from("Hello, world!");
         let serde = bincode::serialize(&buf).unwrap();
         std::mem::drop(buf);
-        let buf = bincode::deserialize::<SecBuffer>(&serde).unwrap();
+        let buf = citadel_io::decode::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();

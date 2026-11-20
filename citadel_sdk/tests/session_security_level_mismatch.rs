@@ -47,6 +47,7 @@ mod tests {
                 None,
                 settings_at(level),
                 None,
+                CertVerification::SelfSignedAccepted,
             )
             .await
     }
@@ -85,6 +86,7 @@ mod tests {
                         PASSWORD,
                         settings_at(registered),
                         None,
+                        CertVerification::SelfSignedAccepted,
                     )
                     .await?;
 

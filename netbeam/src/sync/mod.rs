@@ -122,6 +122,10 @@ pub mod test_utils {
         }
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test transport between two local endpoints of the same test"
+    )]
     fn codec(stream: TcpStream) -> TcpCodecFramed {
         let local_addr = stream.local_addr().unwrap();
         let peer_addr = stream.peer_addr().unwrap();

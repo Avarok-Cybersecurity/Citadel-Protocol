@@ -200,7 +200,7 @@ mod tests {
         assert!(KemCiphertext::try_from(vec![0u8; CT_LEN + 1]).is_err());
         let kp = FactorKeypair::derive(&FactorSeed::new([9u8; SEED_LEN])).unwrap();
         let bytes = bincode::serialize(kp.encapsulation_key()).unwrap();
-        let back: EncapsulationKey = bincode::deserialize(&bytes).unwrap();
+        let back: EncapsulationKey = citadel_io::decode::deserialize(&bytes).unwrap();
         assert_eq!(&back, kp.encapsulation_key());
     }
 }

@@ -12,7 +12,13 @@
 //!     admission: None,
 //! };
 //! let recovered = remote
-//!     .recover("example.com:25000", recovery, Default::default(), None)
+//!     .recover(
+//!         "example.com:25000",
+//!         recovery,
+//!         Default::default(),
+//!         None,
+//!         CertVerification::Required,
+//!     )
 //!     .await?;
 //! // Every other device's bundle is revoked. Sign in with the phrase, to a session that may only
 //! // manage credentials: set a new password, then sign in with it.
@@ -48,6 +54,7 @@ pub trait AccountRecoveryExt<R: Ratchet>: Remote<R> {
         recovery: AccountRecovery,
         security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
+        cert_verification: CertVerification,
     ) -> Result<RecoverSuccess, NetworkError> {
         let remote_addr = addr.to_socket_addrs()?.next().ok_or(citadel_io::error!(
             citadel_io::ErrorCode::RemoteInvalidSocketAddr
@@ -57,6 +64,7 @@ pub trait AccountRecoveryExt<R: Ratchet>: Remote<R> {
             endpoint: None,
             static_security_settings: security_settings,
             session_password: server_password.unwrap_or_default(),
+            cert_verification,
             recovery,
         };
         await_recovery(self, request).await
@@ -71,12 +79,14 @@ pub trait AccountRecoveryExt<R: Ratchet>: Remote<R> {
         recovery: AccountRecovery,
         security_settings: SessionSecuritySettings,
         server_password: Option<PreSharedKey>,
+        cert_verification: CertVerification,
     ) -> Result<RecoverSuccess, NetworkError> {
         let request = RecoverAccount {
             remote_addr: endpoint.resolve().await?,
             endpoint: Some(endpoint),
             static_security_settings: security_settings,
             session_password: server_password.unwrap_or_default(),
+            cert_verification,
             recovery,
         };
         await_recovery(self, request).await

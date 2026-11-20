@@ -80,7 +80,7 @@ fn received_stacked_transfers_never_panic() {
             CASES,
             DEADLINE,
             move |bytes| {
-                if let Ok(tx) = bincode::deserialize::<AliceToBobTransfer>(bytes) {
+                if let Ok(tx) = citadel_io::decode::deserialize::<AliceToBobTransfer>(bytes) {
                     if let Some(mut bob) = Stacked::new_bob(9, stacked_opts(params), tx, PSKS) {
                         let _ = bob.stage0_bob();
                     }
@@ -93,8 +93,8 @@ fn received_stacked_transfers_never_panic() {
             CASES,
             DEADLINE,
             move |bytes| {
-                if let Ok(tx) = bincode::deserialize::<BobToAliceTransfer>(bytes) {
-                    let mut alice: Stacked = bincode::deserialize(&alice_bytes).unwrap();
+                if let Ok(tx) = citadel_io::decode::deserialize::<BobToAliceTransfer>(bytes) {
+                    let mut alice: Stacked = citadel_io::decode::deserialize(&alice_bytes).unwrap();
                     if alice.stage1_alice(tx, PSKS).is_ok() {
                         let _ = alice.finish();
                     }
@@ -127,7 +127,7 @@ fn received_mono_transfers_never_panic() {
             CASES,
             DEADLINE,
             move |bytes| {
-                if let Ok(tx) = bincode::deserialize::<MonoAliceToBobTransfer>(bytes) {
+                if let Ok(tx) = citadel_io::decode::deserialize::<MonoAliceToBobTransfer>(bytes) {
                     if let Some(mut bob) =
                         <Mono as EndpointRatchetConstructor<MonoRatchet>>::new_bob(
                             9,
@@ -147,8 +147,8 @@ fn received_mono_transfers_never_panic() {
             CASES,
             DEADLINE,
             move |bytes| {
-                if let Ok(tx) = bincode::deserialize::<MonoBobToAliceTransfer>(bytes) {
-                    let mut alice: Mono = bincode::deserialize(&alice_bytes).unwrap();
+                if let Ok(tx) = citadel_io::decode::deserialize::<MonoBobToAliceTransfer>(bytes) {
+                    let mut alice: Mono = citadel_io::decode::deserialize(&alice_bytes).unwrap();
                     let _ = alice.stage1_alice(tx, PSKS);
                 }
             },
@@ -184,7 +184,7 @@ fn received_group_packets_never_panic() {
         4 * CASES,
         DEADLINE,
         |bytes| {
-            if let Ok(cfg) = bincode::deserialize::<GroupReceiverConfig>(bytes) {
+            if let Ok(cfg) = citadel_io::decode::deserialize::<GroupReceiverConfig>(bytes) {
                 if cfg.validate().is_ok() {
                     let _ = GroupReceiver::new(cfg, 0, 0);
                 }

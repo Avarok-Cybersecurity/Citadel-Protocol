@@ -34,7 +34,10 @@ mod tests {
         factors: SignInFactors,
     ) -> Result<CitadelClientServerConnection<StackedRatchet>, NetworkError> {
         remote
-            .connect_with_defaults(AuthenticationRequest::sign_in(user.to_string(), factors))
+            .connect_with_defaults(
+                AuthenticationRequest::sign_in(user.to_string(), factors),
+                CertVerification::SelfSignedAccepted,
+            )
             .await
     }
 
@@ -70,7 +73,13 @@ mod tests {
         let user = username("key");
         run(server, move |remote, _| async move {
             let reg = remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             // No domain was given, so no recovery credential: codes are no longer issued.
             assert!(reg.recovery_codes.is_empty() && reg.recovery_phrase.is_none());
@@ -130,7 +139,13 @@ mod tests {
         let user = username("rec");
         run(server, move |remote, _| async move {
             let _ = remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             let codes = codes_for(&remote, &user).await?;
             let code = &codes[2];
@@ -184,7 +199,13 @@ mod tests {
         let user = username("mgmt");
         run(server, move |remote, _| async move {
             let _ = remote
-                .register_with_defaults(addr, user.as_str(), user.as_str(), PASSWORD)
+                .register_with_defaults(
+                    addr,
+                    user.as_str(),
+                    user.as_str(),
+                    PASSWORD,
+                    CertVerification::SelfSignedAccepted,
+                )
                 .await?;
             let first = codes_for(&remote, &user).await?;
             let conn = login(&remote, &user, PASSWORD).await?;

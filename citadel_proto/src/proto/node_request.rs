@@ -51,6 +51,8 @@ pub struct RegisterToHypernode {
     /// server never sees it: the client turns it into an ML-KEM key. `None` registers the legacy
     /// way only.
     pub password: Option<citadel_types::crypto::SecBuffer>,
+    /// What this connection demands of the server's certificate. Required: there is no default.
+    pub cert_verification: citadel_io::CertVerification,
     /// The registration's admission token, for a server that asks for one (see
     /// `citadel_user::auth::pq::admission`). Sent only inside the post-quantum channel.
     pub admission: Option<String>,
@@ -71,6 +73,8 @@ pub struct RecoverAccount {
     pub endpoint: Option<citadel_io::WebSocketEndpoint>,
     pub static_security_settings: SessionSecuritySettings,
     pub session_password: PreSharedKey,
+    /// What this connection demands of the server's certificate. Required: there is no default.
+    pub cert_verification: citadel_io::CertVerification,
     pub recovery: AccountRecovery,
 }
 
@@ -104,6 +108,8 @@ pub struct ConnectToHypernode {
     pub keep_alive_timeout: Option<u64>,
     pub session_password: PreSharedKey,
     pub session_security_settings: SessionSecuritySettings,
+    /// What this connection demands of the server's certificate. Required: there is no default.
+    pub cert_verification: citadel_io::CertVerification,
 }
 
 pub struct ReKey {

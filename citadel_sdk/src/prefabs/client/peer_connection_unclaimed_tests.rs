@@ -30,10 +30,13 @@ async fn an_offer_to_a_connection_that_gave_up_its_receiver_is_declined() {
             .ensure_registered()
             .with_udp_mode(UdpMode::Disabled)
             .add();
-        let settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuids[me])
-                .build()
-                .unwrap();
+        let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuids[me],
+            CertVerification::SelfSignedAccepted,
+        )
+        .build()
+        .unwrap();
         let declined = declined.clone();
         let kernel =
             PeerConnectionKernel::new(settings, setup, move |mut results, remote| async move {

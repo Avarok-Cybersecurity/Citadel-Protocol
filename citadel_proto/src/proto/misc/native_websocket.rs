@@ -245,6 +245,10 @@ mod tests {
     /// Validate that LengthDelimitedCodec framing works over WebSocketByteStream.
     /// This is the exact framing the Citadel protocol layer uses.
     #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "checks the WebSocket byte stream carries length-delimited frames both ways"
+    )]
     fn websocket_length_delimited_framing() {
         run(async {
             use bytes::Bytes;

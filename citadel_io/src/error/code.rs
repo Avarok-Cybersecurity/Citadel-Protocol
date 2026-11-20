@@ -802,7 +802,8 @@ pub enum ErrorCode {
     /// A keep-alive packet could not be sent (reason).
     #[form = "Unable to send keep-alive: {}"]
     KeepAliveSendFailed = 239,
-    /// A pre-connect SYN referenced a CID that is not registered to this node (cid).
+    /// A pre-connect SYN referenced a CID that is not registered to this node (cid). No longer
+    /// sent to a client: the server answers [`ErrorCode::PreconnectRefused`] instead.
     #[form = "CID {} is not registered to this node"]
     PreconnectCidNotRegistered = 240,
     /// The incoming protocol semver could not be parsed.
@@ -1348,4 +1349,34 @@ pub enum ErrorCode {
     /// A sign-in throttle policy with a limit that would admit nothing or lock nothing (reason).
     #[form = "Invalid sign-in throttle policy: {}"]
     SignInThrottlePolicyInvalid = 513,
+
+    // --- citadel_proto: before a connection proves anything (540-559) ---
+    /// The server did not go on with a connect's first packet. It reads the same whatever the
+    /// reason, which the server logs.
+    #[form = "The server refused this connect"]
+    PreconnectRefused = 540,
+    /// A connection that requires a verified certificate was offered one without TLS.
+    #[form = "This connection requires a verified TLS certificate, and the server offered none"]
+    PlaintextOfferRefused = 541,
+    /// A server node was built without its limits; there is no default.
+    #[form = "A server node requires its limits (NodeBuilder::with_server_limits); there is no default"]
+    NodeServerLimitsMissing = 542,
+    /// Server limits were given to a node that is not a server.
+    #[form = "Server limits apply only to a server node"]
+    NodeServerLimitsNotServer = 543,
+    /// An address already has the most connections waiting to sign in it may have (ip, limit).
+    #[form = "{} already has {} connections waiting to sign in; this one was not accepted"]
+    ProvisionalPerIpAtCap = 544,
+    /// The server already holds the most connections waiting to sign in it may (limit).
+    #[form = "The server already holds {} connections waiting to sign in; this one was not accepted"]
+    ProvisionalTotalAtCap = 545,
+    /// The server does not take legacy registrations.
+    #[form = "This server does not take legacy registrations; update the client"]
+    LegacyRegistrationRefused = 546,
+    /// The server is hashing as many legacy registrations as it may at once (limit).
+    #[form = "The server is already hashing {} legacy registrations; try again shortly"]
+    LegacyRegistrationBusy = 547,
+    /// A connection that requires a verified certificate was asked of a node built to accept any.
+    #[form = "This connection requires a verified TLS certificate, and this node was built to accept any certificate (with_insecure_skip_cert_verification); nothing was dialled"]
+    CertVerificationUnavailable = 548,
 }

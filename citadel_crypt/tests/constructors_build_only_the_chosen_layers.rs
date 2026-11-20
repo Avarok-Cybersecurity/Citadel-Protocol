@@ -31,7 +31,7 @@ fn restated(bytes: &[u8], stated: u8) -> AliceToBobTransfer {
     forged.extend_from_slice(&custom_tag);
     forged.push(stated);
     forged.extend_from_slice(&bytes[level_at + 4..]);
-    bincode::deserialize(&forged).unwrap()
+    citadel_io::decode::deserialize(&forged).unwrap()
 }
 
 #[test]
@@ -54,11 +54,11 @@ fn bob_refuses_a_transfer_stating_a_level_no_ratchet_can_carry() {
 #[test]
 fn bob_builds_the_layers_he_chose_or_nothing() {
     let honest = transfer_bytes(SecurityLevel::High);
-    let transfer: AliceToBobTransfer = bincode::deserialize(&honest).unwrap();
+    let transfer: AliceToBobTransfer = citadel_io::decode::deserialize(&honest).unwrap();
     assert!(C::new_bob(7, opts(SecurityLevel::High), transfer, PSKS).is_some());
 
     for bob in [SecurityLevel::Standard, SecurityLevel::Extreme] {
-        let transfer: AliceToBobTransfer = bincode::deserialize(&honest).unwrap();
+        let transfer: AliceToBobTransfer = citadel_io::decode::deserialize(&honest).unwrap();
         assert!(
             C::new_bob(7, opts(bob), transfer, PSKS).is_none(),
             "{bob:?}"

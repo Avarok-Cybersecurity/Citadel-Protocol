@@ -75,15 +75,16 @@ mod tests {
                             username.as_str(),
                             username.as_str(),
                             password,
+                            CertVerification::SelfSignedAccepted,
                         )
                         .await?;
                     state.set_cid(reg.cid).await;
 
                     let conn = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
 
                     conn.rekey().await?;
@@ -178,15 +179,16 @@ mod tests {
                             username.as_str(),
                             username.as_str(),
                             password,
+                            CertVerification::SelfSignedAccepted,
                         )
                         .await?;
                     state.set_cid(reg.cid).await;
 
                     let conn = remote
-                        .connect_with_defaults(AuthenticationRequest::credentialed(
-                            username.clone(),
-                            password,
-                        ))
+                        .connect_with_defaults(
+                            AuthenticationRequest::credentialed(username.clone(), password),
+                            CertVerification::SelfSignedAccepted,
+                        )
                         .await?;
 
                     conn.rekey().await?;

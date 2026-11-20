@@ -44,8 +44,13 @@ mod tests {
         let user = username("stall");
         run(server, move |remote, _| async move {
             let stalled = first_packet_only(addr).await;
-            let register =
-                remote.register_with_defaults(stalled, user.as_str(), user.as_str(), PASSWORD);
+            let register = remote.register_with_defaults(
+                stalled,
+                user.as_str(),
+                user.as_str(),
+                PASSWORD,
+                CertVerification::SelfSignedAccepted,
+            );
             // Well past the node's limit, so only a hang reaches it.
             let answer = tokio::time::timeout(Duration::from_secs(120), register).await;
             let Err(err) = answer.expect("the stalled registration never answered") else {

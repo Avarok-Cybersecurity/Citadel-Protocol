@@ -35,6 +35,7 @@ use citadel_io::tokio_stream::StreamExt;
 use citadel_io::tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 use citadel_io::{error, ErrorCode};
 use futures::SinkExt;
+use primary_frame::{PrimaryFrameDecoder, MAX_PRIMARY_FRAME_LEN};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -44,6 +45,9 @@ pub mod dual_late_init;
 pub mod dual_rwlock;
 pub mod lock_holder;
 pub mod panic_future;
+pub mod primary_frame;
+#[cfg(all(test, not(target_family = "wasm")))]
+mod primary_frame_tests;
 pub mod session_security_settings;
 
 /// `citadel_wire` returns `anyhow::Error`. Converting it with `err.to_string()`
@@ -65,6 +69,7 @@ pub(crate) fn io_error_from_anyhow(
 
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod accept_loop;
+pub(crate) mod early_accept;
 pub mod local_rebind;
 #[cfg(not(target_family = "wasm"))]
 pub mod native_bind;
@@ -125,40 +130,39 @@ pub mod wasm_stream;
 /// The copy-free writer half of a split primary stream (see [`DirectFrameWriter`]).
 pub type PrimaryStreamWriter<S> = DirectFrameWriter<WriteHalf<S>>;
 /// The length-delimited reader half of a split primary stream.
-pub type PrimaryStreamReader<S> = FramedRead<ReadHalf<S>, LengthDelimitedCodec>;
+pub type PrimaryStreamReader<S> = FramedRead<ReadHalf<S>, PrimaryFrameDecoder>;
 
-/// Builds the `LengthDelimitedCodec` configuration shared by the reader and the direct
-/// writer so both sides agree on the wire framing (SSOT). The writer in
-/// `direct_frame_writer.rs` reproduces these exact bytes (`u32` big-endian length prefix,
-/// no adjustment) without going through the codec's encode buffer.
-fn primary_stream_codec_builder() -> citadel_io::tokio_util::codec::length_delimited::Builder {
-    let mut builder = LengthDelimitedCodec::builder();
-    builder
-        .length_field_offset(0)
-        .max_frame_length(1024 * 1024 * 64) // 64 MB
-        .length_field_type::<u32>()
-        .length_adjustment(0);
-    builder
+/// The primary stream's frame reader over `io`. The writer in `direct_frame_writer.rs` writes
+/// the same frames (see [`primary_frame`]).
+fn primary_stream_reader<Io: AsyncRead>(io: Io) -> FramedRead<Io, PrimaryFrameDecoder> {
+    FramedRead::new(io, PrimaryFrameDecoder::new(MAX_PRIMARY_FRAME_LEN))
 }
+
+/// The largest first packet a client reads from a server: a [`net::FirstPacket`] carries at most
+/// a domain name (253 bytes) and an address, so 4 KiB is over ten times the largest one.
+#[cfg(not(target_family = "wasm"))]
+pub const MAX_FIRST_PACKET_LEN: usize = 4 * 1024;
 
 /// Splits a stream into a copy-free direct writer and a length-delimited reader. The
 /// writer writes the length frame and body directly to the socket, bypassing the codec
-/// encode copy; the reader keeps the standard `LengthDelimitedCodec`. Dropping the writer
+/// encode copy; the reader is a [`PrimaryFrameDecoder`]. Dropping the writer
 /// gracefully shuts down the write half (TLS close_notify / TCP FIN).
 #[doc(hidden)]
 pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements + 'static>(
     stream: S,
 ) -> (PrimaryStreamWriter<S>, PrimaryStreamReader<S>) {
     let (read_half, write_half) = split(stream);
-    let reader = primary_stream_codec_builder().new_read(read_half);
+    let reader = primary_stream_reader(read_half);
     let writer = DirectFrameWriter::new(write_half);
     (writer, reader)
 }
 
+/// Reads one frame of at most `max_len` bytes from `io` and decodes it as a `D`.
 pub async fn read_one_packet_as_framed<S: AsyncRead + Unpin, D: DeserializeOwned + Serialize>(
     io: S,
+    max_len: usize,
 ) -> Result<(S, D), NetworkError> {
-    let mut framed = LengthDelimitedCodec::builder().new_read(io);
+    let mut framed = FramedRead::new(io, PrimaryFrameDecoder::new(max_len));
     let packet = framed
         .next()
         .await

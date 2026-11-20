@@ -214,12 +214,15 @@ mod imp {
         let result_c = result.clone();
         let client_barrier = barrier.clone();
 
-        let settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, Uuid::new_v4())
-                .with_udp_mode(UdpMode::Disabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            Uuid::new_v4(),
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(UdpMode::Disabled)
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(settings, move |connection| {
             client_drive(

@@ -844,7 +844,7 @@ mod coverage_extra {
         // serde round-trip
         let original = SecBuffer::from("payload");
         let bytes = bincode::serialize(&original).unwrap();
-        let back: SecBuffer = bincode::deserialize(&bytes).unwrap();
+        let back: SecBuffer = citadel_io::decode::deserialize(&bytes).unwrap();
         assert_eq!(back.as_ref(), b"payload");
     }
 

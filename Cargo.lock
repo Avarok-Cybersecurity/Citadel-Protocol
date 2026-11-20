@@ -749,6 +749,7 @@ dependencies = [
 name = "citadel_io"
 version = "0.14.0"
 dependencies = [
+ "bincode",
  "bytes",
  "citadel_io_macros",
  "futures",
@@ -809,6 +810,7 @@ name = "citadel_negotiation"
 version = "0.14.0"
 dependencies = [
  "bincode",
+ "citadel_io",
  "citadel_negotiation",
  "citadel_types",
  "proptest",

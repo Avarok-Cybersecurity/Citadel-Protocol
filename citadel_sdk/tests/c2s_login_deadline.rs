@@ -37,10 +37,10 @@ mod tests {
                     let remote = remote.clone();
                     tokio::spawn(async move {
                         remote
-                            .connect_with_defaults(AuthenticationRequest::transient(
-                                Uuid::new_v4(),
-                                proxy_addr,
-                            ))
+                            .connect_with_defaults(
+                                AuthenticationRequest::transient(Uuid::new_v4(), proxy_addr),
+                                CertVerification::SelfSignedAccepted,
+                            )
                             .await
                             .map(|_| ())
                     })
