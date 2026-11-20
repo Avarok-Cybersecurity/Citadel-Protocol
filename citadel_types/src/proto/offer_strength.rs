@@ -72,13 +72,12 @@ fn obfuscator_key(settings: HeaderObfuscatorSettings) -> (u8, u128) {
     }
 }
 
-/// The KEM's strength: the round-3 Kyber scheme below FIPS 203, and ML-KEM-1024 above
-/// ML-KEM-768. No catch-all, so a new KEM is ranked when it is added.
+/// The KEM's strength: ML-KEM-1024 above ML-KEM-768. No catch-all, so a new KEM is ranked when
+/// it is added.
 fn kem_rank(kem: KemAlgorithm) -> u8 {
     match kem {
-        KemAlgorithm::MlKem => 0,
-        KemAlgorithm::MlKem768Fips203 => 1,
-        KemAlgorithm::MlKem1024Fips203 => 2,
+        KemAlgorithm::MlKem768Fips203 => 0,
+        KemAlgorithm::MlKem1024Fips203 => 1,
     }
 }
 
@@ -209,12 +208,12 @@ mod tests {
     fn a_stamp_with_a_weaker_kem_falls_short_whatever_else_its_suite_ranks() {
         let mut mine = offer(SecurityLevel::High, SecrecyMode::BestEffort);
         mine.crypto_params.kem_algorithm = KemAlgorithm::MlKem1024Fips203;
-        let mut round_three = mine;
-        round_three.crypto_params.kem_algorithm = KemAlgorithm::MlKem;
-        round_three.crypto_params.encryption_algorithm = EncryptionAlgorithm::Ascon80pq;
-        assert!(u8::from(round_three.crypto_params) > u8::from(mine.crypto_params));
-        assert!(falls_short_of(round_three, mine));
-        for result in both_orders(mine, round_three) {
+        let mut weaker = mine;
+        weaker.crypto_params.kem_algorithm = KemAlgorithm::MlKem768Fips203;
+        weaker.crypto_params.encryption_algorithm = EncryptionAlgorithm::Ascon80pq;
+        assert!(u8::from(weaker.crypto_params) > u8::from(mine.crypto_params));
+        assert!(falls_short_of(weaker, mine));
+        for result in both_orders(mine, weaker) {
             assert_eq!(
                 result,
                 fingerprint(mine),

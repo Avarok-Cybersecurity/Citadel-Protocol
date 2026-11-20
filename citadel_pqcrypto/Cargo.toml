@@ -5,7 +5,7 @@
 # to be resistant to both classical and quantum computer attacks.
 #
 # Features:
-# - Post-quantum key exchange (Kyber)
+# - Post-quantum key exchange (ML-KEM, FIPS 203)
 # - Post-quantum signatures (Falcon)
 # - Hybrid classical/post-quantum encryption
 # - AEAD encryption (AES-GCM, ChaCha20-Poly1305, Ascon)
@@ -46,7 +46,6 @@ std = [
     "chacha20poly1305/alloc", # Heap allocation for ChaCha
     "chacha20poly1305/std",   # ChaCha20-Poly1305 encryption
     "bytes/std",              # Byte buffer operations
-    "kyber-pke/std",          # Post-quantum key exchange
     "rand/std",               # Random number generation
     "sha3/std",               # Hash functions
 ]
@@ -72,15 +71,7 @@ chacha20poly1305 = { workspace = true, features = [
     "heapless",
     "alloc",
 ] } # ChaCha20-Poly1305
-kyber-pke = { workspace = true, features = ["90s"] }
 libcrux-ml-kem = { workspace = true } # Post-quantum key exchange
-# Direct handle to the Kyber impl kyber-pke wraps, for DETERMINISTIC keygen (`derive(seed)`) used by the
-# TreeKEM ratchet tree. Features mirror kyber-pke's (hazmat + 90s + the default kyber768) so derived keys
-# are byte-compatible with kem_keypair()/encapsulate()/decapsulate().
-pqc_kyber = { package = "pqc_kyber_kyberslash", version = "0.7.1", features = [
-    "hazmat",
-    "90s",
-] }
 ascon-aead = { workspace = true, features = ["default", "zeroize"] } # Lightweight AEAD; "default" brings the zeroize dependency its "zeroize" feature needs
 
 # Utility libraries
@@ -90,7 +81,8 @@ parking_lot = { workspace = true, features = [
 ] } # Synchronization primitives
 log = { workspace = true } # Logging support
 sha3 = { workspace = true } # Hash functions
-rand = { workspace = true } # Random number generation
+# The crate draws from `rand::thread_rng` in every build, so `std` and `std_rng` are not optional.
+rand = { workspace = true, features = ["std", "std_rng"] } # Random number generation
 serde-big-array = { workspace = true } # Large array serialization
 zeroize = { workspace = true, features = [
     "zeroize_derive",

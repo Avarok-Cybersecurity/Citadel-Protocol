@@ -91,8 +91,10 @@ describe('Enum Helpers', () => {
   test('allKemAlgorithmValues returns all variants', async () => {
     const { allKemAlgorithmValues, defaultKemAlgorithm } = await import('../dist/index.js');
     const values = allKemAlgorithmValues();
-    assert.strictEqual(values.length, 1);
-    assert.ok(values.includes('MlKem'));
+    assert.strictEqual(values.length, 2);
+    assert.ok(values.includes('MlKem768Fips203'));
+    assert.ok(values.includes('MlKem1024Fips203'));
+    assert.ok(!values.includes('MlKem'));
     assert.ok(values.includes(defaultKemAlgorithm()));
   });
 

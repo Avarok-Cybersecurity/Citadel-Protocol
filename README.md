@@ -52,8 +52,7 @@ A post-quantum secure networking protocol that makes developing hyper-secure cli
 ## 🔐 Advanced Post-Quantum Security
 
 Multiple Key Encapsulation Mechanism (KEM) families:
-- [Kyber](https://pq-crystals.org/kyber/) (default) - NIST standardized
-- [NTRU](https://ntru.org/) (Sntrup761)
+- [ML-KEM](https://csrc.nist.gov/pubs/fips/203/final) (FIPS 203): ML-KEM-1024 (default) and ML-KEM-768
 
 Novel Multi-layered Security Architecture:
 - [Patent-pending (allowed)](#-patent-and-open-source-commitment) 3D matrix ratcheting algorithm
@@ -64,7 +63,7 @@ Novel Multi-layered Security Architecture:
   - AES-256-GCM
   - ChaCha20-Poly1305
   - [Ascon-80pq](https://ascon.iaik.tugraz.at/)
-  - Novel Kyber "scramcryption" for enhanced security
+  - Novel ML-KEM "scramcryption" for enhanced security
 - [Customizable Security Modes](#️-security-modes):
   - *True* Perfect Forward Secrecy (PFS) mode with advanced ratcheting
   - Best-effort Mode (BEM) for high-throughput scenarios

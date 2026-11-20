@@ -30,7 +30,7 @@
 //! use citadel_types::crypto::{KemAlgorithm, EncryptionAlgorithm, SecurityLevel};
 //!
 //! // Create parameters
-//! let params = KemAlgorithm::MlKem
+//! let params = KemAlgorithm::MlKem1024Fips203
 //!     + EncryptionAlgorithm::ChaCha20Poly_1305;
 //!
 //! // Set security level
@@ -193,8 +193,9 @@ const fn _compile_time_check() {
         EncryptionAlgorithm::COUNT <= 16,
         "EncryptionAlgorithm exceeds its 4-bit field (bits 0..=3)"
     );
+    // KEM discriminants start at 1: `0` named the removed round-3 KEM and stays unassigned.
     assert!(
-        KemAlgorithm::COUNT <= 4,
+        KemAlgorithm::COUNT < 4,
         "KemAlgorithm exceeds its 2-bit field (bits 4..=5)"
     );
     assert!(
@@ -203,10 +204,17 @@ const fn _compile_time_check() {
     );
 }
 
+/// Where `kem_algorithm` sits in the packed byte: bits 4..=5 in msb0 numbering.
+const PACKED_KEM_SHIFT: u32 = 2;
+const PACKED_KEM_MASK: u8 = 0b11;
+
 impl TryFrom<u8> for CryptoParameters {
     type Error = crate::errors::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
+        // A KEM this release does not run (among them the removed round-3 KEM, once `0`) is
+        // refused by name before the rest of the byte is read.
+        KemAlgorithm::try_from((value >> PACKED_KEM_SHIFT) & PACKED_KEM_MASK)?;
         let value: [u8; 1] = [value];
         let this: CryptoParameters = CryptoParameters::unpack(&value)
             .map_err(|err| crate::errors::Error::generic(err.to_string()))?;
@@ -314,12 +322,8 @@ impl TryFrom<u8> for SecrecyMode {
 #[cfg_attr(feature = "typescript", ts(export))]
 #[repr(u8)]
 pub enum KemAlgorithm {
-    /// Kyber768-90s (round 3) via `kyber-pke` (AES-256-CTR + SHA-2 internals). The scheme every
-    /// node before 0.12.4 offers by default, kept so such a node still connects; a node of this
-    /// release offers it only when its application names it.
-    /// To be retired once every supported node is at 0.12.4 or later.
-    #[strum(ascii_case_insensitive)]
-    MlKem = 0,
+    // Discriminant 0 named the round-3 Kyber KEM, which is removed: a byte or parameter naming it
+    // is refused as a cast of an unknown value, never read as another KEM.
     /// ML-KEM-768 (FIPS 203) via `libcrux-ml-kem`: SHAKE internals, formally
     /// verified in F* via hax, with runtime-detected AVX2/NEON backends.
     #[strum(ascii_case_insensitive)]
@@ -327,14 +331,6 @@ pub enum KemAlgorithm {
     /// ML-KEM-1024 (FIPS 203) via `libcrux-ml-kem`. Category 5 parameter set.
     #[strum(ascii_case_insensitive)]
     MlKem1024Fips203 = 2,
-}
-
-impl KemAlgorithm {
-    /// True when the variant is served by the `libcrux-ml-kem` backend rather
-    /// than `kyber-pke`.
-    pub const fn is_libcrux(&self) -> bool {
-        matches!(self, Self::MlKem768Fips203 | Self::MlKem1024Fips203)
-    }
 }
 
 impl KemAlgorithm {
@@ -638,6 +634,7 @@ impl<T: AsRef<[u8]>> From<T> for PreSharedKey {
 #[cfg(test)]
 mod coverage_extra {
     use super::*;
+    use crate::errors::ErrorCode;
 
     #[test]
     fn sec_buffer_construct_len_and_mutate() {
@@ -690,7 +687,7 @@ mod coverage_extra {
         // valid discriminant 0 round-trips; 255 is rejected for each enum
         assert!(SecrecyMode::try_from(0).is_ok());
         assert!(SecrecyMode::try_from(255).is_err());
-        assert!(KemAlgorithm::try_from(0).is_ok());
+        assert!(KemAlgorithm::try_from(1).is_ok());
         assert!(KemAlgorithm::try_from(255).is_err());
         assert_eq!(SigAlgorithm::try_from(1).unwrap(), SigAlgorithm::MlDsa65);
         assert!(SigAlgorithm::try_from(255).is_err());
@@ -708,9 +705,41 @@ mod coverage_extra {
 
     #[test]
     fn crypto_parameters_u8_roundtrip() {
-        let params = KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256;
-        let byte: u8 = params.into();
-        let back = CryptoParameters::try_from(byte).unwrap();
-        assert_eq!(u8::from(back), byte);
+        for kem in KemAlgorithm::list() {
+            let params = kem + EncryptionAlgorithm::AES_GCM_256;
+            let byte: u8 = params.into();
+            assert_eq!(
+                (byte >> PACKED_KEM_SHIFT) & PACKED_KEM_MASK,
+                kem as u8,
+                "{kem:?} sits where the refusal reads it"
+            );
+            let back = CryptoParameters::try_from(byte).unwrap();
+            assert_eq!(u8::from(back), byte);
+        }
+    }
+
+    /// The removed round-3 KEM was `0`. Neither the enum nor a parameter byte reads `0` as any
+    /// KEM: both refuse it as a cast of an unknown value into `KemAlgorithm`.
+    #[test]
+    fn the_removed_kem_is_refused_by_name() {
+        let refusal = KemAlgorithm::try_from(0).unwrap_err();
+        assert_eq!(refusal.code(), ErrorCode::CryptoParamEnumCastFailed);
+        assert!(KemAlgorithm::from_u8(0).is_none());
+
+        let valid: u8 = (KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256).into();
+        let naming_the_removed_kem = valid & !(PACKED_KEM_MASK << PACKED_KEM_SHIFT);
+        let refusal = CryptoParameters::try_from(naming_the_removed_kem).unwrap_err();
+        assert_eq!(refusal.code(), ErrorCode::CryptoParamEnumCastFailed);
+        assert!(refusal.to_string().contains("KemAlgorithm"), "{refusal}");
+
+        // The control: the same byte naming a KEM this release runs is read.
+        let naming_ml_kem_768 =
+            naming_the_removed_kem | ((KemAlgorithm::MlKem768Fips203 as u8) << PACKED_KEM_SHIFT);
+        assert_eq!(
+            CryptoParameters::try_from(naming_ml_kem_768)
+                .unwrap()
+                .kem_algorithm,
+            KemAlgorithm::MlKem768Fips203
+        );
     }
 }

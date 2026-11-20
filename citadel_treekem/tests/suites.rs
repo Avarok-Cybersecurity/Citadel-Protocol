@@ -37,7 +37,9 @@ fn key_of_another_kem() -> Vec<u8> {
 fn assert_refused_by_name(outcome: Result<(), citadel_types::errors::Error>) {
     let refusal = outcome.expect_err("must be refused").to_string();
     assert!(
-        refusal.contains("KEM public key is refused; a tree runs only on MlKem1024Fips203"),
+        refusal.contains(
+            "a MlKem768Fips203 KEM public key is refused; a tree runs only on MlKem1024Fips203"
+        ),
         "{refusal}"
     );
 }

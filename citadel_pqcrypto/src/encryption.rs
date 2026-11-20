@@ -304,14 +304,9 @@ pub mod kyber_module {
 
     /// The length [`encrypt_pke`] produces for `plaintext_len` bytes under `kem_alg`.
     pub fn pke_ciphertext_len(kem_alg: KemAlgorithm, plaintext_len: usize) -> usize {
-        match kem_alg {
-            KemAlgorithm::MlKem => kyber_pke::ct_len(plaintext_len),
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::kem_key_check::ciphertext_len(kem_alg)
-                    + crate::libcrux_kem::DEM_OVERHEAD
-                    + plaintext_len
-            }
-        }
+        crate::kem_key_check::ciphertext_len(kem_alg)
+            + crate::libcrux_kem::DEM_OVERHEAD
+            + plaintext_len
     }
 
     /// The most a hybrid frame whose symmetric ciphertext is `symmetric_len` bytes can be: that
@@ -340,21 +335,12 @@ pub mod kyber_module {
         plaintext: R,
         nonce: V,
     ) -> Result<Vec<u8>, Error> {
-        match kem_alg {
-            KemAlgorithm::MlKem => {
-                crate::kem_key_check::require_valid_public_key(kem_alg, local_pk.as_ref())?;
-                kyber_pke::encrypt(local_pk, plaintext, nonce)
-                    .map_err(|err| Error::generic(format!("{err:?}")))
-            }
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::encrypt_pke(
-                    kem_alg,
-                    local_pk.as_ref(),
-                    plaintext.as_ref(),
-                    nonce.as_ref(),
-                )
-            }
-        }
+        crate::libcrux_kem::encrypt_pke(
+            kem_alg,
+            local_pk.as_ref(),
+            plaintext.as_ref(),
+            nonce.as_ref(),
+        )
     }
 
     pub fn decrypt_pke<T: AsRef<[u8]>, R: AsRef<[u8]>>(
@@ -362,13 +348,7 @@ pub mod kyber_module {
         local_sk: T,
         ciphertext: R,
     ) -> Result<Vec<u8>, Error> {
-        match kem_alg {
-            KemAlgorithm::MlKem => kyber_pke::decrypt(local_sk, ciphertext)
-                .map_err(|err| Error::generic(format!("{err:?}"))),
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::decrypt_pke(kem_alg, local_sk.as_ref(), ciphertext.as_ref())
-            }
-        }
+        crate::libcrux_kem::decrypt_pke(kem_alg, local_sk.as_ref(), ciphertext.as_ref())
     }
 
     fn encode_length_be_bytes(len: usize, buf: &mut dyn Buffer) -> Result<(), Error> {

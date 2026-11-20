@@ -235,7 +235,9 @@ mod tests {
         let (pk, _sk) = citadel_pqcrypto::kem_keypair_from_seed(other, &[3u8; 64]).unwrap();
         let refusal = suite_of(&pk).unwrap_err().to_string();
         assert!(
-            refusal.contains("KEM public key is refused; a tree runs only on MlKem1024Fips203"),
+            refusal.contains(
+                "a MlKem768Fips203 KEM public key is refused; a tree runs only on MlKem1024Fips203"
+            ),
             "{refusal}"
         );
         assert!(hpke_seal(&pk, b"x").is_err());
@@ -243,7 +245,9 @@ mod tests {
         let (ct, _ss) = citadel_pqcrypto::kem_encapsulate(other, &pk).unwrap();
         let refusal = suite_of_ciphertext(&ct).unwrap_err().to_string();
         assert!(
-            refusal.contains("KEM ciphertext is refused; a tree runs only on MlKem1024Fips203"),
+            refusal.contains(
+                "a MlKem768Fips203 KEM ciphertext is refused; a tree runs only on MlKem1024Fips203"
+            ),
             "{refusal}"
         );
         assert!(hpke_open_with_path_secret(&[3u8; 32], &ct, &[0u8; 32]).is_err());

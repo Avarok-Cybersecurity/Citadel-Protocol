@@ -8,7 +8,7 @@
 //! mechanisms, and signature schemes.
 //!
 //! # Features
-//! - Post-quantum key exchange using NIST Round 3 algorithms
+//! - Post-quantum key exchange using ML-KEM (FIPS 203)
 //! - Hybrid classical/post-quantum encryption
 //! - Authenticated encryption with associated data (AEAD)
 //! - Anti-replay attack protection
@@ -103,7 +103,7 @@ pub const fn build_tag() -> &'static str {
     "ordered"
 }
 
-/// Returns the approximate size of each PQC. This is approximately true for the core NIST round-3 algorithms, but not necessarily true for the SIKE algos
+/// Returns the approximate size of each PQC container.
 pub const fn get_approx_bytes_per_container() -> usize {
     2000
 }
@@ -848,8 +848,8 @@ pub enum PostQuantumMeta {
     PureSymmetricEncryption { kex: PostQuantumMetaKex },
     /// A heavier, more secure, and post-quantum protocol setup for performing
     /// a mixed use of asymmetric and ratcheted symmetric encryption of plaintext
-    /// Note: since this uses Kyber, every 32 bytes of input plaintext is mapped to
-    /// ~1100 bytes of ciphertext. Using this for encryption is only recommended for
+    /// Note: every message carries a KEM ciphertext and a signature on top of its
+    /// plaintext. Using this for encryption is only recommended for
     /// Small to medium sized messages, not large files.
     MixedAsymmetric {
         kex: PostQuantumMetaKex,
@@ -858,9 +858,8 @@ pub enum PostQuantumMeta {
 }
 
 /// Deterministically derive a keypair of `alg` from a 64-byte seed, returning `(public_key,
-/// secret_key)`. The round-3 suite follows draft-schwabe-cfrg-kyber, in the byte layout of
-/// [`kyber_pke::kem_keypair`]; the FIPS 203 suites use their standard key generation, which is
-/// already a deterministic function of its 64 bytes of randomness.
+/// secret_key)`, by the FIPS 203 key generation, which is already a deterministic function of its
+/// 64 bytes of randomness.
 ///
 /// This is the primitive the TreeKEM ratchet tree needs: a tree node's keypair is reproducible from its
 /// path secret, so any member who learns the path secret recomputes the node and ratchets toward the root.
@@ -868,25 +867,13 @@ pub fn kem_keypair_from_seed(
     alg: KemAlgorithm,
     seed: &[u8; 64],
 ) -> Result<(Vec<u8>, Vec<u8>), Error> {
-    if alg.is_libcrux() {
-        return libcrux_kem::keypair_from_seed(alg, seed);
-    }
-    let kp = pqc_kyber::derive(seed)
-        .map_err(|err| Error::generic(format!("ML-KEM deterministic keygen failed: {err:?}")))?;
-    Ok((kp.public.to_vec(), kp.secret.to_vec()))
+    libcrux_kem::keypair_from_seed(alg, seed)
 }
 
 /// Raw encapsulation to a public key of `alg`. Returns `(ciphertext, shared_secret)`. The clean,
 /// container-free KEM API the TreeKEM ratchet tree encrypts path secrets with.
 pub fn kem_encapsulate(alg: KemAlgorithm, public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
-    let (ct, ss) = if alg.is_libcrux() {
-        libcrux_kem::encapsulate(alg, public_key)?
-    } else {
-        kem_key_check::require_valid_public_key(alg, public_key)?;
-        let (ct, ss) = kyber_pke::encapsulate(public_key, &mut rand::rngs::ThreadRng::default())
-            .map_err(|err| Error::generic(format!("ML-KEM encapsulate failed: {err:?}")))?;
-        (ct.to_vec(), ss.to_vec())
-    };
+    let (ct, ss) = libcrux_kem::encapsulate(alg, public_key)?;
     Ok((ct, shared_secret_of(&ss)?))
 }
 
@@ -896,12 +883,7 @@ pub fn kem_decapsulate(
     ciphertext: &[u8],
     secret_key: &[u8],
 ) -> Result<[u8; 32], Error> {
-    if alg.is_libcrux() {
-        return shared_secret_of(&libcrux_kem::decapsulate(alg, ciphertext, secret_key)?);
-    }
-    let ss = kyber_pke::decapsulate(ciphertext, secret_key)
-        .map_err(|err| Error::generic(format!("ML-KEM decapsulate failed: {err:?}")))?;
-    shared_secret_of(&ss[..])
+    shared_secret_of(&libcrux_kem::decapsulate(alg, ciphertext, secret_key)?)
 }
 
 fn shared_secret_of(ss: &[u8]) -> Result<[u8; 32], Error> {
@@ -912,16 +894,7 @@ fn shared_secret_of(ss: &[u8]) -> Result<[u8; 32], Error> {
 impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
         log::trace!(target: "citadel", "About to generate keypair for {kem_alg:?}");
-        let (public_key, secret_key) = match kem_alg {
-            KemAlgorithm::MlKem => {
-                let pk_alice =
-                    kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
-                (pk_alice.public.to_vec(), pk_alice.secret.to_vec())
-            }
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::keypair(kem_alg)?
-            }
-        };
+        let (public_key, secret_key) = crate::libcrux_kem::keypair(kem_alg)?;
 
         let ciphertext = None;
         let shared_secret = None;
@@ -969,30 +942,9 @@ impl PostQuantumMeta {
             } => (*kem_scheme, alice_pk),
         };
 
-        let (kem_pk_bob, kem_sk_bob) = match kem_scheme {
-            KemAlgorithm::MlKem => {
-                let pk_bob =
-                    kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
-                (pk_bob.public.to_vec(), pk_bob.secret.to_vec())
-            }
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::keypair(kem_scheme)?
-            }
-        };
-
-        let (ciphertext, shared_secret) = match kem_scheme {
-            KemAlgorithm::MlKem => {
-                kem_key_check::require_valid_public_key(kem_scheme, pk_alice)?;
-                let (ciphertext, shared_secret) =
-                    kyber_pke::encapsulate(pk_alice, &mut citadel_io::thread_rng()).map_err(
-                        |_err| citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed),
-                    )?;
-                (ciphertext.to_vec(), shared_secret.to_vec())
-            }
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::encapsulate(kem_scheme, pk_alice.as_ref())?
-            }
-        };
+        let (kem_pk_bob, kem_sk_bob) = crate::libcrux_kem::keypair(kem_scheme)?;
+        let (ciphertext, shared_secret) =
+            crate::libcrux_kem::encapsulate(kem_scheme, pk_alice.as_ref())?;
 
         let public_key = Arc::new(kem_pk_bob.into());
         let secret_key = Some(Arc::new(kem_sk_bob.into()));
@@ -1085,18 +1037,11 @@ impl PostQuantumMeta {
 
         let secret_key = self.get_secret_key()?;
 
-        let shared_secret = match self.kex().kem_alg {
-            KemAlgorithm::MlKem => kyber_pke::decapsulate(&bob_ciphertext, secret_key)
-                .map_err(|err| Error::generic(err.to_string()))?
-                .to_vec(),
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::decapsulate(
-                    self.kex().kem_alg,
-                    bob_ciphertext.as_ref(),
-                    secret_key.as_ref(),
-                )?
-            }
-        };
+        let shared_secret = crate::libcrux_kem::decapsulate(
+            self.kex().kem_alg,
+            bob_ciphertext.as_ref(),
+            secret_key.as_ref(),
+        )?;
 
         self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.into()));
         self.get_kex_mut().ciphertext = Some(bob_ciphertext);
@@ -1542,10 +1487,10 @@ mod in_place_aead_tests {
 #[cfg(test)]
 mod seed_keygen_tests {
     use super::{kem_decapsulate, kem_encapsulate, kem_keypair_from_seed};
-    use citadel_types::crypto::KemAlgorithm;
+    use citadel_types::crypto::{AlgorithmsExt, KemAlgorithm};
 
     /// R1: deterministic ML-KEM keygen must be (a) reproducible from the same seed, (b) distinct for
-    /// different seeds, and (c) byte-compatible with `encapsulate`/`decapsulate` so a node keypair
+    /// different seeds, and (c) compatible with `kem_encapsulate`/`kem_decapsulate` so a node keypair
     /// derived from a TreeKEM path secret actually round-trips a shared secret.
     #[test]
     fn derive_is_deterministic_and_kem_compatible() {
@@ -1558,44 +1503,38 @@ mod seed_keygen_tests {
             s
         };
 
-        let (pk1, sk1) = kem_keypair_from_seed(KemAlgorithm::MlKem, &seed_a).unwrap();
-        let (pk2, sk2) = kem_keypair_from_seed(KemAlgorithm::MlKem, &seed_a).unwrap();
-        assert_eq!(pk1, pk2, "same seed must yield the same public key");
-        assert_eq!(sk1, sk2, "same seed must yield the same secret key");
+        for alg in KemAlgorithm::list() {
+            let (pk1, sk1) = kem_keypair_from_seed(alg, &seed_a).unwrap();
+            let (pk2, sk2) = kem_keypair_from_seed(alg, &seed_a).unwrap();
+            assert_eq!(
+                pk1, pk2,
+                "{alg:?}: same seed must yield the same public key"
+            );
+            assert_eq!(
+                sk1, sk2,
+                "{alg:?}: same seed must yield the same secret key"
+            );
 
-        let (pk_b, _sk_b) = kem_keypair_from_seed(KemAlgorithm::MlKem, &seed_b).unwrap();
-        assert_ne!(pk1, pk_b, "different seeds must yield different keys");
+            let (pk_b, _sk_b) = kem_keypair_from_seed(alg, &seed_b).unwrap();
+            assert_ne!(
+                pk1, pk_b,
+                "{alg:?}: different seeds must yield different keys"
+            );
 
-        // Encapsulate to the derived public key, decapsulate with the derived secret key.
-        let (ct, ss_enc) =
-            kyber_pke::encapsulate(&pk1, &mut rand::rngs::ThreadRng::default()).unwrap();
-        let ss_dec = kyber_pke::decapsulate(&ct, &sk1).unwrap();
-        assert_eq!(
-            &ss_enc[..],
-            &ss_dec[..],
-            "encapsulate(derived pk) must decapsulate to the same shared secret with the derived sk",
-        );
+            let (ct, sent) = kem_encapsulate(alg, &pk1).unwrap();
+            assert_eq!(kem_decapsulate(alg, &ct, &sk1).unwrap(), sent, "{alg:?}");
+        }
     }
 
-    /// The same for each suite the tree uses, through the tree's own entry points, and a key of
-    /// one suite is never opened as the other.
+    /// A key of one KEM is never encapsulated to as the other.
     #[test]
-    fn each_tree_suite_derives_reproducible_keys_that_round_trip() {
+    fn a_key_of_one_kem_is_not_used_as_the_other() {
         let seed = [9u8; 64];
-        for alg in [KemAlgorithm::MlKem, KemAlgorithm::MlKem1024Fips203] {
-            let (pk, sk) = kem_keypair_from_seed(alg, &seed).unwrap();
-            assert_eq!(
-                (pk.clone(), sk.clone()),
-                kem_keypair_from_seed(alg, &seed).unwrap()
-            );
-            let (ct, sent) = kem_encapsulate(alg, &pk).unwrap();
-            assert_eq!(kem_decapsulate(alg, &ct, &sk).unwrap(), sent, "{alg:?}");
-        }
-        let (round3, _) = kem_keypair_from_seed(KemAlgorithm::MlKem, &seed).unwrap();
-        let (fips, _) = kem_keypair_from_seed(KemAlgorithm::MlKem1024Fips203, &seed).unwrap();
-        assert_ne!(round3.len(), fips.len());
-        assert!(kem_encapsulate(KemAlgorithm::MlKem1024Fips203, &round3).is_err());
-        assert!(kem_encapsulate(KemAlgorithm::MlKem, &fips).is_err());
+        let (pk768, _) = kem_keypair_from_seed(KemAlgorithm::MlKem768Fips203, &seed).unwrap();
+        let (pk1024, _) = kem_keypair_from_seed(KemAlgorithm::MlKem1024Fips203, &seed).unwrap();
+        assert_ne!(pk768.len(), pk1024.len());
+        assert!(kem_encapsulate(KemAlgorithm::MlKem1024Fips203, &pk768).is_err());
+        assert!(kem_encapsulate(KemAlgorithm::MlKem768Fips203, &pk1024).is_err());
     }
 }
 

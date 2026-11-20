@@ -45,11 +45,11 @@ export function defaultSecrecyMode(): SecrecyMode {
 // --- KemAlgorithm ---
 
 export function allKemAlgorithmValues(): KemAlgorithm[] {
-  return ['MlKem'];
+  return ['MlKem768Fips203', 'MlKem1024Fips203'];
 }
 
 export function defaultKemAlgorithm(): KemAlgorithm {
-  return 'MlKem';
+  return 'MlKem1024Fips203';
 }
 
 // --- SigAlgorithm ---

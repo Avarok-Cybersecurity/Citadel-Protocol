@@ -84,7 +84,8 @@ async-trait = { workspace = true }
 auto_impl = { workspace = true }
 zerocopy = { workspace = true, features = ["byteorder", "derive"] }
 bytes = { workspace = true, features = ["serde"] }
-byteorder = { workspace = true }
+# `WriteBytesExt` is used in every build, so `std` is not optional.
+byteorder = { workspace = true, features = ["std"] }
 atomic = { workspace = true, features = ["fallback"] }
 serde = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true }

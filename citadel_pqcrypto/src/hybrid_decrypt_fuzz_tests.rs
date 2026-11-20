@@ -15,11 +15,11 @@ use citadel_types::crypto::KemAlgorithm;
 use std::sync::Arc;
 use std::time::Duration;
 
+const KEM: KemAlgorithm = KemAlgorithm::MlKem768Fips203;
+
 #[test]
 fn bytes_past_the_signature_check_never_panic() {
-    let keypair = kyber_pke::kem_keypair().unwrap();
-    let public_key = keypair.public.to_vec();
-    let secret_key = keypair.secret.to_vec();
+    let (public_key, secret_key) = crate::libcrux_kem::keypair(KEM).unwrap();
     let cipher = || AesModule {
         aead: aes_gcm::Aes256Gcm::new(&[3u8; 32].into()),
         kex: PostQuantumMetaKex {
@@ -28,7 +28,7 @@ fn bytes_past_the_signature_check_never_panic() {
             secret_key: None,
             ciphertext: None,
             shared_secret: None,
-            kem_alg: KemAlgorithm::MlKem,
+            kem_alg: KEM,
         },
     };
     let nonce = [9u8; 32];
@@ -36,25 +36,10 @@ fn bytes_past_the_signature_check_never_panic() {
         .iter()
         .map(|&len| {
             let mut buf = vec![5u8; len];
-            core_kyber_otp_encrypt(
-                &cipher(),
-                &public_key,
-                KemAlgorithm::MlKem,
-                &nonce,
-                b"ad",
-                &mut buf,
-            )
-            .unwrap();
+            core_kyber_otp_encrypt(&cipher(), &public_key, KEM, &nonce, b"ad", &mut buf).unwrap();
             let mut check = buf.clone();
-            core_kyber_otp_decrypt(
-                &cipher(),
-                &secret_key,
-                KemAlgorithm::MlKem,
-                &nonce,
-                b"ad",
-                &mut check,
-            )
-            .expect("a genuine seed decrypts");
+            core_kyber_otp_decrypt(&cipher(), &secret_key, KEM, &nonce, b"ad", &mut check)
+                .expect("a genuine seed decrypts");
             buf.truncate(buf.len() - 32);
             buf
         })
@@ -69,14 +54,7 @@ fn bytes_past_the_signature_check_never_panic() {
             use sha3::Digest;
             let mut buf = bytes.to_vec();
             buf.extend_from_slice(&sha3::Sha3_256::digest(bytes));
-            let _ = core_kyber_otp_decrypt(
-                &aes,
-                &secret_key,
-                KemAlgorithm::MlKem,
-                &nonce,
-                b"ad",
-                &mut buf,
-            );
+            let _ = core_kyber_otp_decrypt(&aes, &secret_key, KEM, &nonce, b"ad", &mut buf);
         },
     );
 }
