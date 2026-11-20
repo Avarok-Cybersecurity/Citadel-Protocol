@@ -528,6 +528,8 @@ pub mod re_imports {
     pub use citadel_wire::tls::{
         cert_vec_to_secure_client_config, create_rustls_client_config, load_native_certs_async,
     };
+    #[cfg(not(target_family = "wasm"))]
+    pub use citadel_wire::trust_store::{trust_store, LoadedRoots, RootSource};
 }
 
 pub mod prelude {

@@ -504,6 +504,18 @@ impl<R: Ratchet + ContextRequirements> NodeBuilder<R, NativeIO> {
         Ok(self)
     }
 
+    /// The roots a connection that requires verification checks a server against, from `source`:
+    /// all the roots it gives, or `TrustStoreUnavailable` when it could not give them all.
+    pub fn with_root_source(
+        &mut self,
+        source: &impl citadel_proto::re_imports::RootSource,
+    ) -> anyhow::Result<&mut Self> {
+        let certs = citadel_proto::re_imports::trust_store(source)?;
+        let cfg = citadel_proto::re_imports::cert_vec_to_secure_client_config(&certs)?;
+        self.set_client_rustls_config(std::sync::Arc::new(cfg));
+        Ok(self)
+    }
+
     /// The client takes any server certificate unverified. A connection that requires a verified
     /// certificate (`CertVerification::Required`) is refused on such a node before it dials,
     /// with `CertVerificationUnavailable`. This is not recommended

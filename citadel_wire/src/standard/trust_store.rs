@@ -5,13 +5,18 @@
 //! domain (#391). A store missing a domain verifies some servers and refuses others for no reason
 //! a user could see, so a store read with errors is refused, by code, as is an empty one. Apple
 //! does not document `errSecIO` as transient, so it is not retried.
+//!
+//! The OS store is read once per process ([`native_roots`]): every node in a process shares that
+//! read, and its first error. Each node used to read it again at start-up, and many nodes starting
+//! together in one process were what drove the store into `errSecIO`.
 
 use crate::exports::Certificate;
 use citadel_io::ErrorCode;
 use std::io;
+use std::sync::{LazyLock, OnceLock};
 
 /// What one read of a root source produced: the certificates it gave, and every error it met.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct LoadedRoots {
     pub certs: Vec<Certificate<'static>>,
     pub errors: Vec<String>,
@@ -33,6 +38,33 @@ impl RootSource for NativeRoots {
             errors: loaded.errors.iter().map(ToString::to_string).collect(),
         }
     }
+}
+
+/// `source`, read once: every later read returns what the first one gave, errors included.
+pub struct ReadOnce<S> {
+    source: S,
+    read: OnceLock<LoadedRoots>,
+}
+
+impl<S: RootSource> ReadOnce<S> {
+    pub const fn new(source: S) -> Self {
+        Self {
+            source,
+            read: OnceLock::new(),
+        }
+    }
+}
+
+impl<S: RootSource> RootSource for ReadOnce<S> {
+    fn load(&self) -> LoadedRoots {
+        self.read.get_or_init(|| self.source.load()).clone()
+    }
+}
+
+/// The operating system's store, read once per process.
+pub fn native_roots() -> &'static ReadOnce<NativeRoots> {
+    static NATIVE: LazyLock<ReadOnce<NativeRoots>> = LazyLock::new(|| ReadOnce::new(NativeRoots));
+    &NATIVE
 }
 
 /// The roots `source` gave, if it gave all of them.

@@ -158,6 +158,40 @@ pub fn localhost_link_policy() -> LinkPolicy {
 #[cfg(not(target_family = "wasm"))]
 mod native {
     use super::*;
+    use citadel_proto::re_imports::{LoadedRoots, RootSource};
+
+    /// One root this process generates, and nothing from the operating system. A node under test
+    /// that never checks a server against the system's roots (every localhost and self-signed
+    /// connection) is built on it, so starting it reads no OS trust store.
+    pub struct LocalRoots;
+
+    impl RootSource for LocalRoots {
+        fn load(&self) -> LoadedRoots {
+            static ROOT: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
+                citadel_wire::quic::generate_self_signed_cert()
+                    .expect("a self-signed root")
+                    .0
+            });
+            LoadedRoots {
+                certs: vec![citadel_wire::exports::Certificate::from(ROOT.clone())],
+                errors: vec![],
+            }
+        }
+    }
+
+    /// A node builder for tests: roots from [`LocalRoots`], not the operating system.
+    pub fn node_builder() -> DefaultNodeBuilder {
+        node_builder_for::<StackedRatchet>()
+    }
+
+    /// [`node_builder`] for any ratchet.
+    pub fn node_builder_for<R: Ratchet>() -> NodeBuilder<R> {
+        let mut builder = NodeBuilder::<R>::default();
+        let _ = builder
+            .with_root_source(&LocalRoots)
+            .expect("the local roots are complete");
+        builder
+    }
 
     #[allow(dead_code)]
     pub fn server_test_node<'a, K: NetKernel<R> + 'a, R: Ratchet>(
@@ -182,7 +216,7 @@ mod native {
         opts: impl FnOnce(&mut NodeBuilder<R>),
         enable_websocket: bool,
     ) -> ((NodeFuture<'a, K>, SocketAddr), SocketAddr) {
-        let mut builder = NodeBuilder::default();
+        let mut builder = node_builder_for::<R>();
         let _ = builder.with_link_manager(LinkManagerMode::Legacy);
         let tcp_listener = citadel_wire::socket_helpers::get_tcp_listener("127.0.0.1:0")
             .expect("Failed to create TCP listener");
