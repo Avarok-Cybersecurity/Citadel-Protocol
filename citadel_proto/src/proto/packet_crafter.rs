@@ -472,15 +472,9 @@ pub(crate) mod do_connect {
     pub struct DoConnectStage0Packet {
         pub proposed_credentials: ProposedCredentials,
         pub uses_filesystem: bool,
-        /// The token of the client's previous session (see `proto::session_resume`). Absent
-        /// from an older client's packet, so it defaults; an older server ignores it.
-        #[serde(deserialize_with = "ok_or_default")]
-        #[serde(default)]
+        /// The token of the client's previous session (see `proto::session_resume`).
         pub resume_token: Option<ResumeToken>,
-        /// The answer to a post-quantum `AUTH_CHALLENGE` (see `proto::pq_sign_in`). Sent only to a
-        /// server at `PQ_SIGN_IN_SINCE` or later; absent from an older client's packet.
-        #[serde(deserialize_with = "ok_or_default")]
-        #[serde(default)]
+        /// The answer to a post-quantum `AUTH_CHALLENGE` (see `proto::pq_sign_in`).
         pub pq_proof: Option<citadel_user::auth::pq::messages::LoginProof>,
     }
 
@@ -535,27 +529,18 @@ pub(crate) mod do_connect {
     pub struct DoConnectFinalStatusPacket<'a> {
         pub mailbox: Option<MailboxTransfer>,
         pub peers: Vec<MutualPeer>,
-        // in order to allow interoperability between protocols that have fields in the services object
-        // and those that don't, default on error
-        #[serde(deserialize_with = "ok_or_default")]
-        #[serde(default)]
         pub post_login_object: citadel_user::external_services::ServicesObject,
         #[serde(borrow)]
         pub message: &'a [u8],
-        /// The token this session was issued (see `proto::session_resume`). Absent from an
-        /// older server's packet, so it defaults; an older client ignores it.
-        #[serde(deserialize_with = "ok_or_default")]
-        #[serde(default)]
+        /// The token this session was issued (see `proto::session_resume`).
         pub resume_token: Option<ResumeToken>,
-        /// A FAILURE's admission challenge (public: see `AdmissionChallenge`). Absent from an older
-        /// server's packet, and from one naming a provider this client does not know, so it
-        /// defaults; an older client ignores it.
+        /// A FAILURE's admission challenge (public: see `AdmissionChallenge`). One naming a
+        /// provider this client does not know reads as `None`.
         #[serde(deserialize_with = "ok_or_default")]
         #[serde(default)]
         pub admission_challenge: Option<AdmissionChallenge>,
-        /// The server's path policy (see `proto::path_policy`), sent only to a client at
-        /// `PATH_POLICY_SINCE` or later. Absent from an older server's packet, so it defaults; an
-        /// older client ignores it. A policy that fails validation on read also defaults.
+        /// The server's path policy (see `proto::path_policy`). A policy that fails validation on
+        /// read reads as `None`.
         #[serde(deserialize_with = "ok_or_default")]
         #[serde(default)]
         pub path_policy: Option<citadel_types::proto::PathPolicy>,

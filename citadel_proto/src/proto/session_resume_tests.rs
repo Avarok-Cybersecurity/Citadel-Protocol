@@ -1,32 +1,8 @@
 use super::*;
-use crate::constants::PROTOCOL_VERSION;
 use crate::proto::packet_crafter::do_connect::{DoConnectFinalStatusPacket, DoConnectStage0Packet};
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::external_services::ServicesObject;
 use citadel_user::serialization::SyncIO;
-use embedded_semver::Semver;
-
-fn version(major: usize, minor: usize, patch: usize) -> u32 {
-    Semver::new(major, minor, patch).to_u32().unwrap()
-}
-
-/// The release before session resumption.
-fn before() -> u32 {
-    version(0, 11, 1)
-}
-
-fn since() -> u32 {
-    let (major, minor, patch) = SESSION_RESUME_SINCE;
-    version(major as _, minor as _, patch as _)
-}
-
-#[test]
-fn this_build_takes_part() {
-    assert!(protocol_version_at_least(
-        Some(*PROTOCOL_VERSION),
-        SESSION_RESUME_SINCE
-    ));
-}
 
 #[test]
 fn a_held_session_yields_to_the_token_it_was_issued() {
@@ -75,23 +51,6 @@ fn force_login_displaces_whatever_is_held() {
 }
 
 #[test]
-fn tokens_cross_only_with_a_node_at_or_after_since() {
-    let token = Some(ResumeToken::generate());
-    assert!(exchanged_with(before(), token).is_none());
-    assert!(exchanged_with(0, token).is_none(), "an unknown version");
-    assert!(exchanged_with(since(), token).is_some());
-    assert!(exchanged_with(since(), None).is_none());
-}
-
-#[test]
-fn only_an_older_client_without_force_login_is_refused_at_syn() {
-    assert!(refused_at_syn(before(), false));
-    assert!(!refused_at_syn(before(), true));
-    assert!(!refused_at_syn(since(), false));
-    assert!(!refused_at_syn(since(), true));
-}
-
-#[test]
 fn a_client_keeps_the_latest_token_and_forgets_it_for_a_server_that_issues_none() {
     let mut tokens = ResumeTokens::default();
     let first = ResumeToken::generate();
@@ -108,7 +67,7 @@ fn a_token_never_prints() {
     assert_eq!(format!("{token:?}"), "ResumeToken(..)");
 }
 
-/// STAGE0 as a node before session resumption knew it.
+/// STAGE0 as a node before session resumption encoded it.
 #[derive(Serialize, Deserialize)]
 struct LegacyStage0 {
     proposed_credentials: ProposedCredentials,
@@ -116,32 +75,33 @@ struct LegacyStage0 {
 }
 
 #[test]
-fn stage0_interoperates_with_an_older_node_both_ways() {
+fn stage0_carries_the_token_and_the_encoding_before_it_is_refused() {
+    let issued = ResumeToken::generate();
+    let current = DoConnectStage0Packet {
+        proposed_credentials: ProposedCredentials::transient("alice"),
+        uses_filesystem: true,
+        resume_token: Some(issued),
+        pq_proof: None,
+    };
+    let read =
+        DoConnectStage0Packet::deserialize_from_vector(&current.serialize_to_vector().unwrap())
+            .unwrap();
+    assert!(read
+        .resume_token
+        .is_some_and(|token| token.same_as(&issued)));
+
     let legacy = LegacyStage0 {
         proposed_credentials: ProposedCredentials::transient("alice"),
         uses_filesystem: true,
     };
-    let from_old =
-        DoConnectStage0Packet::deserialize_from_vector(&legacy.serialize_to_vector().unwrap())
-            .unwrap();
-    assert!(from_old.resume_token.is_none() && from_old.uses_filesystem);
-
-    let current = DoConnectStage0Packet {
-        proposed_credentials: ProposedCredentials::transient("alice"),
-        uses_filesystem: true,
-        resume_token: Some(ResumeToken::generate()),
-        pq_proof: None,
-    };
-    let to_old = current.serialize_to_vector().unwrap();
     assert!(
-        LegacyStage0::deserialize_from_vector(&to_old)
-            .unwrap()
-            .uses_filesystem
+        DoConnectStage0Packet::deserialize_from_vector(&legacy.serialize_to_vector().unwrap())
+            .is_err()
     );
 }
 
 #[test]
-fn success_interoperates_with_an_older_node_both_ways() {
+fn success_carries_the_token_and_the_encoding_before_it_is_refused() {
     #[derive(Serialize, Deserialize)]
     struct LegacyFinalStatus<'a> {
         mailbox: Option<crate::proto::peer::peer_layer::MailboxTransfer>,
@@ -157,9 +117,7 @@ fn success_interoperates_with_an_older_node_both_ways() {
         message: b"welcome",
     };
     let bytes = legacy.serialize_to_vector().unwrap();
-    let from_old = DoConnectFinalStatusPacket::deserialize_from_vector(&bytes).unwrap();
-    assert!(from_old.resume_token.is_none());
-    assert_eq!(from_old.message, b"welcome");
+    assert!(DoConnectFinalStatusPacket::deserialize_from_vector(&bytes).is_err());
 
     let issued = ResumeToken::generate();
     let current = DoConnectFinalStatusPacket {
@@ -176,10 +134,4 @@ fn success_interoperates_with_an_older_node_both_ways() {
     assert!(round_trip
         .resume_token
         .is_some_and(|token| token.same_as(&issued)));
-    assert_eq!(
-        LegacyFinalStatus::deserialize_from_vector(&bytes)
-            .unwrap()
-            .message,
-        b"welcome"
-    );
 }

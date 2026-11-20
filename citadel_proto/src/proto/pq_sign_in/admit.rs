@@ -6,7 +6,6 @@ use crate::error::NetworkError;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_crafter::do_connect::DoConnectStage0Packet;
 use crate::proto::session::CitadelSession;
-use crate::proto::session_resume;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::SessionScope;
@@ -57,7 +56,7 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
         // The legacy login, as before 0.12. An account that has upgraded refuses it.
         (None, None) => {
             // No AUTH_START, so nothing was admitted yet: ask before Argon2 runs.
-            let presented = session_resume::exchanged_with(adjacent_version, stage0.resume_token);
+            let presented = stage0.resume_token;
             let username = cnac.get_username();
             let presented = presented.as_ref();
             super::admission::legacy_sign_in(session, cid, &username, presented, adjacent_version)

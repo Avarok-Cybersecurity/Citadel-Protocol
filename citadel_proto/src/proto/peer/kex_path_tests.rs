@@ -4,7 +4,6 @@ use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use citadel_types::proto::{PathClasses, PathRule};
 use citadel_user::serialization::SyncIO;
-use embedded_semver::Semver;
 use std::time::Duration;
 
 fn policy() -> PathPolicy {
@@ -116,14 +115,10 @@ fn a_relay_only_turn_config_refuses_the_paths_that_reveal_an_address() {
 }
 
 #[test]
-fn a_peer_executes_a_stamped_plan_only_from_a_sender_at_the_version() {
+fn a_peer_executes_the_plan_the_server_stamped() {
     let stamped = stamp(Some(&policy()), Some(both()), || Some(DIRECT_OK));
-    let current = Some(*PROTOCOL_VERSION);
-    assert!(stamped_plan(stamped.as_ref(), current).is_some());
-    let older = Some(Semver::new(0, 12, 1).to_u32().unwrap());
-    assert_eq!(stamped_plan(stamped.as_ref(), older), None);
-    assert_eq!(stamped_plan(stamped.as_ref(), None), None);
-    assert_eq!(stamped_plan(None, current), None);
+    assert!(stamped_plan(stamped.as_ref()).is_some());
+    assert_eq!(stamped_plan(None), None);
 }
 
 fn kex(path: Option<KexPath>) -> PeerSignal {

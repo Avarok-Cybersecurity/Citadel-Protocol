@@ -6,8 +6,7 @@
 //! [`EffectivePlan`] into each from the same inputs: its policy, both offers, and the pair's NAT
 //! feasibility. So Alice (reading Stage1) and Bob (reading Stage2) execute the same plan.
 //!
-//! An older peer sends no `KexPath`, and an older server drops it while relaying. Then no plan is
-//! stamped, or none survives, and both peers plan alone as before (`p2p_plan::plan_p2p`).
+//! A server with no path policy stamps no plan, and both peers plan alone (`p2p_plan::plan_p2p`).
 //! Pure: no I/O.
 
 use citadel_types::proto::{
@@ -17,8 +16,6 @@ use citadel_types::proto::{
 use citadel_wire::nat_identification::NatType;
 use citadel_wire::udp_traversal::turn_relay::{TurnPolicy, TurnRelayConfig};
 use serde::{Deserialize, Serialize};
-
-use crate::constants::{protocol_version_at_least, PATH_POLICY_SINCE};
 
 /// The path half of one Kex stage.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -75,15 +72,8 @@ pub(crate) fn pair_feasibility(sender: &NatType, target: &NatType) -> PairFeasib
     }
 }
 
-/// Peer: the plan to execute from a received stage, if the server stamped one and the peer that
-/// built the stage takes part in path policies.
-pub(crate) fn stamped_plan(
-    path: Option<&KexPath>,
-    sender_version: Option<u32>,
-) -> Option<EffectivePlan> {
-    if !protocol_version_at_least(sender_version, PATH_POLICY_SINCE) {
-        return None;
-    }
+/// Peer: the plan to execute from a received stage, if the server stamped one.
+pub(crate) fn stamped_plan(path: Option<&KexPath>) -> Option<EffectivePlan> {
     path?.plan.clone()
 }
 

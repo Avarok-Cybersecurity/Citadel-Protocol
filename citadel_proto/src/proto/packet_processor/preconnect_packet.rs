@@ -50,7 +50,6 @@ use crate::prelude::Ticket;
 use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use crate::proto::session_manager::{CidAdmission, SESSION_ALREADY_CONNECTED};
-use crate::proto::session_resume;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use crate::proto::version_gate::check_peer_protocol_version;
 
@@ -145,25 +144,9 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                                     SESSION_ALREADY_CONNECTED,
                                 );
                             }
-                            // A connected session holds this account. Going on requires the
-                            // client's own, authenticated request to displace it, or a client that
-                            // may prove the session its own (session_resume); either way it is
-                            // displaced only at connect STAGE0, once the credentials check out.
-                            if admission == CidAdmission::HeldByConnectedSession
-                                && session_resume::refused_at_syn(
-                                    adjacent_proto_version,
-                                    connect_mode.force_login(),
-                                )
-                            {
-                                session
-                                    .session_manager
-                                    .release_provisional_cid_reservation(header.session_cid.get());
-                                return send_error_and_end_session(
-                                    &header,
-                                    None,
-                                    SESSION_ALREADY_CONNECTED,
-                                );
-                            }
+                            // A connected session holding this account is displaced only at
+                            // connect STAGE0, once the credentials check out: by the client's own
+                            // authenticated request (force_login) or its resume token.
                             // Prepare response and set non-state items
                             session.adjacent_nat_type.set_once(Some(nat_type));
                             session.kernel_ticket.set(ticket);
@@ -647,10 +630,7 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
     server_protocol_version: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     // At this point, the session keys have already been re-established. We just need to begin the login stage
-    let resume_token = session_resume::exchanged_with(
-        server_protocol_version,
-        session.session_manager.resume_token(ratchet.get_cid()),
-    );
+    let resume_token = session.session_manager.resume_token(ratchet.get_cid());
     let mut state_container = inner_mut_state!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
     // A server that runs post-quantum sign-in is asked for a challenge first; STAGE0 answers it.

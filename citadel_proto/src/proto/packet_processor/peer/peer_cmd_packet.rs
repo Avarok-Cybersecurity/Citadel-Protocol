@@ -1183,7 +1183,6 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         needs_turn,
                                         cancel_rx: hole_punch_cancel_rx,
                                         kex_path: kex_path_in.clone(),
-                                        peer_protocol_version: *peer_protocol_version,
                                         turn: take_turn_config(session, peer_cid),
                                     });
 
@@ -1349,7 +1348,6 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         needs_turn,
                                         cancel_rx: hole_punch_cancel_rx,
                                         kex_path: kex_path_in.clone(),
-                                        peer_protocol_version: *peer_protocol_version,
                                         turn: take_turn_config(session, peer_cid),
                                     });
 

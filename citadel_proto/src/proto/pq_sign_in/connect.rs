@@ -10,7 +10,7 @@ use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet::packet_flags;
 use crate::proto::packet_processor::includes::*;
-use crate::proto::session_resume::{self, ResumeToken};
+use crate::proto::session_resume::ResumeToken;
 use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
@@ -217,8 +217,7 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
         Ok(ClientProof::Legacy { upgrade }) => (upgrade.map(LoginProof::Upgrade), None),
         Err(err) => return fail_login(session, cid, err.into_string()),
     };
-    let resume_token =
-        session_resume::exchanged_with(server_version, session.session_manager.resume_token(cid));
+    let resume_token = session.session_manager.resume_token(cid);
     let stage0 = packet_crafter::do_connect::craft_stage0_packet(
         ratchet,
         credentials,

@@ -51,7 +51,6 @@ pub(crate) struct LaunchedPair<R: Ratchet, T: PlatformOps> {
     pub(crate) needs_turn: bool,
     pub(crate) cancel_rx: oneshot::Receiver<()>,
     pub(crate) kex_path: Option<KexPath>,
-    pub(crate) peer_protocol_version: Option<u32>,
     pub(crate) turn: Option<citadel_wire::udp_traversal::turn_relay::TurnRelayConfig>,
 }
 
@@ -75,7 +74,6 @@ pub(crate) fn launch_link<R: Ratchet, T: PlatformOps>(pair: LaunchedPair<R, T>) 
         needs_turn,
         cancel_rx,
         kex_path,
-        peer_protocol_version,
         turn,
     } = pair;
     let udp_mode = if udp_rx_opt.is_some() {
@@ -114,7 +112,7 @@ pub(crate) fn launch_link<R: Ratchet, T: PlatformOps>(pair: LaunchedPair<R, T>) 
         channel: channel.into(),
         udp_rx_opt,
     });
-    let stamped = kex_path::stamped_plan(kex_path.as_ref(), peer_protocol_version);
+    let stamped = kex_path::stamped_plan(kex_path.as_ref());
     guard
         .cell()
         .set_gates(ClassGates::from_stamped(stamped.as_ref()));

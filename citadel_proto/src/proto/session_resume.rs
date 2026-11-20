@@ -20,10 +20,6 @@
 //! `resume_grace` ([`EndedSessions`]): a reconnect after a clean close or a keep-alive expiry
 //! finds no held session to recognise it, and without this would be asked the admission check
 //! (Turnstile) again. That memory exempts from admission only; it displaces nothing.
-//!
-//! Both sides exchange tokens only with a node at [`SESSION_RESUME_SINCE`] or later. Older
-//! nodes see neither field (trailing bytes are ignored), and a newer node reads none from them.
-use crate::constants::{protocol_version_at_least, SESSION_RESUME_SINCE};
 use citadel_io::time::{Duration, Instant};
 use citadel_io::RngCore;
 use serde::{Deserialize, Serialize};
@@ -129,22 +125,6 @@ pub(crate) fn displacement(
     } else {
         None
     }
-}
-
-/// `token` if the adjacent node at `adjacent_version` takes part in session resumption, else
-/// `None`. Applied to what is sent to it and to what is read from it.
-pub(crate) fn exchanged_with(
-    adjacent_version: u32,
-    token: Option<ResumeToken>,
-) -> Option<ResumeToken> {
-    token.filter(|_| protocol_version_at_least(Some(adjacent_version), SESSION_RESUME_SINCE))
-}
-
-/// Whether a SYN for an account whose session the server holds is refused before it can
-/// authenticate. A client that might hold a resume token gets as far as STAGE0, where the
-/// token is checked; the held session is not touched before then either way.
-pub(crate) fn refused_at_syn(adjacent_version: u32, force_login: bool) -> bool {
-    !force_login && !protocol_version_at_least(Some(adjacent_version), SESSION_RESUME_SINCE)
 }
 
 /// Client side: the token each account's latest session was issued, kept after it ends.
