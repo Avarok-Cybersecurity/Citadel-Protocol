@@ -8,7 +8,6 @@
 
 use crate::crypto::{self, Secret};
 use crate::hierarchy::{CommandPath, DheEnvelope, HierarchyScheme, KdfKemTree, ReadPolicy};
-use citadel_types::crypto::KemAlgorithm;
 use citadel_types::errors::Error;
 use serde::{Deserialize, Serialize};
 
@@ -69,20 +68,17 @@ impl HierarchyMember {
             .map_err(|err| Error::generic(format!("DHE assignment parse failed: {err}")))
     }
 
-    /// Seal an application message as this member, on `suite` (see
-    /// [`GroupState::sealing_suite`](crate::GroupState::sealing_suite)). `flat_group_key` is
+    /// Seal an application message as this member. `flat_group_key` is
     /// required iff the policy is [`ReadPolicy::BroadcastAudit`]; `content_key` is a fresh
     /// per-message key from the caller.
     pub fn seal_message(
         &self,
-        suite: KemAlgorithm,
         flat_group_key: Option<&Secret>,
         content_key: &Secret,
         plaintext: &[u8],
     ) -> Result<Vec<u8>, Error> {
         let env = DheEnvelope::seal(
             &KdfKemTree,
-            suite,
             &self.path,
             &self.node_secret,
             flat_group_key,
@@ -132,8 +128,7 @@ mod tests {
         leaf_secret: &Secret,
     ) -> (HierarchyMember, Vec<u8>) {
         let member = owner.derive_descendant(CommandPath::parse(path)).unwrap();
-        let (leaf_pk, _sk) =
-            crypto::node_keypair_from_path_secret(crypto::CURRENT_SUITE, leaf_secret).unwrap();
+        let (leaf_pk, _sk) = crypto::node_keypair_from_path_secret(leaf_secret).unwrap();
         let sealed = member.seal_to(&leaf_pk).unwrap();
         (member, sealed)
     }
@@ -152,9 +147,7 @@ mod tests {
         let coa = HierarchyMember::open(&coa_sealed, &coa_leaf).unwrap();
 
         // Co-A sends; its superior Bn1 reads, the root reads, a sibling cannot.
-        let wire = coa
-            .seal_message(crypto::CURRENT_SUITE, None, &[0x42; 32], b"sitrep")
-            .unwrap();
+        let wire = coa.seal_message(None, &[0x42; 32], b"sitrep").unwrap();
         assert_eq!(bn1.open_message(None, &wire).unwrap(), b"sitrep");
         assert_eq!(owner.open_message(None, &wire).unwrap(), b"sitrep");
 
@@ -167,9 +160,7 @@ mod tests {
         );
 
         // A subordinate cannot read a superior's message.
-        let from_bn1 = bn1
-            .seal_message(crypto::CURRENT_SUITE, None, &[0x43; 32], b"orders")
-            .unwrap();
+        let from_bn1 = bn1.seal_message(None, &[0x43; 32], b"orders").unwrap();
         assert!(coa.open_message(None, &from_bn1).is_err());
     }
 
@@ -188,12 +179,7 @@ mod tests {
 
         // Co-A sends in broadcast+audit: a sibling reads via the flat key; the root audits via hierarchy.
         let wire = coa
-            .seal_message(
-                crypto::CURRENT_SUITE,
-                Some(&flat),
-                &[0x55; 32],
-                b"net traffic",
-            )
+            .seal_message(Some(&flat), &[0x55; 32], b"net traffic")
             .unwrap();
         assert_eq!(
             cob.open_message(Some(&flat), &wire).unwrap(),

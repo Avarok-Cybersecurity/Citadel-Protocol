@@ -19,7 +19,7 @@ impl GroupCgkaState {
         let Some(owner_h) = self.hierarchy_self.as_ref() else {
             return Ok(None);
         };
-        let leaf = kp.leaf_to_insert();
+        let leaf = &kp.leaf;
         let Some(path) = self.pending_ranks.get(&leaf.cid) else {
             return Ok(None);
         };
@@ -144,14 +144,9 @@ impl GroupCgkaState {
             .hierarchy_self
             .as_ref()
             .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
-        let suite = self
-            .group
-            .as_ref()
-            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?
-            .sealing_suite();
         let flat = self.flat_key_for_policy();
         let content_key = fresh_secret();
-        member.seal_message(suite, flat.as_ref(), &content_key, plaintext)
+        member.seal_message(flat.as_ref(), &content_key, plaintext)
     }
 
     /// Open an inbound `DheEnvelope` (as a superior of the sender, or via the flat key in audit mode).

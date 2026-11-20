@@ -2,7 +2,7 @@
 //! within a time bound: commits, welcomes, application messages and hierarchy envelopes.
 mod support;
 
-use citadel_treekem::crypto::{node_keypair_from_path_secret, CURRENT_SUITE};
+use citadel_treekem::crypto::node_keypair_from_path_secret;
 use citadel_treekem::node::LeafNode;
 use citadel_treekem::{
     AppCiphertext, CommandPath, Commit, GroupState, HierarchyMember, KeyPackage, ReadPolicy,
@@ -17,9 +17,7 @@ const DEADLINE: Duration = Duration::from_secs(120);
 fn leaf(cid: u64, secret: &[u8; 32]) -> LeafNode {
     LeafNode {
         cid,
-        kem_public: node_keypair_from_path_secret(CURRENT_SUITE, secret)
-            .unwrap()
-            .0,
+        kem_public: node_keypair_from_path_secret(secret).unwrap().0,
         sig_public: vec![],
         leaf_index: 0,
         signature: vec![],
@@ -110,11 +108,11 @@ fn received_hierarchy_envelopes_never_panic() {
         .derive_descendant(CommandPath::parse("/HQ/Bn1"))
         .unwrap();
     let leaf_secret = [8u8; 32];
-    let (leaf_pk, _) = node_keypair_from_path_secret(CURRENT_SUITE, &leaf_secret).unwrap();
+    let (leaf_pk, _) = node_keypair_from_path_secret(&leaf_secret).unwrap();
     let sealed = member.seal_to(&leaf_pk).unwrap();
     let flat = [9u8; 32];
     let envelope = member
-        .seal_message(CURRENT_SUITE, Some(&flat), &[10u8; 32], b"sitrep")
+        .seal_message(Some(&flat), &[10u8; 32], b"sitrep")
         .unwrap();
     campaign(
         "hierarchy",

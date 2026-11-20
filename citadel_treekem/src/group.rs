@@ -11,10 +11,9 @@ use crate::keys::KeyPackage;
 use crate::path::{apply_update_path, generate_update_path, HpkeCiphertext};
 use crate::schedule::EpochSecrets;
 use crate::tree::math::{direct_path, leaf_to_node, LeafIndex, NodeIndex};
-use crate::tree::node::{LeafNode, Node};
+use crate::tree::node::LeafNode;
 use crate::tree::ratchet_tree::RatchetTree;
 use crate::welcome::{GroupInfo, Welcome};
-use citadel_types::crypto::KemAlgorithm;
 use citadel_types::errors::Error;
 use std::collections::HashSet;
 use zeroize::Zeroize;
@@ -81,16 +80,6 @@ impl GroupState {
         Self::bootstrap(tree, 0, founder_leaf_secret, &genesis_root)
     }
 
-    /// The suite a member seals hierarchy messages on: ML-KEM-1024 when every member's leaf is on
-    /// it, so every superior can open them, round 3 otherwise.
-    pub fn sealing_suite(&self) -> KemAlgorithm {
-        if every_leaf_is_current(&self.tree, None) {
-            crypto::CURRENT_SUITE
-        } else {
-            crypto::ROUND_3_SUITE
-        }
-    }
-
     /// The per-epoch application encryption secret (feeds the message ratchet — wired in M3).
     pub fn encryption_secret(&self) -> &Secret {
         &self.secrets.encryption_secret
@@ -100,9 +89,8 @@ impl GroupState {
     /// epoch. Returns the `Commit` to broadcast.
     pub fn commit_update(&mut self, fresh_leaf_secret: Secret) -> Result<Commit, Error> {
         let mut tree = self.tree.clone();
-        let suite = path_suite(&tree, self.own_leaf);
         let (path, root_secret, own_secrets) =
-            generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret, suite)?;
+            generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
         self.tree = tree;
         self.own_secrets = own_secrets;
         let commit = Commit {
@@ -130,7 +118,8 @@ impl GroupState {
     ) -> Result<(Commit, Welcome), Error> {
         let mut tree = self.tree.clone();
         let mut proposals = Vec::with_capacity(2);
-        let leaf = key_package.leaf_to_insert();
+        let leaf = key_package.leaf.clone();
+        crypto::suite_of(&leaf.kem_public)?;
         if let Some(stale) = tree.leaf_index_of_cid(leaf.cid) {
             if stale == self.own_leaf {
                 return Err(Error::generic(
@@ -144,9 +133,8 @@ impl GroupState {
         // Capture the previous epoch's init secret BEFORE advancing — the joiner needs it for the schedule.
         let prev_init = self.secrets.init_secret;
 
-        let suite = path_suite(&tree, self.own_leaf);
         let (path, root_secret, own_secrets) =
-            generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret, suite)?;
+            generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
 
         // The joiner ratchets up from the lowest node where its path meets the committer's re-keyed path.
         let n = tree.num_leaves();
@@ -197,9 +185,8 @@ impl GroupState {
     ) -> Result<Commit, Error> {
         let mut tree = self.tree.clone();
         tree.remove_leaf(leaf_index)?;
-        let suite = path_suite(&tree, self.own_leaf);
         let (path, root_secret, own_secrets) =
-            generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret, suite)?;
+            generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
         self.tree = tree;
         self.own_secrets = own_secrets;
         let commit = Commit {
@@ -220,6 +207,7 @@ impl GroupState {
         for proposal in &commit.proposals {
             match proposal {
                 Proposal::Add { leaf, leaf_index } => {
+                    crypto::suite_of(&leaf.kem_public)?;
                     tree.add_leaf_at(*leaf_index, leaf.clone())?
                 }
                 Proposal::Remove { leaf_index } => tree.remove_leaf(*leaf_index)?,
@@ -358,32 +346,6 @@ impl Drop for GroupState {
     }
 }
 
-/// The suite a committer re-keys its path in: ML-KEM-1024 when every other member's leaf is on it,
-/// so every member who opens a node of the path can, and round 3 while any member keys its leaf on
-/// round 3, as every member before 0.12.4 does. A node a member opens is one its committer derived
-/// at the time, so after the last round-3 member leaves, the next commit moves the path to
-/// ML-KEM-1024.
-fn path_suite(tree: &RatchetTree, committer: LeafIndex) -> KemAlgorithm {
-    if every_leaf_is_current(tree, Some(committer)) {
-        crypto::CURRENT_SUITE
-    } else {
-        crypto::ROUND_3_SUITE
-    }
-}
-
-/// Whether every live leaf, `except` one, is keyed on ML-KEM-1024.
-pub(crate) fn every_leaf_is_current(tree: &RatchetTree, except: Option<LeafIndex>) -> bool {
-    (0..tree.num_leaves())
-        .filter(|&i| Some(i) != except)
-        .all(|i| match tree.get(leaf_to_node(i)) {
-            Ok(Node::Leaf(leaf)) => matches!(
-                crypto::suite_of(&leaf.kem_public),
-                Ok(suite) if suite == crypto::CURRENT_SUITE
-            ),
-            _ => true,
-        })
-}
-
 /// Chain the transcript hash over an applied commit so every member's epoch secret is bound to the exact
 /// same commit history (a divergent commit yields a divergent epoch secret).
 fn next_transcript(prev: &[u8; 32], commit: &Commit) -> [u8; 32] {
@@ -400,8 +362,7 @@ mod tests {
     use crate::crypto::node_keypair_from_path_secret;
 
     fn member_leaf(cid: u64, secret: &Secret) -> LeafNode {
-        let (kem_public, _sk) =
-            node_keypair_from_path_secret(crate::crypto::CURRENT_SUITE, secret).unwrap();
+        let (kem_public, _sk) = node_keypair_from_path_secret(secret).unwrap();
         LeafNode {
             cid,
             kem_public,

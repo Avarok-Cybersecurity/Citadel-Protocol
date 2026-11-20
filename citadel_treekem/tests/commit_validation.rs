@@ -2,7 +2,7 @@
 //! every index must lie inside the tree, a refused commit leaves the member's state as it was, and
 //! no input makes the tree walk run past its step bound. Each case must finish within a deadline,
 //! in the release build as in the debug one.
-use citadel_treekem::crypto::{node_keypair_from_path_secret, CURRENT_SUITE};
+use citadel_treekem::crypto::node_keypair_from_path_secret;
 use citadel_treekem::node::{LeafNode, Node};
 use citadel_treekem::ratchet_tree::RatchetTree;
 use citadel_treekem::{Commit, GroupState, KeyPackage, Proposal, Welcome};
@@ -19,7 +19,7 @@ fn make_group(n: u32) -> Vec<GroupState> {
         .enumerate()
         .map(|(i, s)| LeafNode {
             cid: i as u64 + 100,
-            kem_public: node_keypair_from_path_secret(CURRENT_SUITE, s).unwrap().0,
+            kem_public: node_keypair_from_path_secret(s).unwrap().0,
             sig_public: vec![],
             leaf_index: 0,
             signature: vec![],
@@ -94,7 +94,7 @@ fn an_addition_past_the_next_slot_is_refused() {
     let mut commit = members[0].commit_update([0xAB; 32]).unwrap();
     let key_package = KeyPackage::generate(999, &[9u8; 32]).unwrap();
     commit.proposals = vec![Proposal::Add {
-        leaf: key_package.leaf_to_insert(),
+        leaf: key_package.leaf.clone(),
         leaf_index: u32::MAX / 2,
     }];
     let member = assert_refused_in_time(members.remove(1), commit);
@@ -111,7 +111,7 @@ fn an_addition_over_an_occupied_leaf_is_refused() {
     let mut commit = members[0].commit_update([0xAB; 32]).unwrap();
     let key_package = KeyPackage::generate(999, &[9u8; 32]).unwrap();
     commit.proposals = vec![Proposal::Add {
-        leaf: key_package.leaf_to_insert(),
+        leaf: key_package.leaf.clone(),
         leaf_index: 2,
     }];
     assert_refused_in_time(members.remove(1), commit);
@@ -138,9 +138,7 @@ fn welcome_for_new_member() -> (Welcome, [u8; 32]) {
     let founder_secret = [1u8; 32];
     let founder_leaf = LeafNode {
         cid: 1,
-        kem_public: node_keypair_from_path_secret(CURRENT_SUITE, &founder_secret)
-            .unwrap()
-            .0,
+        kem_public: node_keypair_from_path_secret(&founder_secret).unwrap().0,
         sig_public: vec![],
         leaf_index: 0,
         signature: vec![],
