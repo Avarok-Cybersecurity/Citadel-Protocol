@@ -185,10 +185,10 @@ pub async fn load_native_certs_async() -> Result<Vec<Certificate<'static>>, Erro
         .map_err(|err| std::io::Error::other(format!("{err:?}")))?
 }
 
-/// Loads native certs. This is an expensive operation, and should be called once per node.
+/// The system's trusted roots. The store is read once per process (`trust_store::native_roots`).
 /// A store the system could not read in full is refused (`TrustStoreUnavailable`).
 pub fn load_native_certs() -> Result<Vec<Certificate<'static>>, Error> {
-    crate::standard::trust_store::trust_store(&crate::standard::trust_store::NativeRoots)
+    crate::standard::trust_store::trust_store(crate::standard::trust_store::native_roots())
 }
 
 #[cfg(test)]

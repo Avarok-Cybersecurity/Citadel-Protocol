@@ -505,7 +505,7 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default()
+            let client = crate::test_common::node_builder()
                 .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
                 .with_max_security_level(crate::test_common::localhost_max_security_level())
@@ -637,7 +637,7 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default()
+            let client = crate::test_common::node_builder()
                 .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
                 .with_max_security_level(crate::test_common::localhost_max_security_level())
@@ -774,7 +774,7 @@ mod tests {
                     ))
                 },
             );
-            let client = DefaultNodeBuilder::default()
+            let client = crate::test_common::node_builder()
                 .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
                 .with_max_security_level(crate::test_common::localhost_max_security_level())

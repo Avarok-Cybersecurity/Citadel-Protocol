@@ -155,13 +155,13 @@ pub async fn run_scenario(relogin: Relogin) -> usize {
         )
     };
 
-    let client_a = DefaultNodeBuilder::default()
+    let client_a = citadel_sdk::test_common::node_builder()
         .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
         .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .build(kernel_a)
         .unwrap();
-    let client_b = DefaultNodeBuilder::default()
+    let client_b = citadel_sdk::test_common::node_builder()
         .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
         .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())

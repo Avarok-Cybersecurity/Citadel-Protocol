@@ -122,7 +122,7 @@ impl<K: NetKernel<R>, R: Ratchet> KernelExecutor<K, R> {
             link_mode,
         )
         .await
-        .map_err(|err| NetworkError::generic(err.to_string()))?;
+        .map_err(NetworkError::from)?;
 
         Ok(Self {
             kernel_executor_settings,

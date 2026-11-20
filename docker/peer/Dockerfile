@@ -1,6 +1,8 @@
 FROM rust:latest as builder
 WORKDIR /usr/src/peer
 COPY . .
+# The toolchain rust-toolchain.toml names, not the base image's.
+RUN rustup toolchain install
 COPY ./docker/set_nat.sh .
 COPY ./docker/peer/exec.sh .
 RUN apt-get update --fix-missing && apt-get install --fix-missing -y openssl libclang-dev build-essential cmake iptables inetutils-ping net-tools iproute2 && rm -rf /var/lib/apt/lists/*

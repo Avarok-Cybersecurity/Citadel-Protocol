@@ -86,10 +86,18 @@ runs:
         fi
         echo "OPENSSL_SRC_PERL=$perl" >> "$GITHUB_ENV"
 
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: ${{ inputs.targets }}
-        components: ${{ inputs.components }}
+    # The version is rust-toolchain.toml's, the one definition; rustup reads it from the checkout.
+    - name: Install the pinned toolchain
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+        COMPONENTS: ${{ inputs.components }}
+      run: |
+        set -euo pipefail
+        rustup toolchain install
+        for target in $(echo "$TARGETS" | tr ',' ' '); do rustup target add "$target"; done
+        for component in $(echo "$COMPONENTS" | tr ',' ' '); do rustup component add "$component"; done
+        rustc --version
 
     - if: steps.tools.outputs.list != ''
       uses: taiki-e/install-action@v2

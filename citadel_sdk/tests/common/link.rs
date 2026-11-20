@@ -6,7 +6,7 @@ use citadel_io::tokio;
 use citadel_io::tokio::io::{AsyncReadExt, AsyncWriteExt};
 use citadel_io::tokio::net::{TcpListener, TcpStream};
 use citadel_io::tokio::sync::{mpsc, oneshot};
-use citadel_sdk::prelude::{DefaultNodeBuilder, NetworkError, NodeRemote, StackedRatchet};
+use citadel_sdk::prelude::{NetworkError, NodeRemote, StackedRatchet};
 use citadel_sdk::test_common::LOCALHOST_STUN_SERVERS;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -147,7 +147,7 @@ pub async fn with_client<F, Fut>(
         Arc::new(NodeState::default()),
         move |remote: NodeRemote<StackedRatchet>, _| handler(remote, proxy_addr, seen),
     );
-    let mut builder = DefaultNodeBuilder::default();
+    let mut builder = citadel_sdk::test_common::node_builder();
     let client = builder
         .with_link_manager(mode)
         .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
