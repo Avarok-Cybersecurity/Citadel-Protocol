@@ -6,6 +6,11 @@ then runs code that neither review nor ci/lockfile_age_gate.py ever saw. This re
 CI runs: the `run:` text of each workflow and local action, the Dockerfiles those workflows build,
 the ci/ shell scripts they run, and the cargo-make tasks they call (with the tasks those depend on).
 
+`--locked` refuses a lockfile that no longer matches its manifests, so it only helps if the
+lockfile is kept current. The workspace's Cargo.lock is held to that by every pull-request build.
+A lockfile outside the workspace (the fuzz crate's) is built only on a schedule, so a stale one
+would surface there, days later. Each is checked here with `cargo metadata --locked`.
+
 A command is judged when it invokes a cargo subcommand that resolves the graph (RESOLVING), or
 wasm-pack, which forwards the arguments after `--` to cargo. Commands that never resolve
 (fmt, audit, which only reads the lockfile, and the like) are listed in NON_RESOLVING with the
@@ -15,8 +20,11 @@ Usage: cargo_locked_gate.py <repo root>
 """
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import sys
+from collections.abc import Callable
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,7 +161,46 @@ def task_lines(task: dict) -> list[str]:
     return lines
 
 
-def main(root: Path) -> int:
+SKIPPED_DIRS = {"target", "node_modules", ".git"}
+
+# Runs `cargo metadata --locked` for one manifest: (exit status, stderr).
+Resolve = Callable[[Path], tuple[int, str]]
+
+
+def cargo_metadata_locked(manifest: Path) -> tuple[int, str]:
+    done = subprocess.run(
+        ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(manifest)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )
+    return done.returncode, done.stderr
+
+
+def lockfiles_outside_the_workspace(root: Path) -> list[Path]:
+    """Every Cargo.lock below the root, other than the workspace's own, beside its manifest."""
+    found = []
+    for here, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if d not in SKIPPED_DIRS)
+        if "Cargo.lock" in files and Path(here) != root:
+            found.append(Path(here) / "Cargo.lock")
+    return sorted(found)
+
+
+def stale_lockfiles(root: Path, locks: list[Path], resolve: Resolve) -> list[Finding]:
+    findings = []
+    for lock in locks:
+        rel = lock.relative_to(root)
+        manifest = lock.with_name("Cargo.toml")
+        if not manifest.is_file():
+            findings.append(Finding(str(rel), "-", "has no Cargo.toml beside it"))
+            continue
+        status, stderr = resolve(manifest)
+        if status != 0:
+            reason = next((l for l in stderr.splitlines() if l.startswith("error")), "cargo metadata failed")
+            findings.append(Finding(str(rel), "cargo metadata --locked", f"is not current with its manifest ({reason})"))
+    return findings
+
+
+def main(root: Path, resolve: Resolve = cargo_metadata_locked) -> int:
     findings: list[Finding] = []
     called_tasks: set[str] = set()
     sources = sorted(root.glob(".github/workflows/*.y*ml")) + sorted(root.glob(".github/actions/**/action.y*ml"))
@@ -176,7 +223,12 @@ def main(root: Path) -> int:
     for name, task in sorted(tasks.items()):
         for line in task_lines(task):
             findings += judge_line(f"Makefile.toml [tasks.{name}]", line)
-    print(f"judged {len(sources)} workflow, action, Dockerfile and script sources and {len(tasks)} cargo-make tasks")
+    locks = lockfiles_outside_the_workspace(root)
+    findings += stale_lockfiles(root, locks, resolve)
+    print(
+        f"judged {len(sources)} workflow, action, Dockerfile and script sources, {len(tasks)} cargo-make tasks"
+        f" and {len(locks)} lockfile(s) outside the workspace"
+    )
     for f in findings:
         print(f"{f.where}: {f.problem}: {f.command}", file=sys.stderr)
     return 1 if findings else 0

@@ -119,3 +119,35 @@ class LockedGate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OutOfWorkspaceLockfiles(unittest.TestCase):
+    def tree(self) -> Path:
+        import tempfile
+        root = Path(tempfile.mkdtemp())
+        for d in ("", "fuzz", "target/debug", "web/node_modules/x"):
+            (root / d).mkdir(parents=True, exist_ok=True)
+            (root / d / "Cargo.lock").write_text("version = 4\n")
+        (root / "fuzz" / "Cargo.toml").write_text("[package]\n")
+        return root
+
+    def test_only_lockfiles_outside_the_workspace_and_build_dirs_are_found(self):
+        root = self.tree()
+        self.assertEqual(locked.lockfiles_outside_the_workspace(root), [root / "fuzz" / "Cargo.lock"])
+
+    def test_a_lockfile_cargo_would_rewrite_fails(self):
+        root = self.tree()
+        stale = lambda _m: (101, "error: cannot update the lock file because --locked was passed\n")
+        found = locked.stale_lockfiles(root, locked.lockfiles_outside_the_workspace(root), stale)
+        self.assertEqual(len(found), 1)
+        self.assertIn("not current", found[0].problem)
+
+    def test_a_current_lockfile_passes(self):
+        root = self.tree()
+        self.assertEqual(locked.stale_lockfiles(root, locked.lockfiles_outside_the_workspace(root), lambda _m: (0, "")), [])
+
+    def test_a_lockfile_without_a_manifest_fails(self):
+        root = self.tree()
+        (root / "fuzz" / "Cargo.toml").unlink()
+        found = locked.stale_lockfiles(root, locked.lockfiles_outside_the_workspace(root), lambda _m: (0, ""))
+        self.assertEqual([f.problem for f in found], ["has no Cargo.toml beside it"])
