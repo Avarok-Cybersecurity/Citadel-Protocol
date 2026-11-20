@@ -15,9 +15,7 @@ use citadel_crypt::prelude::Toolset;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_user::auth::pq::admission::{self, AdmissionContext, AdmissionKind};
-use citadel_user::auth::pq::messages::{
-    AuthChallenge, ChallengeCeremony, RecoverDone, RecoverProof, RecoverStart,
-};
+use citadel_user::auth::pq::messages::{AuthChallenge, RecoverDone, RecoverProof, RecoverStart};
 use citadel_user::auth::pq::recover_transcript;
 use citadel_user::auth::pq::server::{build_recovery_challenge, MAX_LABEL_CHARS};
 use citadel_user::auth::pq::throttle::Attempt;
@@ -54,9 +52,12 @@ pub(crate) async fn on_start<R: Ratchet, T: PlatformOps>(
         return Err(error!(ErrorCode::PqSignInMalformed, "a device label"));
     }
     let account_manager = &session.account_manager;
-    let settings = account_manager
-        .pq_settings()
-        .ok_or_else(|| error!(ErrorCode::RecoveryUnsupported))?;
+    let settings = account_manager.pq_settings().ok_or_else(|| {
+        error!(
+            ErrorCode::PqSignInUnavailable,
+            "this server has no post-quantum sign-in settings"
+        )
+    })?;
     super::super::throttle::admit(session, &username, Attempt::Recovery)?;
     let source = Some(session.remote_peer.ip());
     let ctx = AdmissionContext {
@@ -66,7 +67,7 @@ pub(crate) async fn on_start<R: Ratchet, T: PlatformOps>(
         remote_addr: source,
     };
     let policy = super::super::admission::policy(session);
-    admission::check(policy.as_ref(), ctx, false).await?;
+    admission::check(policy.as_ref(), ctx).await?;
     let record = account_manager
         .get_client_by_username(&username)
         .await?
@@ -74,9 +75,7 @@ pub(crate) async fn on_start<R: Ratchet, T: PlatformOps>(
     let (challenge, expected) = build_recovery_challenge(settings, record.as_ref(), &start.login)?;
     let challenge = AuthChallenge {
         challenge,
-        ceremony: Some(ChallengeCeremony {
-            rp_id: settings.security_key_rp_id().map(str::to_owned),
-        }),
+        ceremony: super::super::challenge::ceremony(Some(settings)),
     };
     let mut state = inner_mut_state!(session.state_container);
     let recover = &mut state.register_state.pq.recover;

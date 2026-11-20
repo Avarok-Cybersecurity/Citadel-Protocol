@@ -5,7 +5,7 @@
 //! The PRF options are built as plain objects: `web-sys` gates its PRF bindings behind
 //! `web_sys_unstable_apis`, which every downstream build would then have to set.
 
-use super::reason::{relying_party, ALREADY_ENROLLED, CANCELLED, NO_PRF};
+use super::reason::{ALREADY_ENROLLED, CANCELLED, NO_PRF};
 use super::{security_key_channel, SecurityKeyChallenge, SecurityKeyPrf, KEY_PRESENCE_WINDOW};
 use crate::proto::misc::wasm_promise::settle;
 use citadel_user::auth::pq::client::{SecurityKeyCeremony, SecurityKeyRequest};
@@ -113,7 +113,7 @@ async fn create(
     exclude_credential_ids: &[Vec<u8>],
     signal: &AbortSignal,
 ) -> Result<Vec<u8>, String> {
-    let rp = relying_party(request)?;
+    let rp = request.rp_id.as_str();
     let rp_id = JsValue::from_str(rp);
     let public_key = object(&[
         ("rp", object(&[("id", rp_id.clone()), ("name", rp_id)])),
@@ -170,7 +170,7 @@ async fn authenticate(
     credential_ids: &[Vec<u8>],
     signal: &AbortSignal,
 ) -> Outcome {
-    let rp = relying_party(request)?;
+    let rp = request.rp_id.as_str();
     let eval = object(&[("first", bytes(&request.prf_eval_salt))]);
     let public_key = object(&[
         ("challenge", bytes(&UNSIGNED_CHALLENGE)),

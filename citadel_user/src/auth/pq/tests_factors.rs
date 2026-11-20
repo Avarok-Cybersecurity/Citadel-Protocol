@@ -43,11 +43,10 @@ async fn with_key(policy: SignInPolicy) -> PqAuthRecord {
 async fn password_and_key_needs_both() {
     let record = with_key(SignInPolicy::PasswordAndKey).await;
     let both = begin(Some(&record), "alice", Some("correct horse"), None);
-    let request =
-        ClientLogin::security_key_request(&both.challenge, RelyingParty::Named(Some(RP_ID)))
-            .unwrap()
-            .unwrap();
-    assert_eq!(request.rp_id.as_deref(), Some(RP_ID));
+    let request = ClientLogin::security_key_request(&both.challenge, RelyingParty(Some(RP_ID)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(request.rp_id, RP_ID);
     assert_eq!(
         request.ceremony,
         SecurityKeyCeremony::Authenticate {
@@ -88,7 +87,7 @@ async fn key_only_signs_in_without_a_password_and_ignores_one() {
 
     let password = begin(Some(&record), "alice", Some("correct horse"), None);
     assert!(
-        ClientLogin::security_key_request(&password.challenge, RelyingParty::Named(Some(RP_ID)))
+        ClientLogin::security_key_request(&password.challenge, RelyingParty(Some(RP_ID)))
             .unwrap()
             .is_some(),
         "a key-only account challenges its keys"
@@ -104,7 +103,6 @@ async fn a_key_cannot_be_asked_without_the_servers_relying_party() {
     let (start, _) = ClientLogin::start("alice", None, None).unwrap();
     let account = AccountAuth::PostQuantum(&record);
     let (challenge, _) = build_login_challenge(&settings_without_keys(), account, &start).unwrap();
-    let refused =
-        ClientLogin::security_key_request(&challenge, RelyingParty::Named(None)).unwrap_err();
+    let refused = ClientLogin::security_key_request(&challenge, RelyingParty(None)).unwrap_err();
     assert_eq!(refused.code, ErrorCode::PqSignInUnavailable);
 }

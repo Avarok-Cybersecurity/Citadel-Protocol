@@ -3,7 +3,6 @@
 
 use super::packets::{self, Kind};
 use super::refusal::{fail_login, failure};
-use super::runs_with;
 use super::security_key::SecurityKeyPurpose;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
@@ -32,18 +31,16 @@ fn kind(aux: u8) -> Kind {
 }
 
 /// Client, once pre-connect has finished: the `AUTH_START` to send in place of STAGE0, when the
-/// server runs post-quantum sign-in and the caller offered factors. `None` keeps the legacy login.
+/// caller offered factors. `None` keeps the legacy login.
 pub(crate) fn begin<R: Ratchet>(
     state: &mut StateContainerInner<R>,
     ratchet: &R,
     resume: Option<ResumeToken>,
-    server_version: u32,
     timestamp: i64,
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<Option<BytesMut>, NetworkError> {
-    let offered = state.connect_state.pq.offered.take();
-    let Some(offered) = offered.filter(|_| runs_with(server_version)) else {
+    let Some(offered) = state.connect_state.pq.offered.take() else {
         return Ok(None);
     };
     let username = state
@@ -58,10 +55,6 @@ pub(crate) fn begin<R: Ratchet>(
                 ErrorCode::PqSignInMalformed,
                 "a sign-in offering both a recovery code and a recovery phrase"
             ))
-        }
-        // A server below it would answer a phrase with a decoy: say why instead.
-        (None, Some(_)) if !super::recover::server_recovers(Some(server_version)) => {
-            return Err(error!(ErrorCode::RecoveryUnsupported))
         }
         (None, Some(phrase)) => Some(RecoveryOffer::Phrase(phrase)),
         (Some(code), None) => Some(RecoveryOffer::Code(code)),
@@ -87,14 +80,12 @@ pub(crate) fn begin<R: Ratchet>(
     Ok(Some(packet))
 }
 
-/// Server: answers `AUTH_START` with a challenge in the layout the client at `client_version`
-/// reads, and remembers what STAGE0 must prove.
+/// Server: answers `AUTH_START` with a challenge, and remembers what STAGE0 must prove.
 pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cnac: &ClientNetworkAccount<R, R>,
     ratchet: &R,
     payload: &[u8],
-    client_version: u32,
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -125,8 +116,8 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
                 .attempt = Some(attempt);
             let ctx = super::admission::sign_in(session, cnac.get_cid(), &start).await;
             let policy = super::admission::policy(session);
-            admission::then(policy.as_ref(), ctx, false, || {
-                super::challenge::issue(session, cnac, ratchet.get_cid(), &start, client_version)
+            admission::then(policy.as_ref(), ctx, || {
+                super::challenge::issue(session, cnac, ratchet.get_cid(), &start)
             })
             .await
         }
@@ -167,7 +158,6 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
     payload: &[u8],
-    server_version: u32,
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -186,7 +176,7 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
         return_if_none!(pending, "AUTH_CHALLENGE without a login in flight");
     let credentials = return_if_none!(credentials, "Proposed creds not loaded");
     let cid = ratchet.get_cid();
-    let sent = match super::challenge::read(payload, server_version) {
+    let sent = match super::challenge::read(payload) {
         Ok(sent) => sent,
         Err(err) => return fail_login(session, cid, err.into_string()),
     };

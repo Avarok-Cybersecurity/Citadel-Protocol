@@ -3,8 +3,6 @@ use crate::auth::pq::kem::FactorKeypair;
 use crate::auth::pq::messages::{RegFinish, RegReply, RegStart};
 use crate::auth::pq::oprf::{self, OprfClientState};
 use crate::auth::pq::phrase::{RecoveryPhrase, RecoverySeed};
-use crate::auth::pq::recovery::RecoveryCode;
-use crate::auth::pq::seed::recovery_seed;
 use crate::misc::AccountError;
 use citadel_types::crypto::SecBuffer;
 use zeroize::Zeroizing;
@@ -36,7 +34,6 @@ impl ClientRegistration {
             oprf_blinded,
             // Set by the registration that sends this.
             admission: None,
-            reads_challenge: true,
         };
         Ok((start, Self { input, oprf }))
     }
@@ -55,17 +52,9 @@ impl ClientRegistration {
     ) -> Result<(RegFinish, IssuedRecovery), AccountError> {
         let password = self.password_keypair(reply).await?;
         let mut issued = IssuedRecovery::default();
-        let mut recovery_eks = Vec::new();
         let mut recovery_phrase_ek = None;
         match recovery {
             NewRecovery::None => {}
-            NewRecovery::Codes => {
-                issued.codes = RecoveryCode::generate_set();
-                for code in &issued.codes {
-                    let keypair = FactorKeypair::derive(&recovery_seed(code))?;
-                    recovery_eks.push(keypair.encapsulation_key().clone());
-                }
-            }
             NewRecovery::Phrase {
                 username,
                 canonical_domain,
@@ -78,7 +67,6 @@ impl ClientRegistration {
         }
         let finish = RegFinish {
             password_ek: password.encapsulation_key().clone(),
-            recovery_eks,
             recovery_phrase_ek,
         };
         Ok((finish, issued))
@@ -88,10 +76,9 @@ impl ClientRegistration {
 /// What recovery credential a new account is given.
 #[derive(Clone, Copy, Debug)]
 pub enum NewRecovery<'a> {
-    /// None: an account upgrading from a legacy record.
+    /// None: an account upgrading from a legacy record, or one given no domain to bind a phrase
+    /// to.
     None,
-    /// Ten single-use codes, for a server below the recovery release.
-    Codes,
     /// The recovery phrase, bound to the server's canonical domain and the username.
     Phrase {
         username: &'a str,
@@ -102,14 +89,12 @@ pub enum NewRecovery<'a> {
 /// The recovery secret a registration generated, to show the user once.
 #[derive(Default)]
 pub struct IssuedRecovery {
-    pub codes: Vec<RecoveryCode>,
     pub phrase: Option<RecoverySeed>,
 }
 
 impl std::fmt::Debug for IssuedRecovery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IssuedRecovery")
-            .field("codes", &self.codes.len())
             .field("phrase", &self.phrase.as_ref().map(|_| "***"))
             .finish()
     }

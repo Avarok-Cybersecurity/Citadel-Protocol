@@ -3,16 +3,19 @@
 use super::client::{
     ClientLogin, ClientProof, ClientRegistration, NewRecovery, RecoveryOffer, SecurityKeyAnswer,
 };
+use super::kem::FactorKeypair;
 use super::login_transcript;
 use super::messages::{
     AuthChallenge, ChallengeBody, ChallengeCeremony, LoginChallenge, LoginProof, LoginStart,
+    ServerOutcome,
 };
 use super::oprf::OprfSeed;
-use super::record::{KsfParams, PqAuthRecord};
+use super::record::{KsfParams, PqAuthRecord, RecoverySecret};
 use super::recovery::RecoveryCode;
+use super::seed::recovery_seed;
 use super::server::{
-    build_login_challenge, registration_reply, AccountAuth, Expectation, PqAuthServerSettings,
-    VerifiedLogin,
+    build_login_challenge, registration_reply, AccountAuth, Change, Expectation,
+    PqAuthServerSettings, VerifiedLogin,
 };
 use super::throttle::ThrottlePolicy;
 use citadel_io::tokio;
@@ -39,13 +42,13 @@ pub(crate) fn settings() -> PqAuthServerSettings {
         .unwrap()
 }
 
-/// `challenge` as a server at the security-key ceremony sends it.
+/// `challenge` as a server sends it.
 pub(crate) fn sent(challenge: &LoginChallenge) -> AuthChallenge {
     AuthChallenge {
         challenge: challenge.clone(),
-        ceremony: Some(ChallengeCeremony {
+        ceremony: ChallengeCeremony {
             rp_id: Some(RP_ID.into()),
-        }),
+        },
     }
 }
 
@@ -53,13 +56,25 @@ pub(crate) fn password(text: &str) -> SecBuffer {
     SecBuffer::from(text.as_bytes().to_vec())
 }
 
-/// Registers `alice` with `pw`; returns her record and recovery codes.
+/// Registers `alice` with `pw`, then gives her recovery codes as `RegenerateRecoveryCodes` does;
+/// returns her record and the codes.
 pub(crate) async fn register(pw: &str) -> (PqAuthRecord, Vec<RecoveryCode>) {
     let s = settings();
     let (start, client) = ClientRegistration::start("alice", &password(pw)).unwrap();
     let (reply, pending) = registration_reply(&s, &start).unwrap();
-    let (finish, issued) = client.finish(&reply, NewRecovery::Codes).await.unwrap();
-    (pending.finish(finish, 1_000).unwrap(), issued.codes)
+    let (finish, _) = client.finish(&reply, NewRecovery::None).await.unwrap();
+    let mut record = pending.finish(finish, 1_000).unwrap();
+    let codes = RecoveryCode::generate_set();
+    let eks = codes
+        .iter()
+        .map(|code| {
+            let keypair = FactorKeypair::derive(&recovery_seed(code)).unwrap();
+            keypair.encapsulation_key().clone()
+        })
+        .collect();
+    let replaced = Change::ReplaceRecovery(RecoverySecret::Codes(eks)).apply(&mut record, 1_000);
+    assert_eq!(replaced.unwrap(), ServerOutcome::RecoveryCodesReplaced);
+    (record, codes)
 }
 
 /// One login's messages, so a test can tamper with any of them.

@@ -47,19 +47,18 @@ pub struct RegisterToHypernode {
     /// remembers it, so later credentialed connects dial it too. `None` dials `remote_addr`.
     pub endpoint: Option<citadel_io::WebSocketEndpoint>,
     /// The password as the user typed it (trimmed, as `ProposedCredentials::new_register` trims
-    /// it), for a post-quantum registration with a server at `PQ_SIGN_IN_SINCE` or later. The
-    /// server never sees it: the client turns it into an ML-KEM key. `None` registers the legacy
-    /// way only.
+    /// it), for a post-quantum registration. The server never sees it: the client turns it into
+    /// an ML-KEM key. `None` registers the legacy way, as does a server with no post-quantum
+    /// settings.
     pub password: Option<citadel_types::crypto::SecBuffer>,
     /// What this connection demands of the server's certificate. Required: there is no default.
     pub cert_verification: citadel_io::CertVerification,
     /// The registration's admission token, for a server that asks for one (see
     /// `citadel_user::auth::pq::admission`). Sent only inside the post-quantum channel.
     pub admission: Option<String>,
-    /// The server's canonical domain, which the new account's recovery phrase is bound to. A
-    /// server at `RECOVERY_SINCE` or later gives a new account the phrase, and only with this;
-    /// `None` there registers an account with no recovery credential until the user makes a
-    /// phrase. A server below it is given ten recovery codes instead, as before.
+    /// The server's canonical domain, which the new account's recovery phrase is bound to. A new
+    /// account is given the phrase only with this; `None` registers an account with no recovery
+    /// credential until the user makes a phrase.
     pub recovery_domain: Option<String>,
 }
 

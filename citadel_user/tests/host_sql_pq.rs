@@ -11,9 +11,13 @@ use citadel_io::tokio;
 use citadel_types::crypto::SecBuffer;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::pq::client::{ClientRegistration, NewRecovery};
+use citadel_user::auth::pq::kem::FactorKeypair;
+use citadel_user::auth::pq::messages::ServerOutcome;
 use citadel_user::auth::pq::oprf::OprfSeed;
-use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
-use citadel_user::auth::pq::server::{registration_reply, PqAuthServerSettings};
+use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord, RecoverySecret};
+use citadel_user::auth::pq::recovery::RecoveryCode;
+use citadel_user::auth::pq::seed::recovery_seed;
+use citadel_user::auth::pq::server::{registration_reply, Change, PqAuthServerSettings};
 use citadel_user::auth::pq::throttle::ThrottlePolicy;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::auth::{DeclaredAuthenticationMode, PqAuthSide};
@@ -40,8 +44,19 @@ async fn record(username: &str) -> PqAuthRecord {
     let password = SecBuffer::from(b"pw-host-sql".to_vec());
     let (start, client) = ClientRegistration::start(username, &password).unwrap();
     let (reply, pending) = registration_reply(&settings(), &start).unwrap();
-    let (finish, _) = client.finish(&reply, NewRecovery::Codes).await.unwrap();
-    pending.finish(finish, 5).unwrap()
+    let (finish, _) = client.finish(&reply, NewRecovery::None).await.unwrap();
+    let mut record = pending.finish(finish, 5).unwrap();
+    // The account holds recovery codes, as `RegenerateRecoveryCodes` gives it.
+    let eks = RecoveryCode::generate_set()
+        .iter()
+        .map(|code| {
+            let keypair = FactorKeypair::derive(&recovery_seed(code)).unwrap();
+            keypair.encapsulation_key().clone()
+        })
+        .collect();
+    let replaced = Change::ReplaceRecovery(RecoverySecret::Codes(eks)).apply(&mut record, 5);
+    assert_eq!(replaced.unwrap(), ServerOutcome::RecoveryCodesReplaced);
+    record
 }
 
 async fn cnac(cid: u64, auth_store: DeclaredAuthenticationMode) -> Cnac {

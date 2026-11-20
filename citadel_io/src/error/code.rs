@@ -1178,9 +1178,7 @@ pub enum ErrorCode {
     /// The server's admission check refused the token that was sent (reason).
     #[form = "The verification check failed: {}"]
     PqSignInAdmissionFailed = 351,
-    /// The server requires an admission check, and the client is too old to send one.
-    #[form = "This workspace needs a newer app to sign in; update your app"]
-    PqSignInAdmissionNeedsUpdate = 352,
+    // 352 is retired: never reuse it.
     /// The security key, or whoever serves the key channel, declined; the message says why, in
     /// words for the user.
     #[form = "{}"]
@@ -1341,9 +1339,7 @@ pub enum ErrorCode {
     /// or a check that does not match). It says nothing about any account.
     #[form = "Not a recovery phrase: {}"]
     RecoveryPhraseUnreadable = 511,
-    /// The server is below the protocol version that recovers accounts and sets passwords.
-    #[form = "The server predates account recovery; it must be updated first"]
-    RecoveryUnsupported = 512,
+    // 512 is retired: never reuse it.
     /// A sign-in throttle policy with a limit that would admit nothing or lock nothing (reason).
     #[form = "Invalid sign-in throttle policy: {}"]
     SignInThrottlePolicyInvalid = 513,

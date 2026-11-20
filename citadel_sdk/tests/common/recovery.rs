@@ -32,10 +32,6 @@ pub async fn with_phrase(
         CertVerification::SelfSignedAccepted,
     );
     let reg = reg.await?;
-    assert!(
-        reg.recovery_codes.is_empty(),
-        "a new account was given codes"
-    );
     let words = reg
         .recovery_phrase
         .expect("a new account was given no phrase");

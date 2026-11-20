@@ -6,7 +6,6 @@ use super::kem::{FactorKeypair, FactorSeed, SEED_LEN};
 use super::management_transcript;
 use super::messages::{
     key_binding, CommitCeremony, ManagementBegin, ManagementOp, NewSecurityKey, ServerOutcome,
-    SignInLayout,
 };
 use super::record::PqAuthRecord;
 use super::seed::PrfOutput;
@@ -16,7 +15,6 @@ use citadel_io::{tokio, ErrorCode};
 use citadel_types::auth::{FactorKind, SessionScope, SignInManagementOp, SignInPolicy};
 
 const CRED: &[u8] = b"new-key";
-const CEREMONY: SignInLayout = SignInLayout::SecurityKeyCeremony;
 
 fn add_key() -> SignInManagementOp {
     SignInManagementOp::AddSecurityKey {
@@ -42,7 +40,7 @@ async fn change(
 ) -> Result<ServerOutcome, citadel_io::NetworkError> {
     let pw = step_up.map(password);
     let (begin, client) = ClientManagement::begin("alice", op, pw.as_ref(), None)?;
-    let (challenge, pending) = begin_management(&settings(), CID, record, scope, begin, CEREMONY)?;
+    let (challenge, pending) = begin_management(&settings(), CID, record, scope, begin)?;
     let new_key = prf.map(created);
     let (commit, committed) = client.commit(CID, &challenge, None, new_key).await?;
     let change = match pending.commit(&commit)? {
@@ -103,15 +101,8 @@ async fn a_key_is_enrolled_only_with_its_proof() {
     let (mut record, _) = register("pw").await;
     let (begin, client) =
         ClientManagement::begin("alice", add_key(), Some(&password("pw")), None).unwrap();
-    let (challenge, pending) = begin_management(
-        &settings(),
-        CID,
-        &record,
-        SessionScope::Full,
-        begin,
-        CEREMONY,
-    )
-    .unwrap();
+    let (challenge, pending) =
+        begin_management(&settings(), CID, &record, SessionScope::Full, begin).unwrap();
     let (commit, committed) = client
         .commit(CID, &challenge, None, Some(created(5)))
         .await
@@ -162,7 +153,6 @@ async fn a_server_without_a_relying_party_enrols_no_key() {
         &record,
         SessionScope::Full,
         begin,
-        CEREMONY,
     );
     assert_eq!(
         refused.err().map(|err| err.code),
@@ -175,26 +165,16 @@ async fn a_step_up_is_bound_to_its_change_and_to_the_key_being_added() {
     let (record, _) = register("pw").await;
     let list = SignInManagementOp::ListCredentials;
     let (begin, _) = ClientManagement::begin("alice", list, Some(&password("pw")), None).unwrap();
-    let (challenge, _) = begin_management(
-        &settings(),
-        CID,
-        &record,
-        SessionScope::Full,
-        begin.clone(),
-        CEREMONY,
-    )
-    .unwrap();
+    let (challenge, _) =
+        begin_management(&settings(), CID, &record, SessionScope::Full, begin.clone()).unwrap();
     let remove = ManagementBegin {
         op: ManagementOp::RemoveCredential { id: 1 },
         ..begin.clone()
     };
-    let no_key = key_binding(
-        &None,
-        Some(&CommitCeremony {
-            password_ek: None,
-            new_key: None,
-        }),
-    );
+    let no_key = key_binding(&CommitCeremony {
+        password_ek: None,
+        new_key: None,
+    });
     let base = management_transcript(CID, &begin, &challenge, &no_key);
     assert_ne!(
         base,
@@ -207,13 +187,10 @@ async fn a_step_up_is_bound_to_its_change_and_to_the_key_being_added() {
     };
     let binding = |credential_id: &[u8]| {
         let new_key = Some(key(credential_id));
-        key_binding(
-            &None,
-            Some(&CommitCeremony {
-                password_ek: None,
-                new_key,
-            }),
-        )
+        key_binding(&CommitCeremony {
+            password_ek: None,
+            new_key,
+        })
     };
     let with_key = management_transcript(CID, &begin, &challenge, &binding(CRED));
     assert_ne!(base, with_key);
@@ -236,17 +213,10 @@ async fn a_new_key_is_created_for_the_relying_party_away_from_the_accounts_keys(
     assert!(matches!(first.await.unwrap(), ServerOutcome::Added { .. }));
     let (begin, client) =
         ClientManagement::begin("alice", add_key(), Some(&password("pw")), None).unwrap();
-    let (challenge, _) = begin_management(
-        &settings(),
-        CID,
-        &record,
-        SessionScope::Full,
-        begin,
-        CEREMONY,
-    )
-    .unwrap();
+    let (challenge, _) =
+        begin_management(&settings(), CID, &record, SessionScope::Full, begin).unwrap();
     let request = client.new_key_request(&challenge).unwrap().unwrap();
-    assert_eq!(request.rp_id.as_deref(), Some(RP_ID));
+    assert_eq!(request.rp_id, RP_ID);
     assert_eq!(request.prf_eval_salt, record.prf_eval_salt);
     let SecurityKeyCeremony::Register {
         user_name,

@@ -7,7 +7,6 @@
 //! fresh sign-in, as `AdmissionKind::Recover`: it is the surface a guesser needs no bundle for. A
 //! server without a policy admits everyone.
 
-use super::runs_with;
 use crate::error::NetworkError;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::session::CitadelSession;
@@ -53,14 +52,13 @@ pub(crate) async fn sign_in<R: Ratchet, T: PlatformOps>(
     Some(context(session, &start.username, kind, token))
 }
 
-/// A login that sent no `AUTH_START`: a client below 0.12, which cannot carry a token, or a
-/// transient one. `presented` is the resume token its STAGE0 carried.
+/// A login that sent no `AUTH_START`: a passwordless one, or one that offered no factors.
+/// `presented` is the resume token its STAGE0 carried.
 pub(crate) async fn legacy_sign_in<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cid: u64,
     username: &str,
     presented: Option<&ResumeToken>,
-    adjacent_version: u32,
 ) -> Result<(), NetworkError> {
     if let Some(token) = presented {
         if session
@@ -73,7 +71,7 @@ pub(crate) async fn legacy_sign_in<R: Ratchet, T: PlatformOps>(
     }
     let ctx = context(session, username, AdmissionKind::SignIn, None);
     let policy = policy(session);
-    admission::check(policy.as_ref(), ctx, is_legacy_client(adjacent_version)).await
+    admission::check(policy.as_ref(), ctx).await
 }
 
 /// What a registration is asked: `PQ_START`'s token, or none for a legacy STAGE2.
@@ -83,11 +81,6 @@ pub(crate) fn register<R: Ratchet, T: PlatformOps>(
     token: Option<AdmissionToken>,
 ) -> AdmissionContext {
     context(session, username, AdmissionKind::Register, token)
-}
-
-/// A client below protocol 0.12 has no way to send a token, so a refusal tells it to update.
-pub(crate) fn is_legacy_client(adjacent_version: u32) -> bool {
-    !runs_with(adjacent_version)
 }
 
 fn context<R: Ratchet, T: PlatformOps>(

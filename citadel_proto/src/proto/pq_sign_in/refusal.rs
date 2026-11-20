@@ -70,21 +70,15 @@ pub(crate) fn fail_login<R: Ratchet, T: PlatformOps>(
 /// No UTF-8 text begins with it, so the two cannot be confused.
 const STRUCTURED: u8 = 0xFF;
 
-/// A registration FAILURE that carries a challenge or an error code. Sent only to a client that
-/// reads one: an older client takes the whole payload for the message.
+/// A post-quantum registration's FAILURE: its message, its challenge and its error code.
 #[derive(Serialize, Deserialize)]
 struct RegisterRefusal {
     message: String,
     /// A provider this client does not know reads as none: the refusal is still recognised.
     #[serde(default, deserialize_with = "citadel_user::wire_compat::ok_or_default")]
     admission_challenge: Option<AdmissionChallenge>,
-    /// The failure's stable error code, for a client at `RECOVERY_SINCE` or later. Appended.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "citadel_negotiation::frame::appended_field"
-    )]
-    code: Option<u16>,
+    /// The failure's stable error code.
+    code: u16,
 }
 
 /// What a registration FAILURE told the client.
@@ -94,19 +88,11 @@ pub(crate) struct ReadRefusal {
     pub code: Option<u16>,
 }
 
-/// Server: the registration FAILURE payload for `err`, for a client that reads a challenge
-/// (`reads_challenge`) and an error code (`reads_code`, a client at `RECOVERY_SINCE` or later).
-pub(crate) fn register_failure(
-    err: NetworkError,
-    reads_challenge: bool,
-    reads_code: bool,
-) -> Vec<u8> {
-    let admission_challenge = challenge_of(&err).cloned().filter(|_| reads_challenge);
-    let code = reads_code.then(|| err.code_u16());
+/// Server: the registration FAILURE payload for `err`.
+pub(crate) fn register_failure(err: NetworkError) -> Vec<u8> {
+    let admission_challenge = challenge_of(&err).cloned();
+    let code = err.code_u16();
     let message = err.into_string();
-    if admission_challenge.is_none() && code.is_none() {
-        return message.into_bytes();
-    }
     let refusal = RegisterRefusal {
         message,
         admission_challenge,
@@ -133,7 +119,7 @@ pub(crate) fn read_register_failure(payload: Vec<u8>) -> ReadRefusal {
             Ok(refusal) => ReadRefusal {
                 message: refusal.message,
                 admission_challenge: refusal.admission_challenge,
-                code: refusal.code,
+                code: Some(refusal.code),
             },
             Err(_) => plain("Malformed registration refusal".to_string()),
         },

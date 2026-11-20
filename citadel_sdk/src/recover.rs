@@ -46,8 +46,8 @@ pub trait AccountRecoveryExt<R: Ratchet>: Remote<R> {
     /// Recovers `recovery.username` at the server at `addr`. A wrong phrase, an unknown name, a
     /// throttled attempt and a server that cannot install the bundle all fail alike
     /// (`PqSignInFailed`); a server that asks admission refuses without a token
-    /// (`PqSignInAdmissionRequired`); a server below the recovery release is refused before
-    /// anything is sent (`RecoveryUnsupported`).
+    /// (`PqSignInAdmissionRequired`); a server with no post-quantum settings cannot recover
+    /// (`PqSignInUnavailable`).
     async fn recover<T: std::net::ToSocketAddrs + Send>(
         &self,
         addr: T,
