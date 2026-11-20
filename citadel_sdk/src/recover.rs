@@ -23,10 +23,10 @@
 //! // Every other device's bundle is revoked. Sign in with the phrase, to a session that may only
 //! // manage credentials: set a new password, then sign in with it.
 //! let conn = remote
-//!     .connect_with_defaults(AuthenticationRequest::sign_in(
-//!         recovered.cid,
-//!         SignInFactors::recovery_phrase(phrase),
-//!     ))
+//!     .connect_with_defaults(
+//!         AuthenticationRequest::sign_in(recovered.cid, SignInFactors::recovery_phrase(phrase)),
+//!         CertVerification::Required,
+//!     )
 //!     .await?;
 //! conn.set_password("a new password", SignInFactors::default()).await?;
 //! # Ok(()) }

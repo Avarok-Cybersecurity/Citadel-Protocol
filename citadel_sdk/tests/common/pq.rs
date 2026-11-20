@@ -154,6 +154,7 @@ pub fn with_device(
         std::future::pending::<Result<(), NetworkError>>()
     });
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_backend(BackendType::InMemory)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
         .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
