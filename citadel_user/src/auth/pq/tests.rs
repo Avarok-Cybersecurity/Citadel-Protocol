@@ -39,13 +39,13 @@ pub(crate) fn settings() -> PqAuthServerSettings {
         .unwrap()
 }
 
-/// `challenge` as a server at the security-key ceremony sends it.
+/// `challenge` as a server sends it.
 pub(crate) fn sent(challenge: &LoginChallenge) -> AuthChallenge {
     AuthChallenge {
         challenge: challenge.clone(),
-        ceremony: Some(ChallengeCeremony {
+        ceremony: ChallengeCeremony {
             rp_id: Some(RP_ID.into()),
-        }),
+        },
     }
 }
 

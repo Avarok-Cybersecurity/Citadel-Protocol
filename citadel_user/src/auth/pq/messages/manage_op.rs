@@ -1,20 +1,12 @@
 //! The change a management exchange makes, as it travels.
 
-use super::SignInLayout;
 use citadel_types::auth::{FactorId, SignInPolicy};
 use serde::{Deserialize, Serialize};
 
-/// A change on the wire: `SignInManagementOp` in 0.12.2's variant order, with each later variant
-/// appended, so an older peer's index for every variant it knows is unchanged. A client sends the
-/// appended ones only to a server that reads them.
+/// A change on the wire: `SignInManagementOp` as it travels.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ManagementOp {
     ListCredentials,
-    /// 0.12.2's enrolment: the application created the credential before the exchange.
-    AddCreatedSecurityKey {
-        credential_id: Vec<u8>,
-        label: String,
-    },
     RenameCredential {
         id: FactorId,
         label: String,
@@ -47,25 +39,12 @@ impl ManagementOp {
         matches!(
             self,
             Self::ListCredentials
-                | Self::AddCreatedSecurityKey { .. }
                 | Self::AddSecurityKey { .. }
                 | Self::RemoveCredential { .. }
                 | Self::SetSignInPolicy { .. }
                 | Self::SetPassword { .. }
                 | Self::RegenerateRecoveryPhrase
         )
-    }
-
-    /// The layout a peer must speak to send this change. The recovery-release changes carry their
-    /// fields in the ceremony layout's appended parts.
-    pub fn layout(&self) -> Option<SignInLayout> {
-        match self {
-            Self::AddCreatedSecurityKey { .. } => Some(SignInLayout::V0_12_2),
-            Self::AddSecurityKey { .. }
-            | Self::SetPassword { .. }
-            | Self::RegenerateRecoveryPhrase => Some(SignInLayout::SecurityKeyCeremony),
-            _ => None,
-        }
     }
 
     /// Whether only a server at the recovery release reads this change.

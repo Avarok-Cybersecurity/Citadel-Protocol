@@ -4,7 +4,7 @@
 use super::client::{ClientCommitted, ClientLogin, ClientManagement, ClientProof, RecoveryOffer};
 use super::kem::FactorKeypair;
 use super::messages::{
-    AuthChallenge, DeviceOffer, LoginFinish, LoginProof, RecoverStart, ServerOutcome, SignInLayout,
+    AuthChallenge, DeviceOffer, LoginFinish, LoginProof, RecoverStart, ServerOutcome,
 };
 use super::phrase::{RecoveryPhrase, RecoverySeed};
 use super::record::PqAuthRecord;
@@ -35,8 +35,7 @@ pub(super) async fn manage(
 ) -> Result<(ServerOutcome, ClientCommitted), NetworkError> {
     let (pw, new) = (step_up.map(password), new_password.map(password));
     let (begin, client) = ClientManagement::begin("alice", op, pw.as_ref(), new.as_ref())?;
-    let ceremony = SignInLayout::SecurityKeyCeremony;
-    let (challenge, pending) = begin_management(&settings(), CID, record, scope, begin, ceremony)?;
+    let (challenge, pending) = begin_management(&settings(), CID, record, scope, begin)?;
     let (commit, committed) = client.commit(CID, &challenge, None, None).await?;
     let CommitStep::Ready(change) = pending.commit(&commit)? else {
         panic!("no key is added here")

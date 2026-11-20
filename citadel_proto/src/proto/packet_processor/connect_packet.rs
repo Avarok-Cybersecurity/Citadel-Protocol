@@ -333,7 +333,6 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     &cnac,
                     &ratchet,
                     &payload,
-                    adjacent_protocol_version,
                     security_level,
                     ticket,
                 )
@@ -345,7 +344,6 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     session,
                     &ratchet,
                     &payload,
-                    adjacent_protocol_version,
                     security_level,
                     ticket,
                 )

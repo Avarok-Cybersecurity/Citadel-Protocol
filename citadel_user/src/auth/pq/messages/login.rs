@@ -3,7 +3,6 @@ use crate::auth::pq::admission::AdmissionToken;
 use crate::auth::pq::kem::KemCiphertext;
 use crate::auth::pq::proof::Tag;
 use crate::auth::pq::record::KsfParams;
-use citadel_negotiation::frame::appended_field;
 use citadel_types::auth::{FactorId, FactorKind};
 use serde::{Deserialize, Serialize};
 
@@ -54,23 +53,14 @@ pub struct FactorChallenges {
     pub challenges: Vec<FactorChallenge>,
 }
 
-/// S→C, the `AUTH_CHALLENGE` payload: the challenge in its 0.12.2 layout, then what a client at
-/// [`SignInLayout::SecurityKeyCeremony`] reads after it.
-///
-/// [`SignInLayout::SecurityKeyCeremony`]: super::SignInLayout::SecurityKeyCeremony
+/// S→C, the `AUTH_CHALLENGE` payload: the challenge, and the relying party its keys are scoped to.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AuthChallenge {
     pub challenge: LoginChallenge,
-    /// Appended: absent for a 0.12.2 peer, so it reads these bytes exactly as it always did.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "appended_field"
-    )]
-    pub ceremony: Option<ChallengeCeremony>,
+    pub ceremony: ChallengeCeremony,
 }
 
-/// What a sign-in challenge tells a client that runs the security-key ceremony.
+/// What a sign-in challenge tells the client about its security keys.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ChallengeCeremony {
     /// The WebAuthn relying party ID the server's security keys are scoped to. `None` when the

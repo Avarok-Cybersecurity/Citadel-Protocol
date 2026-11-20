@@ -9,7 +9,6 @@ use citadel_types::auth::FactorKind;
 use citadel_user::auth::pq::kem::{EncapsulationKey, FactorKeypair, FactorSeed, SEED_LEN};
 use citadel_user::auth::pq::messages::*;
 use citadel_user::auth::pq::proof::TranscriptPurpose;
-use citadel_user::auth::pq::record::KsfParams;
 use citadel_user::serialization::SyncIO;
 use embedded_semver::Semver;
 
@@ -69,60 +68,12 @@ fn a_client_sends_no_password_or_phrase_change_to_an_older_server() {
     assert!(sendable(&list, Some(version(3))).is_ok());
 }
 
-/// The release appends; every index an older peer knows is unchanged.
+/// A stored record names its factors' kinds by index, so those indices never move.
 #[test]
-fn new_variants_are_appended() {
+fn stored_factor_kinds_keep_their_indices() {
     assert_eq!(bytes(&FactorKind::RecoveryCode), [2, 0, 0, 0]);
     assert_eq!(bytes(&FactorKind::RecoveryPhrase), [3, 0, 0, 0]);
     assert_eq!(TranscriptPurpose::Recover as u8, 3);
-    let add = ManagementOp::AddSecurityKey { label: "k".into() };
-    assert_eq!(bytes(&add)[..4], [6, 0, 0, 0]);
-    let set = ManagementOp::SetPassword {
-        oprf_blinded: Vec::new(),
-    };
-    assert_eq!(bytes(&set)[..4], [7, 0, 0, 0]);
-    assert_eq!(bytes(&ManagementOp::RegenerateRecoveryPhrase), [8, 0, 0, 0]);
-    let phrase_replaced = ServerOutcome::RecoveryPhraseReplaced;
-    assert_eq!(bytes(&ServerOutcome::PasswordSet), [6, 0, 0, 0]);
-    assert_eq!(bytes(&phrase_replaced), [7, 0, 0, 0]);
-}
-
-/// A ceremony without a password change is 0.12.3's, byte for byte, so its transcripts are too.
-#[test]
-fn an_absent_password_change_appends_nothing() {
-    let challenge = ManagementCeremony {
-        rp_id: Some("example.com".into()),
-        exclude_credentials: vec![vec![1, 2]],
-        password: None,
-    };
-    let mut expected = bytes(&Some("example.com".to_string()));
-    expected.extend(bytes(&vec![vec![1u8, 2]]));
-    assert_eq!(bytes(&challenge), expected);
-
-    let commit = CommitCeremony {
-        new_key: None,
-        password_ek: None,
-    };
-    assert_eq!(bytes(&commit), bytes(&Option::<NewSecurityKey>::None));
-
-    let with_password = CommitCeremony {
-        new_key: None,
-        password_ek: Some(ek()),
-    };
-    let read = CommitCeremony::deserialize_from_vector(&bytes(&with_password)).unwrap();
-    assert_eq!(read, with_password);
-    let reply = RegReply {
-        oprf_evaluated: vec![9; 32],
-        salt_user: [1; 32],
-        prf_eval_salt: [2; 32],
-        ksf: KsfParams::FLOOR,
-    };
-    let with_reply = ManagementCeremony {
-        password: Some(reply),
-        ..challenge
-    };
-    let read = ManagementCeremony::deserialize_from_vector(&bytes(&with_reply)).unwrap();
-    assert_eq!(read, with_reply);
 }
 
 /// A registration with no phrase is 0.12.3's `RegFinish`, byte for byte.

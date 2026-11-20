@@ -105,7 +105,7 @@ impl ClientLogin {
             return Ok(None);
         }
         Ok(Some(SecurityKeyRequest {
-            rp_id: relying_party.for_authenticate()?,
+            rp_id: relying_party.rp_id()?,
             prf_eval_salt: factors.prf_eval_salt,
             ceremony: SecurityKeyCeremony::Authenticate { credential_ids },
         }))

@@ -1,10 +1,9 @@
 use super::login::{LoginChallenge, LoginFinish, LoginStart};
 pub use super::manage_op::ManagementOp;
 use super::register::RegReply;
-use super::{transcript_bytes, SignInLayout};
+use super::transcript_bytes;
 use crate::auth::pq::kem::{EncapsulationKey, KemCiphertext};
 use crate::auth::pq::proof::Tag;
-use citadel_negotiation::frame::appended_field;
 use citadel_types::auth::{FactorId, SignInCredential, SignInPolicy};
 use serde::{Deserialize, Serialize};
 
@@ -39,16 +38,10 @@ pub struct ManagementBegin {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ManagementChallenge {
     pub step_up: LoginChallenge,
-    /// Appended: absent for a 0.12.2 peer, so it reads these bytes exactly as it always did.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "appended_field"
-    )]
-    pub ceremony: Option<ManagementCeremony>,
+    pub ceremony: ManagementCeremony,
 }
 
-/// What a management challenge tells a client that runs the security-key ceremony.
+/// What a management challenge tells the client about the change's keys.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ManagementCeremony {
     /// The relying party the step-up's keys, and a key being added, are scoped to.
@@ -56,79 +49,37 @@ pub struct ManagementCeremony {
     /// `AddSecurityKey`: the credential ids of the account's keys. The new credential is not
     /// created on an authenticator that holds one of them, so no key is enrolled twice.
     pub exclude_credentials: Vec<Vec<u8>>,
-    /// Appended, `SetPassword`: the new password's OPRF evaluation and the fresh salt and
-    /// parameters its factor is stretched with.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "appended_field"
-    )]
+    /// `SetPassword`: the new password's OPRF evaluation and the fresh salt and parameters its
+    /// factor is stretched with.
     pub password: Option<RegReply>,
-}
-
-impl ManagementChallenge {
-    /// The layout the server chose, which the client answers in.
-    pub fn layout(&self) -> SignInLayout {
-        match self.ceremony {
-            Some(_) => SignInLayout::SecurityKeyCeremony,
-            None => SignInLayout::V0_12_2,
-        }
-    }
 }
 
 /// C→S. The step-up tags are bound to `Begin`, `Challenge` and the key being added together.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ManagementCommit {
     pub step_up: LoginFinish,
-    /// 0.12.2's `AddCreatedSecurityKey`: the new key's encapsulation key. Always `None` in
-    /// [`SignInLayout::SecurityKeyCeremony`], which carries the key in `ceremony`.
-    pub new_key_ek: Option<EncapsulationKey>,
-    /// Appended: absent for a 0.12.2 peer, so it reads these bytes exactly as it always did.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "appended_field"
-    )]
-    pub ceremony: Option<CommitCeremony>,
+    pub ceremony: CommitCeremony,
 }
 
-/// What a client that runs the security-key ceremony commits to.
+/// The keys a change brings, which the commit's transcript binds.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct CommitCeremony {
     /// `AddSecurityKey`: the key the client created.
     pub new_key: Option<NewSecurityKey>,
-    /// Appended, `SetPassword`: the new password factor's key.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "appended_field"
-    )]
+    /// `SetPassword`: the new password factor's key.
     pub password_ek: Option<EncapsulationKey>,
 }
 
 impl ManagementCommit {
-    /// The bytes of the key this commit adds, as its transcript binds them.
+    /// The bytes of the keys this commit adds, as its transcript binds them.
     pub fn key_binding(&self) -> Vec<u8> {
-        key_binding(&self.new_key_ek, self.ceremony.as_ref())
+        key_binding(&self.ceremony)
     }
 }
 
-/// 0.12.2 binds the bare encapsulation key; the ceremony binds the created key with its
-/// credential id, and a new password's key after it (absent, the bytes are 0.12.3's).
-pub(crate) fn key_binding(
-    new_key_ek: &Option<EncapsulationKey>,
-    ceremony: Option<&CommitCeremony>,
-) -> Vec<u8> {
-    match ceremony {
-        Some(ceremony) => {
-            let mut bytes = transcript_bytes(&ceremony.new_key);
-            if let Some(password_ek) = &ceremony.password_ek {
-                bytes.extend_from_slice(&transcript_bytes(password_ek));
-            }
-            bytes
-        }
-        None => transcript_bytes(new_key_ek),
-    }
+/// The created key with its credential id, and a new password's key.
+pub(crate) fn key_binding(ceremony: &CommitCeremony) -> Vec<u8> {
+    transcript_bytes(ceremony)
 }
 
 /// A security key being added: its WebAuthn credential id and its factor's encapsulation key.

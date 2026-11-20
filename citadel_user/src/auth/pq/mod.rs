@@ -45,8 +45,6 @@ mod tests_factors;
 #[cfg(test)]
 mod tests_manage;
 #[cfg(test)]
-mod tests_manage_0_12_2;
-#[cfg(test)]
 mod tests_password_whitespace;
 #[cfg(test)]
 mod tests_record;
@@ -68,7 +66,7 @@ use proof::{TranscriptHash, TranscriptPurpose};
 use sha3::{Digest, Sha3_256};
 
 /// The transcript a login's tags are bound to: the account, the client's start and the server's
-/// challenge, byte for byte as sent (so a 0.12.2 peer's transcript is its own).
+/// challenge, byte for byte as sent.
 pub fn login_transcript(cid: u64, start: &LoginStart, challenge: &AuthChallenge) -> TranscriptHash {
     TranscriptHash::new(
         TranscriptPurpose::Login,

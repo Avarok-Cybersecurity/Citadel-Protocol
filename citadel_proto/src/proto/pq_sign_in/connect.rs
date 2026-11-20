@@ -85,14 +85,12 @@ pub(crate) fn begin<R: Ratchet>(
     Ok(Some(packet))
 }
 
-/// Server: answers `AUTH_START` with a challenge in the layout the client at `client_version`
-/// reads, and remembers what STAGE0 must prove.
+/// Server: answers `AUTH_START` with a challenge, and remembers what STAGE0 must prove.
 pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cnac: &ClientNetworkAccount<R, R>,
     ratchet: &R,
     payload: &[u8],
-    client_version: u32,
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -124,7 +122,7 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
             let ctx = super::admission::sign_in(session, cnac.get_cid(), &start).await;
             let policy = super::admission::policy(session);
             admission::then(policy.as_ref(), ctx, || {
-                super::challenge::issue(session, cnac, ratchet.get_cid(), &start, client_version)
+                super::challenge::issue(session, cnac, ratchet.get_cid(), &start)
             })
             .await
         }
@@ -165,7 +163,6 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
     payload: &[u8],
-    server_version: u32,
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -184,7 +181,7 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
         return_if_none!(pending, "AUTH_CHALLENGE without a login in flight");
     let credentials = return_if_none!(credentials, "Proposed creds not loaded");
     let cid = ratchet.get_cid();
-    let sent = match super::challenge::read(payload, server_version) {
+    let sent = match super::challenge::read(payload) {
         Ok(sent) => sent,
         Err(err) => return fail_login(session, cid, err.into_string()),
     };

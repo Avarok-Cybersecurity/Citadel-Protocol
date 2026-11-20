@@ -7,7 +7,7 @@ use crate::auth::pq::kem::FactorKeypair;
 use crate::auth::pq::messages::{
     key_binding, transcript_bytes, ChallengeBody, CommitCeremony, EnrolChallenge, EnrolProof,
     LoginFinish, LoginProof, ManagementBegin, ManagementChallenge, ManagementCommit, ManagementOp,
-    NewSecurityKey, SignInLayout,
+    NewSecurityKey,
 };
 use crate::auth::pq::phrase::RecoverySeed;
 use crate::auth::pq::proof::{factor_tag, TranscriptHash, TranscriptPurpose, ENROL_LABEL};
@@ -67,14 +67,10 @@ impl ClientManagement {
         let ChallengeBody::Factors(factors) = &challenge.step_up.body else {
             return Ok(None);
         };
-        let rp_id = RelyingParty::of_management(challenge).for_register()?;
-        let exclude_credential_ids = challenge
-            .ceremony
-            .as_ref()
-            .map(|ceremony| ceremony.exclude_credentials.clone())
-            .unwrap_or_default();
+        let rp_id = RelyingParty::of_management(challenge).rp_id()?;
+        let exclude_credential_ids = challenge.ceremony.exclude_credentials.clone();
         Ok(Some(SecurityKeyRequest {
-            rp_id: Some(rp_id),
+            rp_id,
             prf_eval_salt: factors.prf_eval_salt,
             ceremony: SecurityKeyCeremony::Register {
                 // A random handle: the credential is not discoverable, so nothing looks it up.
@@ -92,18 +88,6 @@ impl ClientManagement {
         step_up_key: Option<SecurityKeyAnswer>,
         new_key: Option<SecurityKeyAnswer>,
     ) -> Result<(ManagementCommit, ClientCommitted), AccountError> {
-        let layout = challenge.layout();
-        if self
-            .begin
-            .op
-            .layout()
-            .is_some_and(|needed| needed != layout)
-        {
-            return Err(error!(
-                ErrorCode::PqSignInMalformed,
-                "a challenge in another layout than the change"
-            ));
-        }
         let new_key = match (&self.begin.op, new_key) {
             (ManagementOp::AddSecurityKey { .. }, Some(answer)) => {
                 let seed = security_key_seed(&answer.prf, &answer.credential_id);
@@ -114,9 +98,9 @@ impl ClientManagement {
             }
             _ => None,
         };
-        let password_ek = match (&self.new.password, &challenge.ceremony) {
-            (Some(registration), Some(ceremony)) => {
-                let reply = ceremony.password.as_ref().ok_or_else(|| {
+        let password_ek = match &self.new.password {
+            Some(registration) => {
+                let reply = challenge.ceremony.password.as_ref().ok_or_else(|| {
                     error!(
                         ErrorCode::PqSignInMalformed,
                         "a password change's evaluation"
@@ -125,34 +109,19 @@ impl ClientManagement {
                 let keypair = registration.password_keypair(reply).await?;
                 Some(keypair.encapsulation_key().clone())
             }
-            (Some(_), None) => {
-                return Err(error!(
-                    ErrorCode::PqSignInMalformed,
-                    "a password change's layout"
-                ))
-            }
-            (None, _) => None,
+            None => None,
         };
-        let ceremony = match layout {
-            SignInLayout::V0_12_2 => None,
-            SignInLayout::SecurityKeyCeremony => Some(CommitCeremony {
-                new_key: new_key
-                    .as_ref()
-                    .map(|(credential_id, keypair)| NewSecurityKey {
-                        credential_id: credential_id.clone(),
-                        ek: keypair.encapsulation_key().clone(),
-                    }),
-                password_ek,
-            }),
+        let ceremony = CommitCeremony {
+            new_key: new_key
+                .as_ref()
+                .map(|(credential_id, keypair)| NewSecurityKey {
+                    credential_id: credential_id.clone(),
+                    ek: keypair.encapsulation_key().clone(),
+                }),
+            password_ek,
         };
-        // A key is only added in the ceremony layout, which carries it in `ceremony`.
-        let new_key_ek = None;
-        let transcript = management_transcript(
-            cid,
-            &self.begin,
-            challenge,
-            &key_binding(&new_key_ek, ceremony.as_ref()),
-        );
+        let transcript =
+            management_transcript(cid, &self.begin, challenge, &key_binding(&ceremony));
         let challenged = match &challenge.step_up.body {
             ChallengeBody::Factors(factors) => !factors.challenges.is_empty(),
             ChallengeBody::Legacy { .. } => true,
@@ -173,11 +142,7 @@ impl ClientManagement {
             // A recovery session: the server proves nothing again.
             LoginFinish { tags: Vec::new() }
         };
-        let commit = ManagementCommit {
-            step_up,
-            new_key_ek,
-            ceremony,
-        };
+        let commit = ManagementCommit { step_up, ceremony };
         let committed = ClientCommitted {
             transcript,
             new_key: new_key.map(|(_, keypair)| keypair),

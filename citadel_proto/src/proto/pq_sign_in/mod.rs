@@ -30,30 +30,18 @@ mod tests;
 #[cfg(test)]
 mod tests_challenge;
 #[cfg(test)]
-mod tests_wire_0_12_2;
+mod tests_older_layouts;
 #[cfg(test)]
 mod tests_wire_recovery;
 
 use crate::auth::AuthenticationRequest;
-use crate::constants::{protocol_version_at_least, SECURITY_KEY_CEREMONY_SINCE};
 use crate::error::NetworkError;
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::session::HdpSessionInitMode;
 use crate::proto::state_container::StateContainerInner;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_user::auth::pq::admission::AdmissionToken;
-use citadel_user::auth::pq::messages::SignInLayout;
 use state::OfferedFactors;
-
-/// The layout of the sign-in messages the adjacent node reads (see `SECURITY_KEY_CEREMONY_SINCE`).
-/// An unknown version reads 0.12.2's.
-pub(crate) fn layout_of(adjacent_version: Option<u32>) -> SignInLayout {
-    if protocol_version_at_least(adjacent_version, SECURITY_KEY_CEREMONY_SINCE) {
-        SignInLayout::SecurityKeyCeremony
-    } else {
-        SignInLayout::V0_12_2
-    }
-}
 
 /// Client, at session start: the factors this session's login or registration offers.
 pub(crate) fn store_offered<R: Ratchet>(

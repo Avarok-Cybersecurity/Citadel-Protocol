@@ -8,7 +8,7 @@ use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::SessionScope;
-use citadel_user::auth::pq::messages::{ManagementDone, ManagementMessage, SignInLayout};
+use citadel_user::auth::pq::messages::{ManagementDone, ManagementMessage};
 use citadel_user::auth::pq::server::{
     begin_management, Change, CommitStep, PendingEnrol, PendingManagement,
 };
@@ -21,9 +21,7 @@ pub(crate) enum ServerManagement {
     Enrolling(PendingEnrol),
 }
 
-/// Client: whether the server at `server_version` can read `message`. One below
-/// `SECURITY_KEY_CEREMONY_SINCE` cannot enrol a key whose credential the client creates after the
-/// challenge.
+/// Client: whether the server at `server_version` can read `message`.
 pub(crate) fn sendable(
     message: &ManagementMessage,
     server_version: Option<u32>,
@@ -33,17 +31,7 @@ pub(crate) fn sendable(
             return Err(error!(ErrorCode::RecoveryUnsupported));
         }
     }
-    let needed = match message {
-        ManagementMessage::Begin(begin) => begin.op.layout(),
-        _ => None,
-    };
-    match needed {
-        Some(needed) if needed != super::layout_of(server_version) => Err(error!(
-            ErrorCode::PqSignInUnavailable,
-            "the server predates enrolling a security key this client creates"
-        )),
-        _ => Ok(()),
-    }
+    Ok(())
 }
 
 fn out_of_order() -> NetworkError {
@@ -53,14 +41,12 @@ fn out_of_order() -> NetworkError {
     )
 }
 
-/// The reply to one management message, in the `layout` its client reads. A failure is a
-/// `Refused`, and drops the exchange.
+/// The reply to one management message. A failure is a `Refused`, and drops the exchange.
 pub(crate) async fn on_message<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     message: ManagementMessage,
-    layout: SignInLayout,
 ) -> ManagementMessage {
-    match handle(session, message, layout).await {
+    match handle(session, message).await {
         Ok(reply) => reply,
         Err(err) => {
             inner_mut_state!(session.state_container)
@@ -75,7 +61,6 @@ pub(crate) async fn on_message<R: Ratchet, T: PlatformOps>(
 async fn handle<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     message: ManagementMessage,
-    layout: SignInLayout,
 ) -> Result<ManagementMessage, NetworkError> {
     let cid = session
         .session_cid
@@ -111,8 +96,7 @@ async fn handle<R: Ratchet, T: PlatformOps>(
             if scope == SessionScope::Full {
                 super::throttle::admit(session, &begin.step_up.username, Attempt::SignIn)?;
             }
-            let (challenge, pending) =
-                begin_management(settings, cid, &record, scope, begin, layout)?;
+            let (challenge, pending) = begin_management(settings, cid, &record, scope, begin)?;
             inner_mut_state!(session.state_container)
                 .connect_state
                 .pq

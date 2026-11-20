@@ -8,9 +8,7 @@ use citadel_io::{error, ErrorCode};
 /// party `rp_id`, with the PRF extension evaluated at `prf_eval_salt`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SecurityKeyRequest {
-    /// `None` only from a server at 0.12.2, which names no relying party: whoever serves the
-    /// request uses its own, as it did for 0.12.2. Never `None` for a `Register` ceremony.
-    pub rp_id: Option<String>,
+    pub rp_id: String,
     pub prf_eval_salt: [u8; 32],
     pub ceremony: SecurityKeyCeremony,
 }
@@ -29,55 +27,27 @@ pub enum SecurityKeyCeremony {
     },
 }
 
-/// What a challenge says about the relying party its security keys are scoped to.
+/// The relying party a challenge scopes its security keys to: `None` when the server has not
+/// enabled security keys.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum RelyingParty<'a> {
-    /// A server at 0.12.2 names none.
-    Unnamed,
-    /// The server named its relying party, or `None`: it has not enabled security keys.
-    Named(Option<&'a str>),
-}
+pub struct RelyingParty<'a>(pub Option<&'a str>);
 
 impl<'a> RelyingParty<'a> {
     pub fn of_sign_in(challenge: &'a AuthChallenge) -> Self {
-        match &challenge.ceremony {
-            Some(ceremony) => Self::Named(ceremony.rp_id.as_deref()),
-            None => Self::Unnamed,
-        }
+        Self(challenge.ceremony.rp_id.as_deref())
     }
 
     pub fn of_management(challenge: &'a ManagementChallenge) -> Self {
-        match &challenge.ceremony {
-            Some(ceremony) => Self::Named(ceremony.rp_id.as_deref()),
-            None => Self::Unnamed,
-        }
+        Self(challenge.ceremony.rp_id.as_deref())
     }
 
-    /// The `rp_id` of a request to authenticate with a key.
-    pub(crate) fn for_authenticate(self) -> Result<Option<String>, AccountError> {
-        match self {
-            Self::Unnamed => Ok(None),
-            Self::Named(rp_id) => named(rp_id).map(Some),
-        }
+    /// The `rp_id` of a request to authenticate with, or to create, a key.
+    pub(crate) fn rp_id(self) -> Result<String, AccountError> {
+        self.0.map(str::to_owned).ok_or_else(|| {
+            error!(
+                ErrorCode::PqSignInUnavailable,
+                "this server has not enabled security keys"
+            )
+        })
     }
-
-    /// The `rp_id` of a request to create a key, which only a named relying party can scope.
-    pub(crate) fn for_register(self) -> Result<String, AccountError> {
-        match self {
-            Self::Unnamed => Err(error!(
-                ErrorCode::PqSignInMalformed,
-                "a security-key enrolment challenge without a relying party"
-            )),
-            Self::Named(rp_id) => named(rp_id),
-        }
-    }
-}
-
-fn named(rp_id: Option<&str>) -> Result<String, AccountError> {
-    rp_id.map(str::to_owned).ok_or_else(|| {
-        error!(
-            ErrorCode::PqSignInUnavailable,
-            "this server has not enabled security keys"
-        )
-    })
 }

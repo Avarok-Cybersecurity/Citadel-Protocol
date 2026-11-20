@@ -149,10 +149,8 @@ pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
 /// The first protocol version whose sign-in messages carry the security-key ceremony: a server
 /// names the WebAuthn relying party its keys are scoped to and the keys an enrolment must avoid,
 /// and a client enrolling a key creates its credential after the challenge, rather than naming
-/// one it created before. Each field rides appended after the 0.12.2 layout
-/// (`citadel_user::auth::pq::messages::SignInLayout`). A peer below it, or of unknown version, is
-/// sent exactly the 0.12.2 bytes and hashes the 0.12.2 transcript; a client cannot enrol a key at
-/// a server below it.
+/// one it created before. Every node this node takes part with is at or above it
+/// (`version_gate`).
 pub const SECURITY_KEY_CEREMONY_SINCE: (u8, u8, u8) = (0, 12, 3);
 
 /// The first protocol version whose server recovers accounts: after register STAGE1 it reads
