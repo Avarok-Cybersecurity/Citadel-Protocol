@@ -11,6 +11,7 @@ use crate::misc::{now_ms, AccountError};
 use crate::prelude::ConnectionInfo;
 use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_crypt::toolset::Toolset;
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::FactorId;
 
@@ -118,6 +119,62 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         };
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(
             valid_cid,
+            Some(session_crypto_state),
+            auth_store,
+            conn_info,
+        )
+        .await?;
+        self.persistence_handler.save_cnac(&cnac).await?;
+        Ok(cnac)
+    }
+
+    /// Server side, at the end of a verified recovery: spends what proved it (a code is consumed;
+    /// a phrase only records its use), and makes `bundle` the account's device bundle, replacing
+    /// the one every other device holds. One write under the record lock. Returns the account.
+    pub async fn recover_pq_account(
+        &self,
+        cid: u64,
+        used: &[FactorId],
+        bundle: Toolset<R>,
+    ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+        let _guard = self.pq_record_lock.lock().await;
+        let cnac = self.load(cid).await?;
+        let mut record = cnac.auth_store().pq_record().cloned().ok_or_else(|| {
+            error!(
+                ErrorCode::PqSignInUnavailable,
+                "the account has no post-quantum record"
+            )
+        })?;
+        record.record_use(used, now_ms())?;
+        cnac.set_pq_record(record);
+        cnac.on_session_init(bundle);
+        self.persistence_handler.save_cnac(&cnac).await?;
+        Ok(cnac)
+    }
+
+    /// Client side, after a recovery: the account this device now holds the bundle of, in place
+    /// of any it had. Like a post-quantum registration's, it keeps no secret.
+    pub async fn recover_personal_pq_server(
+        &self,
+        cid: u64,
+        username: String,
+        full_name: String,
+        session_crypto_state: PeerSessionCrypto<R>,
+        conn_info: ConnectionInfo,
+    ) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+        if self.persistence_handler.get_cid_by_username(&username) != cid {
+            return Err(error!(
+                ErrorCode::PqSignInMalformed,
+                "a recovery for another account"
+            ));
+        }
+        let auth_store = DeclaredAuthenticationMode::PostQuantum {
+            username,
+            full_name,
+            side: PqAuthSide::Client,
+        };
+        let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(
+            cid,
             Some(session_crypto_state),
             auth_store,
             conn_info,

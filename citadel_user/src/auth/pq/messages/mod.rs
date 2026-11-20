@@ -4,9 +4,13 @@
 //! - Registration: [`RegStart`] → [`RegStartReply`] → [`RegFinish`].
 //! - Login: [`LoginStart`] → [`LoginChallenge`] → [`LoginProof`].
 //! - Management, in an authenticated session: [`ManagementMessage`].
+//! - Recovery, on a device with no bundle: [`RecoverStart`] → [`AuthChallenge`] →
+//!   [`RecoverProof`] → [`RecoverDone`].
 
 mod login;
 mod manage;
+mod manage_op;
+mod recover;
 mod register;
 
 pub use login::{
@@ -19,6 +23,7 @@ pub use manage::{
     ManagementChallenge, ManagementCommit, ManagementDone, ManagementMessage, ManagementOp,
     NewSecurityKey, ServerOutcome,
 };
+pub use recover::{DeviceOffer, RecoverDone, RecoverProof, RecoverStart};
 pub use register::{RegFinish, RegReply, RegStart, RegStartReply};
 
 /// Which layout of the sign-in messages a peer reads. Every message is 0.12.2's; the security-key

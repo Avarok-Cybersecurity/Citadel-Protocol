@@ -11,6 +11,7 @@
 mod code;
 mod construct;
 mod detail;
+mod wire;
 
 pub use code::ErrorCode;
 

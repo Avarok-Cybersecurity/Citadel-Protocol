@@ -23,12 +23,14 @@ pub mod client;
 pub mod kem;
 pub mod messages;
 pub mod oprf;
+pub mod phrase;
 pub mod policy;
 pub mod proof;
 pub mod record;
 pub mod recovery;
 pub mod seed;
 pub mod server;
+pub mod throttle;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -48,9 +50,22 @@ mod tests_manage_0_12_2;
 mod tests_password_whitespace;
 #[cfg(test)]
 mod tests_record;
+#[cfg(test)]
+mod tests_recovery;
+#[cfg(test)]
+mod tests_recovery_lane;
+#[cfg(test)]
+mod tests_recovery_manage;
+#[cfg(test)]
+mod tests_recovery_register;
+#[cfg(test)]
+mod tests_throttle;
 
-use messages::{transcript_bytes, AuthChallenge, LoginStart, ManagementBegin, ManagementChallenge};
+use messages::{
+    transcript_bytes, AuthChallenge, LoginStart, ManagementBegin, ManagementChallenge, RecoverStart,
+};
 use proof::{TranscriptHash, TranscriptPurpose};
+use sha3::{Digest, Sha3_256};
 
 /// The transcript a login's tags are bound to: the account, the client's start and the server's
 /// challenge, byte for byte as sent (so a 0.12.2 peer's transcript is its own).
@@ -78,6 +93,41 @@ pub fn management_transcript(
             &transcript_bytes(begin),
             &transcript_bytes(challenge),
             key_binding,
+        ],
+    )
+}
+
+const CHANNEL_BINDING_LABEL: &[u8] = b"citadel-recover-channel-binding-v1";
+
+/// What ties a recovery to the key exchange it rides in: the hash of that exchange's two
+/// transfers, as each side sent or received them. A party relaying between two exchanges of its
+/// own sees different transfers on each side, so a proof it relays fails, and the ratchet the
+/// server installs is always the one the prover's device holds.
+pub fn channel_binding(alice_transfer: &[u8], bob_transfer: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha3_256::default();
+    hasher.update(CHANNEL_BINDING_LABEL);
+    for part in [alice_transfer, bob_transfer] {
+        hasher.update((part.len() as u64).to_be_bytes());
+        hasher.update(part);
+    }
+    hasher.finalize().into()
+}
+
+/// The transcript a recovery's tag is bound to: the key exchange it rides in, the start (with the
+/// device it names) and the challenge, so a proof fits one exchange, one device and one challenge.
+pub fn recover_transcript(
+    cid: u64,
+    channel_binding: &[u8; 32],
+    start: &RecoverStart,
+    challenge: &AuthChallenge,
+) -> TranscriptHash {
+    TranscriptHash::new(
+        TranscriptPurpose::Recover,
+        cid,
+        &[
+            channel_binding,
+            &transcript_bytes(start),
+            &transcript_bytes(challenge),
         ],
     )
 }

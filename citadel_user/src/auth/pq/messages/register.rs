@@ -1,6 +1,7 @@
 use crate::auth::pq::admission::AdmissionToken;
 use crate::auth::pq::kem::EncapsulationKey;
 use crate::auth::pq::record::KsfParams;
+use citadel_negotiation::frame::appended_field;
 use serde::{Deserialize, Serialize};
 
 /// C→S: begin a post-quantum registration. The password factor is always enrolled; security keys
@@ -42,7 +43,15 @@ pub enum RegStartReply {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RegFinish {
     pub password_ek: EncapsulationKey,
-    /// One key per recovery code. Empty when the account upgrades from a legacy record: the user
-    /// generates codes from settings afterwards.
+    /// One key per recovery code, from a client registering at a server below the recovery
+    /// release. Empty otherwise, and when the account upgrades from a legacy record.
     pub recovery_eks: Vec<EncapsulationKey>,
+    /// The recovery phrase's key, which a new account at a server that recovers accounts is
+    /// given in place of codes. Appended, and sent only to such a server.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "appended_field"
+    )]
+    pub recovery_phrase_ek: Option<EncapsulationKey>,
 }

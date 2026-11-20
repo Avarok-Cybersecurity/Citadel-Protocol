@@ -50,7 +50,7 @@ use crate::proto::peer::p2p_outcome::{
 use crate::proto::peer::p2p_path::CampaignEndGuard;
 use crate::proto::peer::p2p_plan::P2pPlan;
 use crate::proto::peer::p2p_rearm;
-use crate::proto::peer::p2p_retry::{wait_for_fall_back, Retry, RetryEnd, Schedule};
+use crate::proto::peer::p2p_retry::{wait_for_shared_fall_back, Retry, RetryEnd, Schedule};
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
@@ -132,6 +132,10 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         _ => (None, None),
     };
     let rearmable = p2p_rearm::peer_parks(peer_version);
+    let loss_shared = crate::constants::protocol_version_at_least(
+        peer_version,
+        crate::constants::PATH_LOSS_SHARED_SINCE,
+    );
     let outcomes = OutcomeContext::new(
         peer_cid,
         &plan,
@@ -268,7 +272,13 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         loop {
             if attached {
                 let attached_at = Instant::now();
-                if !wait_for_fall_back(&cell).await {
+                let cut = || {
+                    if let Some(session) = CitadelSession::upgrade_weak(&weak_session) {
+                        let mut state_container = inner_mut_state!(session.state_container);
+                        let _ = state_container.cut_direct_route(peer_cid);
+                    }
+                };
+                if !wait_for_shared_fall_back(&cell, &app, loss_shared, cut).await {
                     return;
                 }
                 if attached_at.elapsed() >= STABLE_ROUTE {

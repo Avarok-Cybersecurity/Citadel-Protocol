@@ -303,6 +303,7 @@ pub mod prelude {
         DefaultServerConnectionSettingsBuilder, ServerConnectionSettings,
     };
     pub use crate::prefabs::ClientServerRemote;
+    pub use crate::recover::{AccountRecoveryExt, RecoverSuccess};
     pub use crate::remote_ext::remote_specialization::PeerRemote;
     pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
@@ -325,6 +326,8 @@ pub mod prelude {
     pub use citadel_user::auth::pq::admission::{
         challenge_of, AdmissionChallenge, AdmissionProvider,
     };
+    pub use citadel_user::auth::pq::phrase::{RecoveryPhrase, RecoverySeed};
+    pub use citadel_user::auth::pq::throttle::ThrottlePolicy;
 }
 
 /// Store data to the backend using this library
@@ -344,8 +347,9 @@ pub mod remote_ext;
 /// For easy construction of replies to common message types
 pub mod responses;
 
-mod server_probe;
 /// Managing a post-quantum account's sign-in factors
+pub mod recover;
+mod server_probe;
 pub mod sign_in;
 #[doc(hidden)]
 pub mod test_common;

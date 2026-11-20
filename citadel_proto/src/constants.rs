@@ -72,7 +72,9 @@ pub const MINOR_VERSION: u8 = 12;
 // Bumped 3 -> 4 (the RobustConnectionManager release, one bump shared by every lane, §12.2): a
 // P2P pair exchanges its ends' link-manager modes and runs the manager only when both are
 // Managed (see `LINK_MODE_SINCE`), and a client may reattach a held session over a new path (see
-// `LINK_REATTACH_SINCE`). Additive: with a peer below it, each behaves as before.
+// `LINK_REATTACH_SINCE`). Additive: with a peer below it, each behaves as before. In the same
+// release, a device with no bundle recovers an account with its recovery phrase, and sessions
+// set passwords and replace phrases (see `RECOVERY_SINCE`).
 pub const PATCH_VERSION: u8 = 4;
 
 /// The first protocol version whose media endpoints send and expect a transport offer as the
@@ -157,6 +159,14 @@ pub const EXCHANGED_SUBSCRIPTIONS_SINCE: (u8, u8, u8) = (0, 12, 3);
 /// a server below it.
 pub const SECURITY_KEY_CEREMONY_SINCE: (u8, u8, u8) = (0, 12, 3);
 
+/// The first protocol version whose server recovers accounts: after register STAGE1 it reads
+/// `RECOVER_START` (a device with no bundle proves the account's recovery phrase inside the fresh
+/// key exchange, and that exchange's ratchet becomes the account's bundle), it challenges a
+/// recovery phrase offered at sign-in, and it reads the management changes `SetPassword` and
+/// `RegenerateRecoveryPhrase`. A client checks STAGE1's header and the session's server version
+/// first, and asks an older server for none of these.
+pub const RECOVERY_SINCE: (u8, u8, u8) = (0, 12, 4);
+
 /// A client may reattach a held session over a new path with the same seal, and a server answers
 /// it (`proto::link::reattach`, `ROBUST-CONNECTION-MANAGER.md` §5.2). Additive: a node below it is
 /// never sent the frames, and the manager seals afresh as before. Shares the one 0.12.4 bump with
@@ -167,6 +177,12 @@ pub const LINK_REATTACH_SINCE: (u8, u8, u8) = (0, 12, 4);
 /// coordination endpoint before any path work (`link::p2p::agree`). With a peer below it the
 /// pair runs the Legacy campaign, whatever this node's mode.
 pub const LINK_MODE_SINCE: (u8, u8, u8) = (0, 12, 4);
+
+/// The first protocol version whose P2P campaign shares a lost direct path
+/// (`p2p_retry::wait_for_shared_fall_back`). The first peer to lose the route wakes the other over
+/// the coordination endpoint, so both fall back and meet for the retry together. With a peer below
+/// it, each side learns only from its own transport, as before.
+pub const PATH_LOSS_SHARED_SINCE: (u8, u8, u8) = (0, 12, 4);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.
@@ -283,6 +299,19 @@ mod tests {
             version(0, 12, 2),
             IDENTITY_BOUND_SEAL_SINCE
         ));
+    }
+
+    #[test]
+    fn this_node_shares_a_lost_path_and_the_previous_patch_does_not() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            PATH_LOSS_SHARED_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 12, 3),
+            PATH_LOSS_SHARED_SINCE
+        ));
+        assert!(!protocol_version_at_least(None, PATH_LOSS_SHARED_SINCE));
     }
 
     #[test]

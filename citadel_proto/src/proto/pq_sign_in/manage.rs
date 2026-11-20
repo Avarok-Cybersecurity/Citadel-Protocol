@@ -7,10 +7,12 @@ use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
+use citadel_types::auth::SessionScope;
 use citadel_user::auth::pq::messages::{ManagementDone, ManagementMessage, SignInLayout};
 use citadel_user::auth::pq::server::{
     begin_management, Change, CommitStep, PendingEnrol, PendingManagement,
 };
+use citadel_user::auth::pq::throttle::Attempt;
 use citadel_user::misc::now_ms;
 
 /// Where a session's management exchange is.
@@ -31,6 +33,11 @@ pub(crate) fn sendable(
             ErrorCode::PqSignInUnavailable,
             "the server predates post-quantum sign-in"
         ));
+    }
+    if let ManagementMessage::Begin(begin) = message {
+        if begin.op.needs_recovery_release() && !super::recover::server_recovers(server_version) {
+            return Err(error!(ErrorCode::RecoveryUnsupported));
+        }
     }
     let needed = match message {
         ManagementMessage::Begin(begin) => begin.op.layout(),
@@ -106,6 +113,10 @@ async fn handle<R: Ratchet, T: PlatformOps>(
                 )
             })?;
             let scope = inner_state!(session.state_container).connect_state.pq.scope;
+            // A step-up proves the account's factors again, so it is a guess like a sign-in's.
+            if scope == SessionScope::Full {
+                super::throttle::admit(session, &begin.step_up.username, Attempt::SignIn)?;
+            }
             let (challenge, pending) =
                 begin_management(settings, cid, &record, scope, begin, layout)?;
             inner_mut_state!(session.state_container)
@@ -115,16 +126,18 @@ async fn handle<R: Ratchet, T: PlatformOps>(
             Ok(ManagementMessage::Challenge(challenge))
         }
         ManagementMessage::Commit(commit) => match take(session) {
-            Some(ServerManagement::Pending(pending)) => match pending.commit(&commit)? {
-                CommitStep::Ready(change) => apply(session, cid, change).await,
-                CommitStep::Enrol(challenge, enrolling) => {
-                    inner_mut_state!(session.state_container)
-                        .connect_state
-                        .pq
-                        .manage = Some(ServerManagement::Enrolling(enrolling));
-                    Ok(ManagementMessage::EnrolChallenge(challenge))
+            Some(ServerManagement::Pending(pending)) => {
+                match step_up_outcome(session, cid, pending.commit(&commit)).await? {
+                    CommitStep::Ready(change) => apply(session, cid, change).await,
+                    CommitStep::Enrol(challenge, enrolling) => {
+                        inner_mut_state!(session.state_container)
+                            .connect_state
+                            .pq
+                            .manage = Some(ServerManagement::Enrolling(enrolling));
+                        Ok(ManagementMessage::EnrolChallenge(challenge))
+                    }
                 }
-            },
+            }
             _ => Err(out_of_order()),
         },
         ManagementMessage::EnrolProof(proof) => match take(session) {
@@ -135,6 +148,22 @@ async fn handle<R: Ratchet, T: PlatformOps>(
         },
         _ => Err(out_of_order()),
     }
+}
+
+/// The throttle learns whether a full session's step-up proved the account's factors.
+async fn step_up_outcome<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    cid: u64,
+    committed: Result<CommitStep, NetworkError>,
+) -> Result<CommitStep, NetworkError> {
+    let scope = inner_state!(session.state_container).connect_state.pq.scope;
+    let failed = matches!(&committed, Err(err) if err.code == ErrorCode::PqSignInFailed);
+    if scope == SessionScope::Full && (committed.is_ok() || failed) {
+        if let Some(username) = session.account_manager.get_username_by_cid(cid).await? {
+            super::throttle::outcome(session, &username, Attempt::SignIn, committed.is_ok());
+        }
+    }
+    committed
 }
 
 fn take<R: Ratchet, T: PlatformOps>(session: &CitadelSession<R, T>) -> Option<ServerManagement> {

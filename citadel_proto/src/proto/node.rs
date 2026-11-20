@@ -58,7 +58,7 @@ use crate::prelude::ActiveSessions;
 use crate::prelude::{DeleteObject, PullObject};
 use crate::proto::node_request::{
     ConnectToHypernode, DeregisterFromHypernode, DisconnectFromHypernode, GroupBroadcastCommand,
-    NodeRequest, PeerCommand, ReKey, RegisterToHypernode, SendObject,
+    NodeRequest, PeerCommand, ReKey, RecoverAccount, RegisterToHypernode, SendObject,
 };
 use crate::proto::node_result::{InternalServerError, NodeResult, SessionList};
 use crate::proto::outbound_sender::{BoundedReceiver, BoundedSender, UnboundedSender};
@@ -564,6 +564,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                     password,
                     cert_verification,
                     admission,
+                    recovery_domain,
                 }) => {
                     let (session_manager, local_nat_type, listener_underlying_proto) = (
                         session_manager.clone(),
@@ -585,7 +586,47 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                                 endpoint,
                                 password,
                                 admission.map(AdmissionToken::new),
+                                recovery_domain,
                             ),
+                            ticket_id,
+                            None,
+                            listener_underlying_proto,
+                            None,
+                            None,
+                            security_settings,
+                            &default_client_config,
+                            cert_verification,
+                            session_password,
+                        );
+                        let Some(initiated) = until_aborted(&mut in_flight, initiate).await else {
+                            return;
+                        };
+                        run_initiated(initiated, &to_kernel_tx, ticket_id, request_cid).await
+                    });
+                }
+
+                NodeRequest::RecoverAccount(RecoverAccount {
+                    remote_addr: peer_addr,
+                    endpoint,
+                    static_security_settings: security_settings,
+                    session_password,
+                    cert_verification,
+                    recovery,
+                }) => {
+                    let (session_manager, local_nat_type, listener_underlying_proto) = (
+                        session_manager.clone(),
+                        local_nat_type.clone(),
+                        listener_underlying_proto.clone(),
+                    );
+                    let (default_client_config, to_kernel_tx) =
+                        (default_client_config.clone(), to_kernel_tx.clone());
+                    // As a registration: a recovery whose caller stopped waiting is aborted.
+                    let mut in_flight = in_flight_connects.register(ticket_id);
+                    spawn!(async move {
+                        let initiate = session_manager.initiate_connection(
+                            local_node_type,
+                            local_nat_type,
+                            HdpSessionInitMode::Recover(peer_addr, endpoint, recovery),
                             ticket_id,
                             None,
                             listener_underlying_proto,

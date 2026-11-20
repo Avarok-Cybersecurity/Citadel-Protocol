@@ -90,9 +90,20 @@ fn stage2_reads_in_both_directions() {
         .encapsulation_key()
         .clone();
     let finish = RegFinish {
-        password_ek: ek,
+        password_ek: ek.clone(),
         recovery_eks: Vec::new(),
+        recovery_phrase_ek: None,
     };
+    let with_phrase = DoRegisterStage2Packet {
+        credentials: ProposedCredentials::transient("alice"),
+        pq: Some(RegFinish {
+            recovery_phrase_ek: Some(ek),
+            ..finish.clone()
+        }),
+    };
+    let bytes = with_phrase.serialize_to_vector().unwrap();
+    let read = DoRegisterStage2Packet::deserialize_from_vector(&bytes).unwrap();
+    assert_eq!(read.pq, with_phrase.pq);
     let new = DoRegisterStage2Packet {
         credentials: ProposedCredentials::transient("alice"),
         pq: Some(finish.clone()),

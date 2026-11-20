@@ -1,6 +1,8 @@
 //! The whole exchange, client and server functions back to back, with no transport in between.
 
-use super::client::{ClientLogin, ClientProof, ClientRegistration, SecurityKeyAnswer};
+use super::client::{
+    ClientLogin, ClientProof, ClientRegistration, NewRecovery, RecoveryOffer, SecurityKeyAnswer,
+};
 use super::login_transcript;
 use super::messages::{
     AuthChallenge, ChallengeBody, ChallengeCeremony, LoginChallenge, LoginProof, LoginStart,
@@ -12,6 +14,7 @@ use super::server::{
     build_login_challenge, registration_reply, AccountAuth, Expectation, PqAuthServerSettings,
     VerifiedLogin,
 };
+use super::throttle::ThrottlePolicy;
 use citadel_io::tokio;
 use citadel_io::ErrorCode;
 use citadel_types::auth::SessionScope;
@@ -22,7 +25,12 @@ pub(crate) const RP_ID: &str = "example.com";
 
 /// A server without security keys.
 pub(crate) fn settings_without_keys() -> PqAuthServerSettings {
-    PqAuthServerSettings::new(OprfSeed::from_bytes([42u8; 32]), KsfParams::FLOOR).unwrap()
+    PqAuthServerSettings::new(
+        OprfSeed::from_bytes([42u8; 32]),
+        KsfParams::FLOOR,
+        ThrottlePolicy::RECOMMENDED,
+    )
+    .unwrap()
 }
 
 pub(crate) fn settings() -> PqAuthServerSettings {
@@ -50,8 +58,8 @@ pub(crate) async fn register(pw: &str) -> (PqAuthRecord, Vec<RecoveryCode>) {
     let s = settings();
     let (start, client) = ClientRegistration::start("alice", &password(pw)).unwrap();
     let (reply, pending) = registration_reply(&s, &start).unwrap();
-    let (finish, codes) = client.finish(&reply, true).await.unwrap();
-    (pending.finish(finish, 1_000).unwrap(), codes)
+    let (finish, issued) = client.finish(&reply, NewRecovery::Codes).await.unwrap();
+    (pending.finish(finish, 1_000).unwrap(), issued.codes)
 }
 
 /// One login's messages, so a test can tamper with any of them.
@@ -68,8 +76,17 @@ pub(crate) fn begin(
     pw: Option<&str>,
     code: Option<&RecoveryCode>,
 ) -> Exchange {
+    begin_offering(record, username, pw, code.map(RecoveryOffer::Code))
+}
+
+pub(crate) fn begin_offering(
+    record: Option<&PqAuthRecord>,
+    username: &str,
+    pw: Option<&str>,
+    recovery: Option<RecoveryOffer<'_>>,
+) -> Exchange {
     let pw = pw.map(password);
-    let (start, client) = ClientLogin::start(username, pw.as_ref(), code).unwrap();
+    let (start, client) = ClientLogin::start(username, pw.as_ref(), recovery).unwrap();
     let account = record.map_or(AccountAuth::Unknown, AccountAuth::PostQuantum);
     let (challenge, expectation) = build_login_challenge(&settings(), account, &start).unwrap();
     Exchange {

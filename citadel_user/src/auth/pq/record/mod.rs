@@ -11,6 +11,10 @@ use citadel_io::{error, ErrorCode};
 use citadel_types::auth::{FactorId, FactorKind, SignInCredential, SignInPolicy};
 use serde::{Deserialize, Serialize};
 
+mod recovery;
+
+pub use recovery::{is_recovery, RecoverySecret};
+
 /// Argon2id parameters for the password factor. The server chooses them and stores them with the
 /// account, so they can be raised later; the client refuses any below [`KsfParams::FLOOR`].
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
@@ -82,7 +86,7 @@ impl PqAuthRecord {
         prf_eval_salt: [u8; 32],
         ksf: KsfParams,
         password_ek: EncapsulationKey,
-        recovery_eks: Vec<EncapsulationKey>,
+        recovery: RecoverySecret,
         now_ms: u64,
     ) -> Self {
         let mut record = Self {
@@ -100,7 +104,7 @@ impl PqAuthRecord {
             label: String::from("Password"),
         };
         let _ = record.add(password, now_ms);
-        record.replace_recovery_codes(recovery_eks, now_ms);
+        record.replace_recovery(recovery, now_ms);
         record
     }
 
@@ -143,12 +147,14 @@ impl PqAuthRecord {
     }
 
     /// Refused when the remaining factors could no longer satisfy the policy, which includes
-    /// removing the last one. Recovery codes go only by regeneration.
+    /// removing the last one. The recovery phrase and codes go only by regeneration.
     pub fn remove(&mut self, id: FactorId) -> Result<(), AccountError> {
         let index = self.factors.iter().position(|f| f.id == id);
         let index = index.ok_or_else(|| policy::refused("no such credential"))?;
-        if self.factors[index].kind == FactorKind::RecoveryCode {
-            return Err(policy::refused("recovery codes are replaced, not removed"));
+        if is_recovery(self.factors[index].kind) {
+            return Err(policy::refused(
+                "recovery credentials are replaced, not removed",
+            ));
         }
         let mut after = self.factors.clone();
         let _ = after.remove(index);
@@ -167,20 +173,6 @@ impl PqAuthRecord {
         }
         self.policy = policy;
         Ok(())
-    }
-
-    /// Replaces every recovery code, used or not.
-    pub fn replace_recovery_codes(&mut self, eks: Vec<EncapsulationKey>, now_ms: u64) {
-        self.factors.retain(|f| f.kind != FactorKind::RecoveryCode);
-        for (index, ek) in eks.into_iter().enumerate() {
-            let code = NewFactor {
-                kind: FactorKind::RecoveryCode,
-                ek,
-                credential_id: None,
-                label: format!("Recovery code {}", index + 1),
-            };
-            let _ = self.add(code, now_ms);
-        }
     }
 
     /// Records a sign-in: `used` get `last_used_ms`, and a recovery code among them is consumed.

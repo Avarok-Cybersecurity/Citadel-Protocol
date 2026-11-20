@@ -14,11 +14,13 @@ use crate::proto::session_resume::{self, ResumeToken};
 use crate::proto::state_container::StateContainerInner;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
+use citadel_io::{error, ErrorCode};
 use citadel_types::auth::SessionScope;
 use citadel_user::auth::pq::admission;
-use citadel_user::auth::pq::client::{ClientLogin, ClientProof, RelyingParty};
+use citadel_user::auth::pq::client::{ClientLogin, ClientProof, RecoveryOffer, RelyingParty};
 use citadel_user::auth::pq::login_transcript;
 use citadel_user::auth::pq::messages::{LoginProof, LoginStart};
+use citadel_user::auth::pq::throttle::Attempt;
 use citadel_user::client_account::ClientNetworkAccount;
 
 fn kind(aux: u8) -> Kind {
@@ -50,7 +52,21 @@ pub(crate) fn begin<R: Ratchet>(
         .as_ref()
         .map(|creds| creds.username().to_string())
         .ok_or_else(|| NetworkError::msg("Proposed credentials not loaded at AUTH_START"))?;
-    let recovery = offered.recovery_code.as_ref();
+    let recovery = match (&offered.recovery_code, &offered.recovery_phrase) {
+        (Some(_), Some(_)) => {
+            return Err(error!(
+                ErrorCode::PqSignInMalformed,
+                "a sign-in offering both a recovery code and a recovery phrase"
+            ))
+        }
+        // A server below it would answer a phrase with a decoy: say why instead.
+        (None, Some(_)) if !super::recover::server_recovers(Some(server_version)) => {
+            return Err(error!(ErrorCode::RecoveryUnsupported))
+        }
+        (None, Some(phrase)) => Some(RecoveryOffer::Phrase(phrase)),
+        (Some(code), None) => Some(RecoveryOffer::Code(code)),
+        (None, None) => None,
+    };
     let (mut start, client) = ClientLogin::start(&username, offered.password.as_ref(), recovery)?;
     start.admission = offered.admission.clone();
     start.resume = resume.map(ResumeToken::to_bytes);
@@ -93,9 +109,20 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
     }
     let now = session.time_tracker.get_global_time_ns();
     let issued = match packets::read::<LoginStart>(payload) {
-        // Before the challenge: a refused bot costs the server one call, not an OPRF
-        // evaluation and an encapsulation.
+        // Before the challenge: a throttled guess or a refused bot costs the server a lookup
+        // or one call, not an OPRF evaluation and an encapsulation.
         Ok(start) => {
+            let attempt = match start.recovery {
+                Some(_) => Attempt::Recovery,
+                None => Attempt::SignIn,
+            };
+            if let Err(err) = super::throttle::admit(session, &start.username, attempt) {
+                return refuse(session, ratchet, err, now, security_level, ticket);
+            }
+            inner_mut_state!(session.state_container)
+                .connect_state
+                .pq
+                .attempt = Some(attempt);
             let ctx = super::admission::sign_in(session, cnac.get_cid(), &start).await;
             let policy = super::admission::policy(session);
             admission::then(policy.as_ref(), ctx, false, || {
@@ -107,15 +134,7 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
     };
     let (challenge, pending) = match issued {
         Ok(issued) => issued,
-        Err(err) => {
-            log::warn!(target: "citadel", "Refusing AUTH_START: {err}");
-            let packet = failure(session, ratchet, err, now, security_level, ticket);
-            session.release_provisional_slot();
-            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
-                packet,
-                "Login refused",
-            ));
-        }
+        Err(err) => return refuse(session, ratchet, err, now, security_level, ticket),
     };
     let aux = packet_flags::cmd::aux::do_connect::AUTH_CHALLENGE;
     let packet = packets::craft(ratchet, kind(aux), &challenge, now, security_level, ticket)?;
@@ -124,6 +143,23 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
         .pq
         .server = Some(pending);
     Ok(PrimaryProcessorResult::ReplyToSender(packet))
+}
+
+fn refuse<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    ratchet: &R,
+    err: NetworkError,
+    now: i64,
+    security_level: SecurityLevel,
+    ticket: Ticket,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    log::warn!(target: "citadel", "Refusing AUTH_START: {err}");
+    let packet = failure(session, ratchet, err, now, security_level, ticket);
+    session.release_provisional_slot();
+    Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+        packet,
+        "Login refused",
+    ))
 }
 
 /// Client: answers the challenge in connect STAGE0.
