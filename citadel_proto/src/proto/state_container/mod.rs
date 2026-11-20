@@ -385,6 +385,8 @@ pub struct VirtualConnection<R: Ratchet> {
     /// performs this teardown; `Some` on the server, which does and which holds
     /// both sessions when it forges the pair.
     pub peer_session_init_time: Option<Instant>,
+    /// The accept that forged this route, on the server; `None` on endpoints.
+    pub(crate) forged: Option<relay_route::ForgedRoute>,
 }
 
 impl<R: Ratchet> VirtualConnection<R> {

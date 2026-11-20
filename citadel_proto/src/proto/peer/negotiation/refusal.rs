@@ -159,9 +159,13 @@ pub(crate) fn end_attempt_refused_by<R: Ratchet>(
             state_container.peer_kem_states.remove(&peer_cid);
         }
     }
-    // A refused Stage1 gets no Stage2; left in place, it turns away the peer's next Stage0.
+    // A Stage1 the peer refused gets no Stage2; left in place, it turns away the peer's next
+    // Stage0. Only the peer refuses it: the server's own refusals (of a crossing's spare accept,
+    // which carries the merged exchange's ticket) name this side as the sender.
+    let from_peer = original != session_cid;
     let answered = state_container.peer_kem_states.get(&peer_cid);
-    if answered.is_some_and(|kem| kem.answers(refused_ticket))
+    if from_peer
+        && answered.is_some_and(|kem| kem.answers(refused_ticket))
         && !state_container.has_live_peer_connection(peer_cid)
     {
         state_container.peer_kem_states.remove(&peer_cid);

@@ -2,6 +2,7 @@
 //! with a persistent store. Real ML-DSA-65 keys.
 
 use citadel_sdk::prelude::{transcript_message, KexAuth, P2pKexIdentity, PeerKexIdentity};
+use futures::future::BoxFuture;
 use ml_dsa::signature::{Keypair, Signer};
 use ml_dsa::{MlDsa65, Seed, SigningKey};
 use std::collections::HashMap;
@@ -97,9 +98,15 @@ impl P2pKexIdentity for Store {
             .cloned()
     }
 
-    fn pin_first_key(&self, _local_cid: u64, peer_cid: u64, identity_key: &[u8]) {
+    fn pin_first_key(
+        &self,
+        _local_cid: u64,
+        peer_cid: u64,
+        identity_key: &[u8],
+    ) -> BoxFuture<'static, Result<(), String>> {
         let mut state = self.state.lock().unwrap();
         state.pins.insert(peer_cid, identity_key.to_vec());
+        Box::pin(async { Ok(()) })
     }
 
     fn peer_key_changed(&self, _local_cid: u64, peer_cid: u64, presented: &[u8]) {

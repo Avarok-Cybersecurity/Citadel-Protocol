@@ -2376,6 +2376,17 @@ pub struct GroupDelivery {
 }
 
 impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
+    /// Marks `peer_cid`'s route back to `session_cid` ended, as the refusal relayed from
+    /// `session_cid` ended its own route to `peer_cid` (`relay_route::end_refused_route`).
+    pub(crate) fn end_route_back(&self, session_cid: u64, peer_cid: u64) {
+        if let Some(peer_sess) = self.sessions.get(&peer_cid) {
+            let state_container = inner_state!(peer_sess.1.state_container);
+            if let Some(route) = state_container.active_virtual_connections.get(&session_cid) {
+                route.is_active.store(false, Ordering::SeqCst);
+            }
+        }
+    }
+
     /// Clears a session from the SessionManager
     /// Stops every session this node holds for `cid` (admitted or still provisional) and forgets
     /// it, freeing the CID for a new connection. STOP it, do not merely forget it: removing the

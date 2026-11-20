@@ -1375,4 +1375,8 @@ pub enum ErrorCode {
     /// A peer's key exchange is signed by a key other than the one pinned for it (peer cid).
     #[form = "Peer {}'s identity key changed; no link is built until the new key is accepted"]
     P2pKexPeerKeyChanged = 662,
+    /// A peer's first verified identity key could not be kept, so the exchange stops before it
+    /// is reported verified (peer cid, why).
+    #[form = "Peer {}'s identity key could not be pinned: {}; nothing was built"]
+    P2pKexPinNotSaved = 663,
 }

@@ -29,6 +29,7 @@ use citadel_io::ErrorCode;
 use citadel_types::crypto::SigAlgorithm;
 use citadel_types::proto::{SessionSecuritySettings, UdpMode};
 use citadel_user::serialization::SyncIO;
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
 use std::sync::Arc;
@@ -63,16 +64,22 @@ impl KexStage {
     }
 }
 
-/// The application's identity keys and its pins of its peers' keys. The node calls it while it
-/// handles a key exchange, so each call must return without waiting on I/O.
+/// The application's identity keys and its pins of its peers' keys. The node never calls it
+/// while it holds its own state: a pin may be awaited on storage.
 pub trait P2pKexIdentity: Send + Sync {
     /// `local_cid`'s signature over `KEX_TRANSCRIPT_DOMAIN ‖ 0x00 ‖ body`, with its identity key;
     /// `None` when the account has no identity key, and its stage goes unsigned.
     fn sign(&self, local_cid: u64, body: &[u8]) -> Option<KexAuth>;
     /// The identity key `local_cid` pinned for `peer_cid`, if any.
     fn pinned_key(&self, local_cid: u64, peer_cid: u64) -> Option<Vec<u8>>;
-    /// `peer_cid` signed with a verified key and had no pin: pin it.
-    fn pin_first_key(&self, local_cid: u64, peer_cid: u64, identity_key: &[u8]);
+    /// `peer_cid` signed with a verified key and had no pin: pin it, durably. The exchange goes
+    /// on, and is reported verified, only once this resolves `Ok`; an `Err` refuses it.
+    fn pin_first_key(
+        &self,
+        local_cid: u64,
+        peer_cid: u64,
+        identity_key: &[u8],
+    ) -> BoxFuture<'static, Result<(), String>>;
     /// `peer_cid` signed with a verified key other than its pin. The exchange is refused; the
     /// pin stays until the person accepts the presented key.
     fn peer_key_changed(&self, local_cid: u64, peer_cid: u64, presented: &[u8]);
@@ -193,8 +200,8 @@ pub(crate) fn judge(
 }
 
 /// The peer's stage, checked and recorded through the port. `Err` is the refusal's error text
-/// for the kernel and the peer.
-pub(crate) fn authenticate(
+/// for the kernel and the peer. Awaits the port, so it is called with no state held.
+pub(crate) async fn authenticate(
     port: Option<&P2pKexIdentities>,
     local_cid: u64,
     peer_cid: u64,
@@ -208,8 +215,12 @@ pub(crate) fn authenticate(
     match judge(pinned.as_deref(), auth, body) {
         Ok(Judged::Pinned(identity_key)) => Ok(PeerKexIdentity::Signed { identity_key }),
         Ok(Judged::FirstSeen(identity_key)) => {
-            port.pin_first_key(local_cid, peer_cid, &identity_key);
-            Ok(PeerKexIdentity::Signed { identity_key })
+            match port.pin_first_key(local_cid, peer_cid, &identity_key).await {
+                Ok(()) => Ok(PeerKexIdentity::Signed { identity_key }),
+                Err(why) => Err(
+                    citadel_io::error!(ErrorCode::P2pKexPinNotSaved, peer_cid, why).into_string(),
+                ),
+            }
         }
         Ok(Judged::Unsigned) => Ok(PeerKexIdentity::Unsigned),
         Ok(Judged::Changed(presented)) => {

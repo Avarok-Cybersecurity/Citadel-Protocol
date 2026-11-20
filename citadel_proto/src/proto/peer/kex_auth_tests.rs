@@ -42,6 +42,8 @@ pub(super) struct Store {
     pub(super) key: Option<Key>,
     pub(super) pins: Mutex<HashMap<u64, Vec<u8>>>,
     pub(super) changes: Mutex<Vec<(u64, Vec<u8>)>>,
+    /// The pin cannot be kept: storage refuses every write.
+    pub(super) unwritable: bool,
 }
 
 impl Store {
@@ -61,8 +63,19 @@ impl P2pKexIdentity for Store {
     fn pinned_key(&self, _local_cid: u64, peer_cid: u64) -> Option<Vec<u8>> {
         self.pins.lock().unwrap().get(&peer_cid).cloned()
     }
-    fn pin_first_key(&self, _local_cid: u64, peer_cid: u64, identity_key: &[u8]) {
-        self.pin(peer_cid, identity_key.to_vec());
+    fn pin_first_key(
+        &self,
+        _local_cid: u64,
+        peer_cid: u64,
+        identity_key: &[u8],
+    ) -> BoxFuture<'static, Result<(), String>> {
+        let kept = if self.unwritable {
+            Err("the disk is full".to_string())
+        } else {
+            self.pin(peer_cid, identity_key.to_vec());
+            Ok(())
+        };
+        Box::pin(async move { kept })
     }
     fn peer_key_changed(&self, _local_cid: u64, peer_cid: u64, presented: &[u8]) {
         self.changes
@@ -70,6 +83,17 @@ impl P2pKexIdentity for Store {
             .unwrap()
             .push((peer_cid, presented.to_vec()));
     }
+}
+
+/// [`authenticate`], run to completion.
+pub(super) fn checked(
+    port: Option<&P2pKexIdentities>,
+    local_cid: u64,
+    peer_cid: u64,
+    auth: Option<&KexAuth>,
+    body: &[u8],
+) -> Result<PeerKexIdentity, String> {
+    futures::executor::block_on(authenticate(port, local_cid, peer_cid, auth, body))
 }
 
 /// A store, and the same store as the node holds it.
@@ -111,10 +135,10 @@ fn a_peer_seen_first_is_pinned_and_then_matches_its_pin() {
     let alice = Key::new(1);
     let (store, bob) = port(Store::default());
     let auth = alice.sign(&initiator_body());
-    let first = authenticate(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
+    let first = checked(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
     assert_eq!(first, signed(&alice));
     assert_eq!(store.pinned_key(BOB, ALICE), Some(alice.public()));
-    let again = authenticate(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
+    let again = checked(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
     assert_eq!(again, signed(&alice));
 }
 
@@ -124,7 +148,7 @@ fn a_key_other_than_the_pin_is_refused_reported_and_not_pinned() {
     let (store, bob) = port(Store::default());
     store.pin(ALICE, pinned.public());
     let auth = other.sign(&initiator_body());
-    let refused = authenticate(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
+    let refused = checked(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
     refused_with(refused, ErrorCode::P2pKexPeerKeyChanged);
     assert_eq!(store.changes(), vec![(ALICE, other.public())]);
     assert_eq!(
@@ -140,14 +164,14 @@ fn a_changed_key_connects_once_the_person_accepts_it() {
     let (store, bob) = port(Store::default());
     store.pin(ALICE, pinned.public());
     let auth = other.sign(&initiator_body());
-    let before = authenticate(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
+    let before = checked(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
     refused_with(before, ErrorCode::P2pKexPeerKeyChanged);
-    let again = authenticate(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
+    let again = checked(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
     refused_with(again, ErrorCode::P2pKexPeerKeyChanged);
     // Accepting is the person's, through the application: it re-pins the reported key.
     let (peer, presented) = store.changes()[0].clone();
     store.pin(peer, presented);
-    let accepted = authenticate(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
+    let accepted = checked(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
     assert_eq!(accepted, signed(&other));
 }
 
@@ -155,14 +179,14 @@ fn a_changed_key_connects_once_the_person_accepts_it() {
 fn an_unsigned_stage_from_a_pinned_peer_is_refused() {
     let (store, bob) = port(Store::default());
     store.pin(ALICE, Key::new(1).public());
-    let refused = authenticate(Some(&bob), BOB, ALICE, None, &initiator_body());
+    let refused = checked(Some(&bob), BOB, ALICE, None, &initiator_body());
     refused_with(refused, ErrorCode::P2pKexSignatureMissing);
 }
 
 #[test]
 fn an_unsigned_stage_from_an_unpinned_peer_connects_unsigned() {
     let (store, bob) = port(Store::default());
-    let unsigned = authenticate(Some(&bob), BOB, ALICE, None, &initiator_body());
+    let unsigned = checked(Some(&bob), BOB, ALICE, None, &initiator_body());
     assert_eq!(unsigned, Ok(PeerKexIdentity::Unsigned));
     assert_eq!(
         store.pinned_key(BOB, ALICE),
@@ -176,16 +200,29 @@ fn a_signature_that_does_not_verify_pins_nothing_and_reports_no_change() {
     let (store, bob) = port(Store::default());
     let mut auth = Key::new(1).sign(&initiator_body());
     auth.signature[10] ^= 1;
-    let refused = authenticate(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
+    let refused = checked(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
     refused_with(refused, ErrorCode::P2pKexSignatureInvalid);
     assert!(store.pins.lock().unwrap().is_empty() && store.changes().is_empty());
 }
 
 #[test]
+fn a_first_key_that_cannot_be_kept_is_refused_not_reported_verified() {
+    let alice = Key::new(1);
+    let (store, bob) = port(Store {
+        unwritable: true,
+        ..Default::default()
+    });
+    let auth = alice.sign(&initiator_body());
+    let refused = checked(Some(&bob), BOB, ALICE, Some(&auth), &initiator_body());
+    refused_with(refused, ErrorCode::P2pKexPinNotSaved);
+    assert!(store.pins.lock().unwrap().is_empty());
+}
+
+#[test]
 fn a_node_without_an_identity_port_neither_signs_nor_checks() {
     let auth = Key::new(1).sign(&initiator_body());
-    let checked = authenticate(None, BOB, ALICE, Some(&auth), &initiator_body());
-    assert_eq!(checked, Ok(PeerKexIdentity::Unsigned));
+    let verdict = checked(None, BOB, ALICE, Some(&auth), &initiator_body());
+    assert_eq!(verdict, Ok(PeerKexIdentity::Unsigned));
     let stage = KexStage::Initiator { stage0: [1; 32] };
     assert_eq!(sign_stage(None, ALICE, &context(), &stage, None), None);
 }

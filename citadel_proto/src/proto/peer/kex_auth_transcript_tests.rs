@@ -2,7 +2,7 @@
 //! field on the wire.
 
 use super::super::*;
-use super::{context, port, refused_with, Key, Store, ALICE, BOB};
+use super::{checked, context, port, refused_with, Key, Store, ALICE, BOB};
 use crate::proto::peer::kex_path::KexPath;
 use crate::proto::peer::p2p_seal_binding::tests::{opens, Constructor};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
@@ -59,8 +59,8 @@ fn a_relay_that_swaps_the_initiators_kem_transfer_is_refused() {
     let auth = alice.sign(&body0(&alice_transfer));
     let (mut relay, relay_transfer) = stage0();
     let (store, bob) = port(Store::default());
-    let checked = authenticate(Some(&bob), BOB, ALICE, Some(&auth), &body0(&relay_transfer));
-    refused_with(checked, ErrorCode::P2pKexSignatureInvalid);
+    let verdict = checked(Some(&bob), BOB, ALICE, Some(&auth), &body0(&relay_transfer));
+    refused_with(verdict, ErrorCode::P2pKexSignatureInvalid);
     assert!(
         store.pins.lock().unwrap().is_empty(),
         "the swap pinned nothing"
@@ -103,15 +103,15 @@ fn a_relay_that_swaps_the_responders_reply_is_refused() {
         .unwrap();
     let auth = bob.sign(&reply(&bob_transfer));
     let (_, alice) = port(Store::default());
-    let checked = authenticate(
+    let verdict = checked(
         Some(&alice),
         ALICE,
         BOB,
         Some(&auth),
         &reply(&relay_transfer),
     );
-    refused_with(checked, ErrorCode::P2pKexSignatureInvalid);
-    let honest = authenticate(Some(&alice), ALICE, BOB, Some(&auth), &reply(&bob_transfer));
+    refused_with(verdict, ErrorCode::P2pKexSignatureInvalid);
+    let honest = checked(Some(&alice), ALICE, BOB, Some(&auth), &reply(&bob_transfer));
     assert_eq!(
         honest,
         Ok(PeerKexIdentity::Signed {
@@ -125,14 +125,14 @@ fn a_relay_that_signs_its_swap_with_its_own_key_is_refused_by_a_pinned_peer() {
     let (alice, relay_key) = (Key::new(1), Key::new(9));
     let (_, relay_transfer) = stage0();
     let auth = relay_key.sign(&body0(&relay_transfer));
-    let checked = authenticate(
+    let verdict = checked(
         Some(&bob_pinned_to(&alice)),
         BOB,
         ALICE,
         Some(&auth),
         &body0(&relay_transfer),
     );
-    refused_with(checked, ErrorCode::P2pKexPeerKeyChanged);
+    refused_with(verdict, ErrorCode::P2pKexPeerKeyChanged);
 }
 
 /// Every field the transcript names, changed one at a time, makes another transcript.
