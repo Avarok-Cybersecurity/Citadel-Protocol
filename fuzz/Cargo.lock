@@ -22,6 +22,7 @@ dependencies = [
  "cfg-if 1.0.5",
  "cipher",
  "cpufeatures 0.2.17",
+ "zeroize",
 ]
 
 [[package]]
@@ -36,6 +37,7 @@ dependencies = [
  "ctr",
  "ghash",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -92,6 +94,7 @@ dependencies = [
  "aead",
  "ascon-core",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -99,6 +102,9 @@ name = "ascon-core"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c4c9bc969387b7d7e7e931b978833ab18251a39e0f94addad7b823d08b8db74"
+dependencies = [
+ "zeroize",
+]
 
 [[package]]
 name = "asn1-rs"
@@ -542,11 +548,13 @@ dependencies = [
  "bytemuck",
  "byteorder",
  "bytes",
+ "chacha20poly1305",
  "citadel_io",
  "citadel_negotiation",
  "citadel_pqcrypto",
  "citadel_types",
  "futures",
+ "hkdf",
  "log",
  "num-integer",
  "num_cpus",
@@ -565,6 +573,7 @@ dependencies = [
 name = "citadel_io"
 version = "0.14.0"
 dependencies = [
+ "bincode",
  "bytes",
  "citadel_io_macros",
  "futures",
@@ -589,6 +598,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "citadel_link"
+version = "0.1.0"
+dependencies = [
+ "citadel_media",
+ "citadel_negotiation",
+ "citadel_types",
+ "serde",
+]
+
+[[package]]
 name = "citadel_logging"
 version = "0.14.0"
 dependencies = [
@@ -597,19 +616,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "citadel_media"
+version = "0.14.0"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "citadel_negotiation"
 version = "0.14.0"
 dependencies = [
  "bincode",
+ "citadel_io",
  "citadel_types",
  "serde",
  "sha3",
 ]
 
 [[package]]
+name = "citadel_phrase"
+version = "0.14.0"
+dependencies = [
+ "sha3",
+ "zeroize",
+]
+
+[[package]]
 name = "citadel_pqcrypto"
 version = "0.14.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "ascon-aead",
  "bincode",
@@ -620,12 +656,11 @@ dependencies = [
  "fn-dsa",
  "generic-array",
  "getrandom 0.2.17",
- "kyber-pke",
  "libcrux-ml-kem",
  "log",
  "ml-dsa",
  "parking_lot",
- "pqc_kyber_kyberslash",
+ "polyval",
  "rand 0.8.8",
  "serde",
  "serde-big-array",
@@ -648,6 +683,7 @@ dependencies = [
  "chrono",
  "citadel_crypt",
  "citadel_io",
+ "citadel_link",
  "citadel_logging",
  "citadel_negotiation",
  "citadel_pqcrypto",
@@ -702,14 +738,16 @@ dependencies = [
  "bytes",
  "citadel_io",
  "getrandom 0.2.17",
- "kernel32-sys",
  "libc",
+ "log",
  "packed_struct",
  "serde",
  "sha3",
  "strum",
  "strum_macros",
  "uuid",
+ "windows-sys 0.59.0",
+ "zeroize",
 ]
 
 [[package]]
@@ -724,6 +762,7 @@ dependencies = [
  "citadel_crypt",
  "citadel_io",
  "citadel_negotiation",
+ "citadel_phrase",
  "citadel_pqcrypto",
  "citadel_types",
  "dirs2",
@@ -752,6 +791,7 @@ dependencies = [
  "bincode",
  "bytes",
  "citadel_io",
+ "citadel_types",
  "either",
  "futures",
  "igd-next",
@@ -1093,7 +1133,7 @@ checksum = "1b1d1d91c932ef41c0f2663aa8b0ca0342d444d842c06914aa0a7e352d0bada6"
 dependencies = [
  "libc",
  "redox_users",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -1961,27 +2001,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kernel32-sys"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
-dependencies = [
- "winapi 0.2.8",
- "winapi-build",
-]
-
-[[package]]
-name = "kyber-pke"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "937633be804fdf435e7dd3608f4b6b0b1210bd340cba9f0dad00b1c47c459633"
-dependencies = [
- "byteorder",
- "pqc_kyber_kyberslash",
- "rand 0.8.8",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2244,7 +2263,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
 dependencies = [
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -2480,6 +2499,7 @@ dependencies = [
  "cpufeatures 0.2.17",
  "opaque-debug",
  "universal-hash",
+ "zeroize",
 ]
 
 [[package]]
@@ -2510,16 +2530,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy 0.8.63",
-]
-
-[[package]]
-name = "pqc_kyber_kyberslash"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "207d5f62689c9bca32505356e590921f70cd0dd4b0a2473924a1c51ccfd7119a"
-dependencies = [
- "rand_core 0.6.4",
- "sha2",
 ]
 
 [[package]]
@@ -3394,7 +3404,7 @@ dependencies = [
  "libc",
  "ntapi",
  "once_cell",
- "winapi 0.3.9",
+ "winapi",
 ]
 
 [[package]]
@@ -3950,14 +3960,8 @@ dependencies = [
  "rand 0.8.8",
  "thiserror 1.0.69",
  "tokio",
- "winapi 0.3.9",
+ "winapi",
 ]
-
-[[package]]
-name = "winapi"
-version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "167dc9d6949a9b857f3451275e911c3f44255842c1f7a76f33c55103a909087a"
 
 [[package]]
 name = "winapi"
@@ -3968,12 +3972,6 @@ dependencies = [
  "winapi-i686-pc-windows-gnu",
  "winapi-x86_64-pc-windows-gnu",
 ]
-
-[[package]]
-name = "winapi-build"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d315eee3b34aca4797b2da6b13ed88266e6d612562a0c46390af8299fc699bc"
 
 [[package]]
 name = "winapi-i686-pc-windows-gnu"
@@ -3987,7 +3985,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -4057,11 +4055,20 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
+version = "0.48.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "677d2418bec65e3338edb076e806bc1ec15693c5d0104683f2efe857f61056a9"
+dependencies = [
+ "windows-targets 0.48.5",
+]
+
+[[package]]
+name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
 dependencies = [
- "windows-targets",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -4070,7 +4077,7 @@ version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
- "windows-targets",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -4084,19 +4091,40 @@ dependencies = [
 
 [[package]]
 name = "windows-targets"
+version = "0.48.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a2fa6e2155d7247be68c096456083145c183cbbbc2764150dda45a87197940c"
+dependencies = [
+ "windows_aarch64_gnullvm 0.48.5",
+ "windows_aarch64_msvc 0.48.5",
+ "windows_i686_gnu 0.48.5",
+ "windows_i686_msvc 0.48.5",
+ "windows_x86_64_gnu 0.48.5",
+ "windows_x86_64_gnullvm 0.48.5",
+ "windows_x86_64_msvc 0.48.5",
+]
+
+[[package]]
+name = "windows-targets"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973"
 dependencies = [
- "windows_aarch64_gnullvm",
- "windows_aarch64_msvc",
- "windows_i686_gnu",
+ "windows_aarch64_gnullvm 0.52.6",
+ "windows_aarch64_msvc 0.52.6",
+ "windows_i686_gnu 0.52.6",
  "windows_i686_gnullvm",
- "windows_i686_msvc",
- "windows_x86_64_gnu",
- "windows_x86_64_gnullvm",
- "windows_x86_64_msvc",
+ "windows_i686_msvc 0.52.6",
+ "windows_x86_64_gnu 0.52.6",
+ "windows_x86_64_gnullvm 0.52.6",
+ "windows_x86_64_msvc 0.52.6",
 ]
+
+[[package]]
+name = "windows_aarch64_gnullvm"
+version = "0.48.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b38e32f0abccf9987a4e3079dfb67dcd799fb61361e53e2882c3cbaf0d905d8"
 
 [[package]]
 name = "windows_aarch64_gnullvm"
@@ -4106,9 +4134,21 @@ checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
 
 [[package]]
 name = "windows_aarch64_msvc"
+version = "0.48.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc35310971f3b2dbbf3f0690a219f40e2d9afcf64f9ab7cc1be722937c26b4bc"
+
+[[package]]
+name = "windows_aarch64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
+
+[[package]]
+name = "windows_i686_gnu"
+version = "0.48.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a75915e7def60c94dcef72200b9a8e58e5091744960da64ec734a6c6e9b3743e"
 
 [[package]]
 name = "windows_i686_gnu"
@@ -4124,9 +4164,21 @@ checksum = "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66"
 
 [[package]]
 name = "windows_i686_msvc"
+version = "0.48.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f55c233f70c4b27f66c523580f78f1004e8b5a8b659e05a4eb49d4166cca406"
+
+[[package]]
+name = "windows_i686_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
+
+[[package]]
+name = "windows_x86_64_gnu"
+version = "0.48.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53d40abd2583d23e4718fddf1ebec84dbff8381c07cae67ff7768bbf19c6718e"
 
 [[package]]
 name = "windows_x86_64_gnu"
@@ -4136,9 +4188,21 @@ checksum = "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
+version = "0.48.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b7b52767868a23d5bab768e390dc5f5c55825b6d30b86c844ff2dc7414044cc"
+
+[[package]]
+name = "windows_x86_64_gnullvm"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
+
+[[package]]
+name = "windows_x86_64_msvc"
+version = "0.48.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed94fce61571a4006852b7389a063ab983c02eb1bb37b47f8272ce92d06d9538"
 
 [[package]]
 name = "windows_x86_64_msvc"
