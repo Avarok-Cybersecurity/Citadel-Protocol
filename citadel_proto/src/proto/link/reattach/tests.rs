@@ -56,15 +56,6 @@ fn held(token: ResumeToken) -> ReattachHolds {
 }
 
 #[test]
-fn only_a_peer_at_the_gate_is_sent_the_frames() {
-    let v = |patch| Some(embedded_semver::Semver::new(0, 12, patch).to_u32().unwrap());
-    assert!(peer_may_reattach(v(4)));
-    assert!(!peer_may_reattach(v(3)));
-    assert!(!peer_may_reattach(v(2)));
-    assert!(!peer_may_reattach(None));
-}
-
-#[test]
 fn a_proof_opens_only_under_its_own_ratchet_and_binding() {
     let (client, server) = session_keys();
     let (_, other) = session_keys();

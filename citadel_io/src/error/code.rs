@@ -1196,9 +1196,7 @@ pub enum ErrorCode {
     /// A server probe's session ended before the probe was answered or timed out.
     #[form = "The session ended before the server probe was answered"]
     ServerProbeAbandoned = 370,
-    /// The server's protocol version does not answer liveness probes (version).
-    #[form = "The server does not answer liveness probes (protocol version {})"]
-    ServerProbeUnsupported = 371,
+    // 371 is retired: never reuse it.
     /// A server probe was asked of a session that is not connected (cid).
     #[form = "Cannot probe the server: session {} is not connected"]
     ServerProbeNotConnected = 372,

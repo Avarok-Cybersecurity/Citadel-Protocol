@@ -61,11 +61,6 @@ impl MediaEndpoint {
     ///
     /// Refused with `ErrorCode::PathClassDenied` when, once the transport is agreed, the
     /// connection's path may not carry media: the server's path policy keeps media off it.
-    ///
-    /// A peer whose protocol version predates transport offers
-    /// ([`citadel_proto::constants::MEDIA_TRANSPORT_OFFER_SINCE`], or unknown because the peer or the
-    /// server relaying its key exchange predates carrying the version) is
-    /// sent none and never waited on: this side uses reliable mode.
     pub async fn from_peer_connection<R: Ratchet>(
         conn: PeerConnectSuccess<R>,
         cfg: MediaTransportConfig,
@@ -105,7 +100,6 @@ impl MediaEndpoint {
     ) -> Result<Self, NetworkError> {
         cfg.validate()?;
         let start = Instant::now();
-        let peer_protocol_version = channel.peer_protocol_version();
         // Media may ride only a path the server's policy gives it: on a server relay that carries
         // no media this refuses the call (PathClassDenied) instead of relaying it. Checked before
         // anything is sent, so each side is refused on its own gates. Checked after the transport
@@ -144,17 +138,9 @@ impl MediaEndpoint {
                 (kind == MediaTransportKind::Unreliable, agreement)
             }
             None => {
-                let peer_udp = agree_on_udp(
-                    peer_protocol_version,
-                    local_udp.is_some(),
-                    &mut control_sink,
-                    &mut control_src,
-                )
-                .await?;
-                (
-                    peer_udp,
-                    in_band::agreement_by_offers(peer_protocol_version),
-                )
+                let peer_udp =
+                    agree_on_udp(local_udp.is_some(), &mut control_sink, &mut control_src).await?;
+                (peer_udp, MediaAgreement::Offers)
             }
         };
 

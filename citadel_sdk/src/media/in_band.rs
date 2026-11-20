@@ -15,9 +15,7 @@ use citadel_negotiation::{CapabilityBits, Hello};
 use citadel_negotiation::{
     Command, Input, Millis, NegotiationState, Negotiator, NegotiatorConfig, PeerSupport, SettingId,
 };
-use citadel_proto::constants::{
-    protocol_version_at_least, MEDIA_TRANSPORT_OFFER_SINCE, PROTOCOL_VERSION,
-};
+use citadel_proto::constants::PROTOCOL_VERSION;
 use citadel_proto::prelude::{NegotiationLane, NetworkError, PeerChannel, Ratchet, SettingLane};
 
 /// How the two ends of a media session agreed on its transport.
@@ -28,8 +26,6 @@ pub enum MediaAgreement {
     /// By the transport offers each side sends first on the reliable channel (a peer, or a lane,
     /// that does not negotiate media in band).
     Offers,
-    /// The peer predates transport offers: reliable, without asking.
-    PeerPredatesOffers,
 }
 
 /// The setting this module negotiates, as both sides' Hello must list it.
@@ -46,15 +42,6 @@ pub(super) fn lane_of<R: Ratchet>(channel: &mut PeerChannel<R>) -> Option<Negoti
         settings: vec![(SETTING, CapabilityBits::IN_BAND)],
     };
     channel.open_negotiation(hello).ok()
-}
-
-/// The agreement the transport offers give, by the peer's version.
-pub(super) fn agreement_by_offers(peer_protocol_version: Option<u32>) -> MediaAgreement {
-    if protocol_version_at_least(peer_protocol_version, MEDIA_TRANSPORT_OFFER_SINCE) {
-        MediaAgreement::Offers
-    } else {
-        MediaAgreement::PeerPredatesOffers
-    }
 }
 
 /// Whether media is negotiated in band on this lane: both Hellos must offer it.

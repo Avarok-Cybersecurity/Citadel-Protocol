@@ -6,13 +6,6 @@
 //! at once with [`PROBE_REPLY`], echoing the nonce under the same ratchet; it touches none of the
 //! keep-alive bookkeeping. The client matches the nonce and reports the round trip.
 //!
-//! A server below [`SERVER_PROBE_SINCE`] would read a probe as a plain keep-alive and start a
-//! second keep-alive cycle, so a client never sends one to it: [`probe_server`] answers
-//! `Error` for such a server, or for one whose version is unknown.
-//!
-//! [`probe_server`]: crate::proto::session::CitadelSession::probe_server
-
-use crate::constants::{protocol_version_at_least, SERVER_PROBE_SINCE};
 use crate::proto::remote::Ticket;
 use citadel_io::time::{Duration, Instant};
 use citadel_io::tokio::sync::oneshot;
@@ -32,8 +25,7 @@ pub enum ServerProbeOutcome {
     Ok(Duration),
     /// No answer within the caller's timeout.
     Timeout,
-    /// The probe could not be sent: no such connected session, a server too old to answer one,
-    /// or the outbound stream is gone.
+    /// The probe could not be sent: no such connected session, or the outbound stream is gone.
     Error(NetworkError),
 }
 
@@ -43,11 +35,6 @@ pub struct ServerProbeResult {
     pub ticket: Ticket,
     pub session_cid: u64,
     pub outcome: ServerProbeOutcome,
-}
-
-/// Whether a server at `adjacent_version` answers probes.
-pub(crate) fn server_answers_probes(adjacent_version: Option<u32>) -> bool {
-    protocol_version_at_least(adjacent_version, SERVER_PROBE_SINCE)
 }
 
 /// The probes a client session has in flight, by nonce.
