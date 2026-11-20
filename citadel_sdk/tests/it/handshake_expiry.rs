@@ -50,7 +50,8 @@ mod tests {
                 CertVerification::SelfSignedAccepted,
             );
             // Well past the node's limit, so only a hang reaches it.
-            let answer = tokio::time::timeout(Duration::from_secs(120), register).await;
+            let answer =
+                citadel_io::time::runnable_timeout(Duration::from_secs(120), register).await;
             let Err(err) = answer.expect("the stalled registration never answered") else {
                 panic!("a stalled registration succeeded");
             };

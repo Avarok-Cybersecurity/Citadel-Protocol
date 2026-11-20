@@ -28,6 +28,9 @@ pub use crate::tokio::time::{Interval, MissedTickBehavior, Sleep, Timeout};
 #[cfg(target_family = "wasm")]
 pub use wasmtimer::tokio::{Interval, MissedTickBehavior, Sleep, Timeout};
 
+mod runnable;
+pub use runnable::{runnable_timeout, runnable_window, RunnableElapsed};
+
 pub mod error {
     #[cfg(not(target_family = "wasm"))]
     pub use crate::tokio::time::error::*;

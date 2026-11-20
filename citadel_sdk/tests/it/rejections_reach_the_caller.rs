@@ -209,11 +209,15 @@ mod tests {
         let (server, server_addr) = server_test_node::<_, StackedRatchet>(
             citadel_sdk::prefabs::server::empty::EmptyKernel::default(),
             |builder| {
-                let _ = builder.with_server_misc_settings(ServerMiscSettings {
-                    // The setting the refusal hangs off.
-                    allow_transient_connections: false,
-                    ..Default::default()
-                });
+                let _ = builder
+                    .with_server_misc_settings(ServerMiscSettings {
+                        // The setting the refusal hangs off.
+                        allow_transient_connections: false,
+                        ..Default::default()
+                    })
+                    // Both ends on clocks nobody moves: a starved host must not let either
+                    // end's login deadline answer before the server's refusal does (#391).
+                    .with_link_manager(managed(ManualClock::new()));
             },
         );
 
@@ -234,7 +238,7 @@ mod tests {
         );
 
         let client = citadel_sdk::test_common::node_builder()
-            .with_link_manager(LinkManagerMode::Legacy)
+            .with_link_manager(managed(ManualClock::new()))
             .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
             .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)

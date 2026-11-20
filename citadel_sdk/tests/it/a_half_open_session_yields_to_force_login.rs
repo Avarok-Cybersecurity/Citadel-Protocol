@@ -99,7 +99,7 @@ mod tests {
             .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(kernel)
             .unwrap();
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), async move {
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(120), async move {
             citadel_io::tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
                 res = client => res.map(|_| ()),
@@ -211,7 +211,7 @@ mod tests {
             .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(kernel_c)
             .unwrap();
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), async move {
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(120), async move {
             citadel_io::tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
                 res = futures::future::try_join(client_a, client_c) => res.map(|_| ()),

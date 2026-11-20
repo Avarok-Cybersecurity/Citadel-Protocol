@@ -96,7 +96,7 @@ mod tests {
             client(other, &backend).await
         };
         let clients = futures::future::try_join(first, second);
-        let result = tokio::time::timeout(Duration::from_secs(120), async move {
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(120), async move {
             tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
                 res = clients => res.map(|_| ()),

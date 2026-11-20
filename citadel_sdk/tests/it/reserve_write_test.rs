@@ -101,7 +101,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(60), task)
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(60), task)
             .await
             .expect("Test timed out");
 
@@ -186,7 +186,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(60), task)
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(60), task)
             .await
             .expect("Test timed out");
 

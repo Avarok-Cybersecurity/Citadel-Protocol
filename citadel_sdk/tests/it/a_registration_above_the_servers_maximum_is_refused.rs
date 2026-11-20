@@ -84,7 +84,7 @@ mod tests {
                 client(remote, addr, username)
             }))
             .unwrap();
-        let outcome = tokio::time::timeout(Duration::from_secs(90), async move {
+        let outcome = citadel_io::time::runnable_timeout(Duration::from_secs(90), async move {
             tokio::select! {
                 res = server => Err(NetworkError::msg(format!("server ended: {:?}", res.map(|_| ())))),
                 res = node => res.map(|_| ()),

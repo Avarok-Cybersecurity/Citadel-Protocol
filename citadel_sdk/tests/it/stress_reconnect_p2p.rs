@@ -286,7 +286,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(300), task)
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(300), task)
             .await
             .expect("P2P stress test timed out");
 

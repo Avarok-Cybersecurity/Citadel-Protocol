@@ -180,7 +180,7 @@ where
             res = clients => res,
         }
     };
-    let result = tokio::time::timeout(Duration::from_secs(240), task)
+    let result = citadel_io::time::runnable_timeout(Duration::from_secs(240), task)
         .await
         .expect("test timed out");
     assert!(result.is_ok(), "test failed: {result:?}");

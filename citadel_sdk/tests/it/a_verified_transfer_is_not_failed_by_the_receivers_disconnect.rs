@@ -244,7 +244,7 @@ mod tests {
                 );
             }
         };
-        let result = tokio::time::timeout(TEST_BUDGET, async move {
+        let result = citadel_io::time::runnable_timeout(TEST_BUDGET, async move {
             tokio::select! {
                 res = server => panic!("the server ended first: {:?}", res.map(|_| ())),
                 _ = rounds => {}

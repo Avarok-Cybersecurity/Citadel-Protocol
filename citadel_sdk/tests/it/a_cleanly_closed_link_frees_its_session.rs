@@ -144,7 +144,7 @@ mod tests {
             .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
             .build(client_kernel)
             .unwrap();
-        let result = citadel_io::tokio::time::timeout(Duration::from_secs(120), async move {
+        let result = citadel_io::time::runnable_timeout(Duration::from_secs(120), async move {
             citadel_io::tokio::select! {
                 res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
                 res = client => res,

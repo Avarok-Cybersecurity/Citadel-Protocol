@@ -195,7 +195,7 @@ impl Method3 {
             citadel_io::tokio::select! {
                 biased;
                 received = received => received,
-                _ = super::runnable_window::runnable_window(Duration::from_millis(3000)) => {
+                _ = citadel_io::time::runnable_window(Duration::from_millis(3000)) => {
                     Err(citadel_io::error!(citadel_io::ErrorCode::FirewallPenetrationTimeout))
                 }
             }

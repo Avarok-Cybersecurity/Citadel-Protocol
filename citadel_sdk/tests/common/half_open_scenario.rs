@@ -167,7 +167,7 @@ pub async fn run_scenario(relogin: Relogin) -> usize {
         .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .build(kernel_b)
         .unwrap();
-    let result = citadel_io::tokio::time::timeout(Duration::from_secs(180), async move {
+    let result = citadel_io::time::runnable_timeout(Duration::from_secs(180), async move {
         citadel_io::tokio::select! {
             res = server => Err(NetworkError::msg(format!("the server ended first: {:?}", res.map(|_| ())))),
             res = futures::future::try_join(client_a, client_b) => res.map(|_| ()),

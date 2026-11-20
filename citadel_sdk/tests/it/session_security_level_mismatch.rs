@@ -120,7 +120,7 @@ mod tests {
             }
         };
 
-        let result = citadel_io::tokio::time::timeout(MUST_FINISH_WITHIN, task)
+        let result = citadel_io::time::runnable_timeout(MUST_FINISH_WITHIN, task)
             .await
             .expect("the login never finished: the node panicked or hung");
         assert!(result.is_ok(), "node failed: {result:?}");
