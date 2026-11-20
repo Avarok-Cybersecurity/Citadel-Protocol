@@ -23,10 +23,10 @@ async fn a_route_lost_on_one_side_falls_back_on_both() {
     let cut_unaware = unaware.clone();
     let both = async {
         tokio::join!(
-            wait_for_shared_fall_back(&lost, &initiator, true, || {
+            wait_for_shared_fall_back(&lost, &initiator, || {
                 panic!("the side that lost the route was told to cut it")
             }),
-            wait_for_shared_fall_back(&unaware, &receiver, true, move || {
+            wait_for_shared_fall_back(&unaware, &receiver, move || {
                 cut_unaware.fall_back_to_server_relay()
             }),
             async {
@@ -53,12 +53,8 @@ async fn a_route_lost_on_both_sides_at_once_falls_back_once() {
     let (ca, cb) = (a.clone(), b.clone());
     let both = async {
         tokio::join!(
-            wait_for_shared_fall_back(&a, &initiator, true, move || {
-                ca.fall_back_to_server_relay()
-            }),
-            wait_for_shared_fall_back(&b, &receiver, true, move || {
-                cb.fall_back_to_server_relay()
-            }),
+            wait_for_shared_fall_back(&a, &initiator, move || { ca.fall_back_to_server_relay() }),
+            wait_for_shared_fall_back(&b, &receiver, move || { cb.fall_back_to_server_relay() }),
         )
     };
     let (ra, rb) = tokio::time::timeout(BOUND, both).await.unwrap();
@@ -72,8 +68,8 @@ async fn a_live_route_wakes_nobody() {
     let ((a, _ga), (b, _gb)) = (direct(), direct());
     let both = async {
         tokio::join!(
-            wait_for_shared_fall_back(&a, &initiator, true, || panic!("cut a live route")),
-            wait_for_shared_fall_back(&b, &receiver, true, || panic!("cut a live route")),
+            wait_for_shared_fall_back(&a, &initiator, || panic!("cut a live route")),
+            wait_for_shared_fall_back(&b, &receiver, || panic!("cut a live route")),
         )
     };
     assert!(

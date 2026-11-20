@@ -149,8 +149,7 @@ pub(crate) fn launch_link<R: Ratchet, T: PlatformOps>(pair: LaunchedPair<R, T>) 
 }
 
 /// The pair's manager, on a `Managed` node, for the campaign to hand over to if the peer is
-/// `Managed` too. `None` on a `Legacy` node, and for a channel without a connection id (a peer
-/// below `NEGOTIATION_SINCE`, which is below `LINK_MODE_SINCE` too).
+/// `Managed` too. `None` on a `Legacy` node, and for a channel without a connection id.
 #[cfg(not(target_family = "wasm"))]
 #[allow(clippy::too_many_arguments)]
 fn managed_pair<R: Ratchet, T: PlatformOps>(

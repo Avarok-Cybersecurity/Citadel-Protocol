@@ -28,7 +28,7 @@
 //! - `SessionManager`: Tracks active protocol sessions
 
 use crate::proto::misc::platform_ops::PlatformOps;
-use crate::proto::peer::coordination::coordination_wire;
+use crate::proto::peer::coordination::COORDINATION_WIRE;
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
 use citadel_crypt::ratchets::Ratchet;
 use netbeam::sync::RelativeNodeType;
@@ -372,7 +372,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                         C2S_IDENTITY_CID,
                         stun_servers,
                         RelativeNodeType::Initiator,
-                        coordination_wire(Some(header.protocol_version.get())),
+                        COORDINATION_WIRE,
                     )
                     .await
                     .ok()
@@ -458,7 +458,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                         C2S_IDENTITY_CID,
                         stun_servers,
                         RelativeNodeType::Receiver,
-                        coordination_wire(Some(header.protocol_version.get())),
+                        COORDINATION_WIRE,
                     )
                     .await
                     .ok()

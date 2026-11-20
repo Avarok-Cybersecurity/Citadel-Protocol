@@ -93,7 +93,7 @@ impl<R: Ratchet, T: PlatformOps> ManagedPair<R, T> {
             },
             connection: self.connection,
             policy: self.policy,
-            // Both ends are at LINK_MODE_SINCE, so both carry the negotiation lane; a P2P route
+            // Both ends carry the negotiation lane; a P2P route
             // is resealed under the live keys; a P2P seal is never reattached (C2S only).
             caps: PeerCaps {
                 in_band: true,
@@ -141,13 +141,12 @@ impl<R: Ratchet, T: PlatformOps> ManagedPair<R, T> {
 }
 
 /// Runs the pair under its manager when both ends are Managed (`agree`); `false` leaves the
-/// pair to the campaign. Every node at `LINK_MODE_SINCE` takes part in the exchange, Legacy too.
+/// pair to the campaign. Every node takes part in the exchange, Legacy too.
 pub(crate) async fn hand_over<R: Ratchet, T: PlatformOps>(
     managed: Option<ManagedPair<R, T>>,
     app: &NetworkEndpoint,
-    peer_version: Option<u32>,
 ) -> bool {
-    let agreed = super::agree::agree_mode(app, managed.is_some(), peer_version).await;
+    let agreed = super::agree::agree_mode(app, managed.is_some()).await;
     match (agreed, managed) {
         (true, Some(pair)) => {
             pair.run(app.clone()).await;

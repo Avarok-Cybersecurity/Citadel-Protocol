@@ -21,7 +21,7 @@
 //! fresh budget. Both peers run the same schedule and meet on the coordination endpoint before
 //! each retry; a peer that does not arrive within [`RENDEZVOUS_TIMEOUT`] ends the campaign.
 //!
-//! **Giving up is not for life** with a peer at `PATH_REARM_SINCE`: out of retries (or after a
+//! **Giving up is not for life**: out of retries (or after a
 //! first attempt that failed), the campaign parks on the coordination endpoint until either
 //! application calls `PeerChannel::upgrade`, then retries with a fresh budget. The two peers agree
 //! on every retry at its rendezvous (see `p2p_rearm`), so they give up, park and re-arm together.
@@ -30,7 +30,7 @@
 //! `PeerChannel::ensure_direct` follows. Every attempt's outcome (see `p2p_outcome`) is published
 //! there too, and sent to the kernel.
 
-use crate::proto::peer::coordination::coordination_wire;
+use crate::proto::peer::coordination::COORDINATION_WIRE;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -57,8 +57,8 @@ use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 
 /// How long the initiator waits for the receiver's registration greeting before releasing its
-/// channel anyway (the receiver never registered: it lost a dual-connect race, or runs an older
-/// protocol). The channel then works as it always did; only the campaign is skipped.
+/// channel anyway (the receiver never registered: it lost a dual-connect race). The channel then
+/// works as it always did; only the campaign is skipped.
 pub(crate) const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
 /// Retries after a P2P route is lost, before the connection stays on the relay.
 pub(crate) const RECOVERY_ATTEMPTS: u32 = 3;
@@ -124,18 +124,10 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
     } = campaign;
     let started = Instant::now();
     let cell = guard.cell().clone();
-    let (peer_version, connection_id) = match &channel_signal {
-        NodeResult::PeerChannelCreated(created) => (
-            created.channel.peer_protocol_version(),
-            created.channel.connection_id(),
-        ),
-        _ => (None, None),
+    let connection_id = match &channel_signal {
+        NodeResult::PeerChannelCreated(created) => created.channel.connection_id(),
+        _ => None,
     };
-    let rearmable = p2p_rearm::peer_parks(peer_version);
-    let loss_shared = crate::constants::protocol_version_at_least(
-        peer_version,
-        crate::constants::PATH_LOSS_SHARED_SINCE,
-    );
     let outcomes = OutcomeContext::new(
         peer_cid,
         &plan,
@@ -173,11 +165,7 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         };
         let register = citadel_io::time::timeout(
             REGISTER_TIMEOUT,
-            NetworkEndpoint::register(
-                node_type,
-                hole_punch_compat_stream,
-                coordination_wire(peer_version),
-            ),
+            NetworkEndpoint::register(node_type, hole_punch_compat_stream, COORDINATION_WIRE),
         );
         let app = match node_type {
             RelativeNodeType::Receiver => {
@@ -208,13 +196,11 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
             }
         };
         #[cfg(not(target_family = "wasm"))]
-        let handed_over =
-            crate::proto::link::p2p::start::hand_over(managed, &app, peer_version).await;
+        let handed_over = crate::proto::link::p2p::start::hand_over(managed, &app).await;
         // A browser node has no P2P manager: it takes part in the exchange as Legacy (WIRE-A), so
-        // a native peer at LINK_MODE_SINCE is never left waiting on the topic.
+        // a native peer is never left waiting on the topic.
         #[cfg(target_family = "wasm")]
-        let handed_over =
-            crate::proto::link::p2p::agree::agree_mode(&app, false, peer_version).await;
+        let handed_over = crate::proto::link::p2p::agree::agree_mode(&app, false).await;
         if handed_over {
             return;
         }
@@ -263,7 +249,6 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
             cell: &cell,
             app: &app,
             slot,
-            rearmable,
             udp_mode,
             peer_cid,
         };
@@ -278,7 +263,7 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
                         let _ = state_container.cut_direct_route(peer_cid);
                     }
                 };
-                if !wait_for_shared_fall_back(&cell, &app, loss_shared, cut).await {
+                if !wait_for_shared_fall_back(&cell, &app, cut).await {
                     return;
                 }
                 if attached_at.elapsed() >= STABLE_ROUTE {
@@ -286,9 +271,9 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
                 }
                 schedule.wait_first = true;
             } else {
-                // Out of attempts: stay on the relay. A peer that parks waits to be re-armed.
+                // Out of attempts: stay on the relay and wait to be re-armed.
                 cell.stop_upgrading();
-                if !rearmable || !p2p_rearm::park(&app, slot).await {
+                if !p2p_rearm::park(&app, slot).await {
                     return;
                 }
                 log::info!(target: "citadel", "P2P campaign for peer {peer_cid} re-armed");

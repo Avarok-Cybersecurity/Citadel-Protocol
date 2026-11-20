@@ -34,7 +34,7 @@ impl Schedule {
 
 pub(crate) enum RetryEnd {
     Attached,
-    /// Out of retries; the campaign gives up (and parks, with a peer that does).
+    /// Out of retries; the campaign gives up and parks.
     Exhausted,
     /// The peer did not meet a retry: the campaign ends.
     Unmet {
@@ -49,7 +49,6 @@ pub(crate) struct Retry<'a> {
     pub cell: &'a P2pPathCell,
     pub app: &'a NetworkEndpoint,
     pub slot: &'a RearmSlot,
-    pub rearmable: bool,
     /// The UDP mode the connection began with.
     pub udp_mode: UdpMode,
     pub peer_cid: u64,
@@ -63,10 +62,6 @@ impl Retry<'_> {
     {
         let peer_cid = self.peer_cid;
         loop {
-            if schedule.budget == 0 && !self.rearmable {
-                log::info!(target: "citadel", "P2P route to peer {peer_cid} not restored with no retries left; staying on the server relay");
-                return RetryEnd::Exhausted;
-            }
             // A side out of retries goes straight to the rendezvous, where both agree to park
             // (or, if either was asked to upgrade, to a fresh budget).
             if schedule.budget > 0 {
@@ -81,13 +76,7 @@ impl Retry<'_> {
                 return RetryEnd::Ended;
             }
             let coordinating_since = Instant::now();
-            let meet = p2p_rearm::rendezvous(
-                self.app,
-                self.rearmable,
-                self.slot,
-                self.udp_mode,
-                schedule.budget,
-            );
+            let meet = p2p_rearm::rendezvous(self.app, self.slot, self.udp_mode, schedule.budget);
             let retry = match citadel_io::time::timeout(RENDEZVOUS_TIMEOUT, meet).await {
                 Ok(Ok(retry)) => retry,
                 unmet => {
@@ -120,19 +109,15 @@ impl Retry<'_> {
 /// Waits until the connection's P2P route is lost on either side, so both peers enter the retry
 /// together. Each side learns of a dead path only from its own transport, and QUIC's idle timer
 /// can tell one side a whole idle period after the other: longer than the first side waits at the
-/// retry's rendezvous, so the two never met and the campaign ended. With `shared` (a peer at
-/// `PATH_LOSS_SHARED_SINCE`) both wait in one `net_select` on [`PATH_LOST`]. The side that loses
+/// retry's rendezvous, so the two never met and the campaign ended. Both wait in one
+/// `net_select` on [`PATH_LOST`]. The side that loses
 /// the route wakes the other, which cuts its own route (`cut`) and falls back too. `false` as for
 /// [`wait_for_fall_back`].
 pub(crate) async fn wait_for_shared_fall_back(
     cell: &P2pPathCell,
     app: &NetworkEndpoint,
-    shared: bool,
     cut: impl FnOnce(),
 ) -> bool {
-    if !shared {
-        return wait_for_fall_back(cell).await;
-    }
     // Only a fall-back the campaign will retry wakes the peer; a closing connection ends the
     // campaign (and this wait) by its cancellation.
     let lost_here = async {

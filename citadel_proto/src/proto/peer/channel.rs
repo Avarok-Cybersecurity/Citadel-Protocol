@@ -275,7 +275,7 @@ impl<R: Ratchet> PeerChannel<R> {
 
     /// A handle that can [`upgrade`](PathControl::upgrade) after [`Self::split`].
     pub fn path_control(&self) -> PathControl {
-        PathControl::new(self.path.clone(), self.peer_protocol_version)
+        PathControl::new(self.path.clone())
     }
 
     /// The UDP channels later recoveries restore (see [`PathControl::upgrade`]), each replacing

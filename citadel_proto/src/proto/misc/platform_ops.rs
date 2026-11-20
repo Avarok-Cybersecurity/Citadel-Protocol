@@ -95,7 +95,7 @@ pub trait PlatformOps: ProtocolIO {
     // ── Hole punching ──
 
     /// Perform C2S UDP hole punch via `NetworkEndpoint` + encrypted hole punch, over an endpoint
-    /// speaking `wire` (see `coordination::coordination_wire`).
+    /// speaking `wire` (see `coordination::COORDINATION_WIRE`).
     /// Returns the resulting UDP interface, or `None` if unavailable.
     /// Default: returns `Ok(None)` (hole punching not available).
     fn c2s_hole_punch<R: Ratchet>(
