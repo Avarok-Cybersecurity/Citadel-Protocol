@@ -17,4 +17,6 @@ pub(crate) mod stun_mappings;
 #[cfg(not(target_family = "wasm"))]
 pub mod tls;
 #[cfg(not(target_family = "wasm"))]
+pub mod trust_store;
+#[cfg(not(target_family = "wasm"))]
 pub mod upnp_handler;

@@ -1379,6 +1379,9 @@ pub enum ErrorCode {
     /// A connection that requires a verified certificate was asked of a node built to accept any.
     #[form = "This connection requires a verified TLS certificate, and this node was built to accept any certificate (with_insecure_skip_cert_verification); nothing was dialled"]
     CertVerificationUnavailable = 548,
+    /// The system's trusted roots could not be read in full (what the OS reported).
+    #[form = "The system's trusted certificates could not be read in full ({}); a store missing some of them is not used"]
+    TrustStoreUnavailable = 549,
 
     // --- P2P key exchanges signed by each account's identity key ---
     /// A peer's key-exchange stage carries a signature that does not verify (peer cid, why).
