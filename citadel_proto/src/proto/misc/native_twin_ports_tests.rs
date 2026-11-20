@@ -126,6 +126,23 @@ mod a_reserved_run {
         assert_eq!(port, UDP_PICKS);
     }
 
+    /// Run 44824431193: after TCP's draw landed in the run, UDP's own any-port draw was refused
+    /// as well. That refusal is the port's too, so another draw is made.
+    #[test]
+    fn an_any_port_bind_refused_for_its_port_is_drawn_around() {
+        let (tcp, udp) = binders();
+        let refused_once = Cell::new(true);
+        let udp = |at: SocketAddr| {
+            if at.port() == 0 && refused_once.replace(false) {
+                return Err(denied());
+            }
+            udp(at)
+        };
+        let (tcp, udp) = draw_pair(any(), tcp, udp).expect("an any-port refusal ended the draws");
+        assert_eq!(tcp, udp);
+        assert!(!RESERVED_FOR_UDP.contains(&udp));
+    }
+
     #[test]
     fn a_failure_the_port_cannot_cure_is_not_drawn_around() {
         let unreachable =
