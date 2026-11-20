@@ -45,6 +45,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: none
+          cache-on-failure: "false"
           targets: ""
           components: rustfmt
           tools: ""
@@ -63,6 +64,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t0-clippy-linux
+          cache-on-failure: "false"
           targets: ""
           components: clippy
           tools: ""
@@ -81,6 +83,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t0-wasm-lint
+          cache-on-failure: "false"
           targets: wasm32-unknown-unknown
           components: clippy
           tools: ""
@@ -103,6 +106,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: none
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: deny,audit
@@ -157,6 +161,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t0-docs
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: make
@@ -218,6 +223,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t1-core-linux
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: nextest
@@ -241,6 +247,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t1-wire-linux
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: nextest
@@ -267,6 +274,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t1-doctests-linux
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: ""
@@ -284,6 +292,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t1-wasm-tests
+          cache-on-failure: "false"
           targets: wasm32-unknown-unknown
           components: ""
           tools: wasm-pack
@@ -321,6 +330,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t1-stability-linux
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: nextest,make
@@ -348,6 +358,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t2-core-${{ matrix.os }}
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: nextest
@@ -379,6 +390,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t2-proto-${{ matrix.os }}
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: nextest
@@ -425,6 +437,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t2-sdk-${{ matrix.os }}-${{ matrix.threading }}
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: nextest
@@ -477,6 +490,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t2-sdk-release-${{ matrix.threading }}
+          cache-on-failure: "true"
           targets: ""
           components: ""
           tools: nextest
@@ -507,6 +521,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t2-io-uring-linux
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: nextest
@@ -539,6 +554,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t2-security-key-${{ matrix.os }}
+          cache-on-failure: "false"
           targets: ""
           components: ""
           tools: nextest

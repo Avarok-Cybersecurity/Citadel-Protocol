@@ -14,6 +14,13 @@ inputs:
       Jobs that build the same artifacts share a key and so a cache; jobs that build different
       ones must not, or each evicts the other's. `none` turns caching off.
     required: true
+  cache-on-failure:
+    description: >-
+      `true` saves the cache even when the job fails. A job whose cold build alone can outrun its
+      timeout needs it: without it a timed-out job saves nothing, so every later run starts cold
+      and times out again. A new stable Rust changes every cache key, so this recurs with each
+      release (#391: citadel_sdk_release, 67 min cold compile of an 80 min budget).
+    required: true
   targets:
     description: Extra rustup targets, comma-separated; empty for the host only.
     required: true
@@ -93,3 +100,4 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: ${{ inputs.cache-key }}
+        cache-on-failure: ${{ inputs.cache-on-failure }}
