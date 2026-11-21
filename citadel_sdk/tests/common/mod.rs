@@ -12,6 +12,8 @@ pub mod admission;
 pub mod fixtures;
 #[cfg(not(target_family = "wasm"))]
 pub mod group;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod group_device;
 #[cfg(not(target_family = "wasm"))]
 pub mod group_epoch;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
