@@ -42,6 +42,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the tracking-identifier gate reads every commit since the merge base
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: none
@@ -56,6 +58,12 @@ jobs:
         run: python3 ci/toolchain_pin_gate.py .
       - name: Every workspace dependency is used by a member
         run: python3 ci/workspace_deps_gate.py .
+      - name: No internal tracking identifier enters public history
+        env:
+          BASE_REF: ${{ github.base_ref || 'master' }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 ci/tracking_id_gate.py . "origin/$BASE_REF"
       - name: The supply-chain gates' own tests
         run: python3 -m unittest discover -s ci/tests -v
 
