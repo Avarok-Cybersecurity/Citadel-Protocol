@@ -37,7 +37,35 @@ class Scan(unittest.TestCase):
         self.assertEqual(gate.scan("fix(proto): close the stream on drop\n\nNo identifiers here."), [])
 
     def test_finding_names_source_and_line(self) -> None:
-        self.assertEqual(gate.findings([("commit abc", "ok\n" + PREFIX + "10")]), ["commit abc line 2: " + PREFIX + "10"])
+        self.assertEqual(gate.findings([(None, "commit abc", "ok\n" + PREFIX + "10")], set()), ["commit abc line 2: " + PREFIX + "10"])
+
+
+LISTED = "a" * 40
+UNLISTED = "b" * 40
+
+
+class Exemptions(unittest.TestCase):
+    def test_a_listed_commit_is_not_judged(self) -> None:
+        source = [(LISTED, "commit aaa", "lane " + PREFIX + "10")]
+        self.assertEqual(gate.findings(source, gate.parse_exemptions(LISTED + "\n")), [])
+
+    def test_an_unlisted_commit_with_the_same_message_fails(self) -> None:
+        source = [(UNLISTED, "commit bbb", "lane " + PREFIX + "10")]
+        self.assertEqual(len(gate.findings(source, gate.parse_exemptions(LISTED + "\n"))), 1)
+
+    def test_pull_request_text_is_never_exempt(self) -> None:
+        source = [(None, "pull request body", PREFIX + "10")]
+        self.assertEqual(len(gate.findings(source, gate.parse_exemptions(LISTED + "\n"))), 1)
+
+    def test_a_malformed_line_is_refused_by_number_not_text(self) -> None:
+        for bad in (LISTED[:12] + "\n", LISTED + " lane " + PREFIX + "10\n", LISTED.upper() + "\n", "\n", LISTED + "\n\n"):
+            with self.assertRaises(ValueError) as caught:
+                gate.parse_exemptions(bad)
+            self.assertIn("not a full 40-hex commit SHA", str(caught.exception))
+            self.assertNotIn(PREFIX, str(caught.exception))
+
+    def test_an_empty_list_exempts_nothing(self) -> None:
+        self.assertEqual(gate.parse_exemptions(""), set())
 
 
 class CommitRange(unittest.TestCase):
@@ -51,8 +79,8 @@ class CommitRange(unittest.TestCase):
             git(root, "checkout", "-q", "-b", "topic")
             git(root, "commit", "-q", "--allow-empty", "-m", "topic work")
             messages = gate.commit_messages(root, "master")
-            self.assertEqual([body.strip() for _, body in messages], ["topic work"])
-            self.assertEqual(gate.findings(messages), [])
+            self.assertEqual([body.strip() for _, _, body in messages], ["topic work"])
+            self.assertEqual(gate.findings(messages, set()), [])
 
 
 if __name__ == "__main__":
