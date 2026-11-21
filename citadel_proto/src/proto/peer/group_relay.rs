@@ -138,3 +138,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "group_relay_member_tests.rs"]
+mod member_tests;
