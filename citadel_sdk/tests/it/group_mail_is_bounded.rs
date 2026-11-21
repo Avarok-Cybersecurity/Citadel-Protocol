@@ -20,7 +20,7 @@ mod tests {
     use std::sync::Arc;
     use uuid::Uuid;
 
-    /// The most messages the server holds for one member of one group.
+    /// The most messages this test's server holds for one member of one group.
     const CAP: usize = 8;
     /// Messages sent beyond it.
     const OVER: usize = 3;
@@ -29,7 +29,11 @@ mod tests {
     async fn mail_for_an_offline_member_is_capped_and_the_sender_is_told() {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(2);
-        let (server, server_addr, server_remote) = probed_server();
+        let (server, server_addr, server_remote) = probed_server_with(|builder| {
+            let mut limits = citadel_sdk::test_common::localhost_server_limits();
+            limits.group_mail.max_messages = std::num::NonZeroUsize::new(CAP).unwrap();
+            let _ = builder.with_server_limits(limits);
+        });
         let owner_name = format!("gbo_{}", &Uuid::new_v4().to_string()[..8]);
         let member_name = format!("gbm_{}", &Uuid::new_v4().to_string()[..8]);
         let member_cid = Arc::new(AtomicU64::new(0));

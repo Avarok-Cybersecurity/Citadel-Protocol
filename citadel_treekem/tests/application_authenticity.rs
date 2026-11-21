@@ -26,9 +26,10 @@ fn trio() -> (GroupState, GroupState, GroupState) {
 
 /// What a member that knows the epoch's encryption secret can seal under another's leaf.
 fn sealed_as(epoch_secret: &[u8; 32], leaf: u32, generation: u32) -> Vec<u8> {
-    let mut hasher = blake3::Hasher::new_derive_key("citadel-treekem-app-message-v1");
+    let mut hasher = blake3::Hasher::new_derive_key("citadel-treekem-app-message-v2");
     hasher.update(epoch_secret);
     hasher.update(&leaf.to_be_bytes());
+    hasher.update(&0u64.to_be_bytes()); // incarnation
     hasher.update(&generation.to_be_bytes());
     let mut out = [0u8; 44];
     hasher.finalize_xof().fill(&mut out);
@@ -45,6 +46,7 @@ fn a_member_cannot_seal_a_message_as_another_member() {
     let forged = AppCiphertext {
         epoch: b.epoch,
         sender: a.own_leaf,
+        incarnation: 0,
         generation: 7,
         ciphertext: sealed_as(b.encryption_secret(), a.own_leaf, 7),
         signature: b"not the owner's".to_vec(),

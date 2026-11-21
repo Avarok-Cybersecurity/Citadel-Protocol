@@ -58,6 +58,13 @@ pub struct MessageGroup {
     /// Each sender's rate against `options.limits`; runtime only, never persisted. A sync lock,
     /// so a message is admitted under the registry's read lock (see `group_relay`).
     pub(crate) rates: citadel_io::Mutex<GroupRateLedger>,
+    /// Which generation of the owner's ratchet tree the group is on: raised each time the owner
+    /// founds the tree afresh, so a member's stored state from an earlier tree is never resumed.
+    /// Persisted.
+    pub(crate) tree: u64,
+    /// The members whose current session is back in the group: a broadcast is sent to these
+    /// live and held for every other member. Runtime only.
+    pub(crate) resumed: std::collections::HashSet<u64>,
 }
 
 /// TODO: Attributed data (e.g., permissions)

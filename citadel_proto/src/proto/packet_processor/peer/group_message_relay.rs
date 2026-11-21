@@ -94,6 +94,12 @@ fn delivery_of(fan_out: GroupFanOut) -> GroupDelivery {
         .map(|member| (member, NotDelivered::Offline))
         .chain(
             fan_out
+                .backlog_full
+                .into_iter()
+                .map(|member| (member, NotDelivered::BacklogFull)),
+        )
+        .chain(
+            fan_out
                 .failed
                 .into_iter()
                 .map(|member| (member, NotDelivered::Unreachable)),

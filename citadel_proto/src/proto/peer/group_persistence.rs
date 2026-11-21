@@ -46,6 +46,7 @@ pub struct PersistedGroup {
     pub options: MessageGroupOptions,
     pub members: Vec<u64>,
     pub pending: Vec<u64>,
+    pub tree: u64,
 }
 
 impl PersistedGroup {
@@ -64,6 +65,7 @@ impl PersistedGroup {
             options,
             members: sorted(&group.concurrent_peers),
             pending: sorted(&group.pending_peers),
+            tree: group.tree,
         }
     }
 
@@ -78,6 +80,8 @@ impl PersistedGroup {
             pending_peers: peers(self.pending),
             options: self.options,
             rates: Default::default(),
+            tree: self.tree,
+            resumed: Default::default(),
         }
     }
 }

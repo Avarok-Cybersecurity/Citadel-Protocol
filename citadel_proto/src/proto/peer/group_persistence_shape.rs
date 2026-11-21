@@ -1,7 +1,7 @@
 //! The bytes a [`PersistedGroup`] is stored as.
 //!
-//! A group row is `(options, members, pending, relay)`: the options' three original fields first,
-//! and the relay options (`ephemeral`, `limits`) after `pending`. bincode has no field names, so
+//! A group row is `(options, members, pending, relay, tree)`: the options' three original fields first,
+//! and the relay options (`ephemeral`, `limits`, `retention`) after `pending`. bincode has no field names, so
 //! the order is the format. Every field is required: a row without its relay options, or with
 //! caps that fail validation, is refused rather than read with defaults.
 
@@ -18,6 +18,7 @@ pub(crate) struct StoredGroup {
     members: Vec<u64>,
     pending: Vec<u64>,
     relay: StoredRelayOptions,
+    tree: u64,
 }
 
 /// The option fields a row has always held, in their original order.
@@ -33,6 +34,7 @@ struct StoredOptions {
 struct StoredRelayOptions {
     ephemeral: bool,
     limits: Option<GroupMessageLimits>,
+    retention: Option<std::time::Duration>,
 }
 
 impl From<PersistedGroup> for StoredGroup {
@@ -43,6 +45,7 @@ impl From<PersistedGroup> for StoredGroup {
             hierarchy,
             ephemeral,
             limits,
+            retention,
         } = group.options;
         Self {
             options: StoredOptions {
@@ -52,7 +55,12 @@ impl From<PersistedGroup> for StoredGroup {
             },
             members: group.members,
             pending: group.pending,
-            relay: StoredRelayOptions { ephemeral, limits },
+            tree: group.tree,
+            relay: StoredRelayOptions {
+                ephemeral,
+                limits,
+                retention,
+            },
         }
     }
 }
@@ -66,9 +74,11 @@ impl From<StoredGroup> for PersistedGroup {
                 hierarchy: row.options.hierarchy,
                 ephemeral: row.relay.ephemeral,
                 limits: row.relay.limits,
+                retention: row.relay.retention,
             },
             members: row.members,
             pending: row.pending,
+            tree: row.tree,
         }
     }
 }
@@ -94,9 +104,11 @@ mod tests {
                 hierarchy: GroupHierarchyMode::Flat,
                 ephemeral,
                 limits,
+                retention: Some(std::time::Duration::from_secs(7)),
             },
             members: vec![1, 2],
             pending: vec![3],
+            tree: 4,
         }
     }
 
@@ -119,6 +131,11 @@ mod tests {
         let read = PersistedGroup::deserialize_from_vector(&bytes).unwrap();
         assert!(read.options.ephemeral);
         assert_eq!(read.options.limits, limits);
+        assert_eq!(
+            read.options.retention,
+            Some(std::time::Duration::from_secs(7))
+        );
         assert_eq!((read.members, read.pending), (vec![1, 2], vec![3]));
+        assert_eq!(read.tree, 4);
     }
 }

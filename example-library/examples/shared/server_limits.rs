@@ -6,7 +6,7 @@
 //! four Argon2id hashes at once: at the default 64 MiB each, 256 MiB of hashing at most. Each
 //! stream may queue what a client uses (256 MiB), and all of them together 1 GiB.
 
-use citadel_sdk::prelude::{LegacyRegistration, ServerLimits};
+use citadel_sdk::prelude::{GroupMailLimits, LegacyRegistration, ServerLimits};
 use std::num::NonZeroUsize;
 
 pub fn one_machine() -> ServerLimits {
@@ -19,5 +19,10 @@ pub fn one_machine() -> ServerLimits {
         },
         outbound_queued_per_stream: nonzero(256 * 1024 * 1024),
         outbound_queued_total: nonzero(1024 * 1024 * 1024),
+        group_mail: GroupMailLimits {
+            max_age: std::time::Duration::from_secs(7 * 24 * 3600),
+            max_messages: nonzero(1_000),
+            max_bytes: nonzero(16 * 1024 * 1024),
+        },
     }
 }

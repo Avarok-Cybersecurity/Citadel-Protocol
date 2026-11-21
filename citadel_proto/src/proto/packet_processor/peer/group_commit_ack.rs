@@ -57,6 +57,8 @@ impl<R: Ratchet> Crafter<'_, R> {
         let welcome = GroupBroadcast::Welcome {
             key,
             joiner_cid: target_cid,
+            // Set by the server, which records the tree.
+            tree: 0,
             payload: held.welcome,
         };
         packets.push(self.packet(&welcome, held.ticket)?);

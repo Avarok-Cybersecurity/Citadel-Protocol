@@ -9,9 +9,11 @@ fn group(hierarchy: GroupHierarchyMode) -> MessageGroup {
             hierarchy,
             ephemeral: false,
             limits: None,
+            retention: None,
         },
         members: vec![1, 2],
         pending: vec![3],
+        tree: 0,
     }
     .into_group()
 }

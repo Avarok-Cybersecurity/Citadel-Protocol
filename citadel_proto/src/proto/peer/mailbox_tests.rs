@@ -17,9 +17,9 @@ use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::backend::BackendType;
 use citadel_user::prelude::ConnectionInfo;
 
-type Manager = AccountManager<StackedRatchet, StackedRatchet>;
+pub(crate) type Manager = AccountManager<StackedRatchet, StackedRatchet>;
 
-async fn register(manager: &Manager, username: &str) -> u64 {
+pub(crate) async fn register(manager: &Manager, username: &str) -> u64 {
     let cid = manager
         .get_persistence_handler()
         .get_cid_by_username(username);

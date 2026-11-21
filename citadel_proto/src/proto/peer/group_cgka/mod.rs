@@ -13,6 +13,7 @@
 
 mod hierarchy;
 pub mod join_queue;
+mod stored;
 
 use crate::error::NetworkError;
 use citadel_io::{error, ErrorCode};
@@ -46,6 +47,13 @@ pub struct GroupCgkaState {
     pending_ranks: HashMap<u64, CommandPath>,
     /// Owner-only: the join in flight and the KeyPackages behind it (see [`join_queue`]).
     pub joins: join_queue::JoinQueue,
+    /// The generation of the owner's tree this state is in (told by the server: at the Welcome,
+    /// and in a restore prompt). A stored state is resumed only on the same tree.
+    pub tree: u64,
+    /// The `(tree, epoch, opens / OPENS_PER_WRITE)` this state was last written at.
+    saved: Option<(u64, u64, u64)>,
+    /// Messages opened by this state since it was made or read back.
+    opens: u64,
 }
 
 /// A fresh, cryptographically-random 32-byte secret (for leaf re-keys giving post-compromise security).
@@ -87,6 +95,9 @@ impl GroupCgkaState {
             hierarchy_self,
             pending_ranks,
             joins: Default::default(),
+            tree: 0,
+            saved: None,
+            opens: 0,
         })
     }
 
@@ -110,6 +121,9 @@ impl GroupCgkaState {
                 hierarchy_self: None,
                 pending_ranks: HashMap::new(),
                 joins: Default::default(),
+                tree: 0,
+                saved: None,
+                opens: 0,
             },
             payload,
         ))
@@ -251,6 +265,11 @@ impl GroupCgkaState {
             .map_err(|_| ser_err("app_ciphertext"))
     }
 
+    /// Whether this member is the group's owner (its committer).
+    pub fn is_owner(&self) -> bool {
+        self.is_owner
+    }
+
     /// Whether this is a `Flat` group, where every member can read every message: one it cannot
     /// decrypt is lost to it, not withheld from it.
     pub fn is_flat(&self) -> bool {
@@ -267,13 +286,15 @@ impl GroupCgkaState {
             .group
             .as_mut()
             .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
-        if flat {
+        let opened = if flat {
             let opened = group.decrypt_message(&ct)?;
-            Ok((opened.sender_cid, opened.plaintext))
+            (opened.sender_cid, opened.plaintext)
         } else {
             let (sender, envelope) = group.open_signed_frame(ct)?;
-            Ok((sender, self.decrypt_dhe(&envelope)?))
-        }
+            (sender, self.decrypt_dhe(&envelope)?)
+        };
+        self.opens += 1;
+        Ok(opened)
     }
 }
 

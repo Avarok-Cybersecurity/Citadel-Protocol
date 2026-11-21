@@ -31,7 +31,9 @@
 //! - `MemberState`: Member status tracking
 
 use super::super::includes::*;
-use super::{group_commit_ack, group_commit_relay, group_control, group_message_relay};
+use super::{
+    group_commit_ack, group_commit_relay, group_control, group_message_relay, group_resume_relay,
+};
 use crate::error::NetworkError;
 use crate::functional::*;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -39,6 +41,7 @@ use crate::proto::node_result::{GroupChannelCreated, GroupEvent};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::group_cgka::GroupCgkaState;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
+use crate::proto::peer::group_state_store;
 use crate::proto::peer::group_watch::GroupWatch;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
@@ -126,6 +129,8 @@ pub enum GroupBroadcast {
         key: MessageGroupKey,
         /// The joining member's CID (the server routes this packet to this CID)
         joiner_cid: u64,
+        /// The generation of the owner's tree, as the server records it (the server sets it)
+        tree: u64,
         /// Opaque serialized `citadel_treekem::Welcome`
         payload: Vec<u8>,
     },
@@ -274,10 +279,23 @@ pub enum GroupBroadcast {
         key: MessageGroupKey,
     },
     /// Server → member, when the member's session is (re-)established while the server still lists
-    /// it in `key`. A new session holds no TreeKEM state, so the member answers by publishing a fresh
-    /// [`Self::KeyPackage`]; the owner re-adds it (replacing its stale leaf) and returns a Welcome. The
-    /// relay handles only the same opaque KeyPackage/Welcome as an ordinary join.
+    /// it in `key`, or the owner founded the tree afresh. A member that kept its state for this
+    /// `tree` answers [`Self::ResumeMembership`]; one that did not publishes a fresh
+    /// [`Self::KeyPackage`], the owner re-adds it (replacing its stale leaf) and returns a Welcome.
     RestoreMembership {
+        /// Group key
+        key: MessageGroupKey,
+        /// The generation of the owner's tree the group is on
+        tree: u64,
+    },
+    /// Member → server: this session holds the member's state for the group's current tree. The
+    /// server replays what it held for the member, then sends the group to it live.
+    ResumeMembership {
+        /// Group key
+        key: MessageGroupKey,
+    },
+    /// Owner → server: as [`Self::ResumeMembership`], for the owner, which kept its tree.
+    ResumeOwnership {
         /// Group key
         key: MessageGroupKey,
     },
@@ -292,6 +310,8 @@ pub enum GroupBroadcast {
     RestoreOwnership {
         /// Group key
         key: MessageGroupKey,
+        /// Server → owner: the generation of the tree the group is on. Ignored in the echo.
+        tree: u64,
     },
     /// Local notice (never sent on the wire) that a group message addressed to this session was
     /// dropped because it could not be decrypted here: it arrived before this session's Welcome,
@@ -357,6 +377,20 @@ const NO_GROUP_KEY_YET: &str =
 ))]
 /// Process a group broadcast message
 pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
+    session_ref: &CitadelSession<R, T>,
+    header: Ref<&[u8], HdpHeader>,
+    payload: &[u8],
+    sess_ratchet: &R,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let result = process_signal(session_ref, header, payload, sess_ratchet).await;
+    if !session_ref.is_server {
+        // Whatever this packet changed in a group's state is kept before the next one.
+        inner_mut_state!(session_ref.state_container).save_changed_group_states();
+    }
+    result
+}
+
+async fn process_signal<R: Ratchet, T: PlatformOps>(
     session_ref: &CitadelSession<R, T>,
     header: Ref<&[u8], HdpHeader>,
     payload: &[u8],
@@ -606,6 +640,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
             let _ = state.group_channels.remove(&key);
             // The group is gone for this member: its keys are of no further use.
             let _ = state.group_cgka.remove(&key);
+            state.forget_group_state(key);
         }),
 
         GroupBroadcast::Message {
@@ -1105,9 +1140,24 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
         GroupBroadcast::Welcome {
             key,
             joiner_cid,
+            tree: _claimed,
             payload,
         } => {
             if session.is_server {
+                // The tree generation is the server's record, never the sender's claim; the
+                // joiner keeps it with its state, and the Welcome and the joiner's going live
+                // are one step for every fan-out (`group_resume`).
+                let tree = session.hypernode_peer_layer.group_tree(key).await;
+                let Some(tree) = tree else {
+                    log::warn!(target: "citadel", "Not relaying a Welcome for {key:?}: no such group");
+                    return Ok(PrimaryProcessorResult::Void);
+                };
+                let _ordered = session
+                    .hypernode_peer_layer
+                    .group_mail_lock
+                    .clone()
+                    .lock_owned()
+                    .await;
                 // Relay verbatim to the single joiner; the relay never inspects `payload`.
                 //
                 // A dropped Welcome is as terminal as a dropped KeyPackage: the
@@ -1121,6 +1171,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                             &GroupBroadcast::Welcome {
                                 key,
                                 joiner_cid,
+                                tree,
                                 payload,
                             },
                             ticket,
@@ -1129,8 +1180,11 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                             security_level,
                         )
                     });
-                if let Err(err) = relayed {
-                    log::error!(target: "citadel", "Failed to relay Welcome for {key:?} to joiner {joiner_cid}: {err:?}. That member is in the owner's tree but cannot decrypt until it republishes.");
+                match relayed {
+                    Err(err) => {
+                        log::error!(target: "citadel", "Failed to relay Welcome for {key:?} to joiner {joiner_cid}: {err:?}. That member is in the owner's tree but cannot decrypt until it republishes.");
+                    }
+                    Ok(()) => group_resume_relay::welcomed(session, joiner_cid, key).await,
                 }
                 Ok(PrimaryProcessorResult::Void)
             } else {
@@ -1152,6 +1206,7 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                         log::warn!(target: "citadel", "Ignoring a Welcome for {key:?} this member cannot open (superseded by a newer KeyPackage): {err}");
                         return Ok(PrimaryProcessorResult::Void);
                     }
+                    cgka.tree = _claimed;
                     state.group_channels.contains_key(&key)
                 };
                 // A member rejoining a re-founded group keeps the channel its application already has.
@@ -1251,15 +1306,23 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
             }
         }
 
-        GroupBroadcast::RestoreMembership { key } => {
+        GroupBroadcast::RestoreMembership { key, tree } => {
             if session.is_server || key.cid == session_cid {
                 log::warn!(target: "citadel", "Ignoring RestoreMembership for {key:?}: only a non-owner member acts on it");
                 return Ok(PrimaryProcessorResult::Void);
             }
-            // Whatever state this session holds for the group is not in the owner's current tree:
-            // either this session is new and holds none, or the owner re-founded the tree. Rejoin
-            // with a fresh KeyPackage in both cases.
-            cgka_joiner_publish_key_package(
+            // A member that kept its state for this tree resumes it, and reads what was sent
+            // while it was away; any other rejoins with a fresh KeyPackage.
+            if resume_stored(session, key, tree, false).await? {
+                return reply_resume(
+                    sess_ratchet,
+                    GroupBroadcast::ResumeMembership { key },
+                    ticket,
+                    timestamp,
+                    security_level,
+                );
+            }
+            let published = cgka_joiner_publish_key_package(
                 session,
                 sess_ratchet,
                 key,
@@ -1268,23 +1331,57 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 timestamp,
                 security_level,
                 JoinMode::Replace,
-            )
+            );
+            if let Some(cgka) = inner_mut_state!(session.state_container)
+                .group_cgka
+                .get_mut(&key)
+            {
+                cgka.tree = tree;
+            }
+            published
         }
 
-        GroupBroadcast::RestoreOwnership { key } => {
+        GroupBroadcast::ResumeMembership { key } | GroupBroadcast::ResumeOwnership { key } => {
+            if !session.is_server {
+                log::warn!(target: "citadel", "Ignoring a resume for {key:?}: only a server acts on it");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            group_resume_relay::resume(
+                session,
+                sess_ratchet,
+                session_cid,
+                key,
+                ticket,
+                security_level,
+            )
+            .await?;
+            Ok(PrimaryProcessorResult::Void)
+        }
+
+        GroupBroadcast::RestoreOwnership { key, tree } => {
             if key.cid != session_cid {
                 log::warn!(target: "citadel", "Ignoring RestoreOwnership for {key:?}: {session_cid} is not its owner");
                 return Ok(PrimaryProcessorResult::Void);
             }
             if session.is_server {
                 // The owner has re-founded the tree: bring the members back into it.
-                prompt_members_to_rejoin(session, key, ticket, timestamp, security_level).await;
+                group_resume_relay::refounded(session, key, ticket, timestamp, security_level)
+                    .await;
                 Ok(PrimaryProcessorResult::Void)
+            } else if resume_stored(session, key, tree, true).await? {
+                reply_resume(
+                    sess_ratchet,
+                    GroupBroadcast::ResumeOwnership { key },
+                    ticket,
+                    timestamp,
+                    security_level,
+                )
             } else {
                 cgka_owner_refound(
                     session,
                     sess_ratchet,
                     key,
+                    tree,
                     ticket,
                     timestamp,
                     security_level,
@@ -1427,6 +1524,7 @@ fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     sess_ratchet: &R,
     key: MessageGroupKey,
+    tree: u64,
     ticket: Ticket,
     timestamp: i64,
     security_level: SecurityLevel,
@@ -1438,7 +1536,9 @@ fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
             return Ok(PrimaryProcessorResult::Void);
         }
         // Only flat groups are held for a returning owner (see `group_retention`).
-        let cgka = GroupCgkaState::new_owner(key.cid, GroupHierarchyMode::Flat)?;
+        let mut cgka = GroupCgkaState::new_owner(key.cid, GroupHierarchyMode::Flat)?;
+        // The server moves the group to the next tree when it reads the echo below.
+        cgka.tree = tree + 1;
         let _ = state.group_cgka.insert(key, cgka);
         state.group_channels.contains_key(&key)
     };
@@ -1447,7 +1547,7 @@ fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
     }
     let packet = packet_crafter::peer_cmd::craft_group_message_packet(
         sess_ratchet,
-        &GroupBroadcast::RestoreOwnership { key },
+        &GroupBroadcast::RestoreOwnership { key, tree: 0 },
         ticket,
         C2S_IDENTITY_CID,
         timestamp,
@@ -1457,39 +1557,52 @@ fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
     Ok(PrimaryProcessorResult::Void)
 }
 
-/// Server: the owner of `key` has re-founded its tree; prompt each online member to rejoin it.
-/// An offline member is prompted when it next connects.
-async fn prompt_members_to_rejoin<R: Ratchet, T: PlatformOps>(
+/// Client, prompted to restore `key` on `tree`: loads the state this node kept for it and, when
+/// it is for that tree and the expected role, makes it this session's and opens the channel.
+/// `false` when there is none to resume (the caller rejoins or re-founds).
+async fn resume_stored<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     key: MessageGroupKey,
+    tree: u64,
+    as_owner: bool,
+) -> Result<bool, NetworkError> {
+    let session_cid = session
+        .session_cid
+        .get()
+        .ok_or_else(|| error!(ErrorCode::StateImplicatedCidNotLoaded))?;
+    let pers = session.account_manager.get_persistence_handler();
+    let stored = group_state_store::load(pers, session_cid, key).await?;
+    let Some(cgka) = stored.filter(|cgka| cgka.tree == tree && cgka.is_owner() == as_owner) else {
+        return Ok(false);
+    };
+    let channel_open = {
+        let mut state = inner_mut_state!(session.state_container);
+        let _ = state.group_cgka.insert(key, cgka);
+        state.group_channels.contains_key(&key)
+    };
+    log::info!(target: "citadel", "Resuming {key:?} from the state this node kept");
+    if !channel_open {
+        let _ = create_group_channel(Ticket::default(), key, session)?;
+    }
+    Ok(true)
+}
+
+fn reply_resume<R: Ratchet>(
+    sess_ratchet: &R,
+    signal: GroupBroadcast,
     ticket: Ticket,
     timestamp: i64,
     security_level: SecurityLevel,
-) {
-    let members: Vec<u64> = session
-        .hypernode_peer_layer
-        .get_peers_in_message_group(key)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|cid| *cid != key.cid)
-        .collect();
-    let len = members.len();
-    log::info!(target: "citadel", "Owner re-founded {key:?}; prompting {len} member(s) to rejoin");
-    if let Err(err) = session
-        .session_manager
-        .send_group_broadcast_signal_to(
-            timestamp,
-            ticket,
-            members.into_iter().zip(std::iter::repeat_n(true, len)),
-            false,
-            GroupBroadcast::RestoreMembership { key },
-            security_level,
-        )
-        .await
-    {
-        log::error!(target: "citadel", "Unable to prompt the members of {key:?} to rejoin: {err}");
-    }
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+        sess_ratchet,
+        &signal,
+        ticket,
+        C2S_IDENTITY_CID,
+        timestamp,
+        security_level,
+    )?;
+    Ok(PrimaryProcessorResult::ReplyToSender(packet))
 }
 
 impl From<GroupBroadcast> for GroupBroadcastPayload {

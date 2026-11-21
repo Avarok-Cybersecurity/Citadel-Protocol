@@ -617,11 +617,14 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
         .await
         .unwrap_or_default();
     for key in owned {
+        let Some(tree) = peer_layer.group_tree(key).await else {
+            continue;
+        };
         log::info!(target: "citadel", "Asking {cid} to restore its ownership of {key:?} after (re)connecting");
         let ticket = Ticket::default();
         let packet = packet_crafter::peer_cmd::craft_group_message_packet(
             ratchet,
-            &GroupBroadcast::RestoreOwnership { key },
+            &GroupBroadcast::RestoreOwnership { key, tree },
             ticket,
             C2S_IDENTITY_CID,
             session.time_tracker.get_global_time_ns(),
@@ -637,11 +640,14 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
     }
     let groups = peer_layer.list_message_groups_with_member(cid).await;
     for key in groups {
+        let Some(tree) = peer_layer.group_tree(key).await else {
+            continue;
+        };
         log::info!(target: "citadel", "Asking {cid} to restore its membership of {key:?} after (re)connecting");
         let ticket = Ticket::default();
         let packet = packet_crafter::peer_cmd::craft_group_message_packet(
             ratchet,
-            &GroupBroadcast::RestoreMembership { key },
+            &GroupBroadcast::RestoreMembership { key, tree },
             ticket,
             C2S_IDENTITY_CID,
             session.time_tracker.get_global_time_ns(),

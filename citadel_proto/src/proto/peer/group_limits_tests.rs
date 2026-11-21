@@ -87,6 +87,7 @@ fn a_groups_creation_carries_its_relay_options() {
         hierarchy: GroupHierarchyMode::Flat,
         ephemeral: true,
         limits: Some(limits(64, 4)),
+        retention: None,
     };
     let with = create(options).serialize_to_vector().unwrap();
     match PeerSignal::deserialize_from_vector(&with).unwrap() {
@@ -129,6 +130,7 @@ fn a_creation_with_invalid_caps_is_refused() {
                 GroupHierarchyMode,
                 bool,
                 Option<(u32, u32)>,
+                Option<std::time::Duration>,
             ),
         },
     }
@@ -136,7 +138,7 @@ fn a_creation_with_invalid_caps_is_refused() {
         let (group_type, id, hierarchy) = options_without_relay_fields();
         BroadcastWithRawCaps::Create {
             initial_invitees: vec![2],
-            options: (group_type, id, hierarchy, false, Some(caps)),
+            options: (group_type, id, hierarchy, false, Some(caps), None),
         }
         .serialize_to_vector()
         .unwrap()

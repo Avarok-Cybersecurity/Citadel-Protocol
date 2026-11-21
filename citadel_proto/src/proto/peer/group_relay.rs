@@ -25,6 +25,18 @@ pub struct GroupBroadcastTargets {
     pub mail_if_offline: bool,
 }
 
+impl<R: Ratchet> CitadelNodePeerLayer<R> {
+    /// The retention `key` asked for (`None`: the server's maximum, or no such group).
+    pub async fn group_retention(&self, key: MessageGroupKey) -> Option<std::time::Duration> {
+        let this = self.inner.read().await;
+        this.message_groups
+            .get(&key.cid)?
+            .get(&key.mgid)?
+            .options
+            .retention
+    }
+}
+
 impl GroupBroadcastTargets {
     /// The targets of `group`, or `None` when it has no members.
     fn of(group: &MessageGroup) -> Option<Self> {

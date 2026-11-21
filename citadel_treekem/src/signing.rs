@@ -8,7 +8,7 @@
 //! ```text
 //! seed = BLAKE3-derive-key("citadel-treekem-leaf-signature-v1", leaf_secret)
 //! sig  = ML-DSA-65.Sign(sk, "citadel-treekem-frame-v1" ‖ 0x00 ‖ u64be(epoch) ‖ u32be(sender)
-//!                           ‖ u32be(generation) ‖ body)
+//!                           ‖ u64be(incarnation) ‖ u32be(generation) ‖ body)
 //! ```
 
 use crate::crypto::Secret;
@@ -29,26 +29,34 @@ pub fn leaf_signature_keys(leaf_secret: &Secret) -> (Vec<u8>, LeafSigningKey) {
     keys
 }
 
-fn frame_message(epoch: u64, sender: u32, generation: u32, body: &[u8]) -> Vec<u8> {
-    let mut message = Vec::with_capacity(FRAME_DOMAIN.len() + 1 + 16 + body.len());
+/// Where a frame sits in its sender's stream: unique per frame a sender ever signs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FrameId {
+    pub epoch: u64,
+    pub sender: u32,
+    pub incarnation: u64,
+    pub generation: u32,
+}
+
+fn frame_message(frame: FrameId, body: &[u8]) -> Vec<u8> {
+    let mut message = Vec::with_capacity(FRAME_DOMAIN.len() + 1 + 24 + body.len());
     message.extend_from_slice(FRAME_DOMAIN);
     message.push(0);
-    message.extend_from_slice(&epoch.to_be_bytes());
-    message.extend_from_slice(&sender.to_be_bytes());
-    message.extend_from_slice(&generation.to_be_bytes());
+    message.extend_from_slice(&frame.epoch.to_be_bytes());
+    message.extend_from_slice(&frame.sender.to_be_bytes());
+    message.extend_from_slice(&frame.incarnation.to_be_bytes());
+    message.extend_from_slice(&frame.generation.to_be_bytes());
     message.extend_from_slice(body);
     message
 }
 
 pub(crate) fn sign_frame(
     key: &LeafSigningKey,
-    epoch: u64,
-    sender: u32,
-    generation: u32,
+    frame: FrameId,
     body: &[u8],
 ) -> Result<Vec<u8>, Error> {
     citadel_pqcrypto::signature_sign(
-        frame_message(epoch, sender, generation, body),
+        frame_message(frame, body),
         key.as_slice(),
         SigAlgorithm::MlDsa65,
     )
@@ -56,14 +64,12 @@ pub(crate) fn sign_frame(
 
 pub(crate) fn verify_frame(
     sig_public: &[u8],
-    epoch: u64,
-    sender: u32,
-    generation: u32,
+    frame: FrameId,
     body: &[u8],
     signature: &[u8],
 ) -> Result<(), Error> {
     citadel_pqcrypto::signature_verify(
-        frame_message(epoch, sender, generation, body),
+        frame_message(frame, body),
         signature,
         sig_public,
         SigAlgorithm::MlDsa65,

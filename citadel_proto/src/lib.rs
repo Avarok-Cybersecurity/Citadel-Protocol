@@ -665,7 +665,8 @@ pub mod prelude {
     pub use crate::proto::misc::primary_frame::MAX_PRIMARY_FRAME_LEN;
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
-    pub use crate::proto::server_limits::{LegacyRegistration, ServerLimits};
+    pub use crate::proto::peer::group_mail::GROUP_MAILBOX_MAP;
+    pub use crate::proto::server_limits::{GroupMailLimits, LegacyRegistration, ServerLimits};
     pub use crate::proto::session::ServerOnlySessionInitSettings;
     pub use crate::proto::session::TurnServerConfig;
     pub use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;

@@ -41,24 +41,27 @@ pub struct GroupState {
     /// This member's leaf index.
     pub own_leaf: LeafIndex,
     /// Path secrets this member holds: its leaf node + the nodes on its own direct path it has learned.
-    own_secrets: SecretMap,
+    pub(crate) own_secrets: SecretMap,
     /// The current epoch counter.
     pub epoch: u64,
     /// The current epoch's derived secrets.
-    secrets: EpochSecrets,
+    pub(crate) secrets: EpochSecrets,
     /// Confirmed transcript hash (chains commits; binds the epoch secret to the exact history).
-    transcript_hash: [u8; 32],
+    pub(crate) transcript_hash: [u8; 32],
     /// This member's outgoing message counter within the current epoch (reset each epoch).
-    send_generation: u32,
+    pub(crate) send_generation: u32,
     /// `(epoch, encryption_secret)` of the earlier epochs still readable: those left by Add-only
     /// commits since the last commit that removed a member or re-keyed without a membership change.
     /// A member cannot know a Commit is in flight to it, so it seals at the epoch it holds; every
     /// sender of such an epoch is still a member, so reading it admits no one the group has not.
-    readable_past_epochs: Vec<(u64, Secret)>,
+    pub(crate) readable_past_epochs: Vec<(u64, Secret)>,
     /// This member's leaf signing key (see [`crate::signing`]).
-    signing_key: LeafSigningKey,
+    pub(crate) signing_key: LeafSigningKey,
     /// The frames this member has opened, so none is opened twice.
-    opened: OpenedFrames,
+    pub(crate) opened: OpenedFrames,
+    /// This state's incarnation (see [`AppCiphertext::incarnation`]): 0 for a state made here,
+    /// drawn afresh by [`Self::import`].
+    pub(crate) incarnation: u64,
 }
 
 impl GroupState {
@@ -85,6 +88,7 @@ impl GroupState {
             readable_past_epochs: Vec::new(),
             signing_key: leaf_signature_keys(&own_leaf_secret).1,
             opened: OpenedFrames::default(),
+            incarnation: 0,
         }
     }
 
@@ -290,6 +294,7 @@ impl GroupState {
             readable_past_epochs: Vec::new(),
             signing_key: leaf_signature_keys(&own_leaf_secret).1,
             opened: OpenedFrames::default(),
+            incarnation: 0,
         })
     }
 
@@ -302,6 +307,7 @@ impl GroupState {
             &self.signing_key,
             self.epoch,
             self.own_leaf,
+            self.incarnation,
             generation,
             plaintext,
         )
@@ -325,16 +331,10 @@ impl GroupState {
                     ))
                 })?
         };
-        let sender_cid = self.verify_sender(
-            message.epoch,
-            message.sender,
-            message.generation,
-            &message.ciphertext,
-            &message.signature,
-        )?;
+        let sender_cid =
+            self.verify_sender(message.frame(), &message.ciphertext, &message.signature)?;
         let plaintext = crate::application::open(&secret, message)?;
-        self.opened
-            .mark(message.epoch, message.sender, message.generation);
+        self.opened.mark(message.frame());
         Ok(OpenedMessage {
             sender_cid,
             plaintext,
@@ -346,16 +346,17 @@ impl GroupState {
     pub fn sign_frame(&mut self, body: Vec<u8>) -> Result<AppCiphertext, Error> {
         let generation = self.send_generation;
         self.send_generation = self.send_generation.wrapping_add(1);
-        let signature = crate::signing::sign_frame(
-            &self.signing_key,
-            self.epoch,
-            self.own_leaf,
+        let frame = crate::signing::FrameId {
+            epoch: self.epoch,
+            sender: self.own_leaf,
+            incarnation: self.incarnation,
             generation,
-            &body,
-        )?;
+        };
+        let signature = crate::signing::sign_frame(&self.signing_key, frame, &body)?;
         Ok(AppCiphertext {
             epoch: self.epoch,
             sender: self.own_leaf,
+            incarnation: self.incarnation,
             generation,
             ciphertext: body,
             signature,
@@ -373,15 +374,8 @@ impl GroupState {
         {
             return Err(Error::generic("treekem: the frame's epoch is not readable"));
         }
-        let cid = self.verify_sender(
-            frame.epoch,
-            frame.sender,
-            frame.generation,
-            &frame.ciphertext,
-            &frame.signature,
-        )?;
-        self.opened
-            .mark(frame.epoch, frame.sender, frame.generation);
+        let cid = self.verify_sender(frame.frame(), &frame.ciphertext, &frame.signature)?;
+        self.opened.mark(frame.frame());
         Ok((cid, frame.ciphertext))
     }
 
@@ -389,18 +383,16 @@ impl GroupState {
     /// has not been opened before.
     pub(crate) fn verify_sender(
         &self,
-        epoch: u64,
-        sender: LeafIndex,
-        generation: u32,
+        frame: crate::signing::FrameId,
         body: &[u8],
         signature: &[u8],
     ) -> Result<u64, Error> {
-        let leaf = match self.tree.get(leaf_to_node(sender))? {
+        let leaf = match self.tree.get(leaf_to_node(frame.sender))? {
             crate::tree::node::Node::Leaf(leaf) => leaf,
             _ => return Err(Error::generic("treekem: the frame names no member")),
         };
-        verify_frame(&leaf.sig_public, epoch, sender, generation, body, signature)?;
-        if !self.opened.is_fresh(epoch, sender, generation) {
+        verify_frame(&leaf.sig_public, frame, body, signature)?;
+        if !self.opened.is_fresh(frame) {
             return Err(Error::generic("treekem: the frame was already opened"));
         }
         Ok(leaf.cid)

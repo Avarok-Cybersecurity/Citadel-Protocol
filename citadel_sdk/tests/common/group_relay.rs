@@ -16,6 +16,17 @@ pub fn probed_server() -> (
     SocketAddr,
     ServerRemote,
 ) {
+    probed_server_with(|_| {})
+}
+
+/// [`probed_server`], with `opts` applied to its builder (e.g. other server limits).
+pub fn probed_server_with(
+    opts: impl FnOnce(&mut NodeBuilder<StackedRatchet>),
+) -> (
+    NodeFuture<'static, impl NetKernel<StackedRatchet>>,
+    SocketAddr,
+    ServerRemote,
+) {
     let slot: ServerRemote = Arc::new(OnceLock::new());
     let kernel = {
         let slot = slot.clone();
@@ -26,7 +37,7 @@ pub fn probed_server() -> (
             },
         )
     };
-    let (server, addr) = server_test_node(kernel, |_| {});
+    let (server, addr) = server_test_node(kernel, opts);
     (server, addr, slot)
 }
 
@@ -34,27 +45,24 @@ pub fn server_of(slot: &ServerRemote) -> &NodeRemote<StackedRatchet> {
     slot.get().expect("the server started before any client")
 }
 
-/// The group messages for `key` the server holds in `member`'s mailbox.
+/// The group messages for `key` the server holds in `member`'s backlog.
 pub async fn mailed_group_messages(
     server: &NodeRemote<StackedRatchet>,
     member: u64,
     key: MessageGroupKey,
 ) -> usize {
-    let mailbox = server
+    let backlog = server
         .account_manager()
         .get_persistence_handler()
-        .get_byte_map_values_by_key(member, 0, PEER_MAILBOX_MAP)
+        .get_byte_map_values_by_key(member, key.cid, GROUP_MAILBOX_MAP)
         .await
-        .expect("the server's mailbox is readable");
-    mailbox
+        .expect("the server's group backlog is readable");
+    backlog
         .values()
         .filter(|bytes| {
             matches!(
-                PeerSignal::deserialize_from_vector(bytes),
-                Ok(PeerSignal::BroadcastConnected {
-                    group_broadcast: GroupBroadcast::Message { key: mailed, .. },
-                    ..
-                }) if mailed == key
+                GroupBroadcast::deserialize_from_vector(bytes),
+                Ok(GroupBroadcast::Message { key: mailed, .. }) if mailed == key
             )
         })
         .count()

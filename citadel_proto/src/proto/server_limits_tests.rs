@@ -8,6 +8,11 @@ fn limits(per_ip: usize, total: usize, legacy: LegacyRegistration) -> ServerLimi
         legacy_registration: legacy,
         outbound_queued_per_stream: nonzero(1_000),
         outbound_queued_total: nonzero(10_000),
+        group_mail: GroupMailLimits {
+            max_age: std::time::Duration::from_secs(60),
+            max_messages: nonzero(8),
+            max_bytes: nonzero(1 << 20),
+        },
     }
 }
 

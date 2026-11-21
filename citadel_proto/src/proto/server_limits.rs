@@ -3,6 +3,7 @@
 //! (`NodeBuilder::with_server_limits`) or not at all.
 
 use crate::proto::outbound_total::OutboundTotal;
+pub use crate::proto::peer::group_mail::GroupMailLimits;
 use citadel_io::{error, ErrorCode, NetworkError};
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
@@ -25,6 +26,8 @@ pub struct ServerLimits {
     /// The most bytes all peer-facing streams may hold queued together. A send that would pass
     /// it ends the stream holding the most.
     pub outbound_queued_total: NonZeroUsize,
+    /// What the server holds for a group member that is away (see [`GroupMailLimits`]).
+    pub group_mail: GroupMailLimits,
 }
 
 /// Whether a server takes a legacy registration: one from a client below the post-quantum

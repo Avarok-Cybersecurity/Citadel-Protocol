@@ -134,6 +134,9 @@ pub struct CitadelNodePeerLayer<R: Ratchet> {
     /// The same state as `inner.inner`, reachable without the async lock, so a session is
     /// admitted here synchronously with the session manager's map.
     shared: Arc<citadel_io::RwLock<SharedInner>>,
+    /// Held while a group broadcast is mailed or sent, and while a member's backlog is replayed
+    /// (see `group_resume`), so nothing is held after a replay and nothing overtakes one.
+    pub(crate) group_mail_lock: Arc<citadel_io::tokio::sync::Mutex<()>>,
 }
 
 pub struct CitadelNodePeerLayerExecutor {
@@ -222,6 +225,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             inner,
             waker,
             shared,
+            group_mail_lock: Default::default(),
         }
     }
 
@@ -315,6 +319,14 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                 shared.observed_postings.remove(&session_cid);
             }
             this.simultaneous_ticket_mappings.remove(&session_cid);
+            // A member is back in its groups only once its next session resumes them.
+            for group in this
+                .message_groups
+                .values_mut()
+                .flat_map(|g| g.values_mut())
+            {
+                group.resumed.remove(&session_cid);
+            }
             this.persistence_handler.clone()
         };
 
@@ -342,6 +354,9 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                     pending_peers: HashMap::with_capacity(initial_peers.len()),
                     options,
                     rates: Default::default(),
+                    tree: 0,
+                    // The owner founds the group from its live session.
+                    resumed: std::iter::once(session_cid).collect(),
                 };
                 // insert peers into the pending_peers map to allow/process AcceptMembership signals
                 for peer_cid in initial_peers {

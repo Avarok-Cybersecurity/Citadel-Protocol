@@ -117,6 +117,12 @@ pub fn localhost_server_limits() -> ServerLimits {
         },
         outbound_queued_per_stream: nonzero(QUEUED_PER_STREAM),
         outbound_queued_total: nonzero(QUEUED_TOTAL),
+        // Room for every test's offline traffic; the bounds themselves are tested with their own.
+        group_mail: GroupMailLimits {
+            max_age: std::time::Duration::from_secs(3600),
+            max_messages: nonzero(10_000),
+            max_bytes: nonzero(QUEUED_PER_STREAM),
+        },
     }
 }
 

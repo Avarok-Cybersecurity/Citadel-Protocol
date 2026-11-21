@@ -297,13 +297,18 @@ pub struct MessageGroupOptions {
     #[cfg_attr(feature = "typescript", ts(skip))]
     #[serde(default)]
     pub limits: Option<GroupMessageLimits>,
+    /// The longest the server holds a broadcast for a member that is away, or `None` for the
+    /// server's own maximum. A server never holds one longer than its maximum.
+    #[cfg_attr(feature = "typescript", ts(skip))]
+    #[serde(default)]
+    pub retention: Option<std::time::Duration>,
 }
 
 impl MessageGroupOptions {
     /// Whether these options ask the server for anything a server before group relay options
     /// cannot do. Such a server would ignore them, so a client refuses to create the group there.
     pub fn needs_relay_options(&self) -> bool {
-        self.ephemeral || self.limits.is_some()
+        self.ephemeral || self.limits.is_some() || self.retention.is_some()
     }
 }
 
@@ -315,6 +320,7 @@ impl Default for MessageGroupOptions {
             hierarchy: GroupHierarchyMode::default(),
             ephemeral: false,
             limits: None,
+            retention: None,
         }
     }
 }

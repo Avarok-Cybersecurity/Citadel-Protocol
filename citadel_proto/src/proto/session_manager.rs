@@ -2221,23 +2221,39 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let mut peers_okay = Vec::new();
         let mut to_mail = Vec::new();
         let mut offline = Vec::new();
+        // A group's own traffic goes live only to members back in the group; it is held for the
+        // rest. The lock orders this fan-out against a member's replay (`group_resume`).
+        let backlogged = match &signal {
+            GroupBroadcast::Message { key, .. } | GroupBroadcast::Commit { key, .. } => Some(*key),
+            _ => None,
+        };
+        let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
+        let (_mail_guard, resumed) = match backlogged {
+            Some(key) => (
+                Some(peer_layer.group_mail_lock.clone().lock_owned().await),
+                Some(peer_layer.resumed_members(key).await),
+            ),
+            None => (None, None),
+        };
 
         let pers = {
             let this = inner!(self);
             for (peer, is_registered) in peers_and_statuses {
+                let away = resumed.as_ref().is_some_and(|back| !back.contains(&peer));
                 if is_registered {
-                    if this
-                        .send_signal_to_peer_direct(peer, |peer_ratchet| {
-                            super::packet_crafter::peer_cmd::craft_group_message_packet(
-                                peer_ratchet,
-                                &signal,
-                                ticket,
-                                C2S_IDENTITY_CID,
-                                timestamp,
-                                security_level,
-                            )
-                        })
-                        .is_err()
+                    if away
+                        || this
+                            .send_signal_to_peer_direct(peer, |peer_ratchet| {
+                                super::packet_crafter::peer_cmd::craft_group_message_packet(
+                                    peer_ratchet,
+                                    &signal,
+                                    ticket,
+                                    C2S_IDENTITY_CID,
+                                    timestamp,
+                                    security_level,
+                                )
+                            })
+                            .is_err()
                     {
                         // on error, try adding to mailbox
                         if mail_if_offline {
@@ -2254,27 +2270,51 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 }
             }
 
-            this.account_manager.get_persistence_handler().clone()
-        };
-
-        // TODO: optimize this into a single operation
-        for peer in &to_mail {
-            CitadelNodePeerLayer::try_add_mailbox(
-                &pers,
-                *peer,
-                PeerSignal::BroadcastConnected {
-                    session_cid: *peer,
-                    group_broadcast: signal.clone(),
-                },
+            (
+                this.account_manager.get_persistence_handler().clone(),
+                this.server_load.as_ref().map(|load| load.limits.group_mail),
+                this.time_tracker.get_global_time_ns(),
             )
-            .await
-            .map_err(|err| err.into_string())?;
+        };
+        let (pers, group_mail, now_ns) = pers;
+
+        // A group's own traffic waits in the member's backlog for that group, bounded and replayed
+        // in order once the member is back in the group; anything else waits in its mailbox.
+        let mut mailed = Vec::with_capacity(to_mail.len());
+        let mut backlog_full = Vec::new();
+        for peer in to_mail {
+            if let Some(key) = backlogged {
+                let limits = group_mail.ok_or("only a server holds group mail")?;
+                let max_age = limits.max_age_for(peer_layer.group_retention(key).await);
+                let holding = super::peer::group_mail::hold(
+                    &pers, peer, key, &signal, &limits, max_age, now_ns,
+                )
+                .await
+                .map_err(|err| err.into_string())?;
+                match holding {
+                    super::peer::group_mail::Holding::Held => mailed.push(peer),
+                    super::peer::group_mail::Holding::BacklogFull => backlog_full.push(peer),
+                }
+            } else {
+                CitadelNodePeerLayer::try_add_mailbox(
+                    &pers,
+                    peer,
+                    PeerSignal::BroadcastConnected {
+                        session_cid: peer,
+                        group_broadcast: signal.clone(),
+                    },
+                )
+                .await
+                .map_err(|err| err.into_string())?;
+                mailed.push(peer);
+            }
         }
 
         Ok(GroupFanOut {
             direct: peers_okay,
-            mailed: to_mail,
+            mailed,
             offline,
+            backlog_full,
             failed: peers_failed,
         })
     }
@@ -2383,6 +2423,8 @@ pub struct GroupFanOut {
     pub direct: Vec<u64>,
     pub mailed: Vec<u64>,
     pub offline: Vec<u64>,
+    /// Members whose backlog for the group is at its cap: the signal was not held for them.
+    pub backlog_full: Vec<u64>,
     pub failed: Vec<u64>,
 }
 

@@ -104,6 +104,17 @@ impl<R: Ratchet> StateContainerInner<R> {
         ticket: Ticket,
         command: &GroupBroadcast,
     ) -> Result<(), NetworkError> {
+        let result = self.process_outbound_group_command(ticket, command);
+        // A Create founds a state, a Kick commits; either is kept before the next command.
+        self.save_changed_group_states();
+        result
+    }
+
+    fn process_outbound_group_command(
+        &mut self,
+        ticket: Ticket,
+        command: &GroupBroadcast,
+    ) -> Result<(), NetworkError> {
         if !self.state.is_connected() {
             log::warn!(target: "citadel", "Unable to execute group command since session is not connected");
             // A message has a sender waiting on its outcome: tell it, rather than let a send that
