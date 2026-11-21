@@ -199,7 +199,8 @@ jobs:
         run: python3 ci/types_version_gate.py . "origin/$BASE_REF"
       - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          # the same Node the publish job runs (typescript-publish.yml)
+          node-version: '24'
       - name: Install dependencies
         working-directory: citadel-protocol-types-ts
         run: npm ci
