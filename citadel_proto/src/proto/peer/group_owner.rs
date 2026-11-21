@@ -10,8 +10,14 @@ use std::sync::Arc;
 
 /// The owner of a group as this session last heard it from the server; `None` once the channel
 /// has left the group.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GroupOwner(Arc<citadel_io::RwLock<Option<u64>>>);
+
+impl std::fmt::Debug for GroupOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("GroupOwner").field(&self.get()).finish()
+    }
+}
 
 impl GroupOwner {
     /// A cell naming `owner`.
