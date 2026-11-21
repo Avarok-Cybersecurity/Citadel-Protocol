@@ -75,6 +75,7 @@ fn install<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     key: MessageGroupKey,
     cgka: GroupCgkaState,
+    owner: u64,
 ) -> Result<(), NetworkError> {
     let channel_open = {
         let mut state = inner_mut_state!(session.state_container);
@@ -82,25 +83,28 @@ fn install<R: Ratchet, T: PlatformOps>(
         state.group_channels.contains_key(&key)
     };
     if !channel_open {
-        let _ = create_group_channel(Ticket::default(), key, session)?;
+        let _ = create_group_channel(Ticket::default(), key, session, owner)?;
     }
     Ok(())
 }
 
-/// Client, prompted to restore `key` on `tree`.
+/// Client, prompted to restore `key` on `tree` under `owner`. A state kept as a member is not
+/// resumed as the owner: the member it was did not commit, and the departed owner's leaf may still
+/// be in it, so a new owner founds the tree afresh.
 pub(super) async fn restore<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     reply: Reply<'_, R>,
     key: MessageGroupKey,
     tree: u64,
-    as_owner: bool,
+    owner: u64,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let cid = session_cid(session)?;
+    let as_owner = owner == cid;
     let pers = session.account_manager.get_persistence_handler();
     let stored = group_state_store::load(pers, cid, key).await?;
     if let Some(cgka) = stored.filter(|cgka| cgka.tree == tree && cgka.is_owner() == as_owner) {
         log::info!(target: "citadel", "Resuming {key:?} from the state this node kept");
-        install(session, key, cgka)?;
+        install(session, key, cgka, owner)?;
         return reply.send(resume_signal(key, as_owner));
     }
     if account_key(session, cid).is_some() {
@@ -115,10 +119,11 @@ pub(super) fn kept<R: Ratchet, T: PlatformOps>(
     reply: Reply<'_, R>,
     key: MessageGroupKey,
     tree: u64,
-    as_owner: bool,
+    owner: u64,
     sealed: Option<Vec<u8>>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let cid = session_cid(session)?;
+    let as_owner = owner == cid;
     let opened = match (sealed, account_key(session, cid)) {
         (Some(sealed), Some(account_key)) => group_backup::open(&account_key, cid, key, &sealed)
             .and_then(|bytes| GroupCgkaState::import(&bytes))
@@ -129,7 +134,7 @@ pub(super) fn kept<R: Ratchet, T: PlatformOps>(
     match opened.filter(|cgka| cgka.tree == tree && cgka.is_owner() == as_owner) {
         Some(cgka) => {
             log::info!(target: "citadel", "Resuming {key:?} from the state the server keeps for this account");
-            install(session, key, cgka.restored_from_backup())?;
+            install(session, key, cgka.restored_from_backup(), owner)?;
             reply.send(resume_signal(key, as_owner))
         }
         None => start_over(session, reply, key, tree, as_owner),

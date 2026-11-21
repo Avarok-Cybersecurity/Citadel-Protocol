@@ -50,6 +50,7 @@ let (send_half, recv_half) = group_channel.split();
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::{send_from_sync, Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::proto::peer::group_owner::GroupOwner;
 use crate::proto::remote::Ticket;
 use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
@@ -83,6 +84,7 @@ impl GroupChannel {
         key: MessageGroupKey,
         ticket: Ticket,
         session_cid: u64,
+        owner: GroupOwner,
         recv: UnboundedReceiver<GroupBroadcastPayload>,
     ) -> Self {
         let (undelivered_tx, undelivered) = citadel_io::tokio::sync::mpsc::unbounded_channel();
@@ -92,6 +94,7 @@ impl GroupChannel {
                 ticket,
                 key,
                 session_cid,
+                owner,
                 undelivered: undelivered_tx,
             },
 
@@ -138,6 +141,8 @@ pub struct GroupChannelSendHalf {
     ticket: Ticket,
     key: MessageGroupKey,
     session_cid: u64,
+    /// The group's owner, as the server last reported it.
+    owner: GroupOwner,
     /// Where a message is reported undelivered once the session that carried it has ended.
     undelivered: citadel_io::tokio::sync::mpsc::UnboundedSender<GroupBroadcastPayload>,
 }
@@ -176,6 +181,12 @@ impl GroupChannelSendHalf {
             return Ok(());
         }
         sent
+    }
+
+    /// The group's owner as the server last reported it: its creator until the owner leaves, then
+    /// its successor. `None` once this channel has left the group.
+    pub fn owner(&self) -> Option<u64> {
+        self.owner.get()
     }
 
     /// Kicks a peer from the group. User must be owner
@@ -261,7 +272,7 @@ impl GroupChannelSendHalf {
     }
 
     fn permission_gate(&self) -> Result<(), NetworkError> {
-        if self.session_cid == self.key.cid {
+        if self.owner.is(self.session_cid) {
             Ok(())
         } else {
             Err(error!(ErrorCode::PeerPermissionDenied))

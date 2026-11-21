@@ -3,9 +3,10 @@
 //! the opaque [`GroupBroadcast::KeyPackage`]/[`GroupBroadcast::Welcome`]/[`GroupBroadcast::Commit`]
 //! payloads and the [`GroupBroadcast::Message`] ciphertext — it never holds a key or sees plaintext.
 //!
-//! The group **owner** (`key.cid`) is the sole committer (which matches the existing owner-only
-//! Add/Kick/End permission model), so commits are produced and ordered by a single party and the
-//! concurrent-commit linearization problem does not arise.
+//! The group **owner** is the sole committer (which matches the existing owner-only Add/Kick/End
+//! permission model), so commits are produced and ordered by a single party and the
+//! concurrent-commit linearization problem does not arise. The owner is the group's creator until
+//! it leaves; its successor then commits from its own leaf (see `succession`).
 //!
 //! This module is deliberately I/O-free: methods mutate in-memory CGKA state and return the bytes to
 //! relay, and the caller (`group_broadcast.rs`) performs the packet send. That keeps the crypto state
@@ -15,6 +16,7 @@ mod hierarchy;
 pub mod join_queue;
 mod new_leaf;
 mod stored;
+mod succession;
 
 use crate::error::NetworkError;
 use citadel_io::{error, ErrorCode};

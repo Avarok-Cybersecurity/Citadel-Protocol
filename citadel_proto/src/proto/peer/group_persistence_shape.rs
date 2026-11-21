@@ -1,6 +1,6 @@
 //! The bytes a [`PersistedGroup`] is stored as.
 //!
-//! A group row is `(options, members, pending, relay, tree)`: the options' three original fields first,
+//! A group row is `(options, members, pending, relay, tree, owner)`: the options' three original fields first,
 //! and the relay options (`ephemeral`, `limits`, `retention`) after `pending`. bincode has no field names, so
 //! the order is the format. Every field is required: a row without its relay options, or with
 //! caps that fail validation, is refused rather than read with defaults.
@@ -19,6 +19,7 @@ pub(crate) struct StoredGroup {
     pending: Vec<u64>,
     relay: StoredRelayOptions,
     tree: u64,
+    owner: u64,
 }
 
 /// The option fields a row has always held, in their original order.
@@ -56,6 +57,7 @@ impl From<PersistedGroup> for StoredGroup {
             members: group.members,
             pending: group.pending,
             tree: group.tree,
+            owner: group.owner,
             relay: StoredRelayOptions {
                 ephemeral,
                 limits,
@@ -79,6 +81,7 @@ impl From<StoredGroup> for PersistedGroup {
             members: row.members,
             pending: row.pending,
             tree: row.tree,
+            owner: row.owner,
         }
     }
 }
@@ -98,6 +101,7 @@ mod tests {
 
     fn persisted(ephemeral: bool, limits: Option<GroupMessageLimits>) -> PersistedGroup {
         PersistedGroup {
+            owner: 2,
             options: MessageGroupOptions {
                 group_type: GroupType::Private,
                 id: 7,
@@ -137,5 +141,6 @@ mod tests {
         );
         assert_eq!((read.members, read.pending), (vec![1, 2], vec![3]));
         assert_eq!(read.tree, 4);
+        assert_eq!(read.owner, 2);
     }
 }

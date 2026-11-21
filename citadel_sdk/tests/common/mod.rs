@@ -17,6 +17,8 @@ pub mod group_epoch;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod group_relay;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod group_succession;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod half_open;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod half_open_scenario;
@@ -28,6 +30,8 @@ pub mod media;
 pub mod pq;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod recovery;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod server_restart;
 
 use citadel_io::tokio::sync::{Mutex, Semaphore};
 use citadel_sdk::async_trait;

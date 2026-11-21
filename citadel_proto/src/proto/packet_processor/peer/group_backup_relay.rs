@@ -49,7 +49,7 @@ pub(crate) async fn keep<R: Ratchet, T: PlatformOps>(
 }
 
 /// Server, on `FetchState` from `member`'s session: the state it keeps for the member, with the
-/// group's tree and the member's role. A non-member's kept state is dropped and none is returned.
+/// group's tree and its recorded owner. A non-member's kept state is dropped and none is returned.
 pub(crate) async fn fetch<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     member: u64,
@@ -57,11 +57,11 @@ pub(crate) async fn fetch<R: Ratchet, T: PlatformOps>(
 ) -> Result<Option<GroupBroadcast>, NetworkError> {
     let pers = session.account_manager.get_persistence_handler();
     let sub_key = key.mgid.to_string();
-    let Some(tree) = session
-        .hypernode_peer_layer
-        .tree_of_member(key, member)
-        .await
-    else {
+    let peer_layer = &session.hypernode_peer_layer;
+    let (Some(tree), Some(owner)) = (
+        peer_layer.tree_of_member(key, member).await,
+        peer_layer.group_owner(key).await,
+    ) else {
         let _ = pers
             .remove_byte_map_value(member, key.cid, GROUP_BACKUP_MAP, &sub_key)
             .await?;
@@ -73,7 +73,7 @@ pub(crate) async fn fetch<R: Ratchet, T: PlatformOps>(
     Ok(Some(GroupBroadcast::KeptState {
         key,
         tree,
-        as_owner: member == key.cid,
+        owner,
         sealed,
     }))
 }

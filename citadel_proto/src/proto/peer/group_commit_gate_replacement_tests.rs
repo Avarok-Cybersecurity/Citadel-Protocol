@@ -19,7 +19,7 @@ fn a_member_replaced_mid_commit_settles_the_wait_when_its_old_session_ends() {
     let (replaced, replacement) = sessions();
     let mut gates = CommitGates::default();
     let awaiting = HashMap::from([(2, Some(replaced)), (3, None)]);
-    assert_eq!(gates.open(KEY, 3, None, awaiting), None);
+    assert_eq!(gates.open(KEY, 3, (KEY.cid, None), awaiting), None);
     assert_eq!(
         gates.applied(KEY, 3, 3),
         None,
@@ -32,7 +32,11 @@ fn a_member_replaced_mid_commit_settles_the_wait_when_its_old_session_ends() {
     );
     assert_eq!(
         gates.session_ended(2, replaced),
-        vec![Settled { key: KEY, epoch: 3 }],
+        vec![Settled {
+            key: KEY,
+            epoch: 3,
+            owner: KEY.cid
+        }],
         "the wait stayed stuck on a session that is gone"
     );
 }
@@ -43,11 +47,20 @@ fn a_member_replaced_mid_commit_settles_the_wait_when_its_old_session_ends() {
 fn a_replaced_members_late_end_leaves_its_replacements_wait() {
     let (replaced, replacement) = sessions();
     let mut gates = CommitGates::default();
-    let _ = gates.open(KEY, 4, None, HashMap::from([(2, Some(replacement))]));
+    let _ = gates.open(
+        KEY,
+        4,
+        (KEY.cid, None),
+        HashMap::from([(2, Some(replacement))]),
+    );
     assert_eq!(gates.session_ended(2, replaced), vec![]);
     assert_eq!(
         gates.applied(KEY, 4, 2),
-        Some(Settled { key: KEY, epoch: 4 })
+        Some(Settled {
+            key: KEY,
+            epoch: 4,
+            owner: KEY.cid
+        })
     );
 }
 
@@ -56,14 +69,18 @@ fn a_replaced_members_late_end_leaves_its_replacements_wait() {
 fn an_owners_waits_end_with_the_session_that_made_the_commit() {
     let (replaced, replacement) = sessions();
     let mut gates = CommitGates::default();
-    let _ = gates.open(KEY, 4, Some(replacement), set(&[2]));
+    let _ = gates.open(KEY, 4, (KEY.cid, Some(replacement)), set(&[2]));
     assert_eq!(gates.session_ended(KEY.cid, replaced), vec![]);
     assert_eq!(
         gates.applied(KEY, 4, 2),
-        Some(Settled { key: KEY, epoch: 4 }),
+        Some(Settled {
+            key: KEY,
+            epoch: 4,
+            owner: KEY.cid
+        }),
         "the replaced owner's end dropped its replacement's wait"
     );
-    let _ = gates.open(KEY, 5, Some(replaced), set(&[2]));
+    let _ = gates.open(KEY, 5, (KEY.cid, Some(replaced)), set(&[2]));
     assert_eq!(gates.session_ended(KEY.cid, replaced), vec![]);
     assert_eq!(gates.applied(KEY, 5, 2), None, "its own end ends it");
 }

@@ -1010,30 +1010,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                             security_level,
                         );
                     }
-                    let departure = peer_layer
-                        .on_owner_departure(
-                            session_cid,
-                            incarnation,
-                            time_tracker.get_global_time_ns(),
-                        )
+                    let dissolved = peer_layer
+                        .on_owner_departure(session_cid, incarnation)
                         .await;
                     group_notifier
                         .notify_groups_dissolved(
-                            departure.dissolved,
+                            dissolved,
                             time_tracker.get_global_time_ns(),
                             security_level,
                         )
                         .await;
-                    if let Some(token) = departure.held {
-                        group_notifier
-                            .expire_ownerless_groups_after(
-                                session_cid,
-                                token,
-                                crate::proto::peer::group_retention::OWNERLESS_GROUP_GRACE,
-                                security_level,
-                            )
-                            .await;
-                    }
                     peer_layer.retire(session_cid, incarnation);
                     Ok::<_, NetworkError>(())
                 };
@@ -1810,61 +1796,20 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         Ok(true)
     }
 
-    /// Server start-up: loads the persisted group registry before any client can connect, tells
-    /// the members of groups that are not held (command hierarchies) that they are gone, and arms
-    /// the expiry of every held owner's groups.
+    /// Server start-up: loads the persisted group registry before any client can connect, and
+    /// tells the members of the groups it does not restore (command hierarchies) that they are gone.
     pub async fn restore_message_groups(&self) -> Result<(), NetworkError> {
         let (peer_layer, time_tracker) = {
             let this = inner!(self);
             (this.hypernode_peer_layer.clone(), this.time_tracker)
         };
-        let restored = peer_layer
-            .restore_persisted_groups(time_tracker.get_global_time_ns())
-            .await?;
+        let dissolved = peer_layer.restore_persisted_groups().await?;
         // No session exists yet, so there is no negotiated level to inherit. Standard is what a
         // departing session without security settings falls back to (see the shutdown path).
         let security_level = SecurityLevel::Standard;
-        self.notify_groups_dissolved(
-            restored.dissolved,
-            time_tracker.get_global_time_ns(),
-            security_level,
-        )
-        .await;
-        for hold in restored.held {
-            let this = self.clone();
-            spawn!(async move {
-                this.expire_ownerless_groups_after(
-                    hold.owner,
-                    hold.token,
-                    hold.expires_in,
-                    security_level,
-                )
-                .await
-            });
-        }
-        Ok(())
-    }
-
-    /// After `after`, dissolves `owner`'s held groups unless it reconnected since the departure
-    /// that issued `token`, and tells their members.
-    pub(crate) async fn expire_ownerless_groups_after(
-        &self,
-        owner: u64,
-        token: u64,
-        after: Duration,
-        security_level: SecurityLevel,
-    ) {
-        citadel_io::time::sleep(after).await;
-        let (peer_layer, time_tracker) = {
-            let this = inner!(self);
-            (this.hypernode_peer_layer.clone(), this.time_tracker)
-        };
-        let expired = peer_layer.expire_ownerless_groups(owner, token).await;
-        if !expired.is_empty() {
-            log::warn!(target: "citadel", "Owner {owner} did not reconnect within the grace period; dissolving {} group(s)", expired.len());
-        }
-        self.notify_groups_dissolved(expired, time_tracker.get_global_time_ns(), security_level)
+        self.notify_groups_dissolved(dissolved, time_tracker.get_global_time_ns(), security_level)
             .await;
+        Ok(())
     }
 
     /// Tells each member of each dissolved group that the group is gone (`Disconnected`), so no
@@ -2328,7 +2273,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             .collect()
     }
 
-    /// Tells the owner of `settled.key` that its Commit for `settled.epoch` has settled.
+    /// Tells `settled.owner`, the owner that made it, that its Commit for `settled.epoch` has settled.
     pub fn notify_commit_settled(
         &self,
         settled: Settled,
@@ -2336,9 +2281,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         timestamp: i64,
         security_level: SecurityLevel,
     ) {
-        let Settled { key, epoch } = settled;
+        let Settled { key, epoch, owner } = settled;
         let signal = GroupBroadcast::CommitSettled { key, epoch };
-        if let Err(err) = self.route_packet_to(key.cid, |ratchet| {
+        if let Err(err) = self.route_packet_to(owner, |ratchet| {
             super::packet_crafter::peer_cmd::craft_group_message_packet(
                 ratchet,
                 &signal,

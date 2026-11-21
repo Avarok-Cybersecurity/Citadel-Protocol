@@ -40,6 +40,7 @@ mod group_control;
 mod group_message_relay;
 mod group_restore;
 mod group_resume_relay;
+pub(crate) mod group_succession_relay;
 pub mod peer_cmd_packet;
 pub mod server;
 pub mod signal_handler_interface;
