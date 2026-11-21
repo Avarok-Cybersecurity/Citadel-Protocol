@@ -49,21 +49,30 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     }
 
     /// The owner founded `key`'s tree afresh: no member is in it until it rejoins. Returns the
-    /// new tree generation and the members to prompt, once the group is persisted with it.
-    pub async fn refound_tree(&self, key: MessageGroupKey) -> Option<(u64, Vec<u64>)> {
+    /// new tree generation, the owner, and the members to prompt, once the group is persisted with
+    /// it.
+    pub async fn refound_tree(&self, key: MessageGroupKey) -> Option<(u64, u64, Vec<u64>)> {
         let mut this = self.inner.write().await;
         let group = this.message_groups.get_mut(&key.cid)?.get_mut(&key.mgid)?;
+        let owner = group.owner;
         group.tree += 1;
         group.resumed.clear();
-        let _ = group.resumed.insert(key.cid);
+        let _ = group.resumed.insert(owner);
         let tree = group.tree;
         let members = group
             .concurrent_peers
             .keys()
             .copied()
-            .filter(|cid| *cid != key.cid)
+            .filter(|cid| *cid != owner)
             .collect();
         this.persist_group_or_log(key).await;
-        Some((tree, members))
+        Some((tree, owner, members))
+    }
+
+    /// The generation of `key`'s ratchet tree and its recorded owner, if the group exists here.
+    pub async fn group_tree_and_owner(&self, key: MessageGroupKey) -> Option<(u64, u64)> {
+        let this = self.inner.read().await;
+        let group = this.message_groups.get(&key.cid)?.get(&key.mgid)?;
+        Some((group.tree, group.owner))
     }
 }

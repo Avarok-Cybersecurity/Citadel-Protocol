@@ -327,6 +327,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         key: MessageGroupKey,
         ticket: Ticket,
         session: &CitadelSession<R, T>,
+        owner: u64,
     ) -> Result<GroupChannel, NetworkError> {
         let (tx, rx) = unbounded();
         let session_cid = self
@@ -340,6 +341,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
 
         let _ = self.group_channels.insert(key, tx);
+        let owner = self.open_group_owner(key, owner);
 
         let (to_session_tx, to_session_rx) =
             crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
@@ -353,6 +355,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             key,
             ticket,
             session_cid,
+            owner,
             rx,
         ))
     }

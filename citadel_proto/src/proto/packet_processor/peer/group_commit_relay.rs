@@ -13,13 +13,13 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::MessageGroupKey;
 use std::collections::HashSet;
 
-/// Server: relay a Commit to the group's members. For an owner that takes part, first open the
-/// wait on each member that will receive it directly and takes part too, so no acknowledgement
-/// can arrive before the wait exists.
+/// Server: relay the owner's Commit to the group's members (the caller has checked that `owner`
+/// is the group's recorded owner). First open the wait on each member that will receive it
+/// directly, so no acknowledgement can arrive before the wait exists.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn relay_commit<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
-    sender: u64,
+    owner: u64,
     key: MessageGroupKey,
     epoch: u64,
     payload: Vec<u8>,
@@ -27,7 +27,6 @@ pub(super) async fn relay_commit<R: Ratchet, T: PlatformOps>(
     timestamp: i64,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let owner_acks = sender == key.cid;
     let peer_layer = &session.hypernode_peer_layer;
     let manager = &session.session_manager;
     let members: Vec<u64> = peer_layer
@@ -35,15 +34,14 @@ pub(super) async fn relay_commit<R: Ratchet, T: PlatformOps>(
         .await
         .unwrap_or_default()
         .into_iter()
-        .filter(|cid| *cid != sender)
+        .filter(|cid| *cid != owner)
         .collect();
-    let mut settled = None;
-    if owner_acks {
-        let awaiting = manager.connected(&members);
-        #[cfg(feature = "localhost-testing")]
-        crate::test_hooks::commit_gate_opened(key, epoch, &awaiting);
-        settled = peer_layer.open_commit_gate(key, epoch, awaiting).await;
-    }
+    let awaiting = manager.connected(&members);
+    #[cfg(feature = "localhost-testing")]
+    crate::test_hooks::commit_gate_opened(key, epoch, &awaiting);
+    let mut settled = peer_layer
+        .open_commit_gate(key, owner, epoch, awaiting)
+        .await;
     let commit = GroupBroadcast::Commit {
         key,
         epoch,
@@ -70,7 +68,7 @@ pub(super) async fn relay_commit<R: Ratchet, T: PlatformOps>(
             }
             let mut undelivered = delivery.mailed;
             undelivered.extend(delivery.failed);
-            if owner_acks && !undelivered.is_empty() {
+            if !undelivered.is_empty() {
                 settled = settled.or(peer_layer
                     .commit_undelivered(key, epoch, &undelivered)
                     .await);
@@ -113,17 +111,19 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     pub async fn open_commit_gate(
         &self,
         key: MessageGroupKey,
+        owner: u64,
         epoch: u64,
         awaiting: HashSet<u64>,
     ) -> Option<Settled> {
         let mut this = self.inner.write().await;
         // The sessions the Commit is about to be delivered to (and the owner's that made it).
-        let owner = this.current_session(key.cid);
+        let owner_session = this.current_session(owner);
         let awaiting = awaiting
             .into_iter()
             .map(|cid| (cid, this.current_session(cid)))
             .collect();
-        this.commit_gates.open(key, epoch, owner, awaiting)
+        this.commit_gates
+            .open(key, epoch, (owner, owner_session), awaiting)
     }
 
     /// See [`crate::proto::peer::group_commit_gate::CommitGates::applied`]. The write lock is fair, so it is taken only after every

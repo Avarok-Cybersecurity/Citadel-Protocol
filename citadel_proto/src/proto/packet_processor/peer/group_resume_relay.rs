@@ -89,7 +89,7 @@ pub(crate) async fn refounded<R: Ratchet, T: PlatformOps>(
 ) {
     let peer_layer = &session.hypernode_peer_layer;
     let _ordered = peer_layer.group_mail_lock.clone().lock_owned().await;
-    let Some((tree, members)) = peer_layer.refound_tree(key).await else {
+    let Some((tree, owner, members)) = peer_layer.refound_tree(key).await else {
         return;
     };
     for member in &members {
@@ -106,7 +106,7 @@ pub(crate) async fn refounded<R: Ratchet, T: PlatformOps>(
             ticket,
             members.into_iter().zip(std::iter::repeat_n(true, len)),
             false,
-            GroupBroadcast::RestoreMembership { key, tree },
+            GroupBroadcast::RestoreMembership { key, tree, owner },
             security_level,
         )
         .await

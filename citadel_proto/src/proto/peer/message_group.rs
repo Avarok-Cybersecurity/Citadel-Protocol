@@ -18,7 +18,8 @@ This module implements the group messaging framework for the Citadel Protocol, p
 ## Important Notes
 1. Groups are centered around an "axis of consent" (the initiator)
 2. Consent is not transitive - all members must connect directly to the initiator
-3. Groups are short-lived and terminate when the initiator disconnects
+3. A group lives until its owner closes it or its last member leaves; when the owner leaves,
+   the remaining member with the highest CID owns it (see `group_succession`)
 4. Local message history persists after group termination
 
 ## Related Components
@@ -43,14 +44,17 @@ use std::collections::HashMap;
 /// In other words, *consent is not directly transitive*. By ensuring all P_n are connected to P_0, it instead enforces
 /// an axis of consent. If Jacob is connected to John, and Sally is connected to John, then either Jacob
 /// or Sally may opt-in to communicate in a group *with* John. Jacob or Sally are never forced to, and are given
-/// a set of the peripheral users before entering G(P_0). If John ever leaves, the axis falls and the group
-/// disintegrates. In this model, John was the axis of consent, and the peripheral users were Jacob and Sally.
-/// Axis of consent: P_0
+/// a set of the peripheral users before entering G(P_0). If John leaves, the axis passes to the remaining
+/// member with the highest CID. In this model, John was the axis of consent, and the peripheral users were
+/// Jacob and Sally.
+/// Axis of consent: P_0, until it leaves; then its successor
 /// Peripheral Users: all users connected to P_0 *and* agreed to enter G(P_0)
-/// [MessageGroup]s should be seen as short-lived messaging frames. They stay alive as long as the axis of consent
-/// keeps the group alive or disconnects from the HyperLAN Server. When P_0 leaves, users will still have local messages
-/// of the chat, but won't receive anymore chats from the group
+/// A [MessageGroup] lives until its owner closes it or its last member leaves. A member's session ending
+/// is not leaving: the group, and the member's place in it, outlive the session.
 pub struct MessageGroup {
+    /// The member that owns the group now: its creator (`MessageGroupKey::cid`) until it leaves,
+    /// then the remaining member with the highest cid (see `group_succession`). Persisted.
+    pub(crate) owner: u64,
     // peer cid, entry (entry will contain metadata in the future)
     pub(crate) concurrent_peers: HashMap<u64, MessageGroupPeer>,
     pub(crate) pending_peers: HashMap<u64, MessageGroupPeer>,

@@ -165,6 +165,15 @@ async fn deregister_client_from_self<R: Ratchet, T: PlatformOps>(
         (acc_manager, ticket)
     };
 
+    // A deregistered account leaves every group it is in: each it owns passes to its successor,
+    // and one it was the last member of closes.
+    crate::proto::packet_processor::peer::group_succession_relay::leave_every_group(
+        session,
+        session_cid,
+        timestamp,
+        security_level,
+    )
+    .await;
     let success = match acc_mgr.delete_client_by_cid(session_cid).await {
         Ok(_) => {
             log::trace!(target: "citadel", "Successfully purged account {session_cid} locally!");

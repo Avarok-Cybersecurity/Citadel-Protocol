@@ -54,10 +54,10 @@ fn hierarchical() -> MessageGroupOptions {
 async fn shut_down(
     layer: &CitadelNodePeerLayer<StackedRatchet>,
     incarnation: Instant,
-) -> crate::proto::peer::group_retention::OwnerDeparture {
+) -> Vec<crate::proto::peer::group_retention::DissolvedGroup> {
     layer.on_session_shutdown(CID, incarnation).await.unwrap();
     layer.drop_group_watches(CID, incarnation).await;
-    let departure = layer.on_owner_departure(CID, incarnation, 0).await;
+    let departure = layer.on_owner_departure(CID, incarnation).await;
     layer.retire(CID, incarnation);
     departure
 }
@@ -86,7 +86,7 @@ async fn a_replaced_sessions_late_shutdown_leaves_its_replacement_alone() {
         "the replaced session's shutdown took the new session's postings"
     );
     assert!(
-        layer.message_group_exists(group).await && departure.dissolved.is_empty(),
+        layer.message_group_exists(group).await && departure.is_empty(),
         "the replaced session's departure dissolved the new session's group: {departure:?}"
     );
     assert_eq!(
@@ -100,11 +100,7 @@ async fn a_replaced_sessions_late_shutdown_leaves_its_replacement_alone() {
         !has_postings(&layer).await,
         "its own shutdown releases them"
     );
-    assert_eq!(
-        own.dissolved.len(),
-        1,
-        "and its own departure dissolves its group"
-    );
+    assert_eq!(own.len(), 1, "and its own departure dissolves its group");
 }
 
 #[tokio::test]
@@ -118,7 +114,7 @@ async fn a_session_that_ends_before_its_replacement_is_admitted_releases_its_own
         .unwrap();
     let departure = shut_down(&layer, replaced).await;
     assert!(!has_postings(&layer).await);
-    assert_eq!(departure.dissolved.len(), 1);
+    assert_eq!(departure.len(), 1);
     assert!(!layer.message_group_exists(group).await);
 
     connect(&layer, replaced + Duration::from_millis(1)).await;
@@ -142,7 +138,9 @@ async fn a_member_replaced_mid_commit_neither_stalls_nor_steals_a_wait() {
     };
     let only = |cid| std::iter::once(cid).collect::<std::collections::HashSet<u64>>();
     assert_eq!(
-        layer.open_commit_gate(owned_by_member, 1, only(CID)).await,
+        layer
+            .open_commit_gate(owned_by_member, MEMBER, 1, only(CID))
+            .await,
         None
     );
 
@@ -151,14 +149,18 @@ async fn a_member_replaced_mid_commit_neither_stalls_nor_steals_a_wait() {
         cid: MEMBER,
         mgid: 2,
     };
-    assert_eq!(layer.open_commit_gate(later, 1, only(CID)).await, None);
+    assert_eq!(
+        layer.open_commit_gate(later, MEMBER, 1, only(CID)).await,
+        None
+    );
 
     let settled = shut_down_waits(&layer, replaced).await;
     assert_eq!(
         settled,
         vec![crate::proto::peer::group_commit_gate::Settled {
             key: owned_by_member,
-            epoch: 1
+            epoch: 1,
+            owner: MEMBER,
         }],
         "the wait the replaced session was in stalled, or the replacement's was taken with it"
     );
@@ -166,7 +168,8 @@ async fn a_member_replaced_mid_commit_neither_stalls_nor_steals_a_wait() {
         layer.commit_applied(later, 1, CID).await,
         Some(crate::proto::peer::group_commit_gate::Settled {
             key: later,
-            epoch: 1
+            epoch: 1,
+            owner: MEMBER,
         }),
         "the replacement's own wait still settles on its acknowledgement"
     );
