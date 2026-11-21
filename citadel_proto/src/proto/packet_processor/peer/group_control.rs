@@ -69,7 +69,7 @@ mod tests {
             apply_commit(Some(&mut member), KEY, b"not a commit", epoch);
         }
         let wire = owner.encrypt_message(b"still in step").unwrap();
-        assert_eq!(member.decrypt_message(&wire).unwrap(), b"still in step");
+        assert_eq!(member.decrypt_message(&wire).unwrap().1, b"still in step");
     }
 
     #[test]
@@ -78,7 +78,7 @@ mod tests {
         apply_hierarchy_assignment(Some(&mut member), KEY, b"not an assignment");
         assert!(member.is_flat());
         let wire = owner.encrypt_message(b"still flat").unwrap();
-        assert_eq!(member.decrypt_message(&wire).unwrap(), b"still flat");
+        assert_eq!(member.decrypt_message(&wire).unwrap().1, b"still flat");
     }
 
     #[test]

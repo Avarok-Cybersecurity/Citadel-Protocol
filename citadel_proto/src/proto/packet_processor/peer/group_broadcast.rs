@@ -637,12 +637,18 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 // Client: decrypt the E2E CGKA ciphertext to plaintext before handing it to the app. In
                 // a CommandHierarchy group a non-permitted reader (a sibling/subordinate of the sender)
                 // legitimately cannot decrypt — drop the message for them rather than erroring.
+                // A member opens a message only under the leaf of the member the server says sent
+                // it, and only once (the leaf's signature and the replay window are checked by
+                // `decrypt_message`).
                 let plaintext = {
-                    let state = inner_state!(session.state_container);
-                    match state.group_cgka.get(&key) {
+                    let mut state = inner_mut_state!(session.state_container);
+                    match state.group_cgka.get_mut(&key) {
                         Some(cgka) if cgka.is_pending_join() => Err(NO_GROUP_KEY_YET.to_string()),
                         Some(cgka) => match cgka.decrypt_message(message.as_ref()) {
-                            Ok(plaintext) => Ok(plaintext),
+                            Ok((signer, plaintext)) if signer == username => Ok(plaintext),
+                            Ok((signer, _)) => Err(format!(
+                                "it is signed by {signer}, not by its sender {username}"
+                            )),
                             // A flat group withholds nothing from a member: a message it cannot
                             // open (sealed at an epoch it does not hold) is lost to it.
                             Err(err) if cgka.is_flat() => {

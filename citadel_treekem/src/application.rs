@@ -4,6 +4,10 @@
 //! `encryption_secret` (an MLS "secret-tree"-style derivation), so a sender just tags each ciphertext
 //! with `(sender, generation)` and recipients derive the matching key. Per-message keys give forward
 //! secrecy within an epoch (a used generation's key can be dropped); the relay sees only ciphertext.
+//!
+//! Because every member can derive every message key, a ciphertext proves nothing about who sealed
+//! it. Each one is therefore signed by its sender's leaf key ([`crate::signing`]), and a recipient
+//! opens it only once that signature verifies under the leaf it names.
 
 use crate::crypto::Secret;
 use chacha20poly1305::aead::Aead;
@@ -22,6 +26,8 @@ pub struct AppCiphertext {
     pub generation: u32,
     /// AEAD ciphertext (ChaCha20-Poly1305).
     pub ciphertext: Vec<u8>,
+    /// The sender leaf's ML-DSA-65 signature over `(epoch, sender, generation, ciphertext)`.
+    pub signature: Vec<u8>,
 }
 
 /// The message key + nonce for `(sender, generation)` under `encryption_secret`. Deterministic for all
@@ -44,9 +50,11 @@ fn message_key_nonce(
     (key, nonce)
 }
 
-/// Seal `plaintext` under the `(sender, generation)` message key.
+/// Seal `plaintext` under the `(sender, generation)` message key and sign it with the sender's leaf
+/// key.
 pub(crate) fn seal(
     encryption_secret: &Secret,
+    signing_key: &crate::signing::LeafSigningKey,
     epoch: u64,
     sender: u32,
     generation: u32,
@@ -58,15 +66,19 @@ pub(crate) fn seal(
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
         .map_err(|err| Error::generic(format!("treekem application seal failed: {err}")))?;
+    let signature =
+        crate::signing::sign_frame(signing_key, epoch, sender, generation, &ciphertext)?;
     Ok(AppCiphertext {
         epoch,
         sender,
         generation,
         ciphertext,
+        signature,
     })
 }
 
-/// Open an [`AppCiphertext`] with the recipient's view of `encryption_secret`.
+/// Open an [`AppCiphertext`] with the recipient's view of `encryption_secret`. The caller has
+/// verified its signature.
 pub(crate) fn open(encryption_secret: &Secret, message: &AppCiphertext) -> Result<Vec<u8>, Error> {
     let (key, nonce) = message_key_nonce(encryption_secret, message.sender, message.generation);
     let cipher = ChaCha20Poly1305::new((&key).into());

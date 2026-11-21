@@ -15,13 +15,7 @@ const CASES: usize = 2_000;
 const DEADLINE: Duration = Duration::from_secs(120);
 
 fn leaf(cid: u64, secret: &[u8; 32]) -> LeafNode {
-    LeafNode {
-        cid,
-        kem_public: node_keypair_from_path_secret(secret).unwrap().0,
-        sig_public: vec![],
-        leaf_index: 0,
-        signature: vec![],
-    }
+    KeyPackage::generate(cid, secret).unwrap().leaf
 }
 
 /// A founder with two joined members, and the encodings of what the group sends one another.
@@ -96,7 +90,7 @@ fn received_application_messages_never_panic() {
     let member = f.member;
     campaign("message", vec![f.message], CASES, DEADLINE, move |bytes| {
         if let Ok(message) = citadel_io::decode::deserialize::<AppCiphertext>(bytes) {
-            let _ = member.decrypt_message(&message);
+            let _ = member.clone().decrypt_message(&message);
         }
     });
 }

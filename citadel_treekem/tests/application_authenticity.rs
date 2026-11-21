@@ -41,12 +41,13 @@ fn sealed_as(epoch_secret: &[u8; 32], leaf: u32, generation: u32) -> Vec<u8> {
 
 #[test]
 fn a_member_cannot_seal_a_message_as_another_member() {
-    let (a, b, c) = trio();
+    let (a, b, mut c) = trio();
     let forged = AppCiphertext {
         epoch: b.epoch,
         sender: a.own_leaf,
         generation: 7,
         ciphertext: sealed_as(b.encryption_secret(), a.own_leaf, 7),
+        signature: b"not the owner's".to_vec(),
     };
     assert!(
         c.decrypt_message(&forged).is_err(),
@@ -55,11 +56,10 @@ fn a_member_cannot_seal_a_message_as_another_member() {
 }
 
 #[test]
-#[allow(unused_mut)]
 fn a_message_is_opened_once() {
     let (mut a, _b, mut c) = trio();
     let sent = a.encrypt_message(b"once").unwrap();
-    assert_eq!(c.decrypt_message(&sent).unwrap(), b"once");
+    assert_eq!(c.decrypt_message(&sent).unwrap().plaintext, b"once");
     assert!(
         c.decrypt_message(&sent).is_err(),
         "the same message was opened twice"

@@ -232,18 +232,23 @@ impl GroupCgkaState {
     /// Encrypt an outbound application message. In `Flat` mode this is the per-epoch [`AppCiphertext`];
     /// in `CommandHierarchy` mode it is a `DheEnvelope` (so superiors can read their subtree). The relay
     /// forwards either verbatim.
+    /// Either way the bytes are an [`AppCiphertext`] signed by this member's leaf.
     pub fn encrypt_message(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        if matches!(self.hierarchy, GroupHierarchyMode::Flat) {
-            let group = self
-                .group
-                .as_mut()
-                .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
-            let ct = group.encrypt_message(plaintext)?;
-            ct.serialize_to_vector()
-                .map_err(|_| ser_err("app_ciphertext"))
+        let envelope = if self.is_flat() {
+            None
         } else {
-            self.encrypt_dhe(plaintext)
-        }
+            Some(self.encrypt_dhe(plaintext)?)
+        };
+        let group = self
+            .group
+            .as_mut()
+            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+        let ct = match envelope {
+            None => group.encrypt_message(plaintext)?,
+            Some(envelope) => group.sign_frame(envelope)?,
+        };
+        ct.serialize_to_vector()
+            .map_err(|_| ser_err("app_ciphertext"))
     }
 
     /// Whether this is a `Flat` group, where every member can read every message: one it cannot
@@ -252,18 +257,22 @@ impl GroupCgkaState {
         matches!(self.hierarchy, GroupHierarchyMode::Flat)
     }
 
-    /// Decrypt an inbound application message (the counterpart of [`Self::encrypt_message`]).
-    pub fn decrypt_message(&self, ciphertext: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        if matches!(self.hierarchy, GroupHierarchyMode::Flat) {
-            let group = self
-                .group
-                .as_ref()
-                .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
-            let ct = AppCiphertext::deserialize_from_vector(ciphertext)
-                .map_err(|_| ser_err("app_ciphertext"))?;
-            group.decrypt_message(&ct)
+    /// Open an inbound application message (the counterpart of [`Self::encrypt_message`]), once:
+    /// returns the cid of the member whose leaf signed it, and the plaintext.
+    pub fn decrypt_message(&mut self, ciphertext: &[u8]) -> Result<(u64, Vec<u8>), NetworkError> {
+        let ct = AppCiphertext::deserialize_from_vector(ciphertext)
+            .map_err(|_| ser_err("app_ciphertext"))?;
+        let flat = self.is_flat();
+        let group = self
+            .group
+            .as_mut()
+            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+        if flat {
+            let opened = group.decrypt_message(&ct)?;
+            Ok((opened.sender_cid, opened.plaintext))
         } else {
-            self.decrypt_dhe(ciphertext)
+            let (sender, envelope) = group.open_signed_frame(ct)?;
+            Ok((sender, self.decrypt_dhe(&envelope)?))
         }
     }
 }
@@ -295,8 +304,8 @@ mod tests {
         let plaintext = b"fire mission: grid 1234 5678";
         let wire = owner.encrypt_message(plaintext).unwrap();
         assert!(!wire.windows(plaintext.len()).any(|w| w == plaintext));
-        assert_eq!(b.decrypt_message(&wire).unwrap(), plaintext);
-        assert_eq!(c.decrypt_message(&wire).unwrap(), plaintext);
+        assert_eq!(b.decrypt_message(&wire).unwrap().1, plaintext);
+        assert_eq!(c.decrypt_message(&wire).unwrap().1, plaintext);
         let _ = key;
     }
 
@@ -362,7 +371,7 @@ mod tests {
         back.join(&welcome_again).unwrap();
 
         let wire = owner.encrypt_message(b"welcome back").unwrap();
-        assert_eq!(back.decrypt_message(&wire).unwrap(), b"welcome back");
+        assert_eq!(back.decrypt_message(&wire).unwrap().1, b"welcome back");
         assert!(lost.decrypt_message(&wire).is_err());
     }
 
@@ -386,10 +395,31 @@ mod tests {
         a.process_commit(&commit_b, epoch_b).unwrap();
 
         assert_eq!(
-            owner.decrypt_message(&in_flight).ok().as_deref(),
+            owner
+                .decrypt_message(&in_flight)
+                .ok()
+                .map(|(_, p)| p)
+                .as_deref(),
             Some(&b"sent while B was joining"[..]),
             "the owner cannot read a message a member sealed at an epoch they both held"
         );
+    }
+
+    /// A message opens as the member whose leaf signed it, and only once.
+    #[test]
+    fn a_message_opens_once_as_its_signer() {
+        let mut owner = GroupCgkaState::new_owner(1, GroupHierarchyMode::Flat).unwrap();
+        let (mut b, kp_b) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();
+        let (welcome_b, _c, _e, _a) = owner.add_member(&kp_b).unwrap();
+        b.join(&welcome_b).unwrap();
+        let wire = owner.encrypt_message(b"from the owner").unwrap();
+        assert_eq!(
+            b.decrypt_message(&wire).unwrap(),
+            (1, b"from the owner".to_vec())
+        );
+        assert!(b.decrypt_message(&wire).is_err(), "opened twice");
+        let back = b.encrypt_message(b"from b").unwrap();
+        assert_eq!(owner.decrypt_message(&back).unwrap().0, 2);
     }
 
     #[test]

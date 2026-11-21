@@ -119,8 +119,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_message_over_the_groups_size_cap_is_refused_and_reaches_nobody() {
-        let limits = GroupMessageLimits::new(1024, 16).unwrap();
-        let large = vec![b'x'; 4096];
+        // Every relayed message carries its sender's ML-DSA-65 signature (3309 bytes), so the cap
+        // leaves room for one around a small message.
+        let limits = GroupMessageLimits::new(8192, 16).unwrap();
+        let large = vec![b'x'; 16384];
         let outcome = send_with_limits(limits, vec![b"small".to_vec(), large]).await;
         assert!(delivered(&outcome.answers[0]), "{:?}", outcome.answers);
         match &outcome.answers[1] {
@@ -128,8 +130,8 @@ mod tests {
                 refusal: GroupMessageRefusal::TooLarge { bytes, max_bytes },
                 ..
             } => {
-                assert_eq!(*max_bytes, 1024);
-                assert!(*bytes >= 4096, "the relayed ciphertext: {bytes}");
+                assert_eq!(*max_bytes, 8192);
+                assert!(*bytes >= 16384, "the relayed ciphertext: {bytes}");
             }
             other => panic!("the large message was not refused for its size: {other:?}"),
         }
