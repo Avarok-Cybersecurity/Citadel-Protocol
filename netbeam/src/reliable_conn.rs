@@ -105,7 +105,7 @@ impl<T: ConnAddr + ReliableOrderedStreamToTarget> ReliableOrderedConnectionToTar
 pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
     async fn recv_serialized<T: DeserializeOwned + Send + Sync>(&self) -> std::io::Result<T> {
         let packet = &self.recv().await?;
-        Ok(bincode::deserialize(packet)
+        Ok(citadel_io::decode::deserialize(packet)
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?)
     }
 

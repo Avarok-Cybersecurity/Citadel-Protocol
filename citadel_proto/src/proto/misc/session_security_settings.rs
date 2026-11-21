@@ -26,9 +26,35 @@
 //! - `node.rs`: Node configuration
 //! - `error.rs`: Error handling
 
-use citadel_types::crypto::{CryptoParameters, SecrecyMode, SecurityLevel};
+use citadel_types::crypto::{
+    CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecrecyMode, SecurityLevel, SigAlgorithm,
+};
 use citadel_types::prelude::HeaderObfuscatorSettings;
 use citadel_types::proto::SessionSecuritySettings;
+
+/// The cryptography of a session whose application names none: ML-KEM-1024 (FIPS 203, category 5)
+/// with AES-256-GCM and no per-packet signature. This is the only place a session's KEM is chosen
+/// for it; everywhere else the KEM is named by the caller.
+///
+/// Both ends of a session agree on its suite from what the initiator sends. To run ML-KEM-768
+/// instead, name [`KemAlgorithm::MlKem768Fips203`] with
+/// [`SessionSecuritySettingsBuilder::with_crypto_params`].
+pub const DEFAULT_SESSION_CRYPTO_PARAMS: CryptoParameters = CryptoParameters::new(
+    EncryptionAlgorithm::AES_GCM_256,
+    KemAlgorithm::MlKem1024Fips203,
+    SigAlgorithm::None,
+);
+
+/// The settings of a session whose application names none of them; its suite is
+/// [`DEFAULT_SESSION_CRYPTO_PARAMS`].
+pub fn default_session_security_settings() -> SessionSecuritySettings {
+    SessionSecuritySettings {
+        security_level: SecurityLevel::default(),
+        secrecy_mode: SecrecyMode::default(),
+        crypto_params: DEFAULT_SESSION_CRYPTO_PARAMS,
+        header_obfuscator_settings: HeaderObfuscatorSettings::default(),
+    }
+}
 
 #[derive(Default)]
 pub struct SessionSecuritySettingsBuilder {
@@ -65,12 +91,12 @@ impl SessionSecuritySettingsBuilder {
         self
     }
 
-    /// Default: Firesaber + AES_GCM_256_SIV
+    /// Default: [`DEFAULT_SESSION_CRYPTO_PARAMS`]. A sum of algorithms always names its KEM.
     /// ```
     /// use citadel_proto::prelude::*;
     /// use citadel_pqcrypto::prelude::*;
     /// SessionSecuritySettingsBuilder::default()
-    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem)
+    /// .with_crypto_params(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem1024Fips203)
     /// .build();
     /// ```
     pub fn with_crypto_params(mut self, params: impl Into<CryptoParameters>) -> Self {
@@ -102,11 +128,14 @@ impl SessionSecuritySettingsBuilder {
 
     /// Constructs the [`SessionSecuritySettings`]
     pub fn build(self) -> Result<SessionSecuritySettings, anyhow::Error> {
+        let defaults = default_session_security_settings();
         let settings = SessionSecuritySettings {
-            security_level: self.security_level.unwrap_or_default(),
-            secrecy_mode: self.secrecy_mode.unwrap_or_default(),
-            crypto_params: self.crypto_params.unwrap_or_default(),
-            header_obfuscator_settings: self.header_obfuscator_settings.unwrap_or_default(),
+            security_level: self.security_level.unwrap_or(defaults.security_level),
+            secrecy_mode: self.secrecy_mode.unwrap_or(defaults.secrecy_mode),
+            crypto_params: self.crypto_params.unwrap_or(defaults.crypto_params),
+            header_obfuscator_settings: self
+                .header_obfuscator_settings
+                .unwrap_or(defaults.header_obfuscator_settings),
         };
 
         citadel_types::utils::validate_crypto_params(&settings.crypto_params)?;

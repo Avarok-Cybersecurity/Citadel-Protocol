@@ -1,0 +1,8 @@
+# The one Rust version for every build: local, CI (setup-rust installs it) and the Docker images
+# (each runs `rustup toolchain install` after copying the tree). A new stable release no longer
+# changes a build, or every CI cache key, until this line does. ci/toolchain_pin_gate.py fails
+# when a workflow or image takes its toolchain from anywhere else.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

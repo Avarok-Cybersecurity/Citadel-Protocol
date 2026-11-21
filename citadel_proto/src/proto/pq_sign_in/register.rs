@@ -2,7 +2,6 @@
 //! server's `PQ_REPLY`; the client's keys then ride in STAGE2.
 
 use super::packets::{self, Kind};
-use super::runs_with;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -13,7 +12,7 @@ use citadel_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::pq::admission;
-use citadel_user::auth::pq::client::ClientRegistration;
+use citadel_user::auth::pq::client::{ClientRegistration, NewRecovery};
 use citadel_user::auth::pq::messages::RegFinish;
 use citadel_user::auth::pq::messages::{RegStart, RegStartReply};
 use citadel_user::auth::pq::server::{registration_reply, PendingRegistration};
@@ -31,12 +30,11 @@ fn kind(aux: u8, algorithm: u8) -> Kind {
 }
 
 /// Client, once STAGE1 has given it the session ratchet: the `PQ_START` to send in place of
-/// STAGE2, when the server runs post-quantum sign-in and the caller gave a password.
+/// STAGE2, when the caller gave a password.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ratchet: &R,
-    server_version: u32,
     username: &str,
     algorithm: u8,
     timestamp: i64,
@@ -44,8 +42,7 @@ pub(crate) fn begin<R: Ratchet, T: PlatformOps>(
     ticket: Ticket,
 ) -> Result<Option<BytesMut>, NetworkError> {
     let mut state = inner_mut_state!(session.state_container);
-    let password = state.register_state.pq.password.take();
-    let Some(password) = password.filter(|_| runs_with(server_version)) else {
+    let Some(password) = state.register_state.pq.password.take() else {
         return Ok(None);
     };
     let (mut start, client) = ClientRegistration::start(username, &password)?;
@@ -72,9 +69,9 @@ pub(crate) async fn on_pq_start<R: Ratchet, T: PlatformOps>(
     security_level: SecurityLevel,
     ticket: Ticket,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let (reads_challenge, replied) = match packets::read::<RegStart>(payload) {
-        Ok(start) => (start.reads_challenge, reply_to(session, start).await),
-        Err(err) => (false, Err(err)),
+    let replied = match packets::read::<RegStart>(payload) {
+        Ok(start) => reply_to(session, start).await,
+        Err(err) => Err(err),
     };
     let reply = match replied {
         Ok(reply) => reply,
@@ -83,7 +80,7 @@ pub(crate) async fn on_pq_start<R: Ratchet, T: PlatformOps>(
             let packet = packet_crafter::do_register::craft_failure(
                 algorithm,
                 session.time_tracker.get_global_time_ns(),
-                super::refusal::register_failure(err, reads_challenge),
+                super::refusal::register_failure(err),
                 ratchet.get_cid(),
                 ticket,
             );
@@ -113,7 +110,7 @@ async fn reply_to<R: Ratchet, T: PlatformOps>(
     let ctx = super::admission::register(session, &start.username, start.admission.clone());
     let policy = super::admission::policy(session);
     let settings = session.account_manager.pq_settings();
-    let reply = admission::then(policy.as_ref(), Some(ctx), false, || {
+    let reply = admission::then(policy.as_ref(), Some(ctx), || {
         settings
             .map(|settings| registration_reply(settings, &start))
             .transpose()
@@ -137,24 +134,43 @@ pub(crate) async fn on_pq_reply<R: Ratchet, T: PlatformOps>(
     payload: &[u8],
 ) -> Result<Option<citadel_user::auth::pq::messages::RegFinish>, NetworkError> {
     let reply: RegStartReply = packets::read(payload)?;
-    let client = inner_mut_state!(session.state_container)
-        .register_state
-        .pq
-        .client
-        .take()
-        .ok_or_else(|| NetworkError::msg("PQ_REPLY without a registration in flight"))?;
+    let (client, domain, username) = {
+        let mut state = inner_mut_state!(session.state_container);
+        let username = state
+            .connect_state
+            .proposed_credentials
+            .as_ref()
+            .map(|creds| creds.username().to_string())
+            .ok_or_else(|| NetworkError::msg("PQ_REPLY without the registration's username"))?;
+        let pq = &mut state.register_state.pq;
+        let client = pq
+            .client
+            .take()
+            .ok_or_else(|| NetworkError::msg("PQ_REPLY without a registration in flight"))?;
+        (client, pq.recovery_domain.take(), username)
+    };
     match reply {
         RegStartReply::Accepted(reply) => {
-            let (finish, codes) = client.finish(&reply, true).await?;
+            let recovery = new_recovery(domain.as_deref(), &username);
+            let (finish, issued) = client.finish(&reply, recovery).await?;
             let mut state = inner_mut_state!(session.state_container);
-            state.register_state.pq.registered = true;
-            state.register_state.pq.recovery_codes = codes
-                .iter()
-                .map(|code| code.display().to_string())
-                .collect();
+            let pq = &mut state.register_state.pq;
+            pq.registered = true;
+            pq.recovery_phrase = issued.phrase.map(|seed| seed.words());
             Ok(Some(finish))
         }
         RegStartReply::Unsupported => Ok(None),
+    }
+}
+
+/// What a new account is given: the phrase, given the server's domain, and nothing without one.
+pub(crate) fn new_recovery<'a>(domain: Option<&'a str>, username: &'a str) -> NewRecovery<'a> {
+    match domain {
+        Some(canonical_domain) => NewRecovery::Phrase {
+            username,
+            canonical_domain,
+        },
+        None => NewRecovery::None,
     }
 }
 

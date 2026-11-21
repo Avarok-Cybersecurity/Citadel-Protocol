@@ -54,7 +54,9 @@ fn connect_request(sender: u64, target: u64) -> PeerSignal {
         },
         ticket_opt: None,
         invitee_response: None,
-        session_security_settings: Default::default(),
+        session_security_settings: crate::prelude::SessionSecuritySettingsBuilder::default()
+            .build()
+            .unwrap(),
         udp_mode: Default::default(),
         session_password: None,
     }

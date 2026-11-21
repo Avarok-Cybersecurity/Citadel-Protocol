@@ -8,21 +8,23 @@ use citadel_types::crypto::SecBuffer;
 use citadel_user::auth::pq::admission::AdmissionToken;
 use citadel_user::auth::pq::client::{ClientLogin, ClientRegistration};
 use citadel_user::auth::pq::messages::LoginStart;
-use citadel_user::auth::pq::recovery::RecoveryCode;
+use citadel_user::auth::pq::phrase::RecoveryPhrase;
 use citadel_user::auth::pq::server::{PendingLogin, PendingRegistration};
+use citadel_user::auth::pq::throttle::Attempt;
 use zeroize::Zeroizing;
 
 /// The factors a client offers for one sign-in.
 pub(crate) struct OfferedFactors {
     pub password: Option<SecBuffer>,
     pub security_key: Option<SecurityKeyPrf>,
-    pub recovery_code: Option<RecoveryCode>,
+    pub recovery_phrase: Option<RecoveryPhrase>,
     pub admission: Option<AdmissionToken>,
 }
 
 /// Kept in the connect state.
 pub(crate) struct PqConnectState {
-    /// Both sides: what the session may do. `Recovery` after a recovery-code sign-in.
+    /// Both sides: what the session may do. `Recovery` (the recovery console) after a sign-in
+    /// with the recovery phrase.
     pub scope: SessionScope,
     /// Both sides: until when a sign-in may wait for a security-key touch.
     pub presence_until: Option<Instant>,
@@ -36,6 +38,9 @@ pub(crate) struct PqConnectState {
     pub session_key: Option<Zeroizing<[u8; 32]>>,
     /// Server: between `AUTH_CHALLENGE` and STAGE0.
     pub server: Option<ServerPending>,
+    /// Server: what the sign-in in flight counts as against the throttle, from `AUTH_START`
+    /// until its proof is checked.
+    pub attempt: Option<Attempt>,
 }
 
 impl Default for PqConnectState {
@@ -48,6 +53,7 @@ impl Default for PqConnectState {
             client: None,
             session_key: None,
             server: None,
+            attempt: None,
         }
     }
 }
@@ -68,8 +74,10 @@ pub(crate) struct PqRegisterState {
     pub client: Option<ClientRegistration>,
     /// Client: whether STAGE2 enrolled post-quantum factors, so the account is kept as one.
     pub registered: bool,
-    /// Client: the new account's recovery codes, for `RegisterOkay`.
-    pub recovery_codes: Vec<String>,
+    /// Client: the domain the new account's recovery phrase is bound to, until `PQ_REPLY`.
+    pub recovery_domain: Option<String>,
+    /// Client: the new account's recovery phrase, for `RegisterOkay`.
+    pub recovery_phrase: Option<Vec<String>>,
     /// Server: between `PQ_REPLY` and STAGE2.
     pub server: Option<PendingRegistration>,
     /// Client: the admission token, until `PQ_START` is sent.
@@ -77,4 +85,6 @@ pub(crate) struct PqRegisterState {
     /// Server: `PQ_START` passed the admission check, so a legacy STAGE2 (a server without
     /// post-quantum settings) is not asked again.
     pub admitted: bool,
+    /// Both sides: a recovery in place of a registration (see `pq_sign_in::recover`).
+    pub recover: super::recover::state::RecoverState,
 }

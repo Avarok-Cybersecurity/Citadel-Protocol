@@ -19,6 +19,7 @@ use citadel_negotiation::settings::KeyProfile;
 use citadel_negotiation::{
     ConnectionId, Epoch, KeyExchangeOutcome, NegotiationPolicy, RoundAdmission,
 };
+use citadel_types::crypto::MaxSecurityLevel;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -62,6 +63,7 @@ impl<R: Ratchet> KeyEpochPort<R> {
     ) -> UnboundedReceiver<AdmittedRound> {
         let (admitted, rounds) = unbounded_channel();
         self.handle.manager.set_epoch_gate(Arc::new(NegotiatorGate {
+            max_security_level: self.handle.max_security_level,
             admitter,
             stepped,
             admitted,
@@ -111,6 +113,9 @@ impl<R: Ratchet> KeyExchange for KeyEpochPort<R> {
         if let Some(err) = self.wrong_connection(conn) {
             return Box::pin(async move { KeyExchangeOutcome::Failed(err) });
         }
+        if let Err(above) = self.handle.max_security_level.check(profile.level()) {
+            return Box::pin(async move { KeyExchangeOutcome::Failed(above.to_string()) });
+        }
         let manager = self.handle.manager.clone();
         let tag = KeyEpochTag { epoch, profile };
         let bound = self.apply_deadline;
@@ -136,6 +141,7 @@ impl<R: Ratchet> KeyExchange for KeyEpochPort<R> {
 
 /// The Bob-side check on a steered round, over the negotiator (§5.1).
 struct NegotiatorGate {
+    max_security_level: MaxSecurityLevel,
     admitter: Arc<dyn RoundAdmitter>,
     stepped: Arc<Notify>,
     admitted: UnboundedSender<AdmittedRound>,
@@ -144,6 +150,11 @@ struct NegotiatorGate {
 
 impl EpochRoundGate for NegotiatorGate {
     fn admit(&self, tag: KeyEpochTag, current_version: u32) -> GateFuture {
+        // Above the node's maximum, nothing is built whatever the negotiator says.
+        if let Err(above) = self.max_security_level.check(tag.profile.level()) {
+            log::warn!(target: "citadel", "Refusing a key round: {above}");
+            return Box::pin(async { false });
+        }
         let admitter = self.admitter.clone();
         let stepped = self.stepped.clone();
         let admitted = self.admitted.clone();

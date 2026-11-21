@@ -67,9 +67,16 @@ impl StoredResume {
             Self::LiveAtStop => node_started
                 .checked_add(grace)
                 .is_some_and(|expires| now < expires),
+            // Memory holds every token this run issued, so a stored one is from a run before
+            // this node started, and that session ended no later than the start. Its end is
+            // capped there: an end written late (by the stopping node's teardown, still running
+            // or scheduled after this one started) must not stretch the grace past it.
             Self::EndedAtMs(ended) => {
+                let since_start = now.saturating_duration_since(node_started).as_millis();
+                let started_ms =
+                    now_ms.saturating_sub(u64::try_from(since_start).unwrap_or(u64::MAX));
                 let grace_ms = u64::try_from(grace.as_millis()).unwrap_or(u64::MAX);
-                now_ms < ended.saturating_add(grace_ms)
+                now_ms < ended.min(started_ms).saturating_add(grace_ms)
             }
         }
     }

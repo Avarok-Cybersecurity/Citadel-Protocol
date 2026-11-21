@@ -1,12 +1,12 @@
 //! Server: the admission check (`ServerMiscSettings::admission`) at the start of each FRESH
 //! sign-in or registration, before the OPRF, any encapsulation or any Argon2 work.
 //!
-//! Not asked: a recovery-code sign-in (the user's way back in) and a login whose resume token
-//! shows it to be an admitted session's own client reconnecting: the session the server still
-//! holds recognises it, or the session it was issued to ended within the policy's
-//! `resume_grace` (see `EndedSessions`). A server without a policy admits everyone.
+//! Not asked: a login whose resume token shows it to be an admitted session's own client
+//! reconnecting: the session the server still holds recognises it, or the session it was issued
+//! to ended within the policy's `resume_grace` (see `EndedSessions`). A recovery is asked like any
+//! fresh sign-in, as `AdmissionKind::Recover`: it is the surface a guesser needs no bundle for. A
+//! server without a policy admits everyone.
 
-use super::runs_with;
 use crate::error::NetworkError;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::session::CitadelSession;
@@ -35,9 +35,6 @@ pub(crate) async fn sign_in<R: Ratchet, T: PlatformOps>(
     cid: u64,
     start: &LoginStart,
 ) -> Option<AdmissionContext> {
-    if start.recovery.is_some() {
-        return None;
-    }
     if let Some(token) = start.resume.map(ResumeToken::from_bytes) {
         if session
             .session_manager
@@ -48,22 +45,20 @@ pub(crate) async fn sign_in<R: Ratchet, T: PlatformOps>(
         }
     }
     let token = start.admission.clone();
-    Some(context(
-        session,
-        &start.username,
-        AdmissionKind::SignIn,
-        token,
-    ))
+    let kind = match start.recovery {
+        Some(_) => AdmissionKind::Recover,
+        None => AdmissionKind::SignIn,
+    };
+    Some(context(session, &start.username, kind, token))
 }
 
-/// A login that sent no `AUTH_START`: a client below 0.12, which cannot carry a token, or a
-/// transient one. `presented` is the resume token its STAGE0 carried.
+/// A login that sent no `AUTH_START`: a passwordless one, or one that offered no factors.
+/// `presented` is the resume token its STAGE0 carried.
 pub(crate) async fn legacy_sign_in<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cid: u64,
     username: &str,
     presented: Option<&ResumeToken>,
-    adjacent_version: u32,
 ) -> Result<(), NetworkError> {
     if let Some(token) = presented {
         if session
@@ -76,7 +71,7 @@ pub(crate) async fn legacy_sign_in<R: Ratchet, T: PlatformOps>(
     }
     let ctx = context(session, username, AdmissionKind::SignIn, None);
     let policy = policy(session);
-    admission::check(policy.as_ref(), ctx, is_legacy_client(adjacent_version)).await
+    admission::check(policy.as_ref(), ctx).await
 }
 
 /// What a registration is asked: `PQ_START`'s token, or none for a legacy STAGE2.
@@ -86,11 +81,6 @@ pub(crate) fn register<R: Ratchet, T: PlatformOps>(
     token: Option<AdmissionToken>,
 ) -> AdmissionContext {
     context(session, username, AdmissionKind::Register, token)
-}
-
-/// A client below protocol 0.12 has no way to send a token, so a refusal tells it to update.
-pub(crate) fn is_legacy_client(adjacent_version: u32) -> bool {
-    !runs_with(adjacent_version)
 }
 
 fn context<R: Ratchet, T: PlatformOps>(

@@ -1,6 +1,8 @@
 //! Shared plumbing for the media examples, included via `#[path = "common.rs"] mod common;`.
 #![allow(dead_code)] // shared by four example binaries; each uses a subset
 
+#[path = "../shared/max_level.rs"]
+mod max_level;
 #[path = "../shared/stun.rs"]
 mod stun;
 
@@ -84,13 +86,14 @@ where
     // BestEffort secrecy: per-message rekeying would throttle the control lane.
     let session_security = SessionSecuritySettingsBuilder::default()
         .with_secrecy_mode(SecrecyMode::BestEffort)
-        .with_crypto_params(KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256)
+        .with_crypto_params(KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256)
         .build()?;
     let server_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration(
         server_addr,
         my_user,
         "Media Example",
         "notsecurepassword",
+        CertVerification::SelfSignedAccepted,
     )
     .with_session_security_settings(session_security)
     .with_udp_mode(UdpMode::Enabled)
@@ -110,7 +113,9 @@ where
             remote.shutdown_kernel().await
         });
     DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
+        .with_max_security_level(max_level::extreme())
         .build(kernel)?
         .await?;
     Ok(())

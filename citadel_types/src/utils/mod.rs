@@ -1,9 +1,11 @@
-use crate::crypto::{CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SigAlgorithm};
+use crate::crypto::{CryptoParameters, EncryptionAlgorithm, SigAlgorithm};
 use crate::errors::Error;
 use std::fmt::Formatter;
 use std::write;
 
 pub(crate) mod mem;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod page_locks;
 
 pub fn print_tick(
     f: &mut Formatter<'_>,
@@ -65,13 +67,7 @@ pub fn const_time_compare(this: &[u8], other: &[u8]) -> bool {
 }
 
 pub fn validate_crypto_params(params: &CryptoParameters) -> Result<(), Error> {
-    let uses_ml_kem = params.kem_algorithm == KemAlgorithm::MlKem;
-    if params.encryption_algorithm == EncryptionAlgorithm::MlKemHybrid && !uses_ml_kem {
-        return Err(citadel_io::error!(
-            citadel_io::ErrorCode::CryptoParamsHybridRequiresMlKem
-        ));
-    }
-
+    // Hybrid encryption runs on every KEM: its public-key encryption is the KEM's own KEM-DEM.
     if params.encryption_algorithm == EncryptionAlgorithm::MlKemHybrid
         && params.sig_algorithm == SigAlgorithm::None
     {

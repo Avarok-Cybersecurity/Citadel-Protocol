@@ -520,6 +520,8 @@ pub mod re_imports {
 
     #[cfg(not(target_family = "wasm"))]
     pub use crate::proto::misc::native_io::NativeClientConfig;
+    #[cfg(not(target_family = "wasm"))]
+    pub use crate::proto::misc::native_twin_ports::server_socket_pair;
     pub use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
     pub use citadel_io::tokio_util::io::{SinkWriter, StreamReader};
     pub use citadel_pqcrypto::build_tag;
@@ -528,6 +530,8 @@ pub mod re_imports {
     pub use citadel_wire::tls::{
         cert_vec_to_secure_client_config, create_rustls_client_config, load_native_certs_async,
     };
+    #[cfg(not(target_family = "wasm"))]
+    pub use citadel_wire::trust_store::{trust_store, LoadedRoots, RootSource};
 }
 
 pub mod prelude {
@@ -538,6 +542,7 @@ pub mod prelude {
     pub use citadel_crypt::ratchets::mono::MonoRatchet;
     pub use citadel_crypt::ratchets::stacked::StackedRatchet;
     pub use citadel_crypt::ratchets::Ratchet;
+    pub use citadel_crypt::revfs_seal::{RevfsKey, RevfsKeySource, RevfsKeys};
     pub use citadel_types::crypto::AlgorithmsExt;
     pub use citadel_types::crypto::SecBuffer;
     pub use citadel_user::account_manager::AccountManager;
@@ -560,7 +565,7 @@ pub mod prelude {
     // Unconditional exports available on all platforms
     pub use crate::proto::misc::server_endpoint_store::load as load_server_endpoint;
     pub use async_trait::async_trait;
-    pub use citadel_io::WebSocketEndpoint;
+    pub use citadel_io::{CertVerification, WebSocketEndpoint};
     pub use citadel_wire::hypernode_type::NodeType;
     pub use citadel_wire::quic_rebind::{RebindFailure, RebindReport, Rebound};
     pub use citadel_wire::stun_servers::{StunServers, StunServersError, MIN_STUN_SERVERS};
@@ -592,10 +597,18 @@ pub mod prelude {
 
     pub use crate::proto::misc::platform_ops::{DefaultTransport, PlatformOps, TransferMetadata};
 
+    /// The RobustConnectionManager's protocol side: the node's link mode and its clock.
+    pub use crate::proto::link;
+    pub use crate::proto::link::{
+        AbortGuard, LinkManagerMode, ManagedLinks, ManagedLinksError, RuntimeClock,
+    };
     pub use crate::proto::misc::panic_future::ExplicitPanicFuture;
     #[doc(hidden)]
     pub use crate::proto::misc::safe_split_stream;
-    pub use crate::proto::misc::session_security_settings::SessionSecuritySettingsBuilder;
+    pub use crate::proto::misc::session_security_settings::{
+        default_session_security_settings, SessionSecuritySettingsBuilder,
+        DEFAULT_SESSION_CRYPTO_PARAMS,
+    };
     pub use crate::proto::node::CitadelNode;
     pub use crate::proto::outbound_sender::OutboundUdpSender;
     pub use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -603,6 +616,10 @@ pub mod prelude {
     pub use crate::proto::peer::class_gates::ClassGates;
     pub use crate::proto::peer::group_channel::{
         GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
+    };
+    pub use crate::proto::peer::kex_auth::{
+        transcript_message, KexAuth, P2pKexIdentities, P2pKexIdentity, PeerKexIdentity,
+        KEX_TRANSCRIPT_DOMAIN,
     };
     pub use crate::proto::peer::kex_path::KexPath;
     /// The SDK adapters of the in-session negotiation layer (`citadel_negotiation`).
@@ -614,6 +631,7 @@ pub mod prelude {
     };
     pub use crate::proto::peer::p2p_path::{P2pPath, P2pPathCell, P2pPathStatus};
     pub use crate::proto::peer::p2p_rearm::PathControl;
+    pub use crate::proto::peer::peer_crypt::{IceCandidateData, WebRtcSignalingPayload};
     pub use crate::proto::peer::peer_layer::PeerResponse;
     pub use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal, PEER_MAILBOX_MAP};
     pub use crate::proto::remote::Ticket;
@@ -622,6 +640,8 @@ pub mod prelude {
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::proto::traffic::{ByteCount, NodeTrafficSnapshot, PathBytesSnapshot};
     pub use citadel_io::ServerMode;
+    pub use citadel_link::{Backoff, FlapPolicy, HealPolicy, LinkPolicy, PolicyError};
+    pub use citadel_link::{CloseReason, ShutdownReason};
     pub use citadel_types::crypto::SecrecyMode;
     pub use citadel_types::proto::ClientConnectionType;
     pub use citadel_types::proto::ConnectMode;
@@ -642,8 +662,10 @@ pub mod prelude {
     pub use crate::proto::remote::*;
 
     pub use crate::auth::AuthenticationRequest;
+    pub use crate::proto::misc::primary_frame::MAX_PRIMARY_FRAME_LEN;
     #[doc(hidden)]
     pub use crate::proto::misc::{read_one_packet_as_framed, write_one_packet};
+    pub use crate::proto::server_limits::{LegacyRegistration, ServerLimits};
     pub use crate::proto::session::ServerOnlySessionInitSettings;
     pub use crate::proto::session::TurnServerConfig;
     pub use citadel_crypt::scramble::streaming_crypt_scrambler::ObjectSource;

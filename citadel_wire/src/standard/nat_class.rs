@@ -1,35 +1,9 @@
 //! The shape of a [`NatType`] without any address in it, for reporting which NAT pairs a path
-//! connects (or fails to connect) without disclosing where either peer is.
+//! connects (or fails to connect) without disclosing where either peer is. The classes live in
+//! `citadel_types` (one definition for the wire, the protocol and the pure link core).
 
 use super::nat_identification::{IpTranslation, NatType, PortTranslation};
-use serde::{Deserialize, Serialize};
-
-/// How a NAT translates the IP address, as [`IpTranslation`] without its addresses.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum IpTranslationClass {
-    Identity,
-    Constant,
-    DeltaIndependentOffset,
-    Unpredictable,
-}
-
-/// How a NAT translates the port, as [`PortTranslation`] without its ports or deltas.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum PortTranslationClass {
-    Identity,
-    DeltaConstantOffset,
-    DeltaIndependentOffset,
-    Unpredictable,
-}
-
-/// The classification of a [`NatType`]: its translation models and whether IPv6 is enabled.
-/// An unidentified NAT (identification failed) classifies as unpredictable in both.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct NatClass {
-    pub ip_translation: IpTranslationClass,
-    pub port_translation: PortTranslationClass,
-    pub ipv6_enabled: bool,
-}
+pub use citadel_types::proto::{IpTranslationClass, NatClass, PortTranslationClass};
 
 impl NatType {
     /// This NAT's [`NatClass`].

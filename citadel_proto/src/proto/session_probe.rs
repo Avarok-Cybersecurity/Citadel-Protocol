@@ -6,9 +6,7 @@ use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::NodeResult;
 use crate::proto::packet_crafter;
 use crate::proto::remote::Ticket;
-use crate::proto::server_probe::{
-    server_answers_probes, ServerProbeOutcome, ServerProbeResult, PROBE,
-};
+use crate::proto::server_probe::{ServerProbeOutcome, ServerProbeResult, PROBE};
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::time::Duration;
@@ -46,13 +44,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let session_cid = self.session_cid.get().unwrap_or(0);
         if self.is_server || !self.state.is_connected() {
             return Err(error!(ErrorCode::ServerProbeNotConnected, session_cid));
-        }
-        let adjacent_version = inner_state!(self.state_container).adjacent_protocol_version;
-        if !server_answers_probes(adjacent_version) {
-            return Err(error!(
-                ErrorCode::ServerProbeUnsupported,
-                citadel_io::Dbg(adjacent_version)
-            ));
         }
         let to_primary_stream = self
             .to_primary_stream

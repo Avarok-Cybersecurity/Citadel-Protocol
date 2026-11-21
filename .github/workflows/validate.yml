@@ -2,9 +2,24 @@ name: Validate PR
 on:
   workflow_call:
 
+# Tier 0 gates everything: tiers 1 and 2 each need only the tier-0 jobs, so they start together
+# once tier 0 passes (owner, 2026-11-18), and a formatting slip or a wasm-only warning costs
+# minutes, not the hours the OS matrix and coverage take. A job skipped because an earlier tier failed shows as skipped and
+# the run as failed; `All checks` at the end fails unless every job it lists succeeded, so it is
+# the one name branch protection needs.
+#
+#   tier 0, lint and static gates (Linux, all parallel): fmt and the CI gates, native clippy,
+#     wasm32 clippy and the wasm graph gates, cargo deny + cargo audit, the lockfile age gate,
+#     docs, TypeScript types
+#   tier 1, core tests (Linux): the crates below citadel_proto, doc tests, the wasm32 tests and the
+#     ratchet stability loop
+#   tier 2, heavy: citadel_proto and citadel_sdk on every OS, the core crates on macOS and
+#     Windows, the release-semantics SDK run, coverage, io_uring, security keys, docker NAT
+#
+# A pull request's newer push cancels its older run; a run on any other event is never cancelled.
 concurrency:
-  group: ${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
+  group: validate-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,252 +29,390 @@ env:
   RUST_LOG: "citadel=info"
   IN_CI: "true"
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  stability-test:
-    name: Ratchet Stability Test
-    runs-on: macos-latest
-    timeout-minutes: 180
-    
+  # ---------------------------------------------------------------- tier 0: lint and static gates
+
+  fmt:
+    name: fmt and CI gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Setup dependencies
-        id: deps
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 2, wait 15s)
-        if: steps.deps.outcome == 'failure'
-        run: sleep 15
-      - name: Setup dependencies (retry 2)
-        if: steps.deps.outcome == 'failure'
-        id: deps-retry-2
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 3, wait 30s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        run: sleep 30
-      - name: Setup dependencies (retry 3)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        id: deps-retry-3
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 4, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 4)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        id: deps-retry-4
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 5, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 5)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        id: deps-retry-5
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-      - uses: taiki-e/install-action@nextest
-      - name: Run ratchet stability test
-        # Non-blocking: This test catches race conditions that are timing-dependent.
-        # On slow CI runners, it may fail due to increased contention.
-        # Results are logged for analysis but don't block the pipeline.
-        continue-on-error: true
-        run: cargo make ratchet-stability-test
-  core_libs:
-    strategy:
-      # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
-      # with no cross-leg dependency, and cancelling destroys which leg actually failed.
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 80
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: none
+          cache-on-failure: "false"
+          targets: ""
+          components: rustfmt
+          tools: ""
+      - run: cargo fmt --check
+      - name: Every CI cargo invocation uses the committed lockfile
+        run: python3 ci/cargo_locked_gate.py .
+      - name: Every build uses the toolchain rust-toolchain.toml pins
+        run: python3 ci/toolchain_pin_gate.py .
+      - name: Every workspace dependency is used by a member
+        run: python3 ci/workspace_deps_gate.py .
+      - name: The supply-chain gates' own tests
+        run: python3 -m unittest discover -s ci/tests -v
+
+  clippy:
+    name: clippy (native)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t0-clippy-linux
+          cache-on-failure: "false"
+          targets: ""
+          components: clippy
+          tools: ""
+      - run: cargo clippy --locked --features=webrtc,sql,redis,multi-threaded -- -D warnings
+      - run: cargo clippy --locked --features=webrtc,sql,redis,multi-threaded --release -- -D warnings
+      - run: cargo clippy --locked --features=webrtc,sql,redis -- -D warnings
+      - run: cargo clippy --locked --features=webrtc,sql,redis --release -- -D warnings
+      - run: cargo clippy --locked --tests --examples -- -D warnings
+      # Benches are built by no other job; check them in both threading modes so one that compiles
+      # only under multi-threaded cannot go unnoticed.
+      - run: cargo check --locked --workspace --benches --features=citadel_sdk/localhost-testing,citadel_sdk/multi-threaded
+      - run: cargo check --locked --workspace --benches --features=citadel_sdk/localhost-testing
+
+  wasm_lint:
+    name: wasm32 clippy and graph gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t0-wasm-lint
+          cache-on-failure: "false"
+          targets: wasm32-unknown-unknown
+          components: clippy
+          tools: ""
+      # Clippy is a superset of `cargo check`, so the wasm32 build checks this job once ran
+      # (citadel_pqcrypto without default features, citadel_sdk, citadel_media, the browser
+      # security-key backend) are the configurations the script lints.
+      - name: Clippy for wasm32, warnings denied, every browser feature set
+        run: ci/wasm-clippy.sh
+      - name: No classical signature crate in the wasm32 server graph
+        run: ci/no-classical-signatures.sh
+      - name: No WASI crate, fork or cfg; one crates.io tokio on wasm32
+        run: ci/no-wasi.sh
+
+  supply_chain:
+    name: cargo deny + cargo audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: none
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: deny,audit
+      # Both tools fetch the RustSec database before they judge; the cache only spares the clone.
+      - name: Date for the advisory database cache
+        id: day
+        run: echo "day=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      # cargo deny's checkouts (deny.toml db-path) and cargo audit's are separate directories.
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/advisory-dbs
+            ~/.cargo/advisory-db
+          key: advisory-dbs-${{ steps.day.outputs.day }}
+          restore-keys: advisory-dbs-
+      - run: cargo deny --locked check all
+      - name: cargo audit (exceptions from deny.toml)
+        run: ci/cargo-audit.sh
+
+  lockfile_age:
+    name: Lockfile age gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # A pull request is judged against its base; a run started by hand, against master.
+      BASE: ${{ github.event.pull_request.base.sha || 'master' }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch the base commit
+        run: git fetch --no-tags --depth=1 origin "$BASE"
+      # Publish dates never change; the cache spares crates.io a request per entry already seen.
+      - uses: actions/cache@v5
+        with:
+          path: ~/crates-io-published.json
+          key: crates-io-published-${{ github.run_id }}
+          restore-keys: crates-io-published-
+      - run: >-
+          python3 ci/lockfile_age_gate.py
+          --base-ref FETCH_HEAD
+          --allowlist ci/lockfile-age-allowlist.toml
+          --min-age-days 14
+          --cache ~/crates-io-published.json
+          --lockfile Cargo.lock
+          --lockfile fuzz/Cargo.lock
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t0-docs
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: make
+      - run: cargo make docs
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  typescript_types:
+    name: TypeScript Types
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        working-directory: citadel-protocol-types-ts
+        run: npm ci
+      - name: Build TypeScript
+        working-directory: citadel-protocol-types-ts
+        run: npm run build
+      - name: Run tests
+        working-directory: citadel-protocol-types-ts
+        run: npm test
+
+  # ------------------------------------------------------------------------ tier 1: core tests
+
+  core:
+    name: core crates (ubuntu-latest)
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
       - name: Setup MySQL
-        id: mysql
-        if: startsWith(matrix.os, 'ubuntu')
         uses: shogo82148/actions-setup-mysql@v1
         with:
           mysql-version: '8.0'
           root-password: 'password'
-        continue-on-error: true
-      - name: Retry MySQL (attempt 2, wait 15s)
-        if: startsWith(matrix.os, 'ubuntu') && steps.mysql.outcome == 'failure'
-        run: sleep 15
-      - name: Setup MySQL (retry 2)
-        id: mysql-retry-2
-        if: startsWith(matrix.os, 'ubuntu') && steps.mysql.outcome == 'failure'
-        uses: shogo82148/actions-setup-mysql@v1
-        with:
-          mysql-version: '8.0'
-          root-password: 'password'
-        continue-on-error: true
-      - name: Retry MySQL (attempt 3, wait 30s)
-        if: startsWith(matrix.os, 'ubuntu') && steps.mysql.outcome == 'failure' && steps.mysql-retry-2.outcome == 'failure'
-        run: sleep 30
-      - name: Setup MySQL (retry 3)
-        id: mysql-retry-3
-        if: startsWith(matrix.os, 'ubuntu') && steps.mysql.outcome == 'failure' && steps.mysql-retry-2.outcome == 'failure'
-        uses: shogo82148/actions-setup-mysql@v1
-        with:
-          mysql-version: '8.0'
-          root-password: 'password'
-      - name: Setup Postgres database (1)
-        if: startsWith(matrix.os, 'ubuntu')
-        uses: Daniel-Marynicz/postgresql-action@master
+      - name: Setup Postgres databases
+        uses: Daniel-Marynicz/postgresql-action@2.0.0
         with:
           postgres_image_tag: latest
           app_user: nologik
           app_user_password: password
           app_db: hyxewave hyxewave2
       - name: Add mysql databases
-        if: startsWith(matrix.os, 'ubuntu')
         run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2; set global max_connections = 1000;'
       - name: Augment connection size for psql
-        if: startsWith(matrix.os, 'ubuntu')
         run: psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
       - name: Add sqlite databases
-        if: startsWith(matrix.os, 'ubuntu')
         run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
       - name: Start Redis
-        if: startsWith(matrix.os, 'ubuntu')
         uses: supercharge/redis-github-action@1.8.1
         with:
           redis-version: 7
           redis-port: 6379
-      - name: Setup dependencies
-        id: deps
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 2, wait 15s)
-        if: steps.deps.outcome == 'failure'
-        run: sleep 15
-      - name: Setup dependencies (retry 2)
-        if: steps.deps.outcome == 'failure'
-        id: deps-retry-2
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 3, wait 30s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        run: sleep 30
-      - name: Setup dependencies (retry 3)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        id: deps-retry-3
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 4, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 4)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        id: deps-retry-4
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 5, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 5)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        id: deps-retry-5
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-      - uses: taiki-e/install-action@nextest
-      - name: Run crypto tests
-        run: cargo nextest run --package citadel_pqcrypto --package citadel_crypt
-      - name: Run holistic user library + SQL backend
-        if: startsWith(matrix.os, 'ubuntu')
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t1-core-linux
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: nextest
+      - name: Crypto tests
+        run: cargo nextest run --locked --package citadel_pqcrypto --package citadel_crypt
+      - name: Holistic user library + SQL backends
         env:
           TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
           TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
-        run: cargo nextest run --package citadel_user --features sql,redis
-      - name: Run minimal user library + SQL backend
-        if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
-        env:
-          SKIP_EXT_BACKENDS: "true"
-        run: cargo nextest run --package citadel_user --features localhost-testing
-      - run: cargo nextest run --features=localhost-testing,multi-threaded --package citadel_proto
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-      - run: cargo nextest run --features=localhost-testing,multi-threaded,vendored --package citadel_proto
-        if: ${{ startsWith(matrix.os, 'windows') }}
-      # Single-threaded builds spawn with spawn_local inside a LocalSet; this leg is the only
-      # place citadel_proto's own tests run that way.
-      - name: citadel_proto single-threaded
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --features=localhost-testing --package citadel_proto
-      - name: citadel_proto single-threaded (windows only)
-        if: ${{ startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --features=localhost-testing,vendored --package citadel_proto
+        run: cargo nextest run --locked --package citadel_user --features sql,redis
+      - name: The small crates below citadel_proto
+        run: cargo nextest run --locked -p citadel_types -p citadel_io -p citadel_logging -p citadel_treekem -p async_ip -p citadel_negotiation -p citadel_media
 
-  nat:
-    strategy:
-      # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
-      # with no cross-leg dependency, and cancelling destroys which leg actually failed.
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+  wire:
+    name: netbeam + citadel_wire (ubuntu-latest)
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
-      - name: Setup dependencies
-        id: deps
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 2, wait 15s)
-        if: steps.deps.outcome == 'failure'
-        run: sleep 15
-      - name: Setup dependencies (retry 2)
-        if: steps.deps.outcome == 'failure'
-        id: deps-retry-2
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 3, wait 30s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        run: sleep 30
-      - name: Setup dependencies (retry 3)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        id: deps-retry-3
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 4, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 4)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        id: deps-retry-4
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 5, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 5)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        id: deps-retry-5
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-      - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --package netbeam
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t1-wire-linux
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: nextest
+      - run: cargo nextest run --locked --package netbeam
       # --release: the UDP-traversal timing tests (esp. the high-lag consensus regression) are
       # calibrated against fixed timeouts; a debug build's slowness widens the lag/barrier
       # windows enough that shared-runner scheduler jitter tips a boundary-calibrated attempt
       # over its deadline. Release removes that confounder (mirrors the citadel_sdk_release job).
       - name: Run basic localhost NAT tests
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --release --package citadel_wire --features=localhost-testing
-      - name: Run basic localhost NAT tests (windows only)
-        if: startsWith(matrix.os, 'windows')
-        run: cargo nextest run --release --package citadel_wire --features=localhost-testing,vendored
+        run: cargo nextest run --locked --release --package citadel_wire --features=localhost-testing
       # The whole crate again, built as production builds it: localhost-testing short-circuits
       # NatType::identify and the loopback bind, so identification failing (or succeeding)
       # inside a hole punch, and every other cfg-gated path, is only exercised without it.
-      # Tests that need the localhost NAT model are compiled only with the feature.
       - name: Run citadel_wire without localhost-testing
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --release --package citadel_wire
-      - name: Run citadel_wire without localhost-testing (windows only)
-        if: startsWith(matrix.os, 'windows')
-        run: cargo nextest run --release --package citadel_wire --features=vendored
+        run: cargo nextest run --locked --release --package citadel_wire
+
+  doc_tests:
+    name: doc tests
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t1-doctests-linux
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: ""
+      - run: cargo test --locked --doc
+
+  wasm_tests:
+    name: WASM tests
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SDK_WASM_TESTS: wasm_basic_p2p wasm_crypto wasm_backend wasm_browser_connection_split
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t1-wasm-tests
+          cache-on-failure: "false"
+          targets: wasm32-unknown-unknown
+          components: ""
+          tools: wasm-pack
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Run WASM integration tests
+        working-directory: citadel_sdk
+        run: |
+          read -ra tests <<< "$SDK_WASM_TESTS"
+          args=(); for t in "${tests[@]}"; do args+=(--test "$t"); done
+          wasm-pack test --node --release -- --locked --no-default-features "${args[@]}"
+      # Cargo, not a path guess, names the artifacts: the build-dir layout moved test binaries
+      # out of deps/. The same flags as wasm-pack's cargo call keep this a no-op rebuild.
+      - name: The wasm32 test artifacts import only wasm-bindgen host functions
+        working-directory: citadel_sdk
+        run: |
+          read -ra tests <<< "$SDK_WASM_TESTS"
+          args=(); for t in "${tests[@]}"; do args+=(--test "$t"); done
+          cargo test --locked --target wasm32-unknown-unknown --release --no-default-features "${args[@]}" --no-run --message-format=json > "$RUNNER_TEMP/sdk-wasm-tests.json"
+          artifacts=$(python3 ../ci/wasm-test-executables.py "$RUNNER_TEMP/sdk-wasm-tests.json" "${tests[@]}")
+          mapfile -t paths <<< "$artifacts"
+          python3 ../ci/wasm-imports-are-bindgen-only.py "${paths[@]}"
+      - name: Run citadel_media WASM tests
+        working-directory: citadel_media
+        run: wasm-pack test --node --release -- --locked --test wasm_media
+
+  stability-test:
+    name: Ratchet Stability Test
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t1-stability-linux
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: nextest,make
+      # Blocking. It ran with continue-on-error, so a failure could never turn the run red; the
+      # last runs before this change all passed (0 failures in 10 iterations each).
+      - run: cargo make ratchet-stability-test
+
+  # ------------------------------------------------------------------------------ tier 2: heavy
+
+  core_os:
+    name: core crates (${{ matrix.os }})
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
+    strategy:
+      # One flaky leg must not cancel its siblings — each leg is an independent OS
+      # with no cross-leg dependency, and cancelling destroys which leg actually failed.
+      fail-fast: false
+      matrix:
+        os: [ macos-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      VENDORED: ${{ startsWith(matrix.os, 'windows') && ',vendored' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t2-core-${{ matrix.os }}
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: nextest
+      - name: Crypto tests
+        run: cargo nextest run --locked --package citadel_pqcrypto --package citadel_crypt
+      - name: Minimal user library
+        env:
+          SKIP_EXT_BACKENDS: "true"
+        run: cargo nextest run --locked --package citadel_user --features localhost-testing
+      - run: cargo nextest run --locked --package netbeam
+      - name: Run basic localhost NAT tests
+        run: cargo nextest run --locked --release --package citadel_wire --features="localhost-testing$VENDORED"
+      - name: Run citadel_wire without localhost-testing
+        run: cargo nextest run --locked --release --package citadel_wire --features="${VENDORED#,}"
+
+  citadel_proto:
+    name: citadel_proto (${{ matrix.os }})
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 80
+    env:
+      VENDORED: ${{ startsWith(matrix.os, 'windows') && ',vendored' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t2-proto-${{ matrix.os }}
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: nextest
+      - name: citadel_proto multi-threaded
+        run: cargo nextest run --locked --features="localhost-testing,multi-threaded$VENDORED" --package citadel_proto
+      # Single-threaded builds spawn with spawn_local inside a LocalSet; this leg is the only
+      # place citadel_proto's own tests run that way.
+      - name: citadel_proto single-threaded
+        run: cargo nextest run --locked --features="localhost-testing$VENDORED" --package citadel_proto
 
   citadel_sdk:
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     strategy:
-      # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
+      # One flaky leg must not cancel its siblings — each leg is an independent OS/thread model
       # with no cross-leg dependency, and cancelling destroys which leg actually failed.
       fail-fast: false
       # One job per (OS, thread model), as citadel_sdk_release does. Both nextest passes in one
@@ -274,173 +427,41 @@ jobs:
             features: localhost-testing
           - threading: multi-threaded
             features: multi-threaded,localhost-testing
+        # The coverage shards run this exact suite on macOS: citadel_sdk with its default
+        # features plus localhost-testing and multi-threaded, in a debug build, every test
+        # (partitioned three ways). A second macOS multi-threaded run repeated it, 37 minutes of
+        # the scarcest runner per pull request.
+        exclude:
+          - os: macos-latest
+            threading: multi-threaded
     name: citadel_sdk (${{ matrix.os }}, ${{ matrix.threading }})
     runs-on: ${{ matrix.os }}
-    # CI capacity budget, not a test timeout (the tests' own bounds are unchanged). Windows'
-    # budget was sized for two passes (each compiles ~25 min, run 36785646666); a job now runs
-    # one, and neither budget is changed.
+    # CI capacity budget, not a test timeout (the tests' own bounds are unchanged).
     timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 110 || 65 }}
+    env:
+      VENDORED: ${{ startsWith(matrix.os, 'windows') && ',vendored' || '' }}
     steps:
-      - name: Setup dependencies
-        id: deps
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 2, wait 15s)
-        if: steps.deps.outcome == 'failure'
-        run: sleep 15
-      - name: Setup dependencies (retry 2)
-        if: steps.deps.outcome == 'failure'
-        id: deps-retry-2
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 3, wait 30s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        run: sleep 30
-      - name: Setup dependencies (retry 3)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        id: deps-retry-3
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 4, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 4)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        id: deps-retry-4
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 5, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 5)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        id: deps-retry-5
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-      - uses: taiki-e/install-action@nextest
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t2-sdk-${{ matrix.os }}-${{ matrix.threading }}
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: nextest
       - name: Cache media test fixtures
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: target/media_fixtures
-          key: media-fixtures-b3726eac-be112703
+          key: media-fixtures-${{ hashFiles('citadel_sdk/tests/common/fixtures.rs') }}
+      # The suite reads the media fixtures from disk only (CITADEL_OFFLINE); this step fetches
+      # them, so a network failure fails here and never inside a media test (run 44263624976).
+      - name: Fetch media test fixtures
+        run: cargo nextest run --locked --package citadel_sdk --features="${{ matrix.features }}$VENDORED" --test it -E 'test(/^media_fixtures::/)' --run-ignored only
       - name: ${{ matrix.threading }} testing
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }}
-      - name: ${{ matrix.threading }} testing (windows only)
-        if: startsWith(matrix.os, 'windows')
-        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }},vendored
-
-  io_uring:
-    # Linux-only: validates the opt-in io_uring inbound-UDP backend. Compile-checks both thread models
-    # with the feature on, then runs the UDP-exercising stress tests. If the runner sandbox blocks
-    # io_uring_setup(2), the backend falls back to the standard tokio path, so these still pass — the
-    # job then asserts "no regression with the feature enabled" rather than io_uring-specific behavior.
-    name: io_uring UDP backend (Linux)
-    runs-on: ubuntu-latest
-    timeout-minutes: 65
-    steps:
-      - name: Setup dependencies
-        id: deps
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 2, wait 15s)
-        if: steps.deps.outcome == 'failure'
-        run: sleep 15
-      - name: Setup dependencies (retry 2)
-        if: steps.deps.outcome == 'failure'
-        id: deps-retry-2
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 3, wait 30s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        run: sleep 30
-      - name: Setup dependencies (retry 3)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        id: deps-retry-3
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 4, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 4)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        id: deps-retry-4
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 5, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 5)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        id: deps-retry-5
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-      - uses: taiki-e/install-action@nextest
-      - name: Build with io_uring (single-threaded)
-        run: cargo build --package citadel_sdk --features=localhost-testing,io-uring
-      - name: Build with io_uring (multi-threaded)
-        run: cargo build --package citadel_sdk --features=multi-threaded,localhost-testing,io-uring
-      - name: UDP stress tests with io_uring
-        run: cargo nextest run --package citadel_sdk --features=multi-threaded,localhost-testing,io-uring -E 'test(stress_test_c2s_messaging) | test(stress_test_p2p_messaging)'
-
-  security_key:
-    # The opt-in security-key backends, which no other job builds. The native one compiles on each
-    # OS, so its platform code (Windows elevation, Linux udev) is checked, and its tests run our key
-    # channel and cancellation logic; none needs a key. The browser one is checked in wasm_check.
-    name: Security key backend (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    steps:
-      - name: Setup dependencies
-        id: deps
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 2, wait 15s)
-        if: steps.deps.outcome == 'failure'
-        run: sleep 15
-      - name: Setup dependencies (retry 2)
-        if: steps.deps.outcome == 'failure'
-        id: deps-retry-2
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 3, wait 30s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        run: sleep 30
-      - name: Setup dependencies (retry 3)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        id: deps-retry-3
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 4, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 4)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        id: deps-retry-4
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 5, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 5)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        id: deps-retry-5
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-      - name: Install libudev
-        if: startsWith(matrix.os, 'ubuntu')
-        run: sudo apt-get update -y && sudo apt-get install -y libudev-dev
-      - uses: taiki-e/install-action@nextest
-      - name: Security key tests
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        run: cargo nextest run --package citadel_proto --features=security-key -E 'test(security_key)'
-      - name: Security key tests (windows only)
-        if: startsWith(matrix.os, 'windows')
-        run: cargo nextest run --package citadel_proto --features=security-key,vendored -E 'test(security_key)'
-      - name: Build the hardware test
-        if: startsWith(matrix.os, 'ubuntu')
-        run: cargo check --package citadel_sdk --features=localhost-testing,security-key --test pq_sign_in_security_key
+        env:
+          CITADEL_OFFLINE: "1"
+        run: cargo nextest run --locked --package citadel_sdk --features="${{ matrix.features }}$VENDORED"
 
   citadel_sdk_release:
     # One leg per nextest pass, in parallel. Both passes in one job (each compiling its own
@@ -449,6 +470,7 @@ jobs:
     # far green. Each leg now compiles and runs one feature set, about half the work, under
     # the same budget; the budget is not raised.
     name: citadel_sdk_release (${{ matrix.threading }})
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     strategy:
       fail-fast: false
       matrix:
@@ -470,230 +492,93 @@ jobs:
       CARGO_PROFILE_RELEASE_LTO: "off"
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
-      - name: Setup dependencies
-        id: deps
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 2, wait 15s)
-        if: steps.deps.outcome == 'failure'
-        run: sleep 15
-      - name: Setup dependencies (retry 2)
-        if: steps.deps.outcome == 'failure'
-        id: deps-retry-2
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 3, wait 30s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        run: sleep 30
-      - name: Setup dependencies (retry 3)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        id: deps-retry-3
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 4, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 4)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        id: deps-retry-4
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 5, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 5)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        id: deps-retry-5
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-      - uses: taiki-e/install-action@nextest
+      - uses: actions/checkout@v5
       # Each leg's own cache: the two feature sets build different artifacts, and one shared
       # key would have each leg evict the other's.
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-rust
         with:
-          key: citadel-sdk-release-${{ matrix.threading }}
-          cache-on-failure: true
-        continue-on-error: true  # Don't fail if cache service is unavailable
+          cache-key: t2-sdk-release-${{ matrix.threading }}
+          cache-on-failure: "true"
+          targets: ""
+          components: ""
+          tools: nextest
+      - name: Cache media test fixtures
+        uses: actions/cache@v5
+        with:
+          path: target/media_fixtures
+          key: media-fixtures-${{ hashFiles('citadel_sdk/tests/common/fixtures.rs') }}
+      # As in the citadel_sdk job: fetched here, read from disk by the suite.
+      - name: Fetch media test fixtures
+        run: cargo nextest run --locked --package citadel_sdk --features=${{ matrix.features }} --release --test it -E 'test(/^media_fixtures::/)' --run-ignored only
       - name: ${{ matrix.threading }} testing
-        run: cargo nextest run --package citadel_sdk --features=${{ matrix.features }} --release
+        env:
+          CITADEL_OFFLINE: "1"
+        run: cargo nextest run --locked --package citadel_sdk --features=${{ matrix.features }} --release
 
-  misc_checks:
-    name: miscellaneous
-    runs-on: macos-latest
-    steps:
-      - name: Setup dependencies
-        id: deps
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 2, wait 15s)
-        if: steps.deps.outcome == 'failure'
-        run: sleep 15
-      - name: Setup dependencies (retry 2)
-        if: steps.deps.outcome == 'failure'
-        id: deps-retry-2
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 3, wait 30s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        run: sleep 30
-      - name: Setup dependencies (retry 3)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure'
-        id: deps-retry-3
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 4, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 4)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure'
-        id: deps-retry-4
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
-      - name: Retry deps (attempt 5, wait 60s)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        run: sleep 60
-      - name: Setup dependencies (retry 5)
-        if: steps.deps.outcome == 'failure' && steps.deps-retry-2.outcome == 'failure' && steps.deps-retry-3.outcome == 'failure' && steps.deps-retry-4.outcome == 'failure'
-        id: deps-retry-5
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-      #      - name: Install Valgrind
-      #        run: |
-      #          sudo apt-get update -y
-      #          sudo apt-get install -y valgrind
-      #      # Compile tests
-      #      - name: cargo build secmem_bytes_test
-      #        run: cargo build --bin secmem_bytes_test
-      # Run with valgrind
-      #      - name: Run valgrind secmem_bytes
-      #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
-      #      - name: cargo build secmem_string_test
-      #        run: cargo build --bin secmem_string_test
-      # Run with valgrind
-      #      - name: Run valgrind secmem_string
-      #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
-      - run: cargo check --package citadel_sdk --release --features=webrtc,sql,redis,multi-threaded
-      - run: cargo install --locked cargo-deny && cargo deny check all
-      - run: rustup component add clippy-preview
-      - run: cargo clippy --features=webrtc,sql,redis,multi-threaded -- -D warnings
-      - run: cargo clippy --features=webrtc,sql,redis,multi-threaded --release -- -D warnings
-      - run: cargo clippy --features=webrtc,sql,redis -- -D warnings
-      - run: cargo clippy --features=webrtc,sql,redis --release -- -D warnings
-      - run: cargo clippy --tests --examples -- -D warnings
-      - run: cargo fmt --check
-      - run: RUSTDOCFLAGS="-D warnings" cargo make docs
-      - run: cargo test --doc
-      #      - name: cargo build pq_kems
-  #        run: cargo build --bin pq_kems_test
-  #      # Run with valgrind
-  #      - name: Run valgrind pq_kems
-  #        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
-
-  #  features_check:
-  #    name: check features
-  #    runs-on: ubuntu-latest
-  #    steps:
-  #      - uses: Avarok-Cybersecurity/gh-actions-deps@master
-  #      - name: Install features checker
-  #        run: cargo install cargo-all-features
-  #      - name: Check all feature combinations
-  #        run: cargo check-all-features --package citadel_sdk
-
-  wasm_check:
-    name: WASM Build Check
+  io_uring:
+    # Linux-only: validates the opt-in io_uring inbound-UDP backend. Compile-checks both thread models
+    # with the feature on, then runs the UDP-exercising stress tests. If the runner sandbox blocks
+    # io_uring_setup(2), the backend falls back to the standard tokio path, so these still pass — the
+    # job then asserts "no regression with the feature enabled" rather than io_uring-specific behavior.
+    name: io_uring UDP backend (Linux)
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: t2-io-uring-linux
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: nextest
+      - name: Build with io_uring (single-threaded)
+        run: cargo build --locked --package citadel_sdk --features=localhost-testing,io-uring
+      - name: Build with io_uring (multi-threaded)
+        run: cargo build --locked --package citadel_sdk --features=multi-threaded,localhost-testing,io-uring
+      - name: UDP stress tests with io_uring
+        run: cargo nextest run --locked --package citadel_sdk --features=multi-threaded,localhost-testing,io-uring -E 'test(stress_test_c2s_messaging) | test(stress_test_p2p_messaging)'
+
+  security_key:
+    # The opt-in security-key backends, which no other job builds. The native one compiles on each
+    # OS, so its platform code (Windows elevation, Linux udev) is checked, and its tests run our key
+    # channel and cancellation logic; none needs a key. The browser one is linted in wasm_lint.
+    name: Security key backend (${{ matrix.os }})
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     env:
-      SDK_WASM_TESTS: wasm_basic_p2p wasm_crypto wasm_backend wasm_browser_connection_split
+      VENDORED: ${{ startsWith(matrix.os, 'windows') && ',vendored' || '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v5
+      - name: Install libudev
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update -y && sudo apt-get install -y libudev-dev
+      - uses: ./.github/actions/setup-rust
         with:
-          targets: wasm32-unknown-unknown
-          components: clippy
-      # The crates below citadel_proto are clippy-clean on wasm32; citadel_proto, citadel_sdk
-      # and citadel_media still carry wasm-only warnings (unused native imports and the like),
-      # so they join this list once those are cleared.
-      - name: Clippy for wasm32
-        run: cargo clippy --target wasm32-unknown-unknown --no-deps -p citadel_io -p citadel_types -p citadel_logging -p citadel_pqcrypto -p citadel_crypt -p citadel_treekem -p citadel_user -p netbeam -p async_ip -p citadel_wire -- -D warnings
-      - name: Check citadel_pqcrypto for wasm32
-        run: cargo check --package citadel_pqcrypto --target wasm32-unknown-unknown --no-default-features
-      - name: Check citadel_sdk for wasm32
-        run: cargo check --package citadel_sdk --target wasm32-unknown-unknown
-      - name: No classical signature crate in the wasm32 server graph
-        run: ci/no-classical-signatures.sh
-      - name: No WASI crate, fork or cfg; one crates.io tokio on wasm32
-        run: ci/no-wasi.sh
-      - name: Check citadel_media for wasm32
-        run: cargo check --package citadel_media --target wasm32-unknown-unknown
-      - name: Check the browser security-key backend
-        run: cargo check --package citadel_sdk --target wasm32-unknown-unknown --no-default-features --features security-key --test wasm_security_key
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - name: Run WASM integration tests
-        working-directory: citadel_sdk
-        run: wasm-pack test --node --release -- --no-default-features $(printf -- '--test %s ' $SDK_WASM_TESTS)
-      # Cargo, not a path guess, names the artifacts: the build-dir layout moved test binaries
-      # out of deps/. The same flags as wasm-pack's cargo call keep this a no-op rebuild.
-      - name: The wasm32 test artifacts import only wasm-bindgen host functions
-        working-directory: citadel_sdk
-        run: |
-          cargo test --target wasm32-unknown-unknown --release --no-default-features $(printf -- '--test %s ' $SDK_WASM_TESTS) --no-run --message-format=json > "$RUNNER_TEMP/sdk-wasm-tests.json"
-          artifacts=$(python3 ../ci/wasm-test-executables.py "$RUNNER_TEMP/sdk-wasm-tests.json" $SDK_WASM_TESTS)
-          mapfile -t paths <<< "$artifacts"
-          python3 ../ci/wasm-imports-are-bindgen-only.py "${paths[@]}"
-      - name: Run citadel_media WASM tests
-        working-directory: citadel_media
-        run: wasm-pack test --node --release -- --test wasm_media
-
-  typescript_types:
-    name: TypeScript Types
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        working-directory: citadel-protocol-types-ts
-        run: npm ci
-
-      - name: Build TypeScript
-        working-directory: citadel-protocol-types-ts
-        run: npm run build
-
-      - name: Run tests
-        working-directory: citadel-protocol-types-ts
-        run: npm test
+          cache-key: t2-security-key-${{ matrix.os }}
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: nextest
+      - name: Security key tests
+        run: cargo nextest run --locked --package citadel_proto --features="security-key$VENDORED" -E 'test(security_key)'
+      - name: Build the hardware test
+        if: startsWith(matrix.os, 'ubuntu')
+        run: cargo check --locked --package citadel_sdk --features=localhost-testing,security-key --test it
 
   coverage:
-    runs-on: macos-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        run: rustup toolchain install stable --component llvm-tools-preview
-      - uses: taiki-e/install-action@nextest
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-        continue-on-error: true  # Don't fail if cache service is unavailable
-      - name: Run llvm-cov nextest
-        env:
-          SKIP_EXT_BACKENDS: "true"
-        run: cargo llvm-cov nextest --features=filesystem,localhost-testing,multi-threaded -p citadel_sdk -p citadel_user -p citadel_crypt -p citadel_pqcrypto -p citadel_wire -p netbeam -p async_ip -p citadel_treekem -p citadel_types -p citadel_io --lcov --output-path ${GITHUB_WORKSPACE}/lcov.info --ignore-filename-regex="firebase-rtdb/src/lib.rs|netbeam/src/sync/operations/net_join.rs|netbeam/src/sync/operations/net_select.rs|citadel_sdk/src/test_common.rs|citadel_wire/src/standard/upnp_handler.rs"
-      - uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ${{ env.GITHUB_WORKSPACE }}/lcov.info
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
+    uses: ./.github/workflows/coverage.yml
+    secrets: inherit
+
   docker_nat_client_server:
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     runs-on: ubuntu-latest
     strategy:
       # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
@@ -709,11 +594,13 @@ jobs:
     env:
       NAT_TYPE_CLIENT_A: ${{ matrix.nat_type_client_a }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Maximize build space
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1.3.1
       - run: docker compose -f ./docker/client_server.yml up --abort-on-container-exit --exit-code-from client_a
+
   docker_nat_p2p:
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     runs-on: ubuntu-latest
     strategy:
       # One flaky leg must not cancel its siblings — each leg is an independent OS/NAT-pair
@@ -730,22 +617,72 @@ jobs:
           - "address_restricted"
           - "port_restricted"
           - "symmetric"
+        # Two symmetric NATs cannot be traversed without a relay, and the leg's only step was
+        # skipped for this pair: it checked out, freed disk and reported green, testing nothing.
+        exclude:
+          - nat_type_peer_a: "symmetric"
+            nat_type_peer_b: "symmetric"
     timeout-minutes: 60
     env:
       NAT_TYPE_PEER_A: ${{ matrix.nat_type_peer_a }}
       NAT_TYPE_PEER_B: ${{ matrix.nat_type_peer_b }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Maximize build space
-        uses: jlumbroso/free-disk-space@main
-      - if: ${{ ! (matrix.nat_type_peer_a == 'symmetric' && matrix.nat_type_peer_b == 'symmetric') }}
-        run: docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
-        shell: bash
+        uses: jlumbroso/free-disk-space@v1.3.1
+      - run: docker compose -f ./docker/peer_to_peer.yml up --abort-on-container-exit --exit-code-from peer_a
+
   docker_wasm_p2p:
+    needs: [fmt, clippy, wasm_lint, supply_chain, lockfile_age, docs, typescript_types]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Maximize build space
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1.3.1
       - run: docker compose -f ./docker/wasm_p2p.yml up --build --abort-on-container-exit --exit-code-from wasm_tests
+
+  # ------------------------------------------------------------------------------------ result
+
+  all_checks:
+    name: All checks
+    if: always()
+    needs:
+      - fmt
+      - clippy
+      - wasm_lint
+      - supply_chain
+      - lockfile_age
+      - docs
+      - typescript_types
+      - core
+      - wire
+      - doc_tests
+      - wasm_tests
+      - stability-test
+      - core_os
+      - citadel_proto
+      - citadel_sdk
+      - citadel_sdk_release
+      - io_uring
+      - security_key
+      - coverage
+      - docker_nat_client_server
+      - docker_nat_p2p
+      - docker_wasm_p2p
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # A job skipped because an earlier tier failed reads as passing to branch protection; this
+      # job does not: anything but success in any job above fails it.
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = {job: v["result"] for job, v in json.loads(os.environ["RESULTS"]).items()}
+          for job, result in sorted(results.items()):
+              print(f"{result:>10}  {job}")
+          bad = [job for job, result in results.items() if result != "success"]
+          sys.exit(f"not every job succeeded: {', '.join(sorted(bad))}" if bad else 0)
+          PY

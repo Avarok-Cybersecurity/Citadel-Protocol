@@ -1,33 +1,20 @@
 //! Why a P2P connection was closed on purpose.
 //!
 //! A deliberate drop and a lost link used to reach the peer identically, so the peer could only
-//! redial. The reason travels two ways, because one of them does not survive every server:
+//! redial. The reason travels two ways:
 //!
-//! - in `PeerSignal::Disconnect.reason`, appended last. The server does not relay a peer's
-//!   `Disconnect` as bytes: it decodes it and builds the signals it sends from the fields it
-//!   knows. A server at [`NEGOTIATION_SINCE`](crate::constants::NEGOTIATION_SINCE) copies the
-//!   reason across; an older one reads the signal without it and sends it on without it.
+//! - in `PeerSignal::Disconnect.reason`. The server does not relay a peer's `Disconnect` as
+//!   bytes: it decodes it, builds the signals it sends from its fields, and copies the reason
+//!   across.
 //! - on the connection's own negotiation lane, end to end, before the `Disconnect` is sent: the
 //!   peer's SDK records it against the connection ([`PeerClosing`]) and acknowledges it, and
 //!   only then does the closing side disconnect. Whatever the server rebuilt, the peer reports
 //!   the `Disconnect` that follows with the reason it recorded.
 
 use citadel_io::Mutex;
-use citadel_negotiation::{RenegotiationReason, SettingId};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// Why a connection was closed on purpose. `None` in `PeerSignal::Disconnect.reason` means a
-/// lost link, an application that gave no reason, or a peer or server that predates the field.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum DisconnectReason {
-    /// A setting could not be changed on the live connection: the closing side redials at the
-    /// agreed value. The peer should wait to be dialled rather than redial itself.
-    Renegotiation {
-        setting: SettingId,
-        reason: RenegotiationReason,
-    },
-}
+pub use citadel_link::DisconnectReason;
 
 /// The reason the peer gave, over the lane, for closing one connection. Written by the lane's
 /// receive task and read by every path that reports that connection's end.
@@ -65,6 +52,7 @@ pub(crate) fn reported_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use citadel_negotiation::{RenegotiationReason, SettingId};
 
     const RENEGOTIATION: DisconnectReason = DisconnectReason::Renegotiation {
         setting: SettingId::KEY_PROFILE,

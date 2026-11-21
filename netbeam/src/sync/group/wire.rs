@@ -112,7 +112,7 @@ mod tests {
             },
         };
         let bytes = bincode::serialize(&pkt).unwrap();
-        let back = bincode::deserialize::<GroupPacket>(&bytes).unwrap();
+        let back = citadel_io::decode::deserialize::<GroupPacket>(&bytes).unwrap();
         assert_eq!(back.lock_id, pkt.lock_id);
         assert!(matches!(back.msg, GroupMsg::Prepare { ballot } if ballot.counter == 5));
     }

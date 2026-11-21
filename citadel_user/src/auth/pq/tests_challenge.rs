@@ -11,7 +11,6 @@ use super::tests::{register, settings};
 use crate::serialization::SyncIO;
 use async_trait::async_trait;
 use citadel_io::{tokio, ErrorCode};
-use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -21,19 +20,12 @@ fn challenge() -> AdmissionChallenge {
 
 #[test]
 fn a_required_refusal_carries_its_challenge_and_its_plain_message() {
-    let with = refusal_error(AdmissionRefusal::Required(Some(challenge())), false);
-    let without = refusal_error(AdmissionRefusal::Required(None), false);
+    let with = refusal_error(AdmissionRefusal::Required(Some(challenge())));
+    let without = refusal_error(AdmissionRefusal::Required(None));
     assert_eq!(with.code, ErrorCode::PqSignInAdmissionRequired);
     assert_eq!(challenge_of(&with), Some(&challenge()));
     assert_eq!(challenge_of(&without), None, "an absent challenge appeared");
     assert_eq!(with.to_string(), without.to_string(), "the message changed");
-}
-
-#[test]
-fn a_legacy_client_is_never_given_a_challenge_it_cannot_show() {
-    let refused = refusal_error(AdmissionRefusal::Required(Some(challenge())), true);
-    assert_eq!(refused.code, ErrorCode::PqSignInAdmissionNeedsUpdate);
-    assert_eq!(challenge_of(&refused), None);
 }
 
 #[test]
@@ -44,45 +36,22 @@ fn a_failure_keeps_the_challenge_only_on_the_refusal_that_asks_for_one() {
     let absent = refusal_from_message(required, None).unwrap();
     assert_eq!(challenge_of(&absent), None);
 
-    let failed = refusal_error(AdmissionRefusal::Failed("expired".into()), false).into_string();
+    let failed = refusal_error(AdmissionRefusal::Failed("expired".into())).into_string();
     let dropped = refusal_from_message(&failed, Some(challenge())).unwrap();
     assert_eq!(dropped.code, ErrorCode::PqSignInAdmissionFailed);
     assert_eq!(challenge_of(&dropped), None);
     assert!(refusal_from_message("Authentication failed", Some(challenge())).is_none());
 }
 
-/// The 0.14.0 shape of `RegStart`, as an older client sends it and an older server reads it.
-#[derive(Serialize, Deserialize)]
-struct RegStartOf0140 {
-    username: String,
-    oprf_blinded: Vec<u8>,
-    admission: Option<super::admission::AdmissionToken>,
-}
-
 #[test]
-fn reg_start_reads_in_both_directions() {
-    let old = RegStartOf0140 {
+fn reg_start_round_trips() {
+    let start = RegStart {
         username: "bob".into(),
         oprf_blinded: vec![1, 2],
         admission: None,
     };
-    let read = RegStart::deserialize_from_vector(&old.serialize_to_vector().unwrap()).unwrap();
-    assert!(
-        !read.reads_challenge,
-        "an older client was taken to read challenges"
-    );
-    let new = RegStart {
-        reads_challenge: true,
-        ..read
-    };
-    let bytes = new.serialize_to_vector().unwrap();
-    assert_eq!(RegStart::deserialize_from_vector(&bytes).unwrap(), new);
-    assert_eq!(
-        RegStartOf0140::deserialize_from_vector(&bytes)
-            .unwrap()
-            .username,
-        "bob"
-    );
+    let bytes = start.serialize_to_vector().unwrap();
+    assert_eq!(RegStart::deserialize_from_vector(&bytes).unwrap(), start);
 }
 
 struct Challenges(AtomicBool);
@@ -101,7 +70,7 @@ impl AdmissionPolicy for Challenges {
 
 #[tokio::test]
 async fn a_challenging_policy_is_still_asked_before_the_oprf() {
-    let (record, _) = register("pw").await;
+    let record = register("pw").await;
     let asked = Arc::new(Challenges(AtomicBool::new(false)));
     let policy: Arc<dyn AdmissionPolicy> = asked.clone();
     let reached = AtomicBool::new(false);
@@ -119,7 +88,7 @@ async fn a_challenging_policy_is_still_asked_before_the_oprf() {
         token: None,
         remote_addr: None,
     };
-    let built = admission::then(Some(&policy), Some(ctx), false, || {
+    let built = admission::then(Some(&policy), Some(ctx), || {
         reached.store(true, Ordering::SeqCst);
         build_login_challenge(&settings(), AccountAuth::PostQuantum(&record), &start)
     })

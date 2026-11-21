@@ -3,8 +3,8 @@
 //!
 //! With a plan the server stamped into the key exchange (see `kex_path`), both peers build their
 //! steps from it: each planned path before the server relay, with that path's own attempt
-//! timeout. Without one (an older peer or server), each peer plans alone with [`plan_p2p`],
-//! exactly as before path policies: its own TURN config and the NAT verdict, 30 s per stage.
+//! timeout. Without one (the server has no path policy), each peer plans alone with
+//! [`plan_p2p`]: its own TURN config and the NAT verdict, 30 s per stage.
 //! Pure: no I/O, no clock.
 
 use std::time::Duration;
@@ -16,8 +16,8 @@ use super::p2p_outcome::{PathPlanKind, PathStage};
 
 /// The attempt timeout of each stage of a plan made without a stamped plan: the hole punch with
 /// its QUIC handshake, and one relay attempt (allocation, signalling, probing and the handshake).
-pub(crate) const LEGACY_DIRECT_TIMEOUT: Duration = Duration::from_secs(30);
-pub(crate) const LEGACY_TURN_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const LEGACY_DIRECT_TIMEOUT: Duration = citadel_types::proto::timing::P2P_STAGE_TIMEOUT;
+pub(crate) const LEGACY_TURN_TIMEOUT: Duration = citadel_types::proto::timing::P2P_STAGE_TIMEOUT;
 
 /// One path to try.
 #[derive(Clone, Debug)]
@@ -25,7 +25,16 @@ pub(crate) enum PlanStep {
     /// Hole punch, then QUIC over the punched socket.
     Direct,
     /// QUIC through a TURN relay.
-    Turn(TurnRelayConfig),
+    Turn(
+        #[cfg_attr(
+            target_family = "wasm",
+            expect(
+                dead_code,
+                reason = "the browser's ICE agent owns relaying, so only native builds read the TURN plan"
+            )
+        )]
+        TurnRelayConfig,
+    ),
 }
 
 impl PlanStep {
@@ -41,6 +50,13 @@ impl PlanStep {
 #[derive(Clone, Debug)]
 pub(crate) struct TimedStep {
     pub(crate) step: PlanStep,
+    #[cfg_attr(
+        target_family = "wasm",
+        expect(
+            dead_code,
+            reason = "the browser's ICE agent owns relaying, so only native builds read the TURN plan"
+        )
+    )]
     pub(crate) timeout: Duration,
 }
 

@@ -47,7 +47,13 @@ mod tests {
     const PEER_CID: u64 = 20;
 
     fn exchange_state<R: Ratchet>() -> PeerKemStateContainer<R> {
-        PeerKemStateContainer::new(Default::default(), false, Default::default())
+        PeerKemStateContainer::new(
+            crate::prelude::SessionSecuritySettingsBuilder::default()
+                .build()
+                .unwrap(),
+            false,
+            Default::default(),
+        )
     }
 
     #[tokio::test]

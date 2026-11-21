@@ -26,10 +26,10 @@
 //!         .with_udp_mode(UdpMode::Enabled)
 //!         .add()
 //!         .with_peer_custom("bob")
-//!         .with_session_security_settings(Default::default())
+//!         .with_session_security_settings(default_session_security_settings())
 //!         .add();
 //!
-//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021")
+//!     let settings = DefaultServerConnectionSettingsBuilder::transient("127.0.0.1:25021", CertVerification::Required)
 //!         .build()?;
 //!
 //!     let kernel = PeerConnectionKernel::new(
@@ -296,7 +296,9 @@ impl AddedPeer {
     pub fn add(mut self) -> PeerConnectionSetupAggregator {
         let new = PeerConnectionSettings {
             id: self.id,
-            session_security_settings: self.session_security_settings.unwrap_or_default(),
+            session_security_settings: self
+                .session_security_settings
+                .unwrap_or_else(default_session_security_settings),
             udp_mode: self.udp_mode.unwrap_or_default(),
             ensure_registered: self.ensure_registered,
             peer_session_password: self.peer_session_password,
@@ -378,7 +380,7 @@ impl PeerConnectionSetupAggregator {
     ///     .add()
     ///     .with_peer_custom("alice")
     ///     .with_udp_mode(UdpMode::Disabled)
-    ///     .with_session_security_settings(Default::default())
+    ///     .with_session_security_settings(default_session_security_settings())
     ///     .add();
     /// ```
     pub fn with_peer_custom<T: Into<UserIdentifier>>(self, peer: T) -> AddedPeer {
@@ -704,7 +706,9 @@ mod tests {
                     .with_peer_custom(peer)
                     .ensure_registered()
                     .with_udp_mode(udp_mode)
-                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .with_session_security_settings(
+                        SessionSecuritySettingsBuilder::default().build().unwrap(),
+                    )
                     .add();
             }
 
@@ -714,6 +718,7 @@ mod tests {
                     username,
                     full_name,
                     password.as_str(),
+                    CertVerification::SelfSignedAccepted,
                 )
                 .build()
                 .unwrap();
@@ -774,8 +779,10 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default()
+            let client = crate::test_common::node_builder()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -826,10 +833,10 @@ mod tests {
             let mut agg = PeerConnectionSetupAggregator::default();
 
             for peer in peers {
-                let security_settings = SessionSecuritySettings {
-                    header_obfuscator_settings,
-                    ..Default::default()
-                };
+                let security_settings = SessionSecuritySettingsBuilder::default()
+                    .with_header_obfuscator_settings(header_obfuscator_settings)
+                    .build()
+                    .unwrap();
                 agg = agg
                     .with_peer_custom(peer)
                     .with_udp_mode(udp_mode)
@@ -839,9 +846,13 @@ mod tests {
             }
 
             let server_connection_settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .build()
-                    .unwrap();
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    uuid,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
@@ -884,8 +895,10 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default()
+            let client = crate::test_common::node_builder()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)?;
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
@@ -952,14 +965,20 @@ mod tests {
                     .with_peer_custom(peer)
                     .ensure_registered()
                     .with_udp_mode(udp_mode)
-                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .with_session_security_settings(
+                        SessionSecuritySettingsBuilder::default().build().unwrap(),
+                    )
                     .add();
             }
 
             let server_connection_settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .build()
-                    .unwrap();
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    uuid,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
@@ -1087,8 +1106,10 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default()
+            let client = crate::test_common::node_builder()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap();
             client_kernels.push(async move { client.await.map(|_| ()) });
@@ -1144,14 +1165,20 @@ mod tests {
                     .with_peer_custom(peer)
                     .ensure_registered()
                     .with_udp_mode(udp_mode)
-                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .with_session_security_settings(
+                        SessionSecuritySettingsBuilder::default().build().unwrap(),
+                    )
                     .add();
             }
 
             let server_connection_settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .build()
-                    .unwrap();
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    uuid,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
@@ -1189,8 +1216,10 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default()
+            let client = crate::test_common::node_builder()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)?;
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
@@ -1244,14 +1273,20 @@ mod tests {
                     .with_peer_custom(peer)
                     .ensure_registered()
                     .with_udp_mode(udp_mode)
-                    .with_session_security_settings(SessionSecuritySettings::default())
+                    .with_session_security_settings(
+                        SessionSecuritySettingsBuilder::default().build().unwrap(),
+                    )
                     .add();
             }
 
             let server_connection_settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .build()
-                    .unwrap();
+                DefaultServerConnectionSettingsBuilder::transient_with_id(
+                    server_addr,
+                    uuid,
+                    CertVerification::SelfSignedAccepted,
+                )
+                .build()
+                .unwrap();
 
             let client_kernel = PeerConnectionKernel::new(
                 server_connection_settings,
@@ -1284,8 +1319,10 @@ mod tests {
                 },
             );
 
-            let client = DefaultNodeBuilder::default()
+            let client = crate::test_common::node_builder()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(crate::test_common::localhost_max_security_level())
                 .build(client_kernel)?;
             client_kernels.push(async move { client.await.map(|_| ()) });
         }
@@ -1310,7 +1347,7 @@ mod tests {
     async fn test_p2p_wrong_session_password(
         #[case] secrecy_mode: SecrecyMode,
         #[case] p2p_password: Option<&'static str>,
-        #[values(KemAlgorithm::MlKem)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::MlKem768Fips203)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log_no_panic_hook();
@@ -1350,18 +1387,26 @@ mod tests {
         let peer1_connection = peer1_agg.add();
 
         let server_connection_settings0 =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+            DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuid0,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Enabled)
+            .with_session_security_settings(session_security)
+            .build()
+            .unwrap();
 
         let server_connection_settings1 =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
-                .with_udp_mode(UdpMode::Enabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+            DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuid1,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Enabled)
+            .with_session_security_settings(session_security)
+            .build()
+            .unwrap();
 
         let client_kernel0 = PeerConnectionKernel::new(
             server_connection_settings0,
@@ -1393,12 +1438,16 @@ mod tests {
             },
         );
 
-        let client0 = DefaultNodeBuilder::default()
+        let client0 = crate::test_common::node_builder()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel0)
             .unwrap();
-        let client1 = DefaultNodeBuilder::default()
+        let client1 = crate::test_common::node_builder()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
             .build(client_kernel1)
             .unwrap();
         let clients = futures::future::try_join(client0, client1);
@@ -1410,7 +1459,7 @@ mod tests {
             }
         };
 
-        tokio::time::timeout(Duration::from_secs(120), task)
+        citadel_io::time::runnable_timeout(Duration::from_secs(120), task)
             .await
             .unwrap()
             .unwrap();

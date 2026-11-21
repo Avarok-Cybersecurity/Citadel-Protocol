@@ -95,6 +95,8 @@ pub struct PeerChannel<R: Ratchet> {
     lane: Option<Arc<LaneShared<R>>>,
     /// The connection's key-epoch surface; `Some` on a P2P channel.
     key_epoch: Option<KeyEpochHandle<R>>,
+    /// What the key exchange proved about the peer's identity; `Some` on a P2P channel.
+    kex_identity: Option<crate::proto::peer::kex_auth::PeerKexIdentity>,
 }
 
 /// Every UDP channel a P2P path recovery restores, in order (see `PeerChannel::upgrade`).
@@ -127,7 +129,6 @@ impl<R: Ratchet> PeerChannel<R> {
             vconn_type,
             security_settings.security_level,
             disconnect_token,
-            peer_protocol_version,
             closing,
             &to_outbound_stream,
             from_inbound_stream,
@@ -163,7 +164,17 @@ impl<R: Ratchet> PeerChannel<R> {
             security_settings,
             lane,
             key_epoch,
+            kex_identity: None,
         }
+    }
+
+    /// Records what the P2P key exchange proved about the peer.
+    pub(crate) fn with_kex_identity(
+        mut self,
+        identity: crate::proto::peer::kex_auth::PeerKexIdentity,
+    ) -> Self {
+        self.kex_identity = Some(identity);
+        self
     }
 
     /// On a P2P channel, starts the lane's driver over the reliable stream and receives the
@@ -174,7 +185,6 @@ impl<R: Ratchet> PeerChannel<R> {
         vconn_type: VirtualConnectionType,
         security_level: SecurityLevel,
         disconnect_token: Option<DisconnectToken>,
-        peer_protocol_version: Option<u32>,
         closing: PeerClosing,
         tx: &SharedMessengerTx<R>,
         inbound: ProtocolMessengerRx<R>,
@@ -186,19 +196,9 @@ impl<R: Ratchet> PeerChannel<R> {
                 return (ReceiverType::OrderedReliable { rx }, None);
             }
         };
-        let capable = crate::constants::protocol_version_at_least(
-            peer_protocol_version,
-            crate::constants::NEGOTIATION_SINCE,
-        );
-        let legacy_peer = (!capable).then(|| citadel_negotiation::Hello {
-            protocol: peer_protocol_version.unwrap_or(0),
-            settings: Vec::new(),
-        });
         let (outbound_tx, outbound_rx) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         let shared = Arc::new(LaneShared::new(
             citadel_negotiation::ConnectionId(token.connection_id.0),
-            capable,
-            legacy_peer,
             outbound_tx,
             closing,
             node_remote.clone(),
@@ -218,9 +218,7 @@ impl<R: Ratchet> PeerChannel<R> {
 
     /// Opens this connection's negotiation lane and sends `local` as this side's Hello: the
     /// settings it negotiates in band. Once per channel, before [`Self::split`]; a channel split
-    /// without it sends an empty Hello. Toward a peer below
-    /// [`NEGOTIATION_SINCE`](crate::constants::NEGOTIATION_SINCE) nothing is sent and the peer's
-    /// Hello reads as empty. Refused on a client-server channel.
+    /// without it sends an empty Hello. Refused on a client-server channel.
     pub fn open_negotiation(
         &mut self,
         local: citadel_negotiation::Hello,
@@ -263,7 +261,7 @@ impl<R: Ratchet> PeerChannel<R> {
 
     /// A handle that can [`upgrade`](PathControl::upgrade) after [`Self::split`].
     pub fn path_control(&self) -> PathControl {
-        PathControl::new(self.path.clone(), self.peer_protocol_version)
+        PathControl::new(self.path.clone())
     }
 
     /// The UDP channels later recoveries restore (see [`PathControl::upgrade`]), each replacing
@@ -273,10 +271,16 @@ impl<R: Ratchet> PeerChannel<R> {
     }
 
     /// The other end's `PROTOCOL_VERSION`: from the connect packet on a client-server channel,
-    /// and from the peer's key-exchange signal on a P2P channel. `None` when the peer (or a
-    /// server relaying for it) predates carrying it.
+    /// and from the peer's key-exchange signal on a P2P channel. `None` when no version was read
+    /// for this channel.
     pub fn peer_protocol_version(&self) -> Option<u32> {
         self.peer_protocol_version
+    }
+
+    /// What the key exchange proved about the peer: signed by the identity key pinned for it, or
+    /// unsigned (an account with no identity key). `None` on a client-server channel.
+    pub fn peer_kex_identity(&self) -> Option<&crate::proto::peer::kex_auth::PeerKexIdentity> {
+        self.kex_identity.as_ref()
     }
 
     /// The path this connection's traffic currently takes (direct, TURN relay, or the Citadel
@@ -593,18 +597,14 @@ impl<R: Ratchet> Drop for PeerChannelRecvHalf<R> {
             let command = match &self.receiver {
                 ReceiverType::OrderedReliable { .. } | ReceiverType::Lane { .. } => {
                     self.is_alive.store(false, Ordering::SeqCst);
-                    NodeRequest::PeerCommand(PeerCommand {
-                        session_cid: local_cid,
-                        command: PeerSignal::Disconnect {
-                            peer_conn_type: PeerConnectionType::LocalGroupPeer {
-                                session_cid: local_cid,
-                                peer_cid,
-                            },
-                            disconnect_response: None,
-                            disconnect_token: self.disconnect_token,
-                            reason: None,
+                    crate::proto::peer::disconnect_request::p2p_disconnect_request(
+                        PeerConnectionType::LocalGroupPeer {
+                            session_cid: local_cid,
+                            peer_cid,
                         },
-                    })
+                        self.disconnect_token,
+                        None,
+                    )
                 }
 
                 ReceiverType::UnorderedUnreliable { current, .. } => {

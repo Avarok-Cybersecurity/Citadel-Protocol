@@ -52,7 +52,7 @@ fn pair(level: SecurityLevel, bob_admits: bool) -> Pair {
     let (alice_container, bob_container) = setup_endpoint_containers::<StackedRatchet>(
         level,
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
     );
     let (tx_alice, rx_bob) = futures::channel::mpsc::unbounded();
     let (tx_bob, mut from_bob) = futures::channel::mpsc::unbounded::<RatchetMessage<()>>();
@@ -98,7 +98,7 @@ fn tag(epoch: u32, level: SecurityLevel) -> KeyEpochTag {
         epoch: Epoch(epoch),
         profile: KeyProfile::new(
             level,
-            EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem,
+            EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem768Fips203,
         ),
     }
 }
@@ -195,7 +195,7 @@ async fn a_manager_without_a_gate_refuses_every_steered_round() {
     let (alice_container, bob_container) = setup_endpoint_containers::<StackedRatchet>(
         SecurityLevel::Standard,
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
     );
     let (tx_alice, rx_bob) = futures::channel::mpsc::unbounded();
     let (tx_bob, rx_alice) = futures::channel::mpsc::unbounded();

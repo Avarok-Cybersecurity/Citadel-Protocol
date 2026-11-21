@@ -206,7 +206,7 @@ impl<R: Ratchet> NodeRemote<R> {
     }
 
     /// Returns an error if the ticket is already registered for a stream-callback
-    pub(crate) async fn send_callback_subscription_custom_ticket(
+    pub async fn send_callback_subscription_custom_ticket(
         &self,
         request: NodeRequest,
         ticket: Ticket,

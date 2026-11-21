@@ -1,18 +1,43 @@
 //! Post-quantum sign-in: the types an application, agent or UI handles.
 //!
 //! Every sign-in factor is an ML-KEM-1024 keypair the client derives from a seed (a password run
-//! through an OPRF and Argon2id, a security key's WebAuthn PRF output, or a recovery code). The
+//! through an OPRF and Argon2id, a security key's WebAuthn PRF output, or the recovery phrase). The
 //! server keeps only the encapsulation keys and proves each factor by encapsulating to it. The wire
 //! messages that carry those proofs live in `citadel_user::auth::pq`; the types here are the ones
 //! that cross into application code, so they are also exported to TypeScript.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(feature = "typescript")]
 use ts_rs::TS;
+
+#[cfg(test)]
+mod tests;
 
 /// The server's identifier for one enrolled factor of an account. Unique within the account and
 /// never reused, so a removed factor's id cannot come to mean a different factor.
 pub type FactorId = u32;
+
+/// Why a retired recovery-code variant is refused when read.
+pub const RECOVERY_CODES_RETIRED: &str =
+    "recovery codes are retired; the recovery phrase replaces them";
+
+/// Holds the place of a retired recovery-code variant, so the variants after it keep their
+/// encoding. Nothing can construct one, and reading one is refused with
+/// [`RECOVERY_CODES_RETIRED`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum RecoveryCodesRetired {}
+
+impl Serialize for RecoveryCodesRetired {
+    fn serialize<S: Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+        match *self {}
+    }
+}
+
+impl<'de> Deserialize<'de> for RecoveryCodesRetired {
+    fn deserialize<D: Deserializer<'de>>(_: D) -> Result<Self, D::Error> {
+        Err(serde::de::Error::custom(RECOVERY_CODES_RETIRED))
+    }
+}
 
 /// Which factors a sign-in must prove.
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -36,8 +61,14 @@ pub enum FactorKind {
     Password,
     /// A hardware key or passkey, through its WebAuthn PRF (`hmac-secret`) output.
     SecurityKey,
-    /// A single-use recovery code.
-    RecoveryCode,
+    /// Retired: a recovery code. Its slot keeps the recovery phrase's encoding.
+    #[doc(hidden)]
+    #[serde(rename = "RecoveryCode")]
+    #[cfg_attr(feature = "typescript", ts(skip))]
+    RetiredRecoveryCode(RecoveryCodesRetired),
+    /// The account's recovery phrase: 24 words for a 32-byte seed, bound to one server and one
+    /// username. Reusable; an account has at most one.
+    RecoveryPhrase,
 }
 
 /// One enrolled factor, as `ListCredentials` reports it.
@@ -52,7 +83,7 @@ pub struct SignInCredential {
     pub credential_id: Option<Vec<u8>>,
     pub created_ms: u64,
     pub last_used_ms: Option<u64>,
-    /// A recovery code that has been used. It can never sign in again.
+    /// A factor that can never sign in again. No current kind is consumed by use.
     pub consumed: bool,
 }
 
@@ -63,13 +94,16 @@ pub struct SignInCredential {
 pub enum SessionScope {
     /// Everything the account may do.
     Full,
-    /// Signed in with a recovery code: the session may enrol a security key and set the policy,
-    /// and nothing else.
+    /// The recovery console: signed in with the recovery phrase, the session
+    /// may manage the account's credentials (see [`SignInManagementOp::allowed_in_recovery`]) and
+    /// nothing else. An application shows it as a guided set of credential steps, not its
+    /// ordinary interface.
     Recovery,
 }
 
 /// A change to an account's sign-in factors. Each one needs a fresh proof of the account's
-/// factors (a step-up), except the two a recovery session may make.
+/// factors (a step-up), except in a recovery session, which proves nothing again and may make only
+/// the changes [`Self::allowed_in_recovery`] names.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
@@ -92,16 +126,36 @@ pub enum SignInManagementOp {
     SetSignInPolicy {
         policy: SignInPolicy,
     },
-    /// Replaces every recovery code, used or not.
-    RegenerateRecoveryCodes,
+    /// Retired: regenerating recovery codes. Its slot keeps the later changes' encoding.
+    #[doc(hidden)]
+    #[serde(rename = "RegenerateRecoveryCodes")]
+    #[cfg_attr(feature = "typescript", ts(skip))]
+    RetiredRegenerateRecoveryCodes(RecoveryCodesRetired),
+    /// Sets the account's password: a forgotten one from a recovery session, or a change from a
+    /// full one. The new password itself never reaches the server; the client turns it into a
+    /// fresh password factor, which replaces the old one.
+    SetPassword,
+    /// Replaces the recovery phrase with a new one the client draws.
+    /// The old phrase stops working at once. `canonical_domain` is the server's canonical domain,
+    /// which the phrase's factor is bound to (the caller canonicalises it).
+    RegenerateRecoveryPhrase {
+        canonical_domain: String,
+    },
 }
 
 impl SignInManagementOp {
-    /// Whether a session signed in with a recovery code may make this change.
+    /// Whether a recovery session may make this change. Such a session manages credentials and
+    /// nothing else: it lists them, sets the password, replaces the phrase, enrols or removes a
+    /// security key, and sets the policy (a lost key's way back in).
     pub fn allowed_in_recovery(&self) -> bool {
         matches!(
             self,
-            Self::AddSecurityKey { .. } | Self::SetSignInPolicy { .. }
+            Self::ListCredentials
+                | Self::AddSecurityKey { .. }
+                | Self::RemoveCredential { .. }
+                | Self::SetSignInPolicy { .. }
+                | Self::SetPassword
+                | Self::RegenerateRecoveryPhrase { .. }
         )
     }
 }
@@ -122,7 +176,13 @@ pub enum SignInManagementOutcome {
     Renamed,
     Removed,
     PolicySet,
-    /// The new codes, formatted for display. The client generated them and the server only ever
-    /// saw their keys, so this is the one time they can be shown.
-    RecoveryCodes(Vec<String>),
+    /// Retired: new recovery codes. Its slot keeps the later outcomes' encoding.
+    #[doc(hidden)]
+    #[serde(rename = "RecoveryCodes")]
+    #[cfg_attr(feature = "typescript", ts(skip))]
+    RetiredRecoveryCodes(RecoveryCodesRetired),
+    PasswordSet,
+    /// The new recovery phrase's 24 words. The client drew them and the server only ever saw
+    /// their key, so this is the one time they exist anywhere but with the user.
+    RecoveryPhrase(Vec<String>),
 }

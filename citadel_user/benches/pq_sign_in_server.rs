@@ -5,26 +5,34 @@
 
 use citadel_io::tokio;
 use citadel_types::crypto::SecBuffer;
-use citadel_user::auth::pq::client::{ClientLogin, ClientProof, ClientRegistration};
+use citadel_user::auth::pq::client::{ClientLogin, ClientProof, ClientRegistration, NewRecovery};
 use citadel_user::auth::pq::kem::encapsulate;
 use citadel_user::auth::pq::login_transcript;
-use citadel_user::auth::pq::messages::{AuthChallenge, LoginProof};
+use citadel_user::auth::pq::messages::{AuthChallenge, ChallengeCeremony, LoginProof};
 use citadel_user::auth::pq::oprf::{client_blind, server_evaluate, OprfSeed};
 use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
 use citadel_user::auth::pq::server::{
     build_login_challenge, registration_reply, AccountAuth, Expectation, PqAuthServerSettings,
 };
+use citadel_user::auth::pq::throttle::ThrottlePolicy;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
 fn settings() -> PqAuthServerSettings {
-    PqAuthServerSettings::new(OprfSeed::from_bytes([1u8; 32]), KsfParams::FLOOR).unwrap()
+    PqAuthServerSettings::new(
+        OprfSeed::from_bytes([1u8; 32]),
+        KsfParams::FLOOR,
+        ThrottlePolicy::RECOMMENDED,
+    )
+    .unwrap()
 }
 
 fn record(runtime: &tokio::runtime::Runtime) -> PqAuthRecord {
     let password = SecBuffer::from(b"bench password".to_vec());
     let (start, client) = ClientRegistration::start("bench", &password).unwrap();
     let (reply, pending) = registration_reply(&settings(), &start).unwrap();
-    let (finish, _) = runtime.block_on(client.finish(&reply, false)).unwrap();
+    let (finish, _) = runtime
+        .block_on(client.finish(&reply, NewRecovery::None))
+        .unwrap();
     pending.finish(finish, 0).unwrap()
 }
 
@@ -62,7 +70,7 @@ fn server_cost(c: &mut Criterion) {
                     build_login_challenge(&settings, account, &start).unwrap();
                 let sent = AuthChallenge {
                     challenge: challenge.clone(),
-                    ceremony: None,
+                    ceremony: ChallengeCeremony { rp_id: None },
                 };
                 let transcript = login_transcript(1, &start, &sent);
                 let proof = runtime

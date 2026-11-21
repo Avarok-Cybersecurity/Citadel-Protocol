@@ -1,29 +1,5 @@
 use super::*;
 use citadel_io::tokio;
-use embedded_semver::Semver;
-
-fn version(major: usize, minor: usize, patch: usize) -> Option<u32> {
-    Some(Semver::new(major, minor, patch).to_u32().unwrap())
-}
-
-#[test]
-fn only_a_server_at_or_above_the_gate_is_probed() {
-    let (major, minor, patch) = SERVER_PROBE_SINCE;
-    assert!(server_answers_probes(Some(
-        *crate::constants::PROTOCOL_VERSION
-    )));
-    assert!(server_answers_probes(version(
-        major.into(),
-        minor.into(),
-        patch.into()
-    )));
-    assert!(
-        !server_answers_probes(version(0, 12, 0)),
-        "0.12.0 reads a probe as a keep-alive"
-    );
-    assert!(!server_answers_probes(None), "an unknown version is not");
-    assert!(!server_answers_probes(Some(u32::MAX)));
-}
 
 #[tokio::test]
 async fn an_answered_probe_reports_its_round_trip() {

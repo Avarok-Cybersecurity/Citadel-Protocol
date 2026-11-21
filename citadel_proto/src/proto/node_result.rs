@@ -48,10 +48,18 @@ pub struct RegisterOkay {
     pub ticket: Ticket,
     pub cid: u64,
     pub welcome_message: Vec<u8>,
-    /// A post-quantum registration's recovery codes, formatted for display. Show them to the user
-    /// now: the client generated them, the server holds only their keys, and nothing keeps them.
-    /// Empty for a legacy registration.
-    pub recovery_codes: Vec<String>,
+    /// The new account's recovery phrase, 24 words, when the registration was given the server's
+    /// domain (`RegisterToHypernode::recovery_domain`). Show it to the user now: the client
+    /// generated it, the server holds only its key, and nothing keeps it.
+    pub recovery_phrase: Option<Vec<String>>,
+}
+
+/// A recovery succeeded: this device now holds the account's only bundle. Sign in with the
+/// phrase next, to a session that may manage the account's credentials.
+#[derive(Debug)]
+pub struct RecoverOkay {
+    pub ticket: Ticket,
+    pub cid: u64,
 }
 
 #[derive(Debug)]
@@ -61,6 +69,9 @@ pub struct RegisterFailure {
     /// The check to complete before trying again, when the server's admission refusal sent one
     /// (public: see `citadel_user::auth::pq::admission::AdmissionChallenge`).
     pub admission_challenge: Option<AdmissionChallenge>,
+    /// The failure's stable error code, when the side that failed sent one (every post-quantum
+    /// registration's refusal does), or when it failed on this side.
+    pub error_code: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -82,8 +93,8 @@ pub struct ConnectSuccess<R: Ratchet> {
     pub channel: Box<PeerChannel<R>>,
     pub udp_rx_opt: Option<citadel_io::tokio::sync::oneshot::Receiver<UdpChannel<R>>>,
     pub session_security_settings: SessionSecuritySettings,
-    /// The server's path policy: on a client, as the server sent it (`None` from a server below
-    /// [`PATH_POLICY_SINCE`](crate::constants::PATH_POLICY_SINCE)); on the server, its own.
+    /// The server's path policy: on a client, as the server sent it (`None` when it sent none, or
+    /// one that failed validation); on the server, its own.
     pub path_policy: Option<citadel_types::proto::PathPolicy>,
 }
 
@@ -165,6 +176,10 @@ pub struct Disconnect {
     /// Token identifying the specific C2S session instance.
     /// Used to reject stale disconnect signals from previous sessions.
     pub disconnect_token: Option<DisconnectToken>,
+    /// Why the link closed, when the protocol knows (`citadel_link::CloseReason`): this node
+    /// disconnected or abandoned it on purpose. `None` is a link that was lost, or ended in a way
+    /// this node cannot attribute; it never stands for a deliberate close.
+    pub reason: Option<citadel_link::CloseReason>,
 }
 
 #[derive(Debug)]
@@ -224,8 +239,10 @@ pub struct ReVFSResult {
 pub enum NodeResult<R: Ratchet> {
     /// Returns the CNAC which was created during the registration process
     RegisterOkay(RegisterOkay),
-    /// The registration was a failure
+    /// The registration (or a recovery) was a failure
     RegisterFailure(RegisterFailure),
+    /// A recovery installed this device's bundle
+    RecoverOkay(RecoverOkay),
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(DeRegistration),
     /// Connection succeeded for the cid self.0. bool is "is personal"
@@ -277,12 +294,30 @@ impl<R: Ratchet> NodeResult<R> {
                 ticket: _,
                 error_message: err,
                 admission_challenge,
-            }) => Err(refused(err, admission_challenge)),
+                error_code,
+            }) => Err(
+                // The code the failing side sent, unless it names nothing more than the text
+                // does; then the text is read as `refused` reads it.
+                match error_code
+                    .map(|code| NetworkError::from_wire(code, err.clone()))
+                    .filter(|wired| wired.code() != citadel_io::ErrorCode::Generic)
+                {
+                    Some(wired) if admission_challenge.is_none() => wired,
+                    _ => refused(err, admission_challenge),
+                },
+            ),
             NodeResult::OutboundRequestRejected(reason) => Err(NetworkError::generic(format!(
                 "Outbound request rejected: {:?}",
                 String::from_utf8(reason.message_opt.unwrap_or_default())
                     .unwrap_or_else(|_| "Bad request".into())
             ))),
+            NodeResult::InternalServerError(InternalServerError {
+                ticket_opt: _,
+                cid_opt: _,
+                message: err,
+            }) if crate::proto::link::is_login_deadline(&err) => {
+                Err(crate::proto::link::login_deadline_error())
+            }
             NodeResult::InternalServerError(InternalServerError {
                 ticket_opt: _,
                 cid_opt: _,
@@ -312,6 +347,9 @@ impl<R: Ratchet> NodeResult<R> {
             }
             NodeResult::RegisterFailure(RegisterFailure { ticket: t, .. }) => {
                 Some(CallbackKey::ticket_only(*t))
+            }
+            NodeResult::RecoverOkay(RecoverOkay { ticket: t, cid }) => {
+                Some(CallbackKey::new(*t, *cid))
             }
             NodeResult::DeRegistration(DeRegistration {
                 session_cid,
@@ -403,6 +441,11 @@ impl<R: Ratchet> NodeResult<R> {
 /// its challenge) when the server's admission check refused it
 /// (`citadel_user::auth::pq::admission`), generic otherwise.
 fn refused(message: String, challenge: Option<AdmissionChallenge>) -> NetworkError {
+    // A server holding the account's session refuses with this reason, verbatim, at SYN and at
+    // STAGE0, in every version; named here once, so a caller matches a code, not a string (S-C8).
+    if message.starts_with(crate::proto::session_manager::SESSION_ALREADY_CONNECTED) {
+        return citadel_io::error!(citadel_io::ErrorCode::RemoteServerHoldsSession, message);
+    }
     citadel_user::auth::pq::admission::refusal_from_message(&message, challenge)
         .unwrap_or_else(|| NetworkError::generic(message))
 }

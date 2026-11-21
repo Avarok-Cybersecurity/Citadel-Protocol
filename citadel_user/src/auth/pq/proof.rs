@@ -27,6 +27,7 @@ pub type Tag = [u8; 32];
 pub enum TranscriptPurpose {
     Login = 1,
     StepUp = 2,
+    Recover = 3,
 }
 
 /// SHA3-256 over everything both sides said in one exchange, length-framed.

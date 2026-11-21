@@ -28,10 +28,9 @@
 //! - `SessionManager`: Tracks active protocol sessions
 
 use crate::proto::misc::platform_ops::PlatformOps;
-use crate::proto::peer::coordination::coordination_wire;
+use crate::proto::peer::coordination::COORDINATION_WIRE;
 use citadel_crypt::endpoint_crypto_container::AssociatedSecurityLevel;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_io::{error, ErrorCode};
 use netbeam::sync::RelativeNodeType;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
@@ -46,12 +45,13 @@ use crate::proto::state_container::StateContainerInner;
 use citadel_types::proto::{UdpMode, VirtualTargetType};
 
 use super::includes::*;
+use super::syn_refusal::SynRefusal;
 use crate::prelude::Ticket;
 use crate::proto::node_result::ConnectFail;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use crate::proto::session_manager::{CidAdmission, SESSION_ALREADY_CONNECTED};
-use crate::proto::session_resume;
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
+use crate::proto::version_gate::check_peer_protocol_version;
 
 /// Handles preconnect packets. Handles the NAT traversal
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(
@@ -60,7 +60,7 @@ use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSen
     skip_all,
     ret,
     err,
-    fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = session_orig.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
@@ -85,11 +85,9 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
         match header.cmd_aux {
             packet_flags::cmd::aux::do_preconnect::SYN => {
                 log::trace!(target: "citadel", "RECV STAGE SYN PRE_CONNECT PACKET");
-                // TODO: prevent logins if semvers out of sync. For now, don't
                 let adjacent_proto_version = header.protocol_version.get();
-                if proto_version_out_of_sync(adjacent_proto_version)? {
-                    log::warn!(target: "citadel", "\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", *crate::constants::PROTOCOL_VERSION, adjacent_proto_version);
-                    // TODO: protocol translations for inter-version compatibility
+                if let Err(err) = check_peer_protocol_version(adjacent_proto_version) {
+                    return refuse_protocol_version(&header, err);
                 }
                 // first make sure the cid isn't already connected
                 let admission = session
@@ -97,10 +95,16 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     .can_proceed_with_new_incoming_connection(header.session_cid.get(), true)
                     .await;
                 let account_manager = session.account_manager.clone();
-
-                if admission == CidAdmission::Refused {
-                    return send_error_and_end_session(&header, None, SESSION_ALREADY_CONNECTED);
-                }
+                // A refused admission took no reservation, so there is none to release. Whether
+                // the CID is busy is told only to a SYN that authenticates (below).
+                let refuse = |refusal: SynRefusal| {
+                    if admission != CidAdmission::Refused {
+                        session
+                            .session_manager
+                            .release_provisional_cid_reservation(header.session_cid.get());
+                    }
+                    refuse_syn(&header, refusal)
+                };
 
                 if let Some(cnac) = account_manager
                     .get_client_by_cid(header.session_cid.get())
@@ -133,25 +137,16 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             new_ratchet,
                             connect_mode,
                         )) => {
-                            // A connected session holds this account. Going on requires the
-                            // client's own, authenticated request to displace it, or a client that
-                            // may prove the session its own (session_resume); either way it is
-                            // displaced only at connect STAGE0, once the credentials check out.
-                            if admission == CidAdmission::HeldByConnectedSession
-                                && session_resume::refused_at_syn(
-                                    adjacent_proto_version,
-                                    connect_mode.force_login(),
-                                )
-                            {
-                                session
-                                    .session_manager
-                                    .release_provisional_cid_reservation(header.session_cid.get());
+                            if admission == CidAdmission::Refused {
                                 return send_error_and_end_session(
                                     &header,
                                     None,
                                     SESSION_ALREADY_CONNECTED,
                                 );
                             }
+                            // A connected session holding this account is displaced only at
+                            // connect STAGE0, once the credentials check out: by the client's own
+                            // authenticated request (force_login) or its resume token.
                             // Prepare response and set non-state items
                             session.adjacent_nat_type.set_once(Some(nat_type));
                             session.kernel_ticket.set(ticket);
@@ -197,27 +192,27 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             Ok(PrimaryProcessorResult::ReplyToSender(syn_ack))
                         }
 
-                        Err(err) => {
-                            session
-                                .session_manager
-                                .release_provisional_cid_reservation(header.session_cid.get());
-                            const REASON: &str = "Invalid SYN Packet received. Bad PSK or keys?";
-                            send_error_and_end_session(&header, Some(err), REASON)
-                        }
+                        Err(err) => refuse(SynRefusal::Unauthenticated(err)),
                     }
                 } else {
-                    session
-                        .session_manager
-                        .release_provisional_cid_reservation(header.session_cid.get());
-                    const REASON: &str = "CID not registered to this node";
-                    let bad_cid = header.session_cid.get();
-                    let error = error!(ErrorCode::PreconnectCidNotRegistered, bad_cid);
-                    send_error_and_end_session(&header, Some(error), REASON)
+                    refuse(SynRefusal::UnknownAccount(header.session_cid.get()))
                 }
             }
 
             packet_flags::cmd::aux::do_preconnect::SYN_ACK => {
                 log::trace!(target: "citadel", "RECV STAGE SYN_ACK PRE_CONNECT PACKET");
+                if let Err(err) = check_peer_protocol_version(header.protocol_version.get()) {
+                    log::warn!(target: "citadel", "Refusing the server: {err}");
+                    session.fail_connect(ConnectFail {
+                        ticket: session.kernel_ticket.get(),
+                        cid_opt: Some(header.session_cid.get()),
+                        error_message: err.into_string(),
+                        admission_challenge: None,
+                    })?;
+                    return Ok(PrimaryProcessorResult::EndSession(
+                        "server protocol version refused",
+                    ));
+                }
                 let cnac = &(return_if_none!(
                     inner_state!(session.state_container).cnac.clone(),
                     "SESS Cnac not loaded"
@@ -360,7 +355,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                         C2S_IDENTITY_CID,
                         stun_servers,
                         RelativeNodeType::Initiator,
-                        coordination_wire(Some(header.protocol_version.get())),
+                        COORDINATION_WIRE,
                     )
                     .await
                     .ok()
@@ -446,7 +441,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                         C2S_IDENTITY_CID,
                         stun_servers,
                         RelativeNodeType::Receiver,
-                        coordination_wire(Some(header.protocol_version.get())),
+                        COORDINATION_WIRE,
                     )
                     .await
                     .ok()
@@ -578,20 +573,13 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                 if state_container.pre_connect_state.last_stage
                     == packet_flags::cmd::aux::do_preconnect::SUCCESS
                 {
-                    let server_protocol_version = header.protocol_version.get();
                     let (header, payload, _, _) = packet.decompose();
                     if let Some((_, _, ratchet)) = validation::aead::validate(hr, &header, payload)
                     {
                         state_container.pre_connect_state.success = true;
                         std::mem::drop(state_container);
                         // now, begin stage 0 connect
-                        begin_connect_process(
-                            session,
-                            &ratchet,
-                            security_level,
-                            ticket,
-                            server_protocol_version,
-                        )
+                        begin_connect_process(session, &ratchet, security_level, ticket)
                     } else {
                         log::error!(target: "citadel", "Unable to validate success_ack packet. Dropping");
                         Ok(PrimaryProcessorResult::Void)
@@ -632,25 +620,31 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
     ratchet: &R,
     security_level: SecurityLevel,
     ticket: Ticket,
-    server_protocol_version: u32,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     // At this point, the session keys have already been re-established. We just need to begin the login stage
-    let resume_token = session_resume::exchanged_with(
-        server_protocol_version,
-        session.session_manager.resume_token(ratchet.get_cid()),
-    );
+    let resume_token = session.session_manager.resume_token(ratchet.get_cid());
     let mut state_container = inner_mut_state!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
     // A server that runs post-quantum sign-in is asked for a challenge first; STAGE0 answers it.
-    if let Some(auth_start) = crate::proto::pq_sign_in::connect::begin(
+    let begun = crate::proto::pq_sign_in::connect::begin(
         &mut state_container,
         ratchet,
         resume_token,
-        server_protocol_version,
         timestamp,
         security_level,
         ticket,
-    )? {
+    );
+    let begun = match begun {
+        Ok(begun) => begun,
+        // Refused on this side, before anything is sent (a code and a phrase both offered): the
+        // caller hears why, as from a refused login.
+        Err(err) => {
+            std::mem::drop(state_container);
+            let cid = ratchet.get_cid();
+            return crate::proto::pq_sign_in::refusal::fail_login(session, cid, err.into_string());
+        }
+    };
+    if let Some(auth_start) = begun {
         std::mem::drop(state_container);
         session.state.set(SessionState::ConnectionProcess);
         return Ok(PrimaryProcessorResult::ReplyToSender(auth_start));
@@ -818,21 +812,6 @@ pub fn calculate_sync_time(current: i64, header: i64) -> (Instant, i64) {
     (sync_time_instant, sync_time_ns)
 }
 
-fn proto_version_out_of_sync(adjacent_proto_version: u32) -> Result<bool, NetworkError> {
-    use embedded_semver::Semver;
-    match Semver::from_u32(adjacent_proto_version) {
-        Ok(their_version) => {
-            // if either major or minor releases are not equal, assume breaking change
-            Ok(
-                their_version.major != crate::constants::MAJOR_VERSION as usize
-                    || their_version.minor != crate::constants::MINOR_VERSION as usize,
-            )
-        }
-
-        Err(_) => Err(error!(ErrorCode::PreconnectSemverParseFailed)),
-    }
-}
-
 pub fn send_error_and_end_session(
     header: &HdpHeader,
     err: Option<NetworkError>,
@@ -853,52 +832,76 @@ pub fn send_error_and_end_session(
     ))
 }
 
+/// Ends the session with the one reply a refused SYN gets (see [`SynRefusal`]).
+fn refuse_syn(
+    header: &HdpHeader,
+    refusal: SynRefusal,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    log::warn!(target: "citadel", "Refusing a SYN: {refusal}");
+    let packet = packet_crafter::pre_connect::craft_halt(header, refusal.reply());
+    Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+        packet,
+        "SYN refused",
+    ))
+}
+
+/// Ends the session with a refusal that names the protocol versions, which say nothing about any
+/// account.
+fn refuse_protocol_version(
+    header: &HdpHeader,
+    err: NetworkError,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let reason = err.into_string();
+    log::warn!(target: "citadel", "Refusing a SYN: {reason}");
+    let packet = packet_crafter::pre_connect::craft_halt(header, reason);
+    Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+        packet,
+        "protocol version refused",
+    ))
+}
+
 #[cfg(test)]
-mod tests {
-    use crate::constants::PROTOCOL_VERSION;
-    use crate::proto::packet_processor::preconnect_packet::proto_version_out_of_sync;
+mod version_refusal_tests {
+    use super::*;
+    use crate::proto::version_gate::OLDEST_PEER_PROTOCOL_VERSION;
+    use embedded_semver::prelude::*;
+    use zerocopy::FromZeroes;
 
-    #[test]
-    fn test_good_version() {
-        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
-        for shift in 1..3 {
-            let their_version = embedded_semver::Semver::new(
-                our_version.major,
-                our_version.minor,
-                our_version.patch + shift,
-            );
-            assert!(!proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap())
-        }
+    fn header_announcing(version: u32) -> HdpHeader {
+        let mut header = HdpHeader::new_zeroed();
+        header.protocol_version = version.into();
+        header
+    }
+
+    fn older_than_admitted() -> u32 {
+        let (major, minor, patch) = OLDEST_PEER_PROTOCOL_VERSION;
+        Semver::new(major as _, minor as _, patch as usize - 1)
+            .to_u32()
+            .unwrap()
     }
 
     #[test]
-    fn test_bad_major_version() {
-        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
-        for shift in 1..3 {
-            let their_version = embedded_semver::Semver::new(
-                our_version.major + shift,
-                our_version.minor,
-                our_version.patch,
-            );
-            assert!(proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap())
-        }
+    fn an_older_node_is_halted_with_the_named_refusal() {
+        let header = header_announcing(older_than_admitted());
+        let err = check_peer_protocol_version(header.protocol_version.get()).unwrap_err();
+        assert_eq!(
+            err.code(),
+            citadel_io::ErrorCode::ProtocolVersionUnsupported
+        );
+        let expected = err.clone().into_string();
+        let PrimaryProcessorResult::EndSessionAndReplyToSender(packet, _) =
+            refuse_protocol_version(&header, err).unwrap()
+        else {
+            panic!("a refused version must end the session with a reply");
+        };
+        let (halt, reason) = packet.split_at(crate::constants::HDP_HEADER_BYTE_LEN);
+        assert_eq!(halt[1], packet_flags::cmd::aux::do_preconnect::HALT);
+        assert_eq!(std::str::from_utf8(reason).unwrap(), expected);
     }
 
     #[test]
-    fn test_bad_minor_version() {
-        let our_version = embedded_semver::Semver::from_u32(*PROTOCOL_VERSION).unwrap();
-        for shift in 1..3 {
-            let their_version = embedded_semver::Semver::new(
-                our_version.major,
-                our_version.minor + shift,
-                our_version.patch,
-            );
-            assert!(proto_version_out_of_sync(their_version.to_u32().unwrap()).unwrap())
-        }
-    }
-
-    #[test]
-    fn test_bad_parse() {
-        assert!(proto_version_out_of_sync(u32::MAX).is_err());
+    fn this_nodes_own_version_is_not_refused() {
+        let header = header_announcing(*crate::constants::PROTOCOL_VERSION);
+        check_peer_protocol_version(header.protocol_version.get()).unwrap();
     }
 }

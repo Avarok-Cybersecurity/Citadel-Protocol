@@ -41,6 +41,8 @@ use crate::packet_vector::{generate_packet_vector, PacketVector};
 use crate::prelude::CryptError;
 use crate::ratchets::entropy_bank::EntropyBank;
 use crate::ratchets::Ratchet;
+use crate::revfs_seal::RevfsKey;
+pub use crate::scramble::wave_binding::WaveBinding;
 pub use citadel_types::prelude::ObjectId;
 
 /// The maximum bytes per group
@@ -52,16 +54,16 @@ pub const MAX_WAVEFORM_PACKET_SIZE: usize = 480;
 pub const AES_GCM_GHASH_OVERHEAD: usize = 16;
 
 /// Returns the max packet size based on security level
-pub fn get_max_packet_size(
-    enx: EncryptionAlgorithm,
-    sig_alg: SigAlgorithm,
-    security_level: SecurityLevel,
-) -> usize {
+pub fn get_max_packet_size(params: CryptoParameters, security_level: SecurityLevel) -> usize {
     const BASE: usize = 2;
     // for now, limit the security level to standard
     let security_exponent =
         std::cmp::min(security_level.value(), SecurityLevel::Standard.value()) as u32;
-    let mut starting_max_packet_size = enx.max_ciphertext_len(MAX_WAVEFORM_PACKET_SIZE, sig_alg);
+    let mut starting_max_packet_size = params.encryption_algorithm.max_ciphertext_len(
+        MAX_WAVEFORM_PACKET_SIZE,
+        params.kem_algorithm,
+        params.sig_algorithm,
+    );
     starting_max_packet_size += 8; // for the overhead from each encryption adding 8 bytes in the nonce tag
     std::cmp::max(
         starting_max_packet_size / (BASE.pow(security_exponent)),
@@ -90,8 +92,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     security_level: SecurityLevel,
     group_id: u64,
     object_id: ObjectId,
-    enx: EncryptionAlgorithm,
-    sig_alg: SigAlgorithm,
+    params: CryptoParameters,
     transfer_type: &TransferType,
     empty_transfer: bool,
 ) -> Result<GroupReceiverConfig, CryptError> {
@@ -101,7 +102,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
         return Err(citadel_io::error!(citadel_io::ErrorCode::EmptyInput));
     }
 
-    let max_packet_payload_size = get_max_packet_size(enx, sig_alg, security_level);
+    let max_packet_payload_size = get_max_packet_size(params, security_level);
     let overhead = max_packet_payload_size - MAX_WAVEFORM_PACKET_SIZE;
     let max_packets_per_wave = msg_entropy_bank.get_multiport_width();
     //let aes_gcm_overhead = get_aes_gcm_overhead();
@@ -133,7 +134,11 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(
     // calculate buffer of last wave. In the case of plain_text.len() == max_plaintext_bytes, we have 1 wave.
     let ciphertext_len_last_wave = if number_of_partial_waves != 0 {
         //calculate_aes_gcm_output_length(bytes_in_last_wave)
-        8 + enx.max_ciphertext_len(bytes_in_last_wave, sig_alg)
+        8 + params.encryption_algorithm.max_ciphertext_len(
+            bytes_in_last_wave,
+            params.kem_algorithm,
+            params.sig_algorithm,
+        )
     } else {
         // this will ensure that the calculation below is adjusted for the equals case
         // Also, adjust the bytes in the last wave. Since there is no partial wave, but n full waves, the last
@@ -189,8 +194,7 @@ fn get_scramble_encrypt_config<'a, R: Ratchet>(
         security_level,
         group_id,
         object_id,
-        msg_pqc.params.encryption_algorithm,
-        msg_pqc.params.sig_algorithm,
+        msg_pqc.params,
         transfer_type,
         empty_transfer,
     )?;
@@ -222,6 +226,13 @@ impl PacketCoordinate {
     }
 }
 
+/// The account key a RE-VFS group is sealed under, and the group's position in its object.
+#[derive(Copy, Clone, Debug)]
+pub struct RevfsGroupSeal<'a> {
+    pub key: &'a RevfsKey,
+    pub group_index: u64,
+}
+
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
 #[allow(clippy::too_many_arguments)]
@@ -229,12 +240,13 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>
     plain_text: T,
     security_level: SecurityLevel,
     ratchet: &R,
-    static_aux_ratchet: &R,
+    revfs_seal: Option<RevfsGroupSeal<'_>>,
     header_size_bytes: usize,
     target_cid: u64,
     object_id: ObjectId,
     group_id: u64,
     transfer_type: TransferType,
+    binding: WaveBinding,
     header_inscriber: F,
 ) -> Result<GroupSenderDevice<N>, CryptError>
 where
@@ -253,10 +265,19 @@ where
     }
 
     if let TransferType::RemoteEncryptedVirtualFilesystem { security_level, .. } = &transfer_type {
-        log::trace!(target: "citadel", "Detected REVFS. Locally encrypting object {object_id} w/level {security_level:?} | Ratchet used: {} w/version {}", static_aux_ratchet.get_cid(), static_aux_ratchet.version());
-        // pre-encrypt
-        let local_encrypted = static_aux_ratchet.local_encrypt(plain_text, *security_level)?;
-        plain_text = Cow::Owned(local_encrypted);
+        // Sealed under the account's own key before it leaves: no relay or server can open it.
+        let seal = revfs_seal.ok_or_else(|| {
+            citadel_io::error!(citadel_io::ErrorCode::RevfsKeyMissing, ratchet.get_cid())
+        })?;
+        log::trace!(target: "citadel", "Detected REVFS. Sealing object {object_id} group {} w/level {security_level:?} under {:?}", seal.group_index, seal.key);
+        let sealed = crate::revfs_seal::seal(
+            seal.key,
+            object_id.0,
+            seal.group_index,
+            *security_level,
+            &plain_text,
+        )?;
+        plain_text = Cow::Owned(sealed);
     }
 
     let (mut cfg, msg_entropy_bank, msg_pqc, scramble_entropy_bank) = get_scramble_encrypt_config(
@@ -281,6 +302,7 @@ where
         target_cid,
         object_id,
         header_size_bytes,
+        binding,
         &header_inscriber,
     );
 
@@ -334,14 +356,22 @@ fn scramble_encrypt_wave(
     target_cid: u64,
     object_id: ObjectId,
     header_size_bytes: usize,
+    binding: WaveBinding,
     header_inscriber: impl Fn(&PacketVector, &EntropyBank, ObjectId, u64, &mut BytesMut) + Send + Sync,
 ) -> Vec<(usize, PacketCoordinate)> {
     // Encrypt the whole wave once into a single allocation, then hand each packet a
-    // ref-counted slice of it (no per-chunk copy). `Bytes::from(Vec)` is zero-copy.
-    let ciphertext: Bytes = msg_entropy_bank
-        .encrypt(msg_pqc, bytes_to_encrypt_for_this_wave)
-        .unwrap()
-        .into();
+    // ref-counted slice of it (no per-chunk copy).
+    let aad = binding.aad(
+        object_id,
+        cfg.group_id,
+        wave_idx as u32,
+        msg_entropy_bank.get_version(),
+    );
+    let mut ciphertext = BytesMut::from(bytes_to_encrypt_for_this_wave);
+    msg_entropy_bank
+        .encrypt_in_place(msg_pqc, aad.as_slice(), &mut ciphertext)
+        .unwrap();
+    let ciphertext: Bytes = ciphertext.freeze();
 
     let max_payload_size = cfg.max_payload_size as usize;
     let mut packets = Vec::with_capacity(ciphertext.len().div_ceil(max_payload_size));
@@ -463,12 +493,16 @@ pub struct GroupReceiver {
     group_timeout: Duration,
     wave_timeout: Duration,
     empty_transfer: bool,
+    /// What each wave must have been sealed for: this group, in this object, under `binding`.
+    binding: WaveBinding,
+    object_id: ObjectId,
+    group_id: u64,
 }
 
 use crate::secure_buffer::sec_packet::SecureMessagePacket;
 use citadel_pqcrypto::{EncryptionAlgorithmExt, PostQuantumContainer};
 use citadel_types::crypto::SecurityLevel;
-use citadel_types::crypto::{EncryptionAlgorithm, SigAlgorithm};
+use citadel_types::crypto::{CryptoParameters, EncryptionAlgorithm};
 use citadel_types::proto::TransferType;
 use serde::{Deserialize, Serialize};
 
@@ -735,7 +769,12 @@ impl GroupReceiver {
     ///
     /// The entropy_bank is needed in order to get the multiport width (determines max packets per wave)
     #[allow(unused_results)]
-    pub fn new(cfg: GroupReceiverConfig, wave_timeout_ms: usize, group_timeout_ms: usize) -> Self {
+    pub fn new(
+        cfg: GroupReceiverConfig,
+        binding: WaveBinding,
+        wave_timeout_ms: usize,
+        group_timeout_ms: usize,
+    ) -> Self {
         use bitvec::prelude::*;
         log::trace!(target: "citadel", "Creating new group receiver. Anticipated plaintext slab length: {}", cfg.plaintext_length);
         let unified_plaintext_slab = vec![0u8; cfg.plaintext_length as usize];
@@ -814,6 +853,9 @@ impl GroupReceiver {
             max_plaintext_wave_length: cfg.max_plaintext_wave_length as usize,
             last_plaintext_wave_length: cfg.last_plaintext_wave_length as usize,
             empty_transfer: cfg.empty_transfer,
+            binding,
+            object_id: cfg.object_id,
+            group_id: cfg.group_id,
         }
     }
 
@@ -896,8 +938,17 @@ impl GroupReceiver {
                 .ciphertext_buffer
                 .truncate(completed_wave.bytes_written);
 
-            match msg_entropy_bank.decrypt_in_place(msg_pqc, &mut completed_wave.ciphertext_buffer)
-            {
+            let aad = self.binding.aad(
+                self.object_id,
+                self.group_id,
+                wave_id,
+                msg_entropy_bank.get_version(),
+            );
+            match msg_entropy_bank.decrypt_in_place(
+                msg_pqc,
+                aad.as_slice(),
+                &mut completed_wave.ciphertext_buffer,
+            ) {
                 Ok(()) => {
                     let plaintext = &completed_wave.ciphertext_buffer[..];
 
@@ -1257,6 +1308,7 @@ fn encrypt_waves<F>(
     target_cid: u64,
     object_id: ObjectId,
     header_size_bytes: usize,
+    binding: WaveBinding,
     header_inscriber: &F,
 ) -> HashMap<usize, PacketCoordinate>
 where
@@ -1275,6 +1327,7 @@ where
             target_cid,
             object_id,
             header_size_bytes,
+            binding,
             header_inscriber,
         )
     };

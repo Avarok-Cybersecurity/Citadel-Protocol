@@ -94,7 +94,7 @@ fn an_addition_past_the_next_slot_is_refused() {
     let mut commit = members[0].commit_update([0xAB; 32]).unwrap();
     let key_package = KeyPackage::generate(999, &[9u8; 32]).unwrap();
     commit.proposals = vec![Proposal::Add {
-        key_package,
+        leaf: key_package.leaf.clone(),
         leaf_index: u32::MAX / 2,
     }];
     let member = assert_refused_in_time(members.remove(1), commit);
@@ -111,7 +111,7 @@ fn an_addition_over_an_occupied_leaf_is_refused() {
     let mut commit = members[0].commit_update([0xAB; 32]).unwrap();
     let key_package = KeyPackage::generate(999, &[9u8; 32]).unwrap();
     commit.proposals = vec![Proposal::Add {
-        key_package,
+        leaf: key_package.leaf.clone(),
         leaf_index: 2,
     }];
     assert_refused_in_time(members.remove(1), commit);

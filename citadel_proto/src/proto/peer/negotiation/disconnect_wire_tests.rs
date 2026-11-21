@@ -1,4 +1,4 @@
-//! `PeerSignal::Disconnect.reason` on the wire: appended last, so an older node reads around it.
+//! `PeerSignal::Disconnect.reason` on the wire: a required field, so an encoding without it is refused.
 
 use super::reason::DisconnectReason;
 use crate::proto::disconnect_tracker::DisconnectToken;
@@ -34,24 +34,20 @@ fn reason_of(signal: PeerSignal) -> Option<DisconnectReason> {
     }
 }
 
-/// An older node reads a signal as its own fields followed by bytes it ignores: the new encoding
-/// must be the old one with the reason appended (the old one is the new one without the single
-/// byte of an absent reason).
 #[test]
-fn a_disconnect_is_the_old_encoding_with_the_reason_appended() {
-    let without = disconnect(None).serialize_to_vector().unwrap();
-    let legacy = &without[..without.len() - 1];
-    let with = disconnect(Some(REASON)).serialize_to_vector().unwrap();
-    assert!(with.starts_with(legacy));
-    let read = PeerSignal::deserialize_from_vector(&with).unwrap();
-    assert_eq!(reason_of(read), Some(REASON));
+fn a_disconnect_carries_its_reason() {
+    for reason in [None, Some(REASON)] {
+        let bytes = disconnect(reason).serialize_to_vector().unwrap();
+        let read = PeerSignal::deserialize_from_vector(&bytes).unwrap();
+        assert_eq!(reason_of(read), reason);
+    }
 }
 
+/// The encoding before the reason (the same bytes without its one-byte absent marker) does not
+/// parse. `a_disconnect_carries_its_reason` is the control.
 #[test]
-fn a_disconnect_from_an_older_node_reads_as_no_reason() {
+fn a_disconnect_encoded_without_its_reason_is_refused() {
     let without = disconnect(None).serialize_to_vector().unwrap();
-    let legacy = &without[..without.len() - 1];
-    let read = PeerSignal::deserialize_from_vector(legacy)
-        .expect("a Disconnect from an older node must still parse");
-    assert_eq!(reason_of(read), None);
+    let older = &without[..without.len() - 1];
+    assert!(PeerSignal::deserialize_from_vector(older).is_err());
 }

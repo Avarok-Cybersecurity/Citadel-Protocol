@@ -36,7 +36,7 @@ pub struct NetGroupReadGuard<T: NetObject> {
 
 impl<T: NetObject> NetGroupWriteGuard<T> {
     pub(crate) fn from_grant(engine: Arc<Engine>, grant: Grant) -> Result<Self, GroupLockError> {
-        let value = match bincode::deserialize::<T>(&grant.value) {
+        let value = match citadel_io::decode::deserialize::<T>(&grant.value) {
             Ok(v) => v,
             Err(err) => {
                 // the grant IS committed: withdraw it (poison-free — the critical
@@ -111,7 +111,7 @@ impl<T: NetObject> NetGroupWriteGuard<T> {
 
 impl<T: NetObject> NetGroupReadGuard<T> {
     pub(crate) fn from_grant(engine: Arc<Engine>, grant: Grant) -> Result<Self, GroupLockError> {
-        let value = match bincode::deserialize::<T>(&grant.value) {
+        let value = match citadel_io::decode::deserialize::<T>(&grant.value) {
             Ok(v) => v,
             Err(err) => {
                 engine.spawn_best_effort_dequeue(grant.nonce);

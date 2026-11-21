@@ -1,16 +1,16 @@
 use super::key_request::{RelyingParty, SecurityKeyCeremony, SecurityKeyRequest};
 use super::ksf::{password_input, password_keypair};
-use super::register::ClientRegistration;
+use super::register::{ClientRegistration, NewRecovery};
 use crate::auth::pq::kem::{FactorKeypair, SharedSecret};
 use crate::auth::pq::messages::{
     ChallengeBody, FactorChallenges, FactorTag, LoginChallenge, LoginFinish, LoginProof,
     LoginStart, RegFinish,
 };
 use crate::auth::pq::oprf::{self, OprfClientState};
+use crate::auth::pq::phrase::RecoveryPhrase;
 use crate::auth::pq::proof::{factor_tag, session_key, TranscriptHash, AUTH_LABEL};
 use crate::auth::pq::random_32;
-use crate::auth::pq::recovery::RecoveryCode;
-use crate::auth::pq::seed::{recovery_seed, security_key_seed, PrfOutput};
+use crate::auth::pq::seed::{security_key_seed, PrfOutput};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::FactorKind;
@@ -45,7 +45,7 @@ impl ClientLogin {
     pub fn start(
         username: &str,
         password: Option<&SecBuffer>,
-        recovery: Option<&RecoveryCode>,
+        recovery: Option<&RecoveryPhrase>,
     ) -> Result<(LoginStart, Self), AccountError> {
         let (password, oprf_blinded) = match password {
             Some(password) => {
@@ -56,7 +56,7 @@ impl ClientLogin {
             None => (None, None),
         };
         let recovery = recovery
-            .map(|code| FactorKeypair::derive(&recovery_seed(code)))
+            .map(|phrase| phrase.keypair(username))
             .transpose()?;
         let start = LoginStart {
             username: username.to_string(),
@@ -90,7 +90,7 @@ impl ClientLogin {
             return Ok(None);
         }
         Ok(Some(SecurityKeyRequest {
-            rp_id: relying_party.for_authenticate()?,
+            rp_id: relying_party.rp_id()?,
             prf_eval_salt: factors.prf_eval_salt,
             ceremony: SecurityKeyCeremony::Authenticate { credential_ids },
         }))
@@ -110,7 +110,7 @@ impl ClientLogin {
                 let upgrade = match (upgrade, self.password) {
                     (Some(reply), Some((input, oprf))) => {
                         let registration = ClientRegistration::resume(input, oprf);
-                        Some(registration.finish(reply, false).await?.0)
+                        Some(registration.finish(reply, NewRecovery::None).await?.0)
                     }
                     _ => None,
                 };
@@ -134,7 +134,8 @@ impl ClientLogin {
                     .as_ref()
                     .filter(|(id, _)| c.credential_id.as_ref() == Some(id))
                     .map(|(_, kp)| kp),
-                FactorKind::RecoveryCode => self.recovery.as_ref(),
+                FactorKind::RecoveryPhrase => self.recovery.as_ref(),
+                FactorKind::RetiredRecoveryCode(retired) => match retired {},
             };
             if let Some(keypair) = keypair {
                 let k = keypair.decapsulate(&c.ct)?;

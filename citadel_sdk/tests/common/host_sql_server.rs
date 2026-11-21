@@ -75,29 +75,56 @@ where
     Fut: std::future::Future<Output = T> + Send,
     T: Send + 'static,
 {
+    against_server_keyed(
+        host,
+        Some(citadel_sdk::test_common::localhost_revfs_keys()),
+        body,
+    )
+    .await
+}
+
+/// As [`against_server`], with the client given `revfs_keys` as its key source, or none.
+pub async fn against_server_keyed<F, Fut, T>(
+    host: HostSqlHandle,
+    revfs_keys: Option<impl RevfsKeySource + 'static>,
+    body: F,
+) -> T
+where
+    F: FnOnce(CitadelClientServerConnection<StackedRatchet>) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = T> + Send,
+    T: Send + 'static,
+{
     citadel_logging::setup_log();
     let (server, server_addr) = server_test_node(StorageServerKernel, |b| {
         let _ = b.with_backend(BackendType::HostSql(host));
     });
     let (tx, rx) = tokio::sync::oneshot::channel();
     let tx = std::sync::Mutex::new(Some(tx));
-    let settings =
-        DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, Uuid::new_v4())
-            .disable_udp()
-            .build()
-            .unwrap();
+    let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+        server_addr,
+        Uuid::new_v4(),
+        CertVerification::SelfSignedAccepted,
+    )
+    .disable_udp()
+    .build()
+    .unwrap();
     let client_kernel = SingleClientServerConnectionKernel::new(settings, move |conn| async move {
         let out = body(conn).await;
         let _ = tx.lock().unwrap().take().unwrap().send(out);
         Ok(())
     });
-    let client = DefaultNodeBuilder::default()
+    let mut builder = citadel_sdk::test_common::node_builder();
+    let _ = builder
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
-        .build(client_kernel)
-        .unwrap();
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level());
+    if let Some(revfs_keys) = revfs_keys {
+        let _ = builder.with_revfs_key_source(revfs_keys);
+    }
+    let client = builder.build(client_kernel).unwrap();
     // Polled here, not spawned: a node future is not `Send` in every feature set.
     let mut rx = rx;
-    tokio::time::timeout(MUST_FINISH_WITHIN, async move {
+    citadel_io::time::runnable_timeout(MUST_FINISH_WITHIN, async move {
         tokio::pin!(server);
         tokio::pin!(client);
         tokio::select! {

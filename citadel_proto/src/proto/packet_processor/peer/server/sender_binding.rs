@@ -57,7 +57,7 @@ fn set_client_sender(conn: &mut ClientConnectionType, sender: u64) {
 mod tests {
     use super::*;
     use crate::proto::peer::peer_crypt::KeyExchangeProcess;
-    use citadel_types::proto::{SessionSecuritySettings, UdpMode};
+    use citadel_types::proto::UdpMode;
 
     const SESSION: u64 = 10;
     const NAMED: u64 = 77;
@@ -90,7 +90,10 @@ mod tests {
                 peer_conn_type: naming(NAMED),
                 ticket_opt: None,
                 invitee_response: None,
-                session_security_settings: SessionSecuritySettings::default(),
+                session_security_settings: crate::prelude::SessionSecuritySettingsBuilder::default(
+                )
+                .build()
+                .unwrap(),
                 udp_mode: UdpMode::Disabled,
                 session_password: None,
             },
@@ -103,8 +106,9 @@ mod tests {
             PeerSignal::Kex {
                 peer_conn_type: naming(NAMED),
                 kex_payload: KeyExchangeProcess::HolePunchFailed,
-                sender_protocol_version: None,
+                sender_protocol_version: *crate::constants::PROTOCOL_VERSION,
                 path: None,
+                auth: None,
             },
         ];
         for signal in signals {

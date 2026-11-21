@@ -39,8 +39,9 @@ pub struct UpdatePath {
     pub nodes: Vec<UpdatePathNode>,
 }
 
-/// Committer re-keys leaf `leaf_index`'s direct path with a fresh `leaf_secret`. Mutates `tree` to the
-/// post-commit public state and returns `(update_path, root_secret, own_path_secrets)`.
+/// Committer re-keys leaf `leaf_index`'s direct path with a fresh `leaf_secret`, deriving its leaf
+/// and direct-path keys. Mutates `tree` to the post-commit public state and returns
+/// `(update_path, root_secret, own_path_secrets)`.
 pub fn generate_update_path(
     tree: &mut RatchetTree,
     leaf_index: LeafIndex,
@@ -131,7 +132,11 @@ pub fn apply_update_path(
         return Err(Error::generic("treekem: update path length mismatch"));
     }
 
-    // 1. Install the committer's new leaf + direct-path public keys.
+    // 1. Install the committer's new leaf + direct-path public keys, each of the tree's suite.
+    crypto::suite_of(&update.leaf_kem_public)?;
+    for node in &update.nodes {
+        crypto::suite_of(&node.kem_public)?;
+    }
     if let Node::Leaf(mut l) = tree.get(leaf_to_node(committer))?.clone() {
         l.kem_public = update.leaf_kem_public.clone();
         tree.set(leaf_to_node(committer), Node::Leaf(l))?;
@@ -156,13 +161,13 @@ pub fn apply_update_path(
             let Some(ps_known) = own_secrets.get(&r) else {
                 continue;
             };
-            let (_pk, sk) = crypto::node_keypair_from_path_secret(ps_known)?;
             let hpke = update
                 .nodes
                 .get(d)
                 .and_then(|node| node.encrypted_path_secrets.get(ri))
                 .ok_or_else(|| Error::generic("treekem: missing ciphertext for resolution node"))?;
-            let ps_bytes = crypto::hpke_open(&hpke.kem_ct, &hpke.aead_ct, &sk)?;
+            let ps_bytes =
+                crypto::hpke_open_with_path_secret(ps_known, &hpke.kem_ct, &hpke.aead_ct)?;
             if ps_bytes.len() != crypto::SECRET_LEN {
                 return Err(Error::generic(
                     "treekem: decrypted path secret has wrong length",

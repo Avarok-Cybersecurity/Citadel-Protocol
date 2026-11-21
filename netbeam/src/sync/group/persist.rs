@@ -53,7 +53,7 @@ impl SnapshotAcceptorStore {
 
     /// Restores a store previously exported with [`Self::to_bytes`].
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, GroupLockError> {
-        let states = bincode::deserialize::<HashMap<LockId, PersistedAcceptor>>(bytes)?;
+        let states = citadel_io::decode::deserialize::<HashMap<LockId, PersistedAcceptor>>(bytes)?;
         let this = Self::new();
         *this.states.write() = states;
         Ok(this)
@@ -103,7 +103,7 @@ pub fn peek_value<T: NetObject>(
     let Some(rec) = store.peek_record(lock) else {
         return Ok(None);
     };
-    let value = bincode::deserialize::<T>(&rec.value)?;
+    let value = citadel_io::decode::deserialize::<T>(&rec.value)?;
     Ok(Some((rec.value_version, value)))
 }
 

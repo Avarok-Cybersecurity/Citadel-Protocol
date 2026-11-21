@@ -41,7 +41,7 @@ use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::packet_processor::primary_group_packet::get_orientation_safe_ratchet;
 use crate::proto::pq_sign_in;
-use crate::proto::session_resume::{self, HeldSessionResume, ResumeToken};
+use crate::proto::session_resume::{HeldSessionResume, ResumeToken};
 use crate::proto::session_resume_store;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::toolset::Toolset;
@@ -58,7 +58,7 @@ use citadel_user::external_services::ServicesObject;
     skip_all,
     ret,
     err,
-    fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = sess_ref.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_connect<R: Ratchet, T: PlatformOps>(
@@ -125,30 +125,26 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     }
                 }
                 let task = {
-                    let validated = match pq_sign_in::admit::validate_stage0(
-                        session,
-                        &cnac,
-                        &payload,
-                        adjacent_protocol_version,
-                    )
-                    .await
-                    {
-                        Ok((stage0_packet, admission)) => {
-                            if session.kernel_ticket.get() != ticket {
-                                const REASON: &str = "Ticket mismatch";
-                                return Ok(PrimaryProcessorResult::EndSession(REASON));
-                            }
-                            let presented = session_resume::exchanged_with(
-                                adjacent_protocol_version,
-                                stage0_packet.resume_token,
-                            );
-                            // Fully authenticated from here on, and only from here on.
-                            admit_authenticated_login(session, &cnac, ratchet.get_cid(), presented)
+                    let validated =
+                        match pq_sign_in::admit::validate_stage0(session, &cnac, &payload).await {
+                            Ok((stage0_packet, admission)) => {
+                                if session.kernel_ticket.get() != ticket {
+                                    const REASON: &str = "Ticket mismatch";
+                                    return Ok(PrimaryProcessorResult::EndSession(REASON));
+                                }
+                                let presented = stage0_packet.resume_token;
+                                // Fully authenticated from here on, and only from here on.
+                                admit_authenticated_login(
+                                    session,
+                                    &cnac,
+                                    ratchet.get_cid(),
+                                    presented,
+                                )
                                 .await
                                 .map(|issued| (stage0_packet, issued, admission))
-                        }
-                        Err(err) => Err(err),
-                    };
+                            }
+                            Err(err) => Err(err),
+                        };
                     match validated {
                         Ok((stage0_packet, issued_resume_token, admission)) => {
                             // Compute inexpensive values and perform checks before taking the lock
@@ -223,9 +219,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                     session,
                                     header.protocol_version.get(),
                                 );
-                                let session_security_settings = state_container
-                                    .session_security_settings
-                                    .expect("Should be set");
+                                let session_security_settings = return_if_none!(
+                                    state_container.session_security_settings,
+                                    "No session security settings at connect SUCCESS"
+                                );
                                 (udp_channel_rx, channel, session_security_settings)
                             };
 
@@ -275,15 +272,9 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                         security_level,
                                         session.account_manager.get_backend_type(),
                                         kernel_ticket,
-                                        session_resume::exchanged_with(
-                                            adjacent_protocol_version,
-                                            Some(issued_resume_token),
-                                        ),
+                                        Some(issued_resume_token),
                                         None,
-                                        crate::proto::path_policy::exchanged_with(
-                                            Some(adjacent_protocol_version),
-                                            session.path_policy.clone(),
-                                        ),
+                                        session.path_policy.clone(),
                                     );
 
                                 session.session_cid.set(Some(cid));
@@ -342,7 +333,6 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     &cnac,
                     &ratchet,
                     &payload,
-                    adjacent_protocol_version,
                     security_level,
                     ticket,
                 )
@@ -354,7 +344,6 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                     session,
                     &ratchet,
                     &payload,
-                    adjacent_protocol_version,
                     security_level,
                     ticket,
                 )
@@ -452,9 +441,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 session,
                                 adjacent_protocol_version,
                             );
-                            let session_security_settings = state_container
-                                .session_security_settings
-                                .expect("Should be set");
+                            let session_security_settings = return_if_none!(
+                                state_container.session_security_settings,
+                                "No session security settings at connect SUCCESS"
+                            );
                             std::mem::drop(state_container);
 
                             session.session_cid.set(Some(cid)); // This makes is_provisional equal to false
@@ -471,13 +461,9 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                             }
 
                             log::trace!(target: "citadel", "The login to the server was a success. Welcome Message: {}", message);
-                            session.session_manager.on_connect_success_resume_token(
-                                cid,
-                                session_resume::exchanged_with(
-                                    adjacent_protocol_version,
-                                    payload.resume_token,
-                                ),
-                            );
+                            session
+                                .session_manager
+                                .on_connect_success_resume_token(cid, payload.resume_token);
 
                             let post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;
@@ -511,10 +497,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 channel: channel.into(),
                                 udp_rx_opt: udp_channel_rx,
                                 session_security_settings,
-                                path_policy: crate::proto::path_policy::exchanged_with(
-                                    Some(adjacent_protocol_version),
-                                    payload.path_policy,
-                                ),
+                                path_policy: payload.path_policy,
                             }))?;
                             // A recovery session leaves the account's local peer list alone: the
                             // server sends it none.

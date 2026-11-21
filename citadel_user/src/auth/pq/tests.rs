@@ -1,17 +1,18 @@
 //! The whole exchange, client and server functions back to back, with no transport in between.
 
-use super::client::{ClientLogin, ClientProof, ClientRegistration, SecurityKeyAnswer};
+use super::client::{ClientLogin, ClientProof, ClientRegistration, NewRecovery, SecurityKeyAnswer};
 use super::login_transcript;
 use super::messages::{
     AuthChallenge, ChallengeBody, ChallengeCeremony, LoginChallenge, LoginProof, LoginStart,
 };
 use super::oprf::OprfSeed;
+use super::phrase::RecoveryPhrase;
 use super::record::{KsfParams, PqAuthRecord};
-use super::recovery::RecoveryCode;
 use super::server::{
     build_login_challenge, registration_reply, AccountAuth, Expectation, PqAuthServerSettings,
     VerifiedLogin,
 };
+use super::throttle::ThrottlePolicy;
 use citadel_io::tokio;
 use citadel_io::ErrorCode;
 use citadel_types::auth::SessionScope;
@@ -22,7 +23,12 @@ pub(crate) const RP_ID: &str = "example.com";
 
 /// A server without security keys.
 pub(crate) fn settings_without_keys() -> PqAuthServerSettings {
-    PqAuthServerSettings::new(OprfSeed::from_bytes([42u8; 32]), KsfParams::FLOOR).unwrap()
+    PqAuthServerSettings::new(
+        OprfSeed::from_bytes([42u8; 32]),
+        KsfParams::FLOOR,
+        ThrottlePolicy::RECOMMENDED,
+    )
+    .unwrap()
 }
 
 pub(crate) fn settings() -> PqAuthServerSettings {
@@ -31,13 +37,13 @@ pub(crate) fn settings() -> PqAuthServerSettings {
         .unwrap()
 }
 
-/// `challenge` as a server at the security-key ceremony sends it.
+/// `challenge` as a server sends it.
 pub(crate) fn sent(challenge: &LoginChallenge) -> AuthChallenge {
     AuthChallenge {
         challenge: challenge.clone(),
-        ceremony: Some(ChallengeCeremony {
+        ceremony: ChallengeCeremony {
             rp_id: Some(RP_ID.into()),
-        }),
+        },
     }
 }
 
@@ -45,13 +51,13 @@ pub(crate) fn password(text: &str) -> SecBuffer {
     SecBuffer::from(text.as_bytes().to_vec())
 }
 
-/// Registers `alice` with `pw`; returns her record and recovery codes.
-pub(crate) async fn register(pw: &str) -> (PqAuthRecord, Vec<RecoveryCode>) {
+/// Registers `alice` with `pw` and no recovery phrase; returns her record.
+pub(crate) async fn register(pw: &str) -> PqAuthRecord {
     let s = settings();
     let (start, client) = ClientRegistration::start("alice", &password(pw)).unwrap();
     let (reply, pending) = registration_reply(&s, &start).unwrap();
-    let (finish, codes) = client.finish(&reply, true).await.unwrap();
-    (pending.finish(finish, 1_000).unwrap(), codes)
+    let (finish, _) = client.finish(&reply, NewRecovery::None).await.unwrap();
+    pending.finish(finish, 1_000).unwrap()
 }
 
 /// One login's messages, so a test can tamper with any of them.
@@ -66,10 +72,10 @@ pub(crate) fn begin(
     record: Option<&PqAuthRecord>,
     username: &str,
     pw: Option<&str>,
-    code: Option<&RecoveryCode>,
+    recovery: Option<&RecoveryPhrase>,
 ) -> Exchange {
     let pw = pw.map(password);
-    let (start, client) = ClientLogin::start(username, pw.as_ref(), code).unwrap();
+    let (start, client) = ClientLogin::start(username, pw.as_ref(), recovery).unwrap();
     let account = record.map_or(AccountAuth::Unknown, AccountAuth::PostQuantum);
     let (challenge, expectation) = build_login_challenge(&settings(), account, &start).unwrap();
     Exchange {
@@ -113,7 +119,7 @@ pub(crate) fn is_generic_failure(result: &Result<VerifiedLogin, citadel_io::Netw
 
 #[citadel_io::tokio::test]
 async fn the_right_password_signs_in_with_a_full_session() {
-    let (record, _) = register("correct horse").await;
+    let record = register("correct horse").await;
     let verified = complete(begin(Some(&record), "alice", Some("correct horse"), None))
         .await
         .unwrap();
@@ -123,14 +129,14 @@ async fn the_right_password_signs_in_with_a_full_session() {
 
 #[citadel_io::tokio::test]
 async fn a_wrong_password_is_refused() {
-    let (record, _) = register("correct horse").await;
+    let record = register("correct horse").await;
     let result = complete(begin(Some(&record), "alice", Some("battery staple"), None)).await;
     assert!(is_generic_failure(&result));
 }
 
 #[citadel_io::tokio::test]
 async fn a_tag_replayed_from_another_transcript_is_refused() {
-    let (record, _) = register("correct horse").await;
+    let record = register("correct horse").await;
     let x = begin(Some(&record), "alice", Some("correct horse"), None);
     let Expectation::Factors(expected) = x.expectation else {
         panic!()
@@ -158,7 +164,7 @@ async fn a_tag_replayed_from_another_transcript_is_refused() {
 
 #[citadel_io::tokio::test]
 async fn a_tampered_ciphertext_is_refused() {
-    let (record, _) = register("correct horse").await;
+    let record = register("correct horse").await;
     let mut x = begin(Some(&record), "alice", Some("correct horse"), None);
     let ChallengeBody::Factors(factors) = &mut x.challenge.body else {
         panic!()
@@ -171,7 +177,7 @@ async fn a_tampered_ciphertext_is_refused() {
 
 #[citadel_io::tokio::test]
 async fn a_tampered_oprf_evaluation_is_refused() {
-    let (record, _) = register("correct horse").await;
+    let record = register("correct horse").await;
     let mut x = begin(Some(&record), "alice", Some("correct horse"), None);
     // A valid group element, but the evaluation under another user's key.
     let forged = begin(Some(&record), "mallory", Some("correct horse"), None);
@@ -183,22 +189,4 @@ async fn a_tampered_oprf_evaluation_is_refused() {
     assert_ne!(real.oprf_evaluated, fake.oprf_evaluated);
     real.oprf_evaluated = fake.oprf_evaluated.clone();
     assert!(is_generic_failure(&complete(x).await));
-}
-
-#[citadel_io::tokio::test]
-async fn a_recovery_code_signs_in_once_to_a_recovery_session() {
-    let (mut record, codes) = register("correct horse").await;
-    let verified = complete(begin(Some(&record), "alice", None, Some(&codes[3])))
-        .await
-        .unwrap();
-    assert_eq!(verified.scope, SessionScope::Recovery);
-    record.record_use(&verified.used, 2_000).unwrap();
-
-    let again = complete(begin(Some(&record), "alice", None, Some(&codes[3]))).await;
-    assert!(
-        is_generic_failure(&again),
-        "a used code must not sign in again"
-    );
-    let other = complete(begin(Some(&record), "alice", None, Some(&codes[4]))).await;
-    assert_eq!(other.unwrap().scope, SessionScope::Recovery);
 }

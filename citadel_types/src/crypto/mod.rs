@@ -30,7 +30,7 @@
 //! use citadel_types::crypto::{KemAlgorithm, EncryptionAlgorithm, SecurityLevel};
 //!
 //! // Create parameters
-//! let params = KemAlgorithm::MlKem
+//! let params = KemAlgorithm::MlKem1024Fips203
 //!     + EncryptionAlgorithm::ChaCha20Poly_1305;
 //!
 //! // Set security level
@@ -59,15 +59,16 @@
 //! - Consider perfect secrecy mode for maximum security
 //! - Properly handle algorithm selection based on requirements
 
-use crate::utils;
+mod level_cap;
+pub use level_cap::{check_structural, LevelAboveMaximum, MaxSecurityLevel, STRUCTURAL_MAX_LEVEL};
+
 use crate::utils::validate_crypto_params;
-use bytes::{Bytes, BytesMut};
 use packed_struct::derive::{PackedStruct, PrimitiveEnum_u8};
 use packed_struct::{PackedStruct, PrimitiveEnum};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use sha3::Digest;
-use std::fmt::{Debug, Formatter};
-use std::ops::{Add, Deref, DerefMut};
+use std::fmt::Debug;
+use std::ops::Add;
 use strum::{EnumCount, IntoEnumIterator, ParseError, VariantNames};
 #[cfg(feature = "typescript")]
 use ts_rs::TS;
@@ -117,225 +118,18 @@ pub trait AlgorithmsExt:
     fn set_crypto_param(&self, params: &mut CryptoParameters);
 }
 
-pub fn add_inner<L: AlgorithmsExt, R: AlgorithmsExt>(lhs: L, rhs: R) -> CryptoParameters {
-    let mut ret = CryptoParameters::default();
-    lhs.set_crypto_param(&mut ret);
+/// Parameters that name `kem`, with `rhs` applied on top. Every sum that builds a
+/// [`CryptoParameters`] goes through here, so none is built without its KEM being named.
+fn with_kem<R: AlgorithmsExt>(kem: KemAlgorithm, rhs: R) -> CryptoParameters {
+    let mut ret = CryptoParameters::from(kem);
     rhs.set_crypto_param(&mut ret);
     ret
 }
 
-/// A memory-secure wrapper for shipping around Bytes
-pub struct SecBuffer {
-    pub inner: BytesMut,
-}
+mod sec_buffer;
+pub use sec_buffer::{SecBuffer, SecureBufMutHandle};
 
-impl SecBuffer {
-    /// Creates an unlocked, empty buffer
-    pub fn empty() -> Self {
-        Self::with_capacity(0)
-    }
-
-    pub fn with_capacity(cap: usize) -> Self {
-        Self::from(BytesMut::with_capacity(cap))
-    }
-
-    /// Returns the inner element without dropping the memory
-    pub fn into_buffer(mut self) -> BytesMut {
-        self.unlock();
-        std::mem::take(&mut self.inner)
-    }
-
-    /// For accessing the inner element
-    pub fn handle(&mut self) -> SecureBufMutHandle<'_> {
-        SecureBufMutHandle::new(self)
-    }
-
-    /// returns the length of the buffer
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    fn lock(&self) {
-        unsafe { utils::mem::mlock(self.slice().as_ptr(), self.inner.len()) }
-    }
-
-    fn unlock(&self) {
-        unsafe { utils::mem::munlock(self.slice().as_ptr(), self.inner.len()) }
-    }
-
-    fn zeroize(&mut self) {
-        unsafe { utils::mem::zeroize(self.slice().as_ptr(), self.inner.len()) }
-    }
-
-    fn slice(&self) -> &[u8] {
-        &self.inner[..]
-    }
-
-    pub fn reserve(&mut self, additional: usize) {
-        let required = self.inner.len().saturating_add(additional);
-        if required <= self.inner.capacity() {
-            // Sufficient capacity already; no reallocation, so no secrets can be left behind.
-            return;
-        }
-        // Grow manually so the old, secret-bearing allocation is zeroized BEFORE it is freed.
-        // Delegating to BytesMut::reserve would reallocate and free the old buffer in the clear,
-        // leaving plaintext lingering in freed heap until some later allocation overwrites it.
-        //
-        // Grow with amortized headroom (at least double the current capacity) rather than to the
-        // exact size, so a sequence of incremental reservations does not reallocate-and-zeroize the
-        // whole accumulated buffer each time — that would be O(n^2) secret-wiping copies. Doubling
-        // keeps the (necessarily copying) reallocations amortized O(1).
-        let new_capacity = required.max(self.inner.capacity().saturating_mul(2));
-        self.unlock();
-        let mut grown = BytesMut::with_capacity(new_capacity);
-        grown.extend_from_slice(&self.inner[..]);
-        // Wipe the old allocation's live bytes, then drop it (replaced below).
-        self.zeroize();
-        self.inner = grown;
-        self.lock();
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-pub struct SecureBufMutHandle<'a> {
-    inner: &'a mut SecBuffer,
-}
-
-impl<'a> SecureBufMutHandle<'a> {
-    fn new(inner: &'a mut SecBuffer) -> SecureBufMutHandle<'a> {
-        inner.unlock();
-        Self { inner }
-    }
-}
-
-impl Deref for SecureBufMutHandle<'_> {
-    type Target = BytesMut;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner.inner
-    }
-}
-
-impl DerefMut for SecureBufMutHandle<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner.inner
-    }
-}
-
-impl Drop for SecureBufMutHandle<'_> {
-    fn drop(&mut self) {
-        self.inner.lock()
-    }
-}
-
-impl AsRef<[u8]> for SecBuffer {
-    fn as_ref(&self) -> &[u8] {
-        &self.inner[..]
-    }
-}
-
-impl AsMut<[u8]> for SecBuffer {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.inner.as_mut()
-    }
-}
-
-impl From<Vec<u8>> for SecBuffer {
-    fn from(inner: Vec<u8>) -> Self {
-        Self::from(BytesMut::from(Bytes::from(inner)))
-    }
-}
-
-impl From<BytesMut> for SecBuffer {
-    fn from(inner: BytesMut) -> Self {
-        let this = Self { inner };
-        this.lock();
-        this
-    }
-}
-
-impl From<Bytes> for SecBuffer {
-    fn from(inner: Bytes) -> Self {
-        // Zero-copy when the `Bytes` uniquely owns its allocation (e.g. came from a
-        // `Vec`/`BytesMut`); otherwise reclaims by copying. Mirrors the `Vec<u8>` path.
-        Self::from(BytesMut::from(inner))
-    }
-}
-
-impl<const N: usize> From<[u8; N]> for SecBuffer {
-    fn from(this: [u8; N]) -> Self {
-        Self::from(&this as &[u8])
-    }
-}
-
-impl From<&[u8]> for SecBuffer {
-    fn from(this: &[u8]) -> Self {
-        Self::from(BytesMut::from(this))
-    }
-}
-
-impl From<&str> for SecBuffer {
-    fn from(this: &str) -> Self {
-        Self::from(BytesMut::from(this))
-    }
-}
-
-impl Drop for SecBuffer {
-    fn drop(&mut self) {
-        self.unlock();
-        self.zeroize();
-    }
-}
-
-impl Debug for SecBuffer {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "***SECRET***")
-    }
-}
-
-impl<T: AsRef<[u8]>> PartialEq<T> for SecBuffer {
-    fn eq(&self, other: &T) -> bool {
-        // Constant time comparison to prevent timing attacks
-        let this = self.as_ref();
-        let other = other.as_ref();
-        utils::const_time_compare(this, other)
-    }
-}
-
-impl Clone for SecBuffer {
-    fn clone(&self) -> Self {
-        self.unlock();
-        let ret = SecBuffer::from(self.inner.clone());
-        self.lock();
-        ret
-    }
-}
-
-impl Serialize for SecBuffer {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
-    where
-        S: Serializer,
-    {
-        self.unlock();
-        let ret = self.inner.serialize(serializer);
-        self.lock();
-        ret
-    }
-}
-
-impl<'de> Deserialize<'de> for SecBuffer {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Ok(Self::from(BytesMut::deserialize(deserializer)?))
-    }
-}
-
-#[derive(PackedStruct, Default, Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(PackedStruct, Serialize, Deserialize, Copy, Clone, Debug)]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
 #[packed_struct(bit_numbering = "msb0")]
@@ -346,6 +140,38 @@ pub struct CryptoParameters {
     pub kem_algorithm: KemAlgorithm,
     #[packed_field(bits = "6..=7", ty = "enum")]
     pub sig_algorithm: SigAlgorithm,
+}
+
+impl CryptoParameters {
+    /// Parameters naming each algorithm. There is no default: the KEM in particular is always
+    /// chosen by the caller, so a sum of algorithms builds parameters only once it names one.
+    ///
+    /// ```
+    /// use citadel_types::crypto::*;
+    /// let params = KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256;
+    /// assert_eq!(params.kem_algorithm, KemAlgorithm::MlKem1024Fips203);
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use citadel_types::crypto::*;
+    /// let params: CryptoParameters = EncryptionAlgorithm::AES_GCM_256 + SigAlgorithm::None;
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use citadel_types::crypto::*;
+    /// let params = CryptoParameters::default();
+    /// ```
+    pub const fn new(
+        encryption_algorithm: EncryptionAlgorithm,
+        kem_algorithm: KemAlgorithm,
+        sig_algorithm: SigAlgorithm,
+    ) -> Self {
+        Self {
+            encryption_algorithm,
+            kem_algorithm,
+            sig_algorithm,
+        }
+    }
 }
 
 const _: () = _compile_time_check();
@@ -367,8 +193,9 @@ const fn _compile_time_check() {
         EncryptionAlgorithm::COUNT <= 16,
         "EncryptionAlgorithm exceeds its 4-bit field (bits 0..=3)"
     );
+    // KEM discriminants start at 1: `0` named the removed round-3 KEM and stays unassigned.
     assert!(
-        KemAlgorithm::COUNT <= 4,
+        KemAlgorithm::COUNT < 4,
         "KemAlgorithm exceeds its 2-bit field (bits 4..=5)"
     );
     assert!(
@@ -377,10 +204,17 @@ const fn _compile_time_check() {
     );
 }
 
+/// Where `kem_algorithm` sits in the packed byte: bits 4..=5 in msb0 numbering.
+const PACKED_KEM_SHIFT: u32 = 2;
+const PACKED_KEM_MASK: u8 = 0b11;
+
 impl TryFrom<u8> for CryptoParameters {
     type Error = crate::errors::Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
+        // A KEM this release does not run (among them the removed round-3 KEM, once `0`) is
+        // refused by name before the rest of the byte is read.
+        KemAlgorithm::try_from((value >> PACKED_KEM_SHIFT) & PACKED_KEM_MASK)?;
         let value: [u8; 1] = [value];
         let this: CryptoParameters = CryptoParameters::unpack(&value)
             .map_err(|err| crate::errors::Error::generic(err.to_string()))?;
@@ -470,7 +304,6 @@ impl TryFrom<u8> for SecrecyMode {
 }
 
 #[derive(
-    Default,
     Copy,
     Clone,
     Debug,
@@ -489,12 +322,8 @@ impl TryFrom<u8> for SecrecyMode {
 #[cfg_attr(feature = "typescript", ts(export))]
 #[repr(u8)]
 pub enum KemAlgorithm {
-    /// Kyber768-90s via `kyber-pke` (AES-256-CTR + SHA-2 internals). The
-    /// original scheme; wire-format unchanged and still the default, so
-    /// existing peers negotiate this and observe no difference.
-    #[strum(ascii_case_insensitive)]
-    #[default]
-    MlKem = 0,
+    // Discriminant 0 named the round-3 Kyber KEM, which is removed: a byte or parameter naming it
+    // is refused as a cast of an unknown value, never read as another KEM.
     /// ML-KEM-768 (FIPS 203) via `libcrux-ml-kem`: SHAKE internals, formally
     /// verified in F* via hax, with runtime-detected AVX2/NEON backends.
     #[strum(ascii_case_insensitive)]
@@ -502,14 +331,6 @@ pub enum KemAlgorithm {
     /// ML-KEM-1024 (FIPS 203) via `libcrux-ml-kem`. Category 5 parameter set.
     #[strum(ascii_case_insensitive)]
     MlKem1024Fips203 = 2,
-}
-
-impl KemAlgorithm {
-    /// True when the variant is served by the `libcrux-ml-kem` backend rather
-    /// than `kyber-pke`.
-    pub const fn is_libcrux(&self) -> bool {
-        matches!(self, Self::MlKem768Fips203 | Self::MlKem1024Fips203)
-    }
 }
 
 impl KemAlgorithm {
@@ -699,23 +520,23 @@ impl<R: AlgorithmsExt> Add<R> for KemAlgorithm {
     type Output = CryptoParameters;
 
     fn add(self, rhs: R) -> Self::Output {
-        add_inner(self, rhs)
+        with_kem(self, rhs)
     }
 }
 
-impl<R: AlgorithmsExt> Add<R> for EncryptionAlgorithm {
+impl Add<KemAlgorithm> for EncryptionAlgorithm {
     type Output = CryptoParameters;
 
-    fn add(self, rhs: R) -> Self::Output {
-        add_inner(self, rhs)
+    fn add(self, kem: KemAlgorithm) -> Self::Output {
+        with_kem(kem, self)
     }
 }
 
-impl<R: AlgorithmsExt> Add<R> for SigAlgorithm {
+impl Add<KemAlgorithm> for SigAlgorithm {
     type Output = CryptoParameters;
 
-    fn add(self, rhs: R) -> Self::Output {
-        add_inner(self, rhs)
+    fn add(self, kem: KemAlgorithm) -> Self::Output {
+        with_kem(kem, self)
     }
 }
 
@@ -728,11 +549,9 @@ impl<R: AlgorithmsExt> Add<R> for CryptoParameters {
     }
 }
 
-impl<T: AlgorithmsExt> From<T> for CryptoParameters {
-    fn from(this: T) -> Self {
-        let mut ret = CryptoParameters::default();
-        this.set_crypto_param(&mut ret);
-        ret
+impl From<KemAlgorithm> for CryptoParameters {
+    fn from(kem: KemAlgorithm) -> Self {
+        CryptoParameters::new(EncryptionAlgorithm::default(), kem, SigAlgorithm::default())
     }
 }
 
@@ -794,6 +613,18 @@ impl AsRef<[Vec<u8>]> for PreSharedKey {
     }
 }
 
+/// Each password's hash is wiped when the key drops.
+impl Drop for PreSharedKey {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.passwords
+            .iter_mut()
+            .for_each(|password| password.zeroize());
+    }
+}
+
+impl zeroize::ZeroizeOnDrop for PreSharedKey {}
+
 impl<T: AsRef<[u8]>> From<T> for PreSharedKey {
     fn from(password: T) -> Self {
         PreSharedKey::default().add_password(password)
@@ -803,6 +634,7 @@ impl<T: AsRef<[u8]>> From<T> for PreSharedKey {
 #[cfg(test)]
 mod coverage_extra {
     use super::*;
+    use crate::errors::ErrorCode;
 
     #[test]
     fn sec_buffer_construct_len_and_mutate() {
@@ -841,7 +673,7 @@ mod coverage_extra {
         // serde round-trip
         let original = SecBuffer::from("payload");
         let bytes = bincode::serialize(&original).unwrap();
-        let back: SecBuffer = bincode::deserialize(&bytes).unwrap();
+        let back: SecBuffer = citadel_io::decode::deserialize(&bytes).unwrap();
         assert_eq!(back.as_ref(), b"payload");
     }
 
@@ -855,7 +687,7 @@ mod coverage_extra {
         // valid discriminant 0 round-trips; 255 is rejected for each enum
         assert!(SecrecyMode::try_from(0).is_ok());
         assert!(SecrecyMode::try_from(255).is_err());
-        assert!(KemAlgorithm::try_from(0).is_ok());
+        assert!(KemAlgorithm::try_from(1).is_ok());
         assert!(KemAlgorithm::try_from(255).is_err());
         assert_eq!(SigAlgorithm::try_from(1).unwrap(), SigAlgorithm::MlDsa65);
         assert!(SigAlgorithm::try_from(255).is_err());
@@ -873,9 +705,41 @@ mod coverage_extra {
 
     #[test]
     fn crypto_parameters_u8_roundtrip() {
-        let params = add_inner(KemAlgorithm::MlKem, EncryptionAlgorithm::AES_GCM_256);
-        let byte: u8 = params.into();
-        let back = CryptoParameters::try_from(byte).unwrap();
-        assert_eq!(u8::from(back), byte);
+        for kem in KemAlgorithm::list() {
+            let params = kem + EncryptionAlgorithm::AES_GCM_256;
+            let byte: u8 = params.into();
+            assert_eq!(
+                (byte >> PACKED_KEM_SHIFT) & PACKED_KEM_MASK,
+                kem as u8,
+                "{kem:?} sits where the refusal reads it"
+            );
+            let back = CryptoParameters::try_from(byte).unwrap();
+            assert_eq!(u8::from(back), byte);
+        }
+    }
+
+    /// The removed round-3 KEM was `0`. Neither the enum nor a parameter byte reads `0` as any
+    /// KEM: both refuse it as a cast of an unknown value into `KemAlgorithm`.
+    #[test]
+    fn the_removed_kem_is_refused_by_name() {
+        let refusal = KemAlgorithm::try_from(0).unwrap_err();
+        assert_eq!(refusal.code(), ErrorCode::CryptoParamEnumCastFailed);
+        assert!(KemAlgorithm::from_u8(0).is_none());
+
+        let valid: u8 = (KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256).into();
+        let naming_the_removed_kem = valid & !(PACKED_KEM_MASK << PACKED_KEM_SHIFT);
+        let refusal = CryptoParameters::try_from(naming_the_removed_kem).unwrap_err();
+        assert_eq!(refusal.code(), ErrorCode::CryptoParamEnumCastFailed);
+        assert!(refusal.to_string().contains("KemAlgorithm"), "{refusal}");
+
+        // The control: the same byte naming a KEM this release runs is read.
+        let naming_ml_kem_768 =
+            naming_the_removed_kem | ((KemAlgorithm::MlKem768Fips203 as u8) << PACKED_KEM_SHIFT);
+        assert_eq!(
+            CryptoParameters::try_from(naming_ml_kem_768)
+                .unwrap()
+                .kem_algorithm,
+            KemAlgorithm::MlKem768Fips203
+        );
     }
 }

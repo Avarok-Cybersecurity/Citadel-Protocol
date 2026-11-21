@@ -63,7 +63,7 @@ mod imp {
 
         let security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(SecrecyMode::BestEffort)
-            .with_crypto_params(KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256)
+            .with_crypto_params(KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256)
             .build()
             .unwrap();
 
@@ -90,12 +90,15 @@ mod imp {
                     .add();
             }
 
-            let settings =
-                DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                    .with_udp_mode(UdpMode::Disabled)
-                    .with_session_security_settings(security)
-                    .build()
-                    .unwrap();
+            let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+                server_addr,
+                uuid,
+                CertVerification::SelfSignedAccepted,
+            )
+            .with_udp_mode(UdpMode::Disabled)
+            .with_session_security_settings(security)
+            .build()
+            .unwrap();
 
             let connected_c = connected.clone();
             let done_c = done.clone();
@@ -152,7 +155,11 @@ mod imp {
 
             clients.push(tokio::task::spawn(
                 DefaultNodeBuilder::default()
+                    .with_link_manager(LinkManagerMode::Legacy)
                     .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                    .with_max_security_level(
+                        citadel_sdk::test_common::localhost_max_security_level(),
+                    )
                     .build(kernel)
                     .unwrap(),
             ));

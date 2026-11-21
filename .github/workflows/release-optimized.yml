@@ -26,11 +26,16 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup dependencies
-        uses: Avarok-Cybersecurity/gh-actions-deps@master
-        continue-on-error: true
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: none
+          cache-on-failure: "false"
+          targets: ""
+          components: ""
+          tools: ""
 
       - name: Rust toolchain + llvm-tools-preview
         run: |
@@ -48,7 +53,7 @@ jobs:
           sudo apt-get update || true
           # BOLT ships inside LLVM; package layout varies by Ubuntu/LLVM version.
           sudo apt-get install -y llvm bolt || sudo apt-get install -y llvm || true
-          BOLT=$(ls /usr/bin/llvm-bolt* /usr/lib/llvm-*/bin/llvm-bolt 2>/dev/null | head -n1 || true)
+          BOLT=$(find /usr/bin /usr/lib -path "*bin/llvm-bolt*" 2>/dev/null | head -n1 || true)
           if [ -n "$BOLT" ] && [ ! -e /usr/local/bin/llvm-bolt ]; then sudo ln -sf "$BOLT" /usr/local/bin/llvm-bolt; fi
           (command -v llvm-bolt && llvm-bolt --version) || echo "llvm-bolt unavailable -> BOLT step will gracefully skip"
 
@@ -57,7 +62,7 @@ jobs:
           BENCH_MSGS: "30000"
           BENCH_LAT_ROUNDS: "3000"
         run: |
-          cargo bench -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput | tee /tmp/baseline.txt
+          cargo bench --locked -p citadel_sdk --features localhost-testing,multi-threaded --bench macro_throughput | tee /tmp/baseline.txt
           cp bench/macro_results.json /tmp/baseline.json || true
 
       - name: PGO build + measure
@@ -79,7 +84,7 @@ jobs:
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-optimized-results
           path: |

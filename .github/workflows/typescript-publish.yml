@@ -15,10 +15,10 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
@@ -38,16 +38,16 @@ jobs:
       - name: Get package version
         id: version
         working-directory: citadel-protocol-types-ts
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Check if version exists on npm
         id: check
         working-directory: citadel-protocol-types-ts
         run: |
           if npm view @avarok/citadel-protocol-types@${{ steps.version.outputs.version }} version 2>/dev/null; then
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
         continue-on-error: true
 
@@ -60,7 +60,7 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.check.outputs.exists != 'true'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ts-v${{ steps.version.outputs.version }}
           name: TypeScript Types v${{ steps.version.outputs.version }}

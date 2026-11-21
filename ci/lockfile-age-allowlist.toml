@@ -1,0 +1,10 @@
+# Exceptions to ci/lockfile_age_gate.py's age floor: a crates.io release younger than the floor that
+# must land anyway, almost always an urgent security patch. Each entry names the exact version, the
+# date it was added and the reason; the gate refuses an entry without all three. Remove an entry
+# once its version is older than the floor.
+#
+# [[exception]]
+# name = "some-crate"
+# version = "1.2.3"
+# added = 2026-11-18
+# reason = "RUSTSEC-YYYY-NNNN fix; the prior release is exploitable through <path>"

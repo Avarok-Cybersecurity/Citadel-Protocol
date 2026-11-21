@@ -64,7 +64,7 @@ pub(crate) mod includes {
     pub(crate) use zerocopy::Ref;
 
     pub(crate) use citadel_crypt::scramble::crypt_splitter::{
-        GroupReceiver, GroupReceiverConfig, GroupReceiverStatus,
+        GroupReceiver, GroupReceiverConfig, GroupReceiverStatus, WaveBinding,
     };
     pub(crate) use citadel_user::client_account::ClientNetworkAccount;
     pub(crate) use netbeam::time_tracker::TimeTracker;
@@ -157,6 +157,8 @@ mod outbound_transfer;
 pub(crate) mod peer_keys;
 mod rekey_and_groups;
 pub(crate) mod relay_route;
+mod revfs_open;
+mod stale_token;
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod test_support;
 mod transfer_error;
@@ -167,6 +169,10 @@ pub(crate) use virtual_connections::RouteEnd;
 
 /// For keeping track of the stages
 pub struct StateContainerInner<R: Ratchet> {
+    /// Where this node gets each account's RE-VFS key; `None` when the node was given none.
+    pub(crate) revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+    /// The accounts' identity keys and pins for P2P key exchanges; `None` when the node was given none.
+    pub(crate) p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     pub(super) pre_connect_state: PreConnectState<R>,
     pub(super) node_remote: NodeRemote<R>,
     /// No hashmap here, since register is only for a single target
@@ -377,6 +383,8 @@ pub struct VirtualConnection<R: Ratchet> {
     /// performs this teardown; `Some` on the server, which does and which holds
     /// both sessions when it forges the pair.
     pub peer_session_init_time: Option<Instant>,
+    /// The accept that forged this route, on the server; `None` on endpoints.
+    pub(crate) forged: Option<relay_route::ForgedRoute>,
 }
 
 impl<R: Ratchet> VirtualConnection<R> {
@@ -409,6 +417,8 @@ pub struct EndpointChannelContainer<R: Ratchet> {
     /// C4/C5: what the peer's message frames may no longer fall below (shared with the
     /// connection's key-epoch handle).
     pub(crate) message_floor: Arc<MessageFloor>,
+    /// How this node seals file and object waves for the peer, from the peer's version.
+    pub(crate) wave_binding: WaveBinding,
 }
 
 pub(crate) struct UnorderedChannelContainer {
@@ -596,8 +606,12 @@ impl<R: Ratchet> StateContainerInner<R> {
         transfer_stats: TransferStats,
         udp_mode: UdpMode,
         ledger: crate::proto::session_ledger::SessionLedger,
+        revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+        p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     ) -> StateContainer<R> {
         let inner = Self {
+            revfs_keys,
+            p2p_kex_identity,
             outgoing_peer_connect_attempts: Default::default(),
             peer_closings: Default::default(),
             peer_turn_configs: Default::default(),
@@ -651,5 +665,26 @@ impl<R: Ratchet> StateContainerInner<R> {
 
     pub fn get_session_password(&self, peer_cid: u64) -> Option<&PreSharedKey> {
         self.peer_keys.password(peer_cid)
+    }
+
+    /// The key a transfer is sealed under: none for a plain transfer; for a RE-VFS one, the
+    /// account's key, without which nothing is sent.
+    pub(crate) fn revfs_key_for_transfer(
+        &self,
+        transfer_type: &citadel_types::proto::TransferType,
+        cid: u64,
+    ) -> Result<Option<citadel_crypt::revfs_seal::RevfsKey>, NetworkError> {
+        match transfer_type {
+            citadel_types::proto::TransferType::RemoteEncryptedVirtualFilesystem { .. } => self
+                .revfs_key(cid)
+                .map(Some)
+                .ok_or_else(|| citadel_io::error!(citadel_io::ErrorCode::RevfsKeyMissing, cid)),
+            _ => Ok(None),
+        }
+    }
+
+    /// The account's RE-VFS key, if this node was given a source and it has one for `cid`.
+    pub(crate) fn revfs_key(&self, cid: u64) -> Option<citadel_crypt::revfs_seal::RevfsKey> {
+        self.revfs_keys.as_ref()?.revfs_key(cid)
     }
 }

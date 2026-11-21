@@ -7,42 +7,18 @@ use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
-use citadel_user::auth::pq::messages::{ManagementDone, ManagementMessage, SignInLayout};
+use citadel_types::auth::SessionScope;
+use citadel_user::auth::pq::messages::{ManagementDone, ManagementMessage};
 use citadel_user::auth::pq::server::{
     begin_management, Change, CommitStep, PendingEnrol, PendingManagement,
 };
+use citadel_user::auth::pq::throttle::Attempt;
 use citadel_user::misc::now_ms;
 
 /// Where a session's management exchange is.
 pub(crate) enum ServerManagement {
     Pending(Box<PendingManagement>),
     Enrolling(PendingEnrol),
-}
-
-/// Client: whether the server at `server_version` can read `message`. A server below
-/// `PQ_SIGN_IN_SINCE` reads no management message; one below `SECURITY_KEY_CEREMONY_SINCE` cannot
-/// enrol a key whose credential the client creates after the challenge.
-pub(crate) fn sendable(
-    message: &ManagementMessage,
-    server_version: Option<u32>,
-) -> Result<(), NetworkError> {
-    if !super::runs_with_known(server_version) {
-        return Err(error!(
-            ErrorCode::PqSignInUnavailable,
-            "the server predates post-quantum sign-in"
-        ));
-    }
-    let needed = match message {
-        ManagementMessage::Begin(begin) => begin.op.layout(),
-        _ => None,
-    };
-    match needed {
-        Some(needed) if needed != super::layout_of(server_version) => Err(error!(
-            ErrorCode::PqSignInUnavailable,
-            "the server predates enrolling a security key this client creates"
-        )),
-        _ => Ok(()),
-    }
 }
 
 fn out_of_order() -> NetworkError {
@@ -52,14 +28,12 @@ fn out_of_order() -> NetworkError {
     )
 }
 
-/// The reply to one management message, in the `layout` its client reads. A failure is a
-/// `Refused`, and drops the exchange.
+/// The reply to one management message. A failure is a `Refused`, and drops the exchange.
 pub(crate) async fn on_message<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     message: ManagementMessage,
-    layout: SignInLayout,
 ) -> ManagementMessage {
-    match handle(session, message, layout).await {
+    match handle(session, message).await {
         Ok(reply) => reply,
         Err(err) => {
             inner_mut_state!(session.state_container)
@@ -74,7 +48,6 @@ pub(crate) async fn on_message<R: Ratchet, T: PlatformOps>(
 async fn handle<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     message: ManagementMessage,
-    layout: SignInLayout,
 ) -> Result<ManagementMessage, NetworkError> {
     let cid = session
         .session_cid
@@ -106,8 +79,11 @@ async fn handle<R: Ratchet, T: PlatformOps>(
                 )
             })?;
             let scope = inner_state!(session.state_container).connect_state.pq.scope;
-            let (challenge, pending) =
-                begin_management(settings, cid, &record, scope, begin, layout)?;
+            // A step-up proves the account's factors again, so it is a guess like a sign-in's.
+            if scope == SessionScope::Full {
+                super::throttle::admit(session, &begin.step_up.username, Attempt::SignIn)?;
+            }
+            let (challenge, pending) = begin_management(settings, cid, &record, scope, begin)?;
             inner_mut_state!(session.state_container)
                 .connect_state
                 .pq
@@ -115,16 +91,18 @@ async fn handle<R: Ratchet, T: PlatformOps>(
             Ok(ManagementMessage::Challenge(challenge))
         }
         ManagementMessage::Commit(commit) => match take(session) {
-            Some(ServerManagement::Pending(pending)) => match pending.commit(&commit)? {
-                CommitStep::Ready(change) => apply(session, cid, change).await,
-                CommitStep::Enrol(challenge, enrolling) => {
-                    inner_mut_state!(session.state_container)
-                        .connect_state
-                        .pq
-                        .manage = Some(ServerManagement::Enrolling(enrolling));
-                    Ok(ManagementMessage::EnrolChallenge(challenge))
+            Some(ServerManagement::Pending(pending)) => {
+                match step_up_outcome(session, cid, pending.commit(&commit)).await? {
+                    CommitStep::Ready(change) => apply(session, cid, change).await,
+                    CommitStep::Enrol(challenge, enrolling) => {
+                        inner_mut_state!(session.state_container)
+                            .connect_state
+                            .pq
+                            .manage = Some(ServerManagement::Enrolling(enrolling));
+                        Ok(ManagementMessage::EnrolChallenge(challenge))
+                    }
                 }
-            },
+            }
             _ => Err(out_of_order()),
         },
         ManagementMessage::EnrolProof(proof) => match take(session) {
@@ -135,6 +113,22 @@ async fn handle<R: Ratchet, T: PlatformOps>(
         },
         _ => Err(out_of_order()),
     }
+}
+
+/// The throttle learns whether a full session's step-up proved the account's factors.
+async fn step_up_outcome<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    cid: u64,
+    committed: Result<CommitStep, NetworkError>,
+) -> Result<CommitStep, NetworkError> {
+    let scope = inner_state!(session.state_container).connect_state.pq.scope;
+    let failed = matches!(&committed, Err(err) if err.code == ErrorCode::PqSignInFailed);
+    if scope == SessionScope::Full && (committed.is_ok() || failed) {
+        if let Some(username) = session.account_manager.get_username_by_cid(cid).await? {
+            super::throttle::outcome(session, &username, Attempt::SignIn, committed.is_ok());
+        }
+    }
+    committed
 }
 
 fn take<R: Ratchet, T: PlatformOps>(session: &CitadelSession<R, T>) -> Option<ServerManagement> {

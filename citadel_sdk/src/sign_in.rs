@@ -1,8 +1,9 @@
 //! Managing a post-quantum account's sign-in factors from an authenticated session: list, add a
-//! security key, rename, remove, set the policy, regenerate the recovery codes.
+//! security key, rename, remove, set the policy, set the password, replace the recovery phrase.
 //!
 //! Every change carries a fresh step-up (the account's factors, proven again, bound to the change)
-//! except in a session signed in with a recovery code, which may only add a key and set the policy.
+//! except in a recovery console session (signed in with the phrase), which proves nothing again
+//! and may only manage credentials (`SignInManagementOp::allowed_in_recovery`).
 //!
 //! Security keys need the server to name its relying party, with
 //! `PqAuthServerSettings::with_security_key_rp_id`. With the `security-key` feature, the client's
@@ -36,6 +37,16 @@ pub trait SignInManagementExt {
         op: SignInManagementOp,
         step_up: SignInFactors,
     ) -> Result<SignInManagementOutcome, NetworkError>;
+
+    /// Sets the account's password: a forgotten one from the recovery console (`step_up` empty),
+    /// or a change from a full one (`step_up` the factors the policy asks for, the current
+    /// password among them). The new password never leaves this device; the server gets a fresh
+    /// factor's key, and the old password stops working at once. Other sessions keep running.
+    async fn set_password<P: Into<SecBuffer> + Send>(
+        &self,
+        new_password: P,
+        step_up: SignInFactors,
+    ) -> Result<(), NetworkError>;
 }
 
 #[async_trait]
@@ -45,67 +56,93 @@ impl<R: Ratchet> SignInManagementExt for CitadelClientServerConnection<R> {
         op: SignInManagementOp,
         step_up: SignInFactors,
     ) -> Result<SignInManagementOutcome, NetworkError> {
-        let cid = self.cid;
-        let remote = &self.remote;
-        let username = remote
-            .account_manager()
-            .get_username_by_cid(cid)
-            .await?
-            .ok_or_else(|| error!(ErrorCode::SessionClientNotLoaded))?;
-        let (begin, client) =
-            ClientManagement::begin(&username, op.clone(), step_up.password.as_ref())?;
-        let challenge = match exchange(remote, cid, ManagementMessage::Begin(begin)).await? {
-            ManagementMessage::Challenge(challenge) => challenge,
-            other => return Err(unexpected(other)),
-        };
-        let key = step_up.security_key.as_ref();
-        let ask = |purpose, request| async move {
-            let key = key.ok_or_else(|| {
-                error!(ErrorCode::PqSignInFactorMissing, "a security key channel")
-            })?;
-            key.ask(purpose, request).await
-        };
-        let step_up_key = match ClientManagement::step_up_key_request(&challenge)? {
-            Some(request) => Some(ask(SecurityKeyPurpose::StepUp, request).await?),
-            None => None,
-        };
-        let new_key = match client.new_key_request(&challenge)? {
-            Some(request) => Some(ask(SecurityKeyPurpose::Enrol, request).await?),
-            None => None,
-        };
-        let (commit, committed) = client.commit(cid, &challenge, step_up_key, new_key).await?;
-        let done = match exchange(remote, cid, ManagementMessage::Commit(commit)).await? {
-            ManagementMessage::EnrolChallenge(enrol) => {
-                let proof = committed.enrol_proof(cid, &enrol)?;
-                exchange(remote, cid, ManagementMessage::EnrolProof(proof)).await?
-            }
-            other => other,
-        };
-        let outcome = match done {
-            ManagementMessage::Done(ManagementDone::Done(outcome)) => outcome,
-            other => return Err(unexpected(other)),
-        };
-        Ok(match outcome {
-            ServerOutcome::Credentials {
-                policy,
-                credentials,
-            } => SignInManagementOutcome::Credentials {
-                policy,
-                credentials,
-            },
-            ServerOutcome::Added { id } => SignInManagementOutcome::Added { id },
-            ServerOutcome::Renamed => SignInManagementOutcome::Renamed,
-            ServerOutcome::Removed => SignInManagementOutcome::Removed,
-            ServerOutcome::PolicySet => SignInManagementOutcome::PolicySet,
-            ServerOutcome::RecoveryCodesReplaced => SignInManagementOutcome::RecoveryCodes(
-                committed
-                    .into_recovery_codes()
-                    .iter()
-                    .map(|code| code.display().to_string())
-                    .collect(),
-            ),
-        })
+        run(self, op, step_up, None).await
     }
+
+    async fn set_password<P: Into<SecBuffer> + Send>(
+        &self,
+        new_password: P,
+        step_up: SignInFactors,
+    ) -> Result<(), NetworkError> {
+        let password = ProposedCredentials::registration_password(&new_password.into());
+        let op = SignInManagementOp::SetPassword;
+        match run(self, op, step_up, Some(password)).await? {
+            SignInManagementOutcome::PasswordSet => Ok(()),
+            _ => Err(error!(
+                ErrorCode::PqSignInMalformed,
+                "a password change's outcome"
+            )),
+        }
+    }
+}
+
+async fn run<R: Ratchet>(
+    conn: &CitadelClientServerConnection<R>,
+    op: SignInManagementOp,
+    step_up: SignInFactors,
+    new_password: Option<SecBuffer>,
+) -> Result<SignInManagementOutcome, NetworkError> {
+    let cid = conn.cid;
+    let remote = &conn.remote;
+    let username = remote
+        .account_manager()
+        .get_username_by_cid(cid)
+        .await?
+        .ok_or_else(|| error!(ErrorCode::SessionClientNotLoaded))?;
+    let (begin, client) = ClientManagement::begin(
+        &username,
+        op.clone(),
+        step_up.password.as_ref(),
+        new_password.as_ref(),
+    )?;
+    let challenge = match exchange(remote, cid, ManagementMessage::Begin(begin)).await? {
+        ManagementMessage::Challenge(challenge) => challenge,
+        other => return Err(unexpected(other)),
+    };
+    let key = step_up.security_key.as_ref();
+    let ask = |purpose, request| async move {
+        let key =
+            key.ok_or_else(|| error!(ErrorCode::PqSignInFactorMissing, "a security key channel"))?;
+        key.ask(purpose, request).await
+    };
+    let step_up_key = match ClientManagement::step_up_key_request(&challenge)? {
+        Some(request) => Some(ask(SecurityKeyPurpose::StepUp, request).await?),
+        None => None,
+    };
+    let new_key = match client.new_key_request(&challenge)? {
+        Some(request) => Some(ask(SecurityKeyPurpose::Enrol, request).await?),
+        None => None,
+    };
+    let (commit, committed) = client.commit(cid, &challenge, step_up_key, new_key).await?;
+    let done = match exchange(remote, cid, ManagementMessage::Commit(commit)).await? {
+        ManagementMessage::EnrolChallenge(enrol) => {
+            let proof = committed.enrol_proof(cid, &enrol)?;
+            exchange(remote, cid, ManagementMessage::EnrolProof(proof)).await?
+        }
+        other => other,
+    };
+    let outcome = match done {
+        ManagementMessage::Done(ManagementDone::Done(outcome)) => outcome,
+        other => return Err(unexpected(other)),
+    };
+    Ok(match outcome {
+        ServerOutcome::Credentials {
+            policy,
+            credentials,
+        } => SignInManagementOutcome::Credentials {
+            policy,
+            credentials,
+        },
+        ServerOutcome::Added { id } => SignInManagementOutcome::Added { id },
+        ServerOutcome::Renamed => SignInManagementOutcome::Renamed,
+        ServerOutcome::Removed => SignInManagementOutcome::Removed,
+        ServerOutcome::PolicySet => SignInManagementOutcome::PolicySet,
+        ServerOutcome::PasswordSet => SignInManagementOutcome::PasswordSet,
+        ServerOutcome::RecoveryPhraseReplaced => match committed.into_recovery_phrase() {
+            Some(seed) => SignInManagementOutcome::RecoveryPhrase(seed.words()),
+            None => return Err(error!(ErrorCode::PqSignInMalformed, "a phrase's outcome")),
+        },
+    })
 }
 
 fn unexpected(message: ManagementMessage) -> NetworkError {

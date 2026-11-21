@@ -59,7 +59,7 @@ pub struct ServerMiscSettings {
     pub pq_sign_in: Option<PqAuthServerSettings>,
     /// An optional check a FRESH sign-in or registration must pass before the server does any
     /// work on it, such as a Turnstile token (see [`crate::auth::pq::admission`]). `None`
-    /// admits everyone. A resume-token reconnect and a recovery-code sign-in are not asked.
+    /// admits everyone. A resume-token reconnect is not asked; a recovery is (as `Recover`).
     pub admission: Option<Arc<dyn AdmissionPolicy>>,
 }
 

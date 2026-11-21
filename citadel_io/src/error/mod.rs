@@ -11,6 +11,7 @@
 mod code;
 mod construct;
 mod detail;
+mod wire;
 
 pub use code::ErrorCode;
 
@@ -200,6 +201,10 @@ impl<T: Debug> Display for Dbg<T> {
 
 impl From<std::io::Error> for NetworkError {
     fn from(err: std::io::Error) -> Self {
+        // An io::Error carrying a coded error keeps its code.
+        if let Some(coded) = err.get_ref().and_then(|e| e.downcast_ref::<NetworkError>()) {
+            return coded.clone();
+        }
         Self::from_parts(
             ErrorCode::Io,
             concat!(file!(), ":", line!()),

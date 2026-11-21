@@ -934,11 +934,6 @@ impl futures::Future for CitadelNodePeerLayerExecutor {
     }
 }
 
-/// Reads a field appended after a signal's original fields: a signal from a node that predates
-/// the field ends where it would begin and reads as `None`. One definition, the negotiation
-/// crate's, for every appended field.
-use citadel_negotiation::frame::appended_field;
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[allow(variant_size_differences)]
 pub enum PeerSignal {
@@ -968,21 +963,16 @@ pub enum PeerSignal {
         /// The connection that ended. Every connection that closes is reported with it (its
         /// channel's, its vConn's or its stream's end, and a disconnect the application asked
         /// for). `None` names no connection: the server's notice that the peer's whole session
-        /// ended, or a peer whose SDK predates the token. It must not be taken for the end of
-        /// a connection that has one; that connection's own end follows, named.
-        #[serde(default)]
+        /// ended. It must not be taken for the end of a connection that has one; that
+        /// connection's own end follows, named.
         disconnect_token: Option<DisconnectToken>,
         /// Why the connection was closed, when it was closed on purpose (see
-        /// [`DisconnectReason`](super::negotiation::reason::DisconnectReason)). Appended last, so
-        /// an older node ignores it and one from an older node reads as `None`. The server
-        /// rebuilds this signal rather than relaying its bytes, so a server below
-        /// `NEGOTIATION_SINCE` drops it; the negotiation lane carries it past such a server.
-        #[serde(default, deserialize_with = "appended_field")]
+        /// [`DisconnectReason`](super::negotiation::reason::DisconnectReason)). The server
+        /// rebuilds this signal rather than relaying its bytes, and copies the reason across.
         reason: Option<super::negotiation::reason::DisconnectReason>,
     },
     DisconnectUDP {
         peer_conn_type: PeerConnectionType,
-        #[serde(default)]
         disconnect_token: Option<DisconnectToken>,
     },
     // This is used for the mailbox
@@ -1024,16 +1014,15 @@ pub enum PeerSignal {
         peer_conn_type: PeerConnectionType,
         kex_payload: KeyExchangeProcess,
         /// `PROTOCOL_VERSION` of the peer that built this key-exchange stage. The server relays
-        /// it unchanged. Appended last so an older node ignores it (bincode allows trailing
-        /// bytes); a signal from an older node, or one re-serialized by an older server, ends
-        /// before it and reads as `None`.
-        #[serde(default, deserialize_with = "appended_field")]
-        sender_protocol_version: Option<u32>,
-        /// The offers of both peers and the plan the server stamped (see `kex_path`). Appended
-        /// after the version, so an older node ignores it and one from an older node reads as
-        /// `None`; an older server drops it while relaying.
-        #[serde(default, deserialize_with = "appended_field")]
+        /// it unchanged; the receiving peer refuses a version it does not take part with
+        /// (`version_gate`).
+        sender_protocol_version: u32,
+        /// The offers of both peers and the plan the server stamped (see `kex_path`).
         path: Option<super::kex_path::KexPath>,
+        /// The sender's identity signature over this stage's transcript (see `kex_auth`), on
+        /// Stage0 and Stage1, when its account has an identity key. The server relays it
+        /// unchanged.
+        auth: Option<super::kex_auth::KexAuth>,
     },
     /// WebRTC signaling relay (SDP offer/answer + ICE candidates).
     /// Used by WASM peers to establish DataChannel P2P connections.
@@ -1042,8 +1031,7 @@ pub enum PeerSignal {
         payload: super::peer_crypt::WebRtcSignalingPayload,
     },
     /// Post-quantum sign-in management between a client and its server (see
-    /// `proto::pq_sign_in::manage`). Appended last; sent only to a server at `PQ_SIGN_IN_SINCE`
-    /// or later.
+    /// `proto::pq_sign_in::manage`).
     SignInManagement {
         session_cid: u64,
         message: citadel_user::auth::pq::messages::ManagementMessage,
@@ -1126,13 +1114,15 @@ mod tests {
             },
             ticket_opt: Some(ticket),
             invitee_response: None,
-            session_security_settings: Default::default(),
+            session_security_settings: crate::prelude::SessionSecuritySettingsBuilder::default()
+                .build()
+                .unwrap(),
             udp_mode: Default::default(),
             session_password: None,
         }
     }
 
-    fn kex_stage2(sender_protocol_version: Option<u32>) -> PeerSignal {
+    fn kex_stage2(sender_protocol_version: u32) -> PeerSignal {
         PeerSignal::Kex {
             peer_conn_type: PeerConnectionType::LocalGroupPeer {
                 session_cid: 1,
@@ -1141,10 +1131,11 @@ mod tests {
             kex_payload: KeyExchangeProcess::Stage2(7, None, true),
             sender_protocol_version,
             path: None,
+            auth: None,
         }
     }
 
-    fn sender_version_and_sync_time(signal: PeerSignal) -> (Option<u32>, i64) {
+    fn sender_version_and_sync_time(signal: PeerSignal) -> (u32, i64) {
         match signal {
             PeerSignal::Kex {
                 kex_payload: KeyExchangeProcess::Stage2(sync_time, _, _),
@@ -1158,37 +1149,24 @@ mod tests {
     #[test]
     fn a_kex_carries_its_senders_protocol_version() {
         let version = *crate::constants::PROTOCOL_VERSION;
-        let bytes = kex_stage2(Some(version)).serialize_to_vector().unwrap();
+        let bytes = kex_stage2(version).serialize_to_vector().unwrap();
         let signal = PeerSignal::deserialize_from_vector(&bytes).unwrap();
-        assert_eq!(sender_version_and_sync_time(signal), (Some(version), 7));
+        assert_eq!(sender_version_and_sync_time(signal), (version, 7));
     }
 
-    /// A node that predates the field sends the same signal without it (an `Option<u32>`
-    /// that is `Some` occupies five bytes, followed by the one byte of an absent path). It must
-    /// still parse, as "unknown".
+    /// A key exchange encoded without the sender's version (the layout before the field) does
+    /// not parse: there is no "unknown version" to fall back on. The full encoding is the
+    /// control, and parses (above).
     #[test]
-    fn a_kex_from_an_older_node_reads_as_an_unknown_version() {
-        let bytes = kex_stage2(Some(*crate::constants::PROTOCOL_VERSION))
+    fn a_kex_without_its_senders_version_is_refused() {
+        let bytes = kex_stage2(*crate::constants::PROTOCOL_VERSION)
             .serialize_to_vector()
             .unwrap();
-        let legacy = &bytes[..bytes.len() - 6];
-        let signal = PeerSignal::deserialize_from_vector(legacy)
-            .expect("a Kex from an older node must still parse");
-        assert_eq!(sender_version_and_sync_time(signal), (None, 7));
-    }
-
-    /// An older node reads a signal as its own fields followed by bytes it ignores, so the
-    /// new encoding must be the old one with the field appended.
-    #[test]
-    fn a_new_kex_is_the_old_encoding_with_the_version_appended() {
-        // Both appended fields absent: one byte each.
-        let without = kex_stage2(None).serialize_to_vector().unwrap();
-        let legacy = &without[..without.len() - 2];
-        let with = kex_stage2(Some(*crate::constants::PROTOCOL_VERSION))
-            .serialize_to_vector()
-            .unwrap();
-        assert!(with.starts_with(legacy));
-        assert_eq!(with.len(), legacy.len() + 5 + 1);
+        // The version occupies four bytes, followed by one byte each of an absent path and an
+        // absent signature.
+        let without_version = &bytes[..bytes.len() - 6];
+        assert!(PeerSignal::deserialize_from_vector(without_version).is_err());
+        assert!(PeerSignal::deserialize_from_vector(&bytes).is_ok());
     }
 
     /// Consuming a `PostConnect` response (the establishment commitment) must atomically purge

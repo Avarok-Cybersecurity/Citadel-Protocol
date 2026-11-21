@@ -11,6 +11,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 mod group_limits;
+mod nat_class;
 mod offer_strength;
 mod path_plan;
 #[cfg(test)]
@@ -19,7 +20,9 @@ mod path_policy;
 mod path_policy_error;
 #[cfg(test)]
 mod path_policy_tests;
+pub mod timing;
 pub use group_limits::{GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal};
+pub use nat_class::{IpTranslationClass, NatClass, PortTranslationClass};
 pub use offer_strength::{falls_short_of, stronger_offer};
 pub use path_plan::{
     effective_plan, EffectivePlan, PairFeasibility, PathOffer, PathRestrictions, PlannedPath,
@@ -121,7 +124,7 @@ impl VirtualObjectMetadata {
     }
 
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(input: T) -> Option<Self> {
-        bincode::deserialize(input.as_ref()).ok()
+        citadel_io::decode::deserialize(input.as_ref()).ok()
     }
 
     pub fn get_security_level(&self) -> Option<SecurityLevel> {
@@ -211,7 +214,7 @@ impl std::fmt::Display for ObjectTransferStatus {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
 pub struct SessionSecuritySettings {
@@ -274,19 +277,23 @@ pub struct MessageGroupOptions {
     pub group_type: GroupType,
     pub id: u128,
     /// Whether the group uses the flat zero-trust CGKA or the Decentralized Hierarchy Encryption overlay.
+    ///
+    /// This and the relay options are absent from the TypeScript type, so a JSON caller that omits
+    /// them gets their defaults. A bincode reader has no field names and reads every field: an
+    /// encoding that stops early is refused.
     #[cfg_attr(feature = "typescript", ts(skip))]
     #[serde(default)]
     pub hierarchy: GroupHierarchyMode,
     /// Whether the server relays this group's broadcasts only to members online at the time: an
     /// offline member is never mailed them. For traffic that is stale by the time anyone reads it
-    /// (presence, heartbeats). `false` mails them, as groups always have. Appended: a node that
-    /// predates it neither sends nor reads it.
+    /// (presence, heartbeats). `false` mails them.
     #[cfg_attr(feature = "typescript", ts(skip))]
-    #[serde(default, deserialize_with = "crate::wire_compat::ok_or_default")]
+    #[serde(default)]
     pub ephemeral: bool,
-    /// The caps the server holds each message to, or `None` for none (as groups always had).
+    /// The caps the server holds each message to, or `None` for none. Caps that fail validation
+    /// refuse the whole message.
     #[cfg_attr(feature = "typescript", ts(skip))]
-    #[serde(default, deserialize_with = "crate::wire_compat::ok_or_default")]
+    #[serde(default)]
     pub limits: Option<GroupMessageLimits>,
 }
 
@@ -687,7 +694,7 @@ impl VirtualConnectionType {
 
     /// Deserializes from bytes.
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(this: T) -> Option<Self> {
-        bincode::deserialize(this.as_ref()).ok()
+        citadel_io::decode::deserialize(this.as_ref()).ok()
     }
 
     /// Gets the target CID, agnostic to connection type.

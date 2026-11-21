@@ -6,16 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// How the two ends of a connection pair their subscriptions and time a synchronized start.
+/// How the two ends of a connection pair their subscriptions and time a synchronized start. Both
+/// ends name the same revision; there is one, and a later one would be added here.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum WireRevision {
-    /// The original wire format, for a peer that predates [`WireRevision::Exchanged`].
-    ///
-    /// The first 32 subscription ids open without any message, so each side pairs them by how
-    /// many subscriptions it has opened, and a synchronized start sends the receiver's wall
-    /// clock. One unmatched call on one side shifts every later pairing on the connection, and a
-    /// peer's clock lead delays the start by that lead.
-    CountPaired,
     /// Every subscription id is proposed by the [`Receiver`](crate::sync::RelativeNodeType) and
     /// acknowledged by the initiator, within a [`Topic`] both sides name, so a call the peer never
     /// matched cannot shift a later pairing. A synchronized start sends a delay relative to

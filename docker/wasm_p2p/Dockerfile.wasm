@@ -16,14 +16,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # wasm-pack
 RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-# WASM target
-RUN rustup target add wasm32-unknown-unknown
-
 # Copy source
 COPY . .
 
+# The toolchain rust-toolchain.toml names, not the base image's, and its WASM target
+RUN rustup toolchain install && rustup target add wasm32-unknown-unknown
+
 # Pre-compile WASM test artifacts to warm the cargo cache
-RUN cargo test --target wasm32-unknown-unknown \
+RUN cargo test --locked --target wasm32-unknown-unknown \
     -p citadel_sdk --no-default-features \
     --test wasm_p2p_connect --no-run --release || true
 

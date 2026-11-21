@@ -11,13 +11,12 @@ fn psks() -> Vec<Vec<u8>> {
     vec![b"Hello".to_vec(), b"World".to_vec()]
 }
 
-/// Build a connected (alice, bob) ratchet pair for `enc`/MlKem at `sec`.
+/// Build a connected (alice, bob) ratchet pair for `enc`/ML-KEM-768 at `sec`.
 pub fn make_ratchets(
     enc: EncryptionAlgorithm,
     sec: SecurityLevel,
 ) -> (StackedRatchet, StackedRatchet) {
-    let params: CryptoParameters = KemAlgorithm::MlKem + enc;
-    let params = Some(params);
+    let params: CryptoParameters = KemAlgorithm::MlKem768Fips203 + enc;
     let psks = psks();
 
     let mut alice = <StackedRatchet as Ratchet>::Constructor::new_alice(

@@ -2,17 +2,17 @@
 //! possession for a key being added, then the change itself.
 
 use super::change::Change;
+use super::enrol::enrol;
+pub use super::enrol::{NewKey, PendingEnrol};
 use super::login::{build_login_challenge, AccountAuth, Expectation, Expected};
+use super::register::{registration_reply, PendingRegistration};
 use super::PqAuthServerSettings;
-use crate::auth::pq::kem::{encapsulate, EncapsulationKey, SharedSecret};
 use crate::auth::pq::messages::{
-    transcript_bytes, ChallengeBody, EnrolChallenge, EnrolProof, FactorChallenges, LoginChallenge,
-    ManagementBegin, ManagementCeremony, ManagementChallenge, ManagementCommit, ManagementOp,
-    NewSecurityKey, SignInLayout,
+    ChallengeBody, EnrolChallenge, FactorChallenges, LoginChallenge, ManagementBegin,
+    ManagementCeremony, ManagementChallenge, ManagementCommit, ManagementOp, NewSecurityKey,
+    RegStart,
 };
-use crate::auth::pq::proof::{verify_factor_tag, TranscriptHash, TranscriptPurpose, ENROL_LABEL};
 use crate::auth::pq::record::PqAuthRecord;
-use crate::auth::pq::recovery::RECOVERY_CODE_COUNT;
 use crate::auth::pq::{management_transcript, random_32};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
@@ -34,42 +34,47 @@ pub struct PendingManagement {
     challenge: ManagementChallenge,
     /// `None` in a recovery session, which proves no factor again.
     expected: Option<Expected>,
+    /// `SetPassword`: the salt and parameters the new factor is stretched with.
+    password: Option<PendingRegistration>,
 }
 
-/// Starts a change, answering in the client's `layout`. A recovery session may only make the
-/// changes it is allowed.
+/// Starts a change. A recovery session may only make the changes it is allowed.
 pub fn begin_management(
     settings: &PqAuthServerSettings,
     cid: u64,
     record: &PqAuthRecord,
     scope: SessionScope,
     begin: ManagementBegin,
-    layout: SignInLayout,
 ) -> Result<(ManagementChallenge, PendingManagement), AccountError> {
-    if begin.op.layout().is_some_and(|needed| needed != layout) {
-        return Err(malformed("a change from another protocol version"));
-    }
     if scope == SessionScope::Recovery && !begin.op.allowed_in_recovery() {
         return Err(error!(ErrorCode::PqSignInRestricted));
     }
     if begin.step_up.recovery.is_some() {
-        return Err(malformed("a step-up with a recovery code"));
+        return Err(malformed("a step-up with a recovery factor"));
     }
-    let codes = begin.recovery_eks.len();
-    match begin.op {
-        ManagementOp::RegenerateRecoveryCodes if codes != RECOVERY_CODE_COUNT => {
-            return Err(malformed("the recovery code count"))
-        }
-        ManagementOp::RegenerateRecoveryCodes => {}
-        _ if codes != 0 => return Err(malformed("recovery keys for another change")),
+    if begin.recovery_eks.len() != begin.op.recovery_key_count() {
+        return Err(malformed("the recovery key count"));
+    }
+    let password = match &begin.op {
         ManagementOp::AddSecurityKey { .. } if settings.security_key_rp_id().is_none() => {
             return Err(error!(
                 ErrorCode::PqSignInUnavailable,
                 "this server has not enabled security keys"
             ))
         }
-        _ => {}
-    }
+        ManagementOp::SetPassword { oprf_blinded } => {
+            let start = RegStart {
+                username: begin.step_up.username.clone(),
+                oprf_blinded: oprf_blinded.clone(),
+                admission: None,
+            };
+            let (mut reply, pending) = registration_reply(settings, &start)?;
+            // Only the password changes; the account's keys keep their PRF salt.
+            reply.prf_eval_salt = record.prf_eval_salt;
+            Some((reply, pending))
+        }
+        _ => None,
+    };
     let (step_up, expected) = match scope {
         SessionScope::Full => {
             let account = AccountAuth::PostQuantum(record);
@@ -80,18 +85,16 @@ pub fn begin_management(
         }
         SessionScope::Recovery => (recovery_challenge(record), None),
     };
-    let ceremony = match layout {
-        SignInLayout::V0_12_2 => None,
-        SignInLayout::SecurityKeyCeremony => Some(ManagementCeremony {
-            rp_id: settings.security_key_rp_id().map(str::to_owned),
-            exclude_credentials: match begin.op {
-                ManagementOp::AddSecurityKey { .. } => record
-                    .usable(FactorKind::SecurityKey)
-                    .filter_map(|key| key.credential_id.clone())
-                    .collect(),
-                _ => Vec::new(),
-            },
-        }),
+    let ceremony = ManagementCeremony {
+        rp_id: settings.security_key_rp_id().map(str::to_owned),
+        exclude_credentials: match begin.op {
+            ManagementOp::AddSecurityKey { .. } => record
+                .usable(FactorKind::SecurityKey)
+                .filter_map(|key| key.credential_id.clone())
+                .collect(),
+            _ => Vec::new(),
+        },
+        password: password.as_ref().map(|(reply, _)| reply.clone()),
     };
     let challenge = ManagementChallenge { step_up, ceremony };
     let pending = PendingManagement {
@@ -99,6 +102,7 @@ pub fn begin_management(
         begin,
         challenge: challenge.clone(),
         expected,
+        password: password.map(|(_, pending)| pending),
     };
     Ok((challenge, pending))
 }
@@ -127,9 +131,6 @@ pub enum CommitStep {
 
 impl PendingManagement {
     pub fn commit(self, commit: &ManagementCommit) -> Result<CommitStep, AccountError> {
-        if commit.ceremony.is_some() != self.challenge.ceremony.is_some() {
-            return Err(malformed("a commit in another layout than its challenge"));
-        }
         let transcript = management_transcript(
             self.cid,
             &self.begin,
@@ -146,96 +147,42 @@ impl PendingManagement {
             None if commit.step_up.tags.is_empty() => {}
             None => return Err(malformed("step-up tags in a recovery session")),
         }
-        let new_key = match (&commit.new_key_ek, &commit.ceremony) {
-            (Some(_), Some(_)) => return Err(malformed("a key in both layouts")),
-            (Some(ek), None) => Some(Added::Created(ek.clone())),
-            (None, Some(ceremony)) => ceremony.new_key.clone().map(Added::ByCeremony),
-            (None, None) => None,
+        let password_ek = commit.ceremony.password_ek.clone();
+        let change = match (self.begin.op, self.password, password_ek) {
+            (ManagementOp::SetPassword { .. }, Some(pending), Some(ek)) => {
+                let (salt_user, ksf) = pending.password_parts();
+                return Ok(CommitStep::Ready(Change::SetPassword {
+                    ek,
+                    salt_user,
+                    ksf,
+                }));
+            }
+            (ManagementOp::SetPassword { .. }, ..) => {
+                return Err(malformed("a new password's key"))
+            }
+            (_, _, Some(_)) => return Err(malformed("a password for another change")),
+            (op, ..) => op,
         };
-        let change = match (self.begin.op, new_key) {
-            (ManagementOp::AddSecurityKey { label }, Some(Added::ByCeremony(new_key))) => {
+        let recovery_eks = self.begin.recovery_eks;
+        let new_key = commit.ceremony.new_key.clone();
+        let change = match (change, new_key) {
+            (ManagementOp::AddSecurityKey { label }, Some(new_key)) => {
                 let NewSecurityKey { credential_id, ek } = new_key;
                 return enrol(self.cid, transcript, ek, credential_id, label);
             }
-            (
-                ManagementOp::AddCreatedSecurityKey {
-                    credential_id,
-                    label,
-                },
-                Some(Added::Created(ek)),
-            ) => return enrol(self.cid, transcript, ek, credential_id, label),
-            (ManagementOp::AddSecurityKey { .. }, _)
-            | (ManagementOp::AddCreatedSecurityKey { .. }, _) => {
-                return Err(malformed("a key to add"))
-            }
+            (ManagementOp::AddSecurityKey { .. }, None) => return Err(malformed("a key to add")),
             (_, Some(_)) => return Err(malformed("a key for another change")),
             (ManagementOp::ListCredentials, None) => Change::List,
             (ManagementOp::RenameCredential { id, label }, None) => Change::Rename { id, label },
             (ManagementOp::RemoveCredential { id }, None) => Change::Remove { id },
             (ManagementOp::SetSignInPolicy { policy }, None) => Change::SetPolicy(policy),
-            (ManagementOp::RegenerateRecoveryCodes, None) => {
-                Change::ReplaceRecovery(self.begin.recovery_eks)
+            (ManagementOp::RegenerateRecoveryPhrase, None) => {
+                let ek = recovery_eks.into_iter().next();
+                let ek = ek.ok_or_else(|| malformed("the recovery key count"))?;
+                Change::ReplaceRecoveryPhrase(ek)
             }
+            (ManagementOp::SetPassword { .. }, None) => return Err(malformed("a new password")),
         };
         Ok(CommitStep::Ready(change))
-    }
-}
-
-/// The key a commit adds, in either layout.
-enum Added {
-    /// 0.12.2: the credential id came in `Begin`.
-    Created(EncapsulationKey),
-    ByCeremony(NewSecurityKey),
-}
-
-/// The proof of possession a key being added must give.
-fn enrol(
-    cid: u64,
-    transcript: TranscriptHash,
-    ek: EncapsulationKey,
-    credential_id: Vec<u8>,
-    label: String,
-) -> Result<CommitStep, AccountError> {
-    let (ct, k) = encapsulate(&ek)?;
-    let challenge = EnrolChallenge { ct };
-    let transcript = TranscriptHash::new(
-        TranscriptPurpose::StepUp,
-        cid,
-        &[transcript.as_bytes(), &transcript_bytes(&challenge)],
-    );
-    let pending = PendingEnrol {
-        key: NewKey {
-            ek,
-            credential_id,
-            label,
-        },
-        k,
-        transcript,
-    };
-    Ok(CommitStep::Enrol(challenge, pending))
-}
-
-pub struct NewKey {
-    pub(super) ek: EncapsulationKey,
-    pub(super) credential_id: Vec<u8>,
-    pub(super) label: String,
-}
-
-/// A key waiting for its proof of possession.
-pub struct PendingEnrol {
-    key: NewKey,
-    k: SharedSecret,
-    transcript: TranscriptHash,
-}
-
-impl PendingEnrol {
-    /// Nobody enrols a key they do not hold: the tag needs the key's decapsulation of the
-    /// ciphertext the server just made.
-    pub fn finish(self, proof: &EnrolProof) -> Result<Change, AccountError> {
-        if verify_factor_tag(&self.k, ENROL_LABEL, 0, &self.transcript, &proof.tag) {
-            Ok(Change::AddKey(self.key))
-        } else {
-            Err(error!(ErrorCode::PqSignInFailed))
-        }
     }
 }

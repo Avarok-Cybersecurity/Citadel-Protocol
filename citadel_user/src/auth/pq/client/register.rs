@@ -2,8 +2,7 @@ use super::ksf::{password_input, password_keypair};
 use crate::auth::pq::kem::FactorKeypair;
 use crate::auth::pq::messages::{RegFinish, RegReply, RegStart};
 use crate::auth::pq::oprf::{self, OprfClientState};
-use crate::auth::pq::recovery::RecoveryCode;
-use crate::auth::pq::seed::recovery_seed;
+use crate::auth::pq::phrase::{RecoveryPhrase, RecoverySeed};
 use crate::misc::AccountError;
 use citadel_types::crypto::SecBuffer;
 use zeroize::Zeroizing;
@@ -15,6 +14,18 @@ pub struct ClientRegistration {
 }
 
 impl ClientRegistration {
+    /// The password factor's keypair, from the server's evaluation and salt.
+    pub async fn password_keypair(&self, reply: &RegReply) -> Result<FactorKeypair, AccountError> {
+        password_keypair(
+            &self.input,
+            &self.oprf,
+            &reply.oprf_evaluated,
+            &reply.salt_user,
+            reply.ksf,
+        )
+        .await
+    }
+
     pub fn start(username: &str, password: &SecBuffer) -> Result<(RegStart, Self), AccountError> {
         let input = password_input(password);
         let (oprf, oprf_blinded) = oprf::client_blind(input.as_ref())?;
@@ -23,7 +34,6 @@ impl ClientRegistration {
             oprf_blinded,
             // Set by the registration that sends this.
             admission: None,
-            reads_challenge: true,
         };
         Ok((start, Self { input, oprf }))
     }
@@ -33,36 +43,59 @@ impl ClientRegistration {
         Self { input, oprf }
     }
 
-    /// The factors' keys, and the recovery codes behind them (empty unless asked for). The codes
-    /// must be shown to the user now: nothing else ever holds them.
+    /// The factors' keys, and the recovery secret behind them, which must be shown to the user
+    /// now: nothing else ever holds it.
     pub async fn finish(
         self,
         reply: &RegReply,
-        with_recovery_codes: bool,
-    ) -> Result<(RegFinish, Vec<RecoveryCode>), AccountError> {
-        let password = password_keypair(
-            &self.input,
-            &self.oprf,
-            &reply.oprf_evaluated,
-            &reply.salt_user,
-            reply.ksf,
-        )
-        .await?;
-        let codes = if with_recovery_codes {
-            RecoveryCode::generate_set()
-        } else {
-            Vec::new()
-        };
-        let recovery_eks = codes
-            .iter()
-            .map(|code| {
-                FactorKeypair::derive(&recovery_seed(code)).map(|kp| kp.encapsulation_key().clone())
-            })
-            .collect::<Result<_, _>>()?;
+        recovery: NewRecovery<'_>,
+    ) -> Result<(RegFinish, IssuedRecovery), AccountError> {
+        let password = self.password_keypair(reply).await?;
+        let mut issued = IssuedRecovery::default();
+        let mut recovery_phrase_ek = None;
+        match recovery {
+            NewRecovery::None => {}
+            NewRecovery::Phrase {
+                username,
+                canonical_domain,
+            } => {
+                let phrase = RecoveryPhrase::new(RecoverySeed::generate(), canonical_domain)?;
+                let keypair = phrase.keypair(username)?;
+                recovery_phrase_ek = Some(keypair.encapsulation_key().clone());
+                issued.phrase = Some(phrase.seed().clone());
+            }
+        }
         let finish = RegFinish {
             password_ek: password.encapsulation_key().clone(),
-            recovery_eks,
+            recovery_phrase_ek,
         };
-        Ok((finish, codes))
+        Ok((finish, issued))
+    }
+}
+
+/// What recovery credential a new account is given.
+#[derive(Clone, Copy, Debug)]
+pub enum NewRecovery<'a> {
+    /// None: an account upgrading from a legacy record, or one given no domain to bind a phrase
+    /// to.
+    None,
+    /// The recovery phrase, bound to the server's canonical domain and the username.
+    Phrase {
+        username: &'a str,
+        canonical_domain: &'a str,
+    },
+}
+
+/// The recovery secret a registration generated, to show the user once.
+#[derive(Default)]
+pub struct IssuedRecovery {
+    pub phrase: Option<RecoverySeed>,
+}
+
+impl std::fmt::Debug for IssuedRecovery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IssuedRecovery")
+            .field("phrase", &self.phrase.as_ref().map(|_| "***"))
+            .finish()
     }
 }

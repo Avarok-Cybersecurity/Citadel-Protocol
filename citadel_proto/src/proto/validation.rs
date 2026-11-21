@@ -268,7 +268,7 @@ pub(crate) mod pre_connect {
             .into_iter()
             .take((transfer.session_security_settings.security_level.value() + 1) as usize)
             .collect();
-        //let opts = ConstructorOpts::new_vec_init(Some(transfer.transfer.params), (transfer.transfer.security_level.value() + 1) as usize).into_i;
+        //let opts = ConstructorOpts::new_vec_init(transfer.transfer.params, (transfer.transfer.security_level.value() + 1) as usize).into_i;
         let mut bob_constructor = <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
             header.session_cid.get(),
             opts,

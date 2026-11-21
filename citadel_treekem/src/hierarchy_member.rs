@@ -60,16 +60,17 @@ impl HierarchyMember {
     /// Member: open an assignment that was sealed to this member's leaf (its `own_leaf_secret` from the
     /// KeyPackage it published).
     pub fn open(sealed_bytes: &[u8], own_leaf_secret: &Secret) -> Result<Self, Error> {
-        let sealed: SealedAssignment = bincode::deserialize(sealed_bytes)
+        let sealed: SealedAssignment = citadel_io::decode::deserialize(sealed_bytes)
             .map_err(|err| Error::generic(format!("DHE sealed assignment parse failed: {err}")))?;
-        let (_pk, sk) = crypto::node_keypair_from_path_secret(own_leaf_secret)?;
-        let plaintext = crypto::hpke_open(&sealed.kem_ct, &sealed.aead_ct, &sk)?;
-        bincode::deserialize(&plaintext)
+        let plaintext =
+            crypto::hpke_open_with_path_secret(own_leaf_secret, &sealed.kem_ct, &sealed.aead_ct)?;
+        citadel_io::decode::deserialize(&plaintext)
             .map_err(|err| Error::generic(format!("DHE assignment parse failed: {err}")))
     }
 
-    /// Seal an application message as this member. `flat_group_key` is required iff the policy is
-    /// [`ReadPolicy::BroadcastAudit`]; `content_key` is a fresh per-message key from the caller.
+    /// Seal an application message as this member. `flat_group_key` is
+    /// required iff the policy is [`ReadPolicy::BroadcastAudit`]; `content_key` is a fresh
+    /// per-message key from the caller.
     pub fn seal_message(
         &self,
         flat_group_key: Option<&Secret>,
@@ -96,7 +97,7 @@ impl HierarchyMember {
         flat_group_key: Option<&Secret>,
         wire: &[u8],
     ) -> Result<Vec<u8>, Error> {
-        let env: DheEnvelope = bincode::deserialize(wire)
+        let env: DheEnvelope = citadel_io::decode::deserialize(wire)
             .map_err(|err| Error::generic(format!("DHE envelope parse failed: {err}")))?;
         if self.path.is_ancestor_of(&env.sender_path) {
             env.open_as_superior(&KdfKemTree, &self.path, &self.node_secret)

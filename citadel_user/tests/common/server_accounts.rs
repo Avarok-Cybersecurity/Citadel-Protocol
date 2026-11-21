@@ -33,7 +33,7 @@ pub async fn manager(backend: BackendType, argon: ArgonDefaultServerSettings) ->
 
 fn crypto(cid: u64) -> PeerSessionCrypto<StackedRatchet> {
     let opts = ConstructorOpts::new_vec_init(
-        Some(KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256),
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
         Default::default(),
     );
     let mut alice = StackedRatchetConstructor::new_alice(opts.clone(), cid, 0).unwrap();

@@ -14,6 +14,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::{
     par_scramble_encrypt_group, GroupReceiver, GroupReceiverConfig,
 };
+use citadel_crypt::scramble::wave_binding::WaveBinding;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_types::crypto::{
     CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecurityLevel, SigAlgorithm,
@@ -32,13 +33,13 @@ type Mono = <MonoRatchet as Ratchet>::Constructor;
 
 fn suites() -> [CryptoParameters; 2] {
     [
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
     ]
 }
 
 fn stacked_opts(params: CryptoParameters) -> Vec<ConstructorOpts> {
-    ConstructorOpts::new_vec_init(Some(params), SecurityLevel::Standard)
+    ConstructorOpts::new_vec_init(params, SecurityLevel::Standard)
 }
 
 fn stacked_pair(params: CryptoParameters) -> (StackedRatchet, StackedRatchet) {
@@ -80,7 +81,7 @@ fn received_stacked_transfers_never_panic() {
             CASES,
             DEADLINE,
             move |bytes| {
-                if let Ok(tx) = bincode::deserialize::<AliceToBobTransfer>(bytes) {
+                if let Ok(tx) = citadel_io::decode::deserialize::<AliceToBobTransfer>(bytes) {
                     if let Some(mut bob) = Stacked::new_bob(9, stacked_opts(params), tx, PSKS) {
                         let _ = bob.stage0_bob();
                     }
@@ -93,8 +94,8 @@ fn received_stacked_transfers_never_panic() {
             CASES,
             DEADLINE,
             move |bytes| {
-                if let Ok(tx) = bincode::deserialize::<BobToAliceTransfer>(bytes) {
-                    let mut alice: Stacked = bincode::deserialize(&alice_bytes).unwrap();
+                if let Ok(tx) = citadel_io::decode::deserialize::<BobToAliceTransfer>(bytes) {
+                    let mut alice: Stacked = citadel_io::decode::deserialize(&alice_bytes).unwrap();
                     if alice.stage1_alice(tx, PSKS).is_ok() {
                         let _ = alice.finish();
                     }
@@ -107,7 +108,7 @@ fn received_stacked_transfers_never_panic() {
 #[test]
 fn received_mono_transfers_never_panic() {
     for params in suites() {
-        let opts = vec![ConstructorOpts::new_init(Some(params))];
+        let opts = vec![ConstructorOpts::new_init(params)];
         let alice = Mono::new_alice(opts.clone(), 9, 0).unwrap();
         let to_bob = alice.stage0_alice().unwrap();
         let to_bob_bytes = bincode::serialize(&to_bob).unwrap();
@@ -127,7 +128,7 @@ fn received_mono_transfers_never_panic() {
             CASES,
             DEADLINE,
             move |bytes| {
-                if let Ok(tx) = bincode::deserialize::<MonoAliceToBobTransfer>(bytes) {
+                if let Ok(tx) = citadel_io::decode::deserialize::<MonoAliceToBobTransfer>(bytes) {
                     if let Some(mut bob) =
                         <Mono as EndpointRatchetConstructor<MonoRatchet>>::new_bob(
                             9,
@@ -147,8 +148,8 @@ fn received_mono_transfers_never_panic() {
             CASES,
             DEADLINE,
             move |bytes| {
-                if let Ok(tx) = bincode::deserialize::<MonoBobToAliceTransfer>(bytes) {
-                    let mut alice: Mono = bincode::deserialize(&alice_bytes).unwrap();
+                if let Ok(tx) = citadel_io::decode::deserialize::<MonoBobToAliceTransfer>(bytes) {
+                    let mut alice: Mono = citadel_io::decode::deserialize(&alice_bytes).unwrap();
                     let _ = alice.stage1_alice(tx, PSKS);
                 }
             },
@@ -159,17 +160,17 @@ fn received_mono_transfers_never_panic() {
 #[test]
 fn received_group_packets_never_panic() {
     let (alice, bob) = stacked_pair(suites()[0]);
-    let (aux, _) = stacked_pair(suites()[0]);
     let mut tx = par_scramble_encrypt_group::<_, _, _, HDR>(
         &vec![3u8; 5000][..],
         SecurityLevel::Standard,
         &alice,
-        &aux,
+        None,
         HDR,
         0,
         ObjectId::zero(),
         0,
         TransferType::FileTransfer,
+        WaveBinding::Bound,
         |_v, _b, _o, _c, buf| buf.put_bytes(0, HDR),
     )
     .unwrap();
@@ -185,9 +186,9 @@ fn received_group_packets_never_panic() {
         4 * CASES,
         DEADLINE,
         |bytes| {
-            if let Ok(cfg) = bincode::deserialize::<GroupReceiverConfig>(bytes) {
+            if let Ok(cfg) = citadel_io::decode::deserialize::<GroupReceiverConfig>(bytes) {
                 if cfg.validate().is_ok() {
-                    let _ = GroupReceiver::new(cfg, 0, 0);
+                    let _ = GroupReceiver::new(cfg, WaveBinding::Bound, 0, 0);
                 }
             }
         },
@@ -196,7 +197,7 @@ fn received_group_packets_never_panic() {
     campaign("group packets", seeds, 4 * CASES, DEADLINE, move |bytes| {
         // The bytes choose which genuine packets precede the forged one and what it claims to be.
         let mut rng = Rng::new(bytes.iter().fold(0u64, |h, b| h.rotate_left(5) ^ *b as u64));
-        let mut rx = GroupReceiver::new(config.clone(), 0, 0);
+        let mut rx = GroupReceiver::new(config.clone(), WaveBinding::Bound, 0, 0);
         for (seq, wave, payload) in packets.iter().take(rng.below(packets.len() + 1)) {
             let _ = rx.on_packet_received(0, *seq, *wave, &bob, payload);
         }

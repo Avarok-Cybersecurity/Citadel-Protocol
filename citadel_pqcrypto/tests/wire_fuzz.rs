@@ -18,16 +18,18 @@ const HEADER: &[u8] = b"header";
 
 fn suites() -> Vec<CryptoParameters> {
     vec![
-        KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::ChaCha20Poly_1305 + SigAlgorithm::MlDsa65,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem768Fips203
+            + EncryptionAlgorithm::ChaCha20Poly_1305
+            + SigAlgorithm::MlDsa65,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::Ascon80pq,
+        KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::MlKemHybrid + SigAlgorithm::MlDsa65,
         KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256,
     ]
 }
 
 fn opts(params: CryptoParameters) -> ConstructorOpts {
-    ConstructorOpts::new_init(Some(params))
+    ConstructorOpts::new_init(params)
 }
 
 fn pair(params: CryptoParameters) -> (PostQuantumContainer, PostQuantumContainer) {
@@ -54,7 +56,7 @@ fn received_alice_transfers_never_panic() {
         })
         .collect();
     campaign("alice transfer", seeds, CASES, DEADLINE, |bytes| {
-        if let Ok(tx) = bincode::deserialize::<AliceToBobTransferParameters>(bytes) {
+        if let Ok(tx) = citadel_io::decode::deserialize::<AliceToBobTransferParameters>(bytes) {
             for params in suites() {
                 let _ = PostQuantumContainer::new_bob(opts(params), tx.clone(), PSKS);
             }
@@ -78,7 +80,7 @@ fn received_bob_transfers_never_panic() {
         alices.push(alice.serialize_to_vector().unwrap());
     }
     campaign("bob transfer", seeds, CASES, DEADLINE, move |bytes| {
-        if let Ok(tx) = bincode::deserialize::<BobToAliceTransferParameters>(bytes) {
+        if let Ok(tx) = citadel_io::decode::deserialize::<BobToAliceTransferParameters>(bytes) {
             for alice in &alices {
                 let mut alice = PostQuantumContainer::deserialize_from_bytes(alice).unwrap();
                 let _ = alice.alice_on_receive_ciphertext(tx.clone(), PSKS);
@@ -109,7 +111,7 @@ fn received_ciphertexts_never_panic() {
             let mut buf = BytesMut::from(bytes);
             let _ = bob.validate_packet_in_place(HEADER, &mut buf, &nonce);
             let mut buf = BytesMut::from(bytes);
-            let _ = bob.decrypt_in_place(&mut buf, &nonce);
+            let _ = bob.decrypt_in_place(&mut buf, HEADER, &nonce);
         });
     }
 }

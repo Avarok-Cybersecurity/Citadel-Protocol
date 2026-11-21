@@ -7,10 +7,14 @@ use crate::prelude::{NodeType, StunServersError};
 
 fn refusal(node_type: NodeType, stun: Option<&[&str]>) -> String {
     let mut builder = DefaultNodeBuilder::default();
+    let _ = builder.with_link_manager(crate::prelude::LinkManagerMode::Legacy);
     let _ = builder.with_node_type(node_type);
     if node_type.is_server() {
-        let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
+        let _ = builder
+            .with_path_policy(crate::test_common::localhost_path_policy())
+            .with_server_limits(crate::test_common::localhost_server_limits());
     }
+    let _ = builder.with_max_security_level(crate::test_common::localhost_max_security_level());
     if let Some(stun) = stun {
         let _ = builder.with_stun_servers(stun.to_vec());
     }
@@ -74,11 +78,15 @@ fn a_builder_with_an_unparseable_stun_server_is_refused() {
 fn a_builder_with_three_distinct_stun_servers_builds() {
     for node_type in node_types() {
         let mut builder = DefaultNodeBuilder::default();
+        let _ = builder.with_link_manager(crate::prelude::LinkManagerMode::Legacy);
         let _ = builder
             .with_node_type(node_type)
-            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS);
+            .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level());
         if node_type.is_server() {
-            let _ = builder.with_path_policy(crate::test_common::localhost_path_policy());
+            let _ = builder
+                .with_path_policy(crate::test_common::localhost_path_policy())
+                .with_server_limits(crate::test_common::localhost_server_limits());
         }
         drop(builder.build(EmptyKernel::default()).unwrap());
     }

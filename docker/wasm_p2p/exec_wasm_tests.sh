@@ -18,5 +18,5 @@ done
 echo "Running WASM P2P integration tests in headless Chrome..."
 cd /usr/src/app/citadel_sdk
 wasm-pack test --headless --chrome --release \
-  -- --no-default-features --test wasm_p2p_connect
+  -- --locked --no-default-features --test wasm_p2p_connect
 echo "WASM P2P integration tests passed!"

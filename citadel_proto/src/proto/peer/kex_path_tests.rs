@@ -4,7 +4,6 @@ use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use citadel_types::proto::{PathClasses, PathRule};
 use citadel_user::serialization::SyncIO;
-use embedded_semver::Semver;
 use std::time::Duration;
 
 fn policy() -> PathPolicy {
@@ -116,14 +115,10 @@ fn a_relay_only_turn_config_refuses_the_paths_that_reveal_an_address() {
 }
 
 #[test]
-fn a_peer_executes_a_stamped_plan_only_from_a_sender_at_the_version() {
+fn a_peer_executes_the_plan_the_server_stamped() {
     let stamped = stamp(Some(&policy()), Some(both()), || Some(DIRECT_OK));
-    let current = Some(*PROTOCOL_VERSION);
-    assert!(stamped_plan(stamped.as_ref(), current).is_some());
-    let older = Some(Semver::new(0, 12, 1).to_u32().unwrap());
-    assert_eq!(stamped_plan(stamped.as_ref(), older), None);
-    assert_eq!(stamped_plan(stamped.as_ref(), None), None);
-    assert_eq!(stamped_plan(None, current), None);
+    assert!(stamped_plan(stamped.as_ref()).is_some());
+    assert_eq!(stamped_plan(None), None);
 }
 
 fn kex(path: Option<KexPath>) -> PeerSignal {
@@ -133,8 +128,9 @@ fn kex(path: Option<KexPath>) -> PeerSignal {
             peer_cid: 2,
         },
         kex_payload: KeyExchangeProcess::Stage2(7, None, true),
-        sender_protocol_version: Some(*PROTOCOL_VERSION),
+        sender_protocol_version: *PROTOCOL_VERSION,
         path,
+        auth: None,
     }
 }
 
@@ -145,23 +141,19 @@ fn path_of(signal: PeerSignal) -> Option<KexPath> {
     }
 }
 
-/// An older node reads a signal as its own fields followed by bytes it ignores, and sends one
-/// that ends before the path: both directions must parse.
+/// The path crosses the wire; the encoding before it (ending before the path and the signature
+/// after it) does not parse.
 #[test]
-fn the_path_is_appended_to_the_kex_and_absent_from_an_older_nodes() {
+fn the_path_crosses_the_wire_and_a_kex_without_it_is_refused() {
     let stamped = stamp(Some(&policy()), Some(both()), || Some(DIRECT_OK));
     let with = kex(stamped.clone()).serialize_to_vector().unwrap();
     let read = PeerSignal::deserialize_from_vector(&with).unwrap();
     assert_eq!(path_of(read), stamped);
 
     let without = kex(None).serialize_to_vector().unwrap();
-    let legacy = &without[..without.len() - 1];
-    assert!(
-        with.starts_with(legacy),
-        "the old encoding, with the path appended"
-    );
-    let from_older = PeerSignal::deserialize_from_vector(legacy).unwrap();
-    assert_eq!(path_of(from_older), None);
+    assert!(PeerSignal::deserialize_from_vector(&without).is_ok());
+    let older = &without[..without.len() - 2];
+    assert!(PeerSignal::deserialize_from_vector(older).is_err());
 }
 
 /// A pair the NAT model rules out is stamped infeasible in this build too. Under

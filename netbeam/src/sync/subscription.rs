@@ -39,9 +39,7 @@
 
 use crate::multiplex::{MemorySender, MultiplexedConn, MultiplexedConnKey, MultiplexedPacket};
 use crate::reliable_conn::ReliableOrderedStreamToTarget;
-use crate::sync::network_application::{
-    PostActionChannel, PostActionSync, PreActionChannel, PreActionSync,
-};
+use crate::sync::network_application::{PostActionChannel, PostActionSync, PreActionSync};
 use crate::sync::pairing::Pairing;
 use crate::sync::wire::{Topic, WireRevision};
 use crate::sync::RelativeNodeType;
@@ -94,11 +92,9 @@ pub trait Subscribable: Send + Sync + Sized {
     fn underlying_conn(&self) -> &Self::UnderlyingConn;
     fn subscriptions(&self) -> &RwLock<HashMap<Self::ID, MemorySender>>;
     fn post_close_container(&self) -> &PostActionChannel<Self::ID>;
-    fn pre_action_container(&self) -> &PreActionChannel<Self::ID>;
 
     async fn recv_post_close_signal_from_stream(&self, id: Self::ID) -> Result<(), anyhow::Error>;
     async fn send_post_close_signal(&self, id: Self::ID) -> Result<(), anyhow::Error>;
-    async fn send_pre_open_signal(&self, id: Self::ID) -> Result<(), anyhow::Error>;
     async fn send_open(&self, topic: Topic, id: Self::ID) -> Result<(), anyhow::Error>;
     async fn send_open_ack(&self, id: Self::ID) -> Result<(), anyhow::Error>;
 
@@ -114,7 +110,6 @@ pub trait Subscribable: Send + Sync + Sized {
         PreActionSync::new(self)
     }
 
-    fn get_next_prereserved(&self) -> Option<Self::BorrowedSubscriptionType>;
     /// Registers `id` so packets for it are buffered before anyone holds its
     /// subscription. Idempotent.
     fn reserve(&self, id: Self::ID);

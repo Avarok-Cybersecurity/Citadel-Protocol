@@ -63,6 +63,8 @@ pub mod misc;
 pub mod packet_vector;
 /// Contains the cryptographic primitives for handling FCM interactions on the network
 pub mod ratchets;
+/// Seals RE-VFS objects under the account's own key, which no server holds
+pub mod revfs_seal;
 /// Contains the subroutines for network-related functionality
 pub mod scramble;
 /// For secure byte handling

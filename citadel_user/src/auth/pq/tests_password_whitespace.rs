@@ -2,7 +2,7 @@
 //! enrolls `ProposedCredentials::registration_password` (surrounding whitespace removed), and a
 //! login passes the password as typed.
 
-use super::client::ClientRegistration;
+use super::client::{ClientRegistration, NewRecovery};
 use super::record::PqAuthRecord;
 use super::server::registration_reply;
 use super::tests::{begin, complete, password, settings};
@@ -13,7 +13,7 @@ async fn register_as_the_sdk_does(typed: &str) -> PqAuthRecord {
     let enrolled = ProposedCredentials::registration_password(&password(typed));
     let (start, client) = ClientRegistration::start("alice", &enrolled).unwrap();
     let (reply, pending) = registration_reply(&settings(), &start).unwrap();
-    let (finish, _) = client.finish(&reply, true).await.unwrap();
+    let (finish, _) = client.finish(&reply, NewRecovery::None).await.unwrap();
     pending.finish(finish, 1_000).unwrap()
 }
 

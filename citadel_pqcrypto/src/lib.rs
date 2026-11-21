@@ -8,7 +8,7 @@
 //! mechanisms, and signature schemes.
 //!
 //! # Features
-//! - Post-quantum key exchange using NIST Round 3 algorithms
+//! - Post-quantum key exchange using ML-KEM (FIPS 203)
 //! - Hybrid classical/post-quantum encryption
 //! - Authenticated encryption with associated data (AEAD)
 //! - Anti-replay attack protection
@@ -27,8 +27,8 @@
 //! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 //! use citadel_types::crypto::{KemAlgorithm, SigAlgorithm};
 //!
-//! // Define the cryptographic parameters
-//! let opts = ConstructorOpts::default();
+//! // Define the cryptographic parameters, naming the KEM
+//! let opts = ConstructorOpts::new_init(KemAlgorithm::MlKem1024Fips203);
 //!
 //! // Create a new Alice instance
 //! let mut alice = PostQuantumContainer::new_alice(
@@ -63,6 +63,8 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
+/// Verifies a detached signature (ML-DSA pure mode, empty context) by an encoded public key.
+pub use crate::functions::signature_verify;
 pub use crate::replay_attack_container::AntiReplayAttackContainer;
 
 pub mod prelude {
@@ -82,6 +84,10 @@ pub mod encryption;
 
 pub mod constructor_opts;
 
+#[cfg(test)]
+mod aead_zeroize_tests;
+/// The validity check on encapsulation keys received from elsewhere
+pub mod kem_key_check;
 pub mod libcrux_kem;
 
 pub mod wire;
@@ -97,7 +103,7 @@ pub const fn build_tag() -> &'static str {
     "ordered"
 }
 
-/// Returns the approximate size of each PQC. This is approximately true for the core NIST round-3 algorithms, but not necessarily true for the SIKE algos
+/// Returns the approximate size of each PQC container.
 pub const fn get_approx_bytes_per_container() -> usize {
     2000
 }
@@ -368,7 +374,7 @@ impl PostQuantumContainer {
     ///
     /// `algorithm`: If this is None, a random algorithm will be used
     pub fn new_alice(opts: ConstructorOpts) -> Result<Self, Error> {
-        let params = opts.cryptography.unwrap_or_default();
+        let params = opts.cryptography;
         citadel_types::utils::validate_crypto_params(&params)?;
         let previous_symmetric_key = opts.chain;
         let data = Self::create_new_alice(params.kem_algorithm, params.sig_algorithm)
@@ -402,7 +408,7 @@ impl PostQuantumContainer {
         psks: &[T],
     ) -> Result<Self, Error> {
         let pq_node = PQNode::Bob;
-        let params = opts.cryptography.unwrap_or_default();
+        let params = opts.cryptography;
         citadel_types::utils::validate_crypto_params(&params)?;
 
         let chain = opts.chain;
@@ -586,7 +592,7 @@ impl PostQuantumContainer {
     /// Attempts to deserialize the input bytes presumed to be of type [PostQuantumExport],
     /// into a [PostQuantumContainer]
     pub fn deserialize_from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, Error> {
-        bincode::deserialize::<PostQuantumContainer>(bytes.as_ref())
+        citadel_io::decode::deserialize::<PostQuantumContainer>(bytes.as_ref())
             .map_err(|_err| citadel_io::error!(citadel_io::ErrorCode::ContainerSerdeFailed))
     }
 
@@ -722,13 +728,14 @@ impl PostQuantumContainer {
         }
     }
 
-    /// Raw in-place AEAD encrypt with NO header AAD and NO anti-replay PID — byte-for-byte
-    /// compatible with the output of [`Self::encrypt`]. Encrypts the whole buffer in place and
-    /// appends the authentication tag, avoiding the fresh `Vec` allocation `encrypt` performs.
-    /// Used by the scramble/group path (which encrypts a whole wave with no per-packet PID).
+    /// Raw in-place AEAD encrypt with NO anti-replay PID, authenticating `aad` alongside the
+    /// buffer. With an empty `aad` the output is byte-for-byte that of [`Self::encrypt`]. Encrypts
+    /// the whole buffer in place and appends the authentication tag, avoiding the fresh `Vec`
+    /// allocation `encrypt` performs. Used by the scramble/group path, whose `aad` names the wave.
     pub fn encrypt_in_place<T: EzBuffer, R: AsRef<[u8]>>(
         &self,
         buf: &mut T,
+        aad: &[u8],
         nonce: R,
     ) -> Result<(), Error> {
         let nonce = nonce.as_ref();
@@ -737,19 +744,21 @@ impl PostQuantumContainer {
             .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_encryption_key() {
             symmetric_key
-                .encrypt_in_place(nonce, &[], &mut in_place)
+                .encrypt_in_place(nonce, aad, &mut in_place)
                 .map_err(|_| Error::encryption_failure())
         } else {
             Err(Error::shared_secret_not_loaded())
         }
     }
 
-    /// Raw in-place AEAD decrypt matching [`Self::encrypt_in_place`] / [`Self::encrypt`] (no header
-    /// AAD, no anti-replay PID). Decrypts the buffer in place and removes the authentication tag,
-    /// avoiding the fresh `Vec` allocation `decrypt` performs.
+    /// Raw in-place AEAD decrypt matching [`Self::encrypt_in_place`] (no anti-replay PID); `aad`
+    /// must be what the sender authenticated, or the buffer is refused. Decrypts the buffer in
+    /// place and removes the authentication tag, avoiding the fresh `Vec` allocation `decrypt`
+    /// performs.
     pub fn decrypt_in_place<T: EzBuffer, R: AsRef<[u8]>>(
         &self,
         buf: &mut T,
+        aad: &[u8],
         nonce: R,
     ) -> Result<(), Error> {
         let nonce = nonce.as_ref();
@@ -758,7 +767,7 @@ impl PostQuantumContainer {
             .ok_or(citadel_io::error!(citadel_io::ErrorCode::BadWindowRange))?;
         if let Some(symmetric_key) = self.get_decryption_key() {
             symmetric_key
-                .decrypt_in_place(nonce, &[], &mut in_place)
+                .decrypt_in_place(nonce, aad, &mut in_place)
                 .map_err(|_| Error::decryption_failure())
         } else {
             Err(Error::shared_secret_not_loaded())
@@ -801,8 +810,9 @@ impl PostQuantumContainer {
 
 impl Clone for PostQuantumContainer {
     fn clone(&self) -> Self {
-        let ser = self.serialize_to_vector().unwrap();
-        PostQuantumContainer::deserialize_from_bytes(ser).unwrap()
+        // The serialized form holds every secret the container does; it is wiped once read back.
+        let ser = Zeroizing::new(self.serialize_to_vector().unwrap());
+        PostQuantumContainer::deserialize_from_bytes(&*ser).unwrap()
     }
 }
 
@@ -838,8 +848,8 @@ pub enum PostQuantumMeta {
     PureSymmetricEncryption { kex: PostQuantumMetaKex },
     /// A heavier, more secure, and post-quantum protocol setup for performing
     /// a mixed use of asymmetric and ratcheted symmetric encryption of plaintext
-    /// Note: since this uses Kyber, every 32 bytes of input plaintext is mapped to
-    /// ~1100 bytes of ciphertext. Using this for encryption is only recommended for
+    /// Note: every message carries a KEM ciphertext and a signature on top of its
+    /// plaintext. Using this for encryption is only recommended for
     /// Small to medium sized messages, not large files.
     MixedAsymmetric {
         kex: PostQuantumMetaKex,
@@ -847,50 +857,44 @@ pub enum PostQuantumMeta {
     },
 }
 
-/// Deterministically derive an ML-KEM keypair from a 64-byte seed (per draft-schwabe-cfrg-kyber),
-/// returning `(public_key, secret_key)` in the same byte layout as [`kyber_pke::kem_keypair`] — so the
-/// result is directly usable with [`kyber_pke::encapsulate`] / [`kyber_pke::decapsulate`].
+/// Deterministically derive a keypair of `alg` from a 64-byte seed, returning `(public_key,
+/// secret_key)`, by the FIPS 203 key generation, which is already a deterministic function of its
+/// 64 bytes of randomness.
 ///
 /// This is the primitive the TreeKEM ratchet tree needs: a tree node's keypair is reproducible from its
 /// path secret, so any member who learns the path secret recomputes the node and ratchets toward the root.
-pub fn kem_keypair_from_seed(seed: &[u8; 64]) -> Result<(Vec<u8>, Vec<u8>), Error> {
-    let kp = pqc_kyber::derive(seed)
-        .map_err(|err| Error::generic(format!("ML-KEM deterministic keygen failed: {err:?}")))?;
-    Ok((kp.public.to_vec(), kp.secret.to_vec()))
+pub fn kem_keypair_from_seed(
+    alg: KemAlgorithm,
+    seed: &[u8; 64],
+) -> Result<(Vec<u8>, Vec<u8>), Error> {
+    libcrux_kem::keypair_from_seed(alg, seed)
 }
 
-/// Raw ML-KEM encapsulation to a public key. Returns `(ciphertext, shared_secret)`. The clean,
+/// Raw encapsulation to a public key of `alg`. Returns `(ciphertext, shared_secret)`. The clean,
 /// container-free KEM API the TreeKEM ratchet tree encrypts path secrets with.
-pub fn kem_encapsulate(public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
-    let (ct, ss) = kyber_pke::encapsulate(public_key, &mut rand::rngs::ThreadRng::default())
-        .map_err(|err| Error::generic(format!("ML-KEM encapsulate failed: {err:?}")))?;
-    let mut shared = [0u8; 32];
-    shared.copy_from_slice(&ss[..]);
-    Ok((ct.to_vec(), shared))
+pub fn kem_encapsulate(alg: KemAlgorithm, public_key: &[u8]) -> Result<(Vec<u8>, [u8; 32]), Error> {
+    let (ct, ss) = libcrux_kem::encapsulate(alg, public_key)?;
+    Ok((ct, shared_secret_of(&ss)?))
 }
 
-/// Raw ML-KEM decapsulation: recover the shared secret from a ciphertext with the secret key.
-pub fn kem_decapsulate(ciphertext: &[u8], secret_key: &[u8]) -> Result<[u8; 32], Error> {
-    let ss = kyber_pke::decapsulate(ciphertext, secret_key)
-        .map_err(|err| Error::generic(format!("ML-KEM decapsulate failed: {err:?}")))?;
-    let mut shared = [0u8; 32];
-    shared.copy_from_slice(&ss[..]);
-    Ok(shared)
+/// Raw decapsulation under `alg`: recover the shared secret from a ciphertext with the secret key.
+pub fn kem_decapsulate(
+    alg: KemAlgorithm,
+    ciphertext: &[u8],
+    secret_key: &[u8],
+) -> Result<[u8; 32], Error> {
+    shared_secret_of(&libcrux_kem::decapsulate(alg, ciphertext, secret_key)?)
+}
+
+fn shared_secret_of(ss: &[u8]) -> Result<[u8; 32], Error> {
+    ss.try_into()
+        .map_err(|_| Error::generic("a KEM shared secret is not 32 bytes"))
 }
 
 impl PostQuantumMeta {
     fn new_alice(kem_alg: KemAlgorithm, sig_alg: SigAlgorithm) -> Result<Self, Error> {
         log::trace!(target: "citadel", "About to generate keypair for {kem_alg:?}");
-        let (public_key, secret_key) = match kem_alg {
-            KemAlgorithm::MlKem => {
-                let pk_alice =
-                    kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
-                (pk_alice.public.to_vec(), pk_alice.secret.to_vec())
-            }
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::keypair(kem_alg)?
-            }
-        };
+        let (public_key, secret_key) = crate::libcrux_kem::keypair(kem_alg)?;
 
         let ciphertext = None;
         let shared_secret = None;
@@ -938,29 +942,9 @@ impl PostQuantumMeta {
             } => (*kem_scheme, alice_pk),
         };
 
-        let (kem_pk_bob, kem_sk_bob) = match kem_scheme {
-            KemAlgorithm::MlKem => {
-                let pk_bob =
-                    kyber_pke::kem_keypair().map_err(|err| Error::generic(err.to_string()))?;
-                (pk_bob.public.to_vec(), pk_bob.secret.to_vec())
-            }
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::keypair(kem_scheme)?
-            }
-        };
-
-        let (ciphertext, shared_secret) = match kem_scheme {
-            KemAlgorithm::MlKem => {
-                let (ciphertext, shared_secret) =
-                    kyber_pke::encapsulate(pk_alice, &mut citadel_io::thread_rng()).map_err(
-                        |_err| citadel_io::error!(citadel_io::ErrorCode::EncapsulateFailed),
-                    )?;
-                (ciphertext.to_vec(), shared_secret.to_vec())
-            }
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::encapsulate(kem_scheme, pk_alice.as_ref())?
-            }
-        };
+        let (kem_pk_bob, kem_sk_bob) = crate::libcrux_kem::keypair(kem_scheme)?;
+        let (ciphertext, shared_secret) =
+            crate::libcrux_kem::encapsulate(kem_scheme, pk_alice.as_ref())?;
 
         let public_key = Arc::new(kem_pk_bob.into());
         let secret_key = Some(Arc::new(kem_sk_bob.into()));
@@ -1053,18 +1037,11 @@ impl PostQuantumMeta {
 
         let secret_key = self.get_secret_key()?;
 
-        let shared_secret = match self.kex().kem_alg {
-            KemAlgorithm::MlKem => kyber_pke::decapsulate(&bob_ciphertext, secret_key)
-                .map_err(|err| Error::generic(err.to_string()))?
-                .to_vec(),
-            KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => {
-                crate::libcrux_kem::decapsulate(
-                    self.kex().kem_alg,
-                    bob_ciphertext.as_ref(),
-                    secret_key.as_ref(),
-                )?
-            }
-        };
+        let shared_secret = crate::libcrux_kem::decapsulate(
+            self.kex().kem_alg,
+            bob_ciphertext.as_ref(),
+            secret_key.as_ref(),
+        )?;
 
         self.get_kex_mut().shared_secret = Some(Arc::new(shared_secret.into()));
         self.get_kex_mut().ciphertext = Some(bob_ciphertext);
@@ -1257,7 +1234,18 @@ impl Debug for PostQuantumContainer {
 
 pub trait EncryptionAlgorithmExt {
     fn nonce_len(&self) -> usize;
-    fn max_ciphertext_len(&self, plaintext_length: usize, sig_alg: SigAlgorithm) -> usize;
+    /// The most ciphertext this algorithm produces for `plaintext_length` bytes under a session
+    /// that names `kem_alg` and `sig_alg`, as `plaintext_length` plus a fixed overhead. For
+    /// [`EncryptionAlgorithm::MlKemHybrid`] the public-key part is sized by the KEM the session
+    /// runs, and the bound exceeds the real length by less than one scramble block.
+    fn max_ciphertext_len(
+        &self,
+        plaintext_length: usize,
+        kem_alg: KemAlgorithm,
+        sig_alg: SigAlgorithm,
+    ) -> usize;
+    /// The plaintext length a ciphertext carries, where the ciphertext length alone determines it.
+    /// [`EncryptionAlgorithm::MlKemHybrid`] pads its body to a block, so it returns `None` there.
     fn plaintext_length(&self, ciphertext: &[u8]) -> Option<usize>;
 }
 
@@ -1272,26 +1260,23 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
     }
 
     // calculates the max ciphertext len given an input plaintext length
-    fn max_ciphertext_len(&self, plaintext_length: usize, sig_alg: SigAlgorithm) -> usize {
+    fn max_ciphertext_len(
+        &self,
+        plaintext_length: usize,
+        kem_alg: KemAlgorithm,
+        sig_alg: SigAlgorithm,
+    ) -> usize {
         const SYMMETRIC_CIPHER_OVERHEAD: usize = 16;
         match self {
             Self::AES_GCM_256 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             // plaintext len + 128 bit tag
             Self::ChaCha20Poly_1305 => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
             Self::Ascon80pq => plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
-            // Add 32 for internal apendees
-            Self::MlKemHybrid => {
-                const LENGTH_FIELD: usize = 8;
-                let signature_len = functions::signature_bytes(sig_alg);
-
-                let aes_input_len = signature_len + LENGTH_FIELD;
-                let aes_output_len = aes_input_len + SYMMETRIC_CIPHER_OVERHEAD;
-                let kyber_input_len = 32 + LENGTH_FIELD; // the size of the mapping + encoded len
-                let kyber_output_len = kyber_pke::ct_len(kyber_input_len);
-
-                // add 8 for the length encoding
-                aes_output_len + kyber_output_len + LENGTH_FIELD
-            }
+            Self::MlKemHybrid => encryption::kyber_module::hybrid_max_ciphertext_len(
+                plaintext_length + SYMMETRIC_CIPHER_OVERHEAD,
+                kem_alg,
+                sig_alg,
+            ),
         }
     }
 
@@ -1304,7 +1289,7 @@ impl EncryptionAlgorithmExt for EncryptionAlgorithm {
             Self::AES_GCM_256 => Some(ciphertext.len() - 16),
             Self::ChaCha20Poly_1305 => Some(ciphertext.len() - 16),
             Self::Ascon80pq => Some(ciphertext.len() - 16),
-            Self::MlKemHybrid => kyber_pke::plaintext_len(ciphertext),
+            Self::MlKemHybrid => None,
         }
     }
 }
@@ -1389,7 +1374,8 @@ mod in_place_aead_tests {
     // AEAD keys are directional (a container's tx key differs from its rx key), mirroring the
     // protocol's sender/receiver split. So encrypt on alice (tx) is decrypted on bob (rx).
     fn keyed_pair() -> (PostQuantumContainer, PostQuantumContainer) {
-        let opts = ConstructorOpts::default();
+        // The KEM is incidental here: the test is about directional AEAD keys.
+        let opts = ConstructorOpts::new_init(citadel_types::crypto::KemAlgorithm::MlKem1024Fips203);
         let mut alice = PostQuantumContainer::new_alice(opts.clone()).unwrap();
         let a2b = alice.generate_alice_to_bob_transfer().unwrap();
         let bob = PostQuantumContainer::new_bob(opts, a2b, &[b"psk"]).unwrap();
@@ -1398,9 +1384,9 @@ mod in_place_aead_tests {
         (alice, bob)
     }
 
-    // The raw in-place AEAD primitives must round-trip and be byte-compatible with the existing
-    // Vec-allocating encrypt/decrypt (no header AAD, no anti-replay PID), so the scramble/group
-    // path can switch to them without a wire-format change.
+    // With no associated data the raw in-place AEAD primitives must round-trip and be
+    // byte-compatible with the Vec-allocating encrypt/decrypt (no anti-replay PID): that is the
+    // wave layout a node below the wave binding sends and expects.
     #[test]
     fn in_place_roundtrip_matches_vec_path() {
         let (alice, bob) = keyed_pair();
@@ -1409,19 +1395,19 @@ mod in_place_aead_tests {
 
         // encrypt_in_place (alice/tx) -> decrypt_in_place (bob/rx)
         let mut buf = BytesMut::from(&plaintext[..]);
-        alice.encrypt_in_place(&mut buf, nonce).unwrap();
+        alice.encrypt_in_place(&mut buf, &[], nonce).unwrap();
         assert_ne!(
             &buf[..],
             &plaintext[..],
             "ciphertext must differ from plaintext"
         );
-        bob.decrypt_in_place(&mut buf, nonce).unwrap();
+        bob.decrypt_in_place(&mut buf, &[], nonce).unwrap();
         assert_eq!(&buf[..], &plaintext[..], "in-place round-trip failed");
 
         // Vec encrypt (alice) -> in-place decrypt (bob): byte-compatible formats.
         let ct = alice.encrypt(&plaintext, nonce).unwrap();
         let mut buf2 = BytesMut::from(&ct[..]);
-        bob.decrypt_in_place(&mut buf2, nonce).unwrap();
+        bob.decrypt_in_place(&mut buf2, &[], nonce).unwrap();
         assert_eq!(
             &buf2[..],
             &plaintext[..],
@@ -1430,13 +1416,33 @@ mod in_place_aead_tests {
 
         // in-place encrypt (alice) -> Vec decrypt (bob): byte-compatible formats.
         let mut buf3 = BytesMut::from(&plaintext[..]);
-        alice.encrypt_in_place(&mut buf3, nonce).unwrap();
+        alice.encrypt_in_place(&mut buf3, &[], nonce).unwrap();
         let pt = bob.decrypt(&buf3[..], nonce).unwrap();
         assert_eq!(
             &pt[..],
             &plaintext[..],
             "in-place-encrypt -> Vec-decrypt mismatch"
         );
+    }
+
+    #[test]
+    fn in_place_associated_data_must_match_to_open() {
+        let (alice, bob) = keyed_pair();
+        let nonce = [0x5Au8; 32];
+        let plaintext = b"a wave".to_vec();
+        let mut sealed = BytesMut::from(&plaintext[..]);
+        alice
+            .encrypt_in_place(&mut sealed, b"wave 1", nonce)
+            .unwrap();
+
+        let mut buf = sealed.clone();
+        bob.decrypt_in_place(&mut buf, b"wave 1", nonce).unwrap();
+        assert_eq!(&buf[..], &plaintext[..]);
+
+        for other in [&b"wave 2"[..], &b""[..]] {
+            let mut buf = sealed.clone();
+            assert!(bob.decrypt_in_place(&mut buf, other, nonce).is_err());
+        }
     }
 
     #[test]
@@ -1480,10 +1486,11 @@ mod in_place_aead_tests {
 
 #[cfg(test)]
 mod seed_keygen_tests {
-    use super::kem_keypair_from_seed;
+    use super::{kem_decapsulate, kem_encapsulate, kem_keypair_from_seed};
+    use citadel_types::crypto::{AlgorithmsExt, KemAlgorithm};
 
     /// R1: deterministic ML-KEM keygen must be (a) reproducible from the same seed, (b) distinct for
-    /// different seeds, and (c) byte-compatible with `encapsulate`/`decapsulate` so a node keypair
+    /// different seeds, and (c) compatible with `kem_encapsulate`/`kem_decapsulate` so a node keypair
     /// derived from a TreeKEM path secret actually round-trips a shared secret.
     #[test]
     fn derive_is_deterministic_and_kem_compatible() {
@@ -1496,23 +1503,38 @@ mod seed_keygen_tests {
             s
         };
 
-        let (pk1, sk1) = kem_keypair_from_seed(&seed_a).unwrap();
-        let (pk2, sk2) = kem_keypair_from_seed(&seed_a).unwrap();
-        assert_eq!(pk1, pk2, "same seed must yield the same public key");
-        assert_eq!(sk1, sk2, "same seed must yield the same secret key");
+        for alg in KemAlgorithm::list() {
+            let (pk1, sk1) = kem_keypair_from_seed(alg, &seed_a).unwrap();
+            let (pk2, sk2) = kem_keypair_from_seed(alg, &seed_a).unwrap();
+            assert_eq!(
+                pk1, pk2,
+                "{alg:?}: same seed must yield the same public key"
+            );
+            assert_eq!(
+                sk1, sk2,
+                "{alg:?}: same seed must yield the same secret key"
+            );
 
-        let (pk_b, _sk_b) = kem_keypair_from_seed(&seed_b).unwrap();
-        assert_ne!(pk1, pk_b, "different seeds must yield different keys");
+            let (pk_b, _sk_b) = kem_keypair_from_seed(alg, &seed_b).unwrap();
+            assert_ne!(
+                pk1, pk_b,
+                "{alg:?}: different seeds must yield different keys"
+            );
 
-        // Encapsulate to the derived public key, decapsulate with the derived secret key.
-        let (ct, ss_enc) =
-            kyber_pke::encapsulate(&pk1, &mut rand::rngs::ThreadRng::default()).unwrap();
-        let ss_dec = kyber_pke::decapsulate(&ct, &sk1).unwrap();
-        assert_eq!(
-            &ss_enc[..],
-            &ss_dec[..],
-            "encapsulate(derived pk) must decapsulate to the same shared secret with the derived sk",
-        );
+            let (ct, sent) = kem_encapsulate(alg, &pk1).unwrap();
+            assert_eq!(kem_decapsulate(alg, &ct, &sk1).unwrap(), sent, "{alg:?}");
+        }
+    }
+
+    /// A key of one KEM is never encapsulated to as the other.
+    #[test]
+    fn a_key_of_one_kem_is_not_used_as_the_other() {
+        let seed = [9u8; 64];
+        let (pk768, _) = kem_keypair_from_seed(KemAlgorithm::MlKem768Fips203, &seed).unwrap();
+        let (pk1024, _) = kem_keypair_from_seed(KemAlgorithm::MlKem1024Fips203, &seed).unwrap();
+        assert_ne!(pk768.len(), pk1024.len());
+        assert!(kem_encapsulate(KemAlgorithm::MlKem1024Fips203, &pk768).is_err());
+        assert!(kem_encapsulate(KemAlgorithm::MlKem768Fips203, &pk1024).is_err());
     }
 }
 

@@ -101,6 +101,14 @@ pub(crate) mod packet_flags {
                 pub(crate) const PQ_REPLY: u8 = 4;
                 pub(crate) const SUCCESS: u8 = 5;
                 pub(crate) const FAILURE: u8 = 6;
+                /// Client → server, after STAGE1, in place of STAGE2: a `RecoverStart`.
+                pub(crate) const RECOVER_START: u8 = 7;
+                /// Server → client: the recovery factor's challenge.
+                pub(crate) const RECOVER_CHALLENGE: u8 = 8;
+                /// Client → server: the `RecoverProof`.
+                pub(crate) const RECOVER_PROOF: u8 = 9;
+                /// Server → client: the exchange's ratchet is now the account's bundle.
+                pub(crate) const RECOVER_DONE: u8 = 10;
             }
 
             pub(crate) mod do_disconnect {
@@ -438,6 +446,13 @@ impl HeaderObfuscator {
     pub fn new_client(header_obfuscator_settings: HeaderObfuscatorSettings) -> Self {
         let key = match header_obfuscator_settings {
             HeaderObfuscatorSettings::Enabled => {
+                #[cfg_attr(
+                    target_family = "wasm",
+                    expect(
+                        clippy::default_constructed_unit_structs,
+                        reason = "the browser's ThreadRng is a unit struct; the native one is not"
+                    )
+                )]
                 let mut rng = ThreadRng::default();
                 rng.gen::<u128>()
             }
@@ -457,6 +472,13 @@ impl HeaderObfuscator {
 
         let key = hash_u128(key);
 
+        #[cfg_attr(
+            target_family = "wasm",
+            expect(
+                clippy::default_constructed_unit_structs,
+                reason = "the browser's ThreadRng is a unit struct; the native one is not"
+            )
+        )]
         let mut rng = ThreadRng::default();
         let bytes_to_add = rng.gen_range(0..(HDP_HEADER_BYTE_LEN - 17));
         let mut packet = vec![0; 16 + bytes_to_add];

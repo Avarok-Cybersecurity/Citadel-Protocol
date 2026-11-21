@@ -29,11 +29,13 @@
 //! - `SessionManager`: Tracks registration process
 
 use super::includes::*;
+use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::{RegisterFailure, RegisterOkay};
 use crate::proto::pq_sign_in;
+use crate::proto::version_gate::check_peer_protocol_version;
 use citadel_crypt::endpoint_crypto_container::{
     AssociatedCryptoParams, AssociatedSecurityLevel, EndpointRatchetConstructor, PeerSessionCrypto,
 };
@@ -49,7 +51,7 @@ use citadel_user::serialization::SyncIO;
     skip_all,
     ret,
     err,
-    fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get()
+    fields(is_server = session_ref.is_server, src = crate::proto::packet_processor::header_cids(&packet).0, target = crate::proto::packet_processor::header_cids(&packet).1
     )
 ))]
 pub async fn process_register<R: Ratchet, T: PlatformOps>(
@@ -84,6 +86,22 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                 match validation::do_register::validate_stage0::<R>(&payload) {
                     Some((transfer, transient_mode_requested)) => {
                         let timestamp = session.time_tracker.get_global_time_ns();
+                        if let Err(err) = check_peer_protocol_version(header.protocol_version.get())
+                        {
+                            let reason = err.into_string();
+                            log::warn!(target: "citadel", "Refusing a registration: {reason}");
+                            let err = packet_crafter::do_register::craft_failure(
+                                algorithm,
+                                timestamp,
+                                &reason,
+                                header.session_cid.get(),
+                                ticket,
+                            );
+                            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+                                err,
+                                "registration protocol version refused",
+                            ));
+                        }
                         // Check server config for transient mode
                         if transient_mode_requested
                             && !session
@@ -105,6 +123,26 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             ));
                         }
 
+                        // Every layer is a key exchange this server runs before anyone has
+                        // authenticated: a level above the node's maximum is refused unbuilt.
+                        if let Err(above) =
+                            session.max_security_level.check(transfer.security_level())
+                        {
+                            let reason = above.to_string();
+                            log::warn!(target: "citadel", "Refusing a registration: {reason}");
+                            let err = packet_crafter::do_register::craft_failure(
+                                algorithm,
+                                timestamp,
+                                &reason,
+                                header.session_cid.get(),
+                                ticket,
+                            );
+                            return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
+                                err,
+                                "registration above the node's maximum security level",
+                            ));
+                        }
+
                         let session_password = session.session_password.clone();
                         let cid = header.session_cid.get();
 
@@ -115,7 +153,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                     <R::Constructor as EndpointRatchetConstructor<R>>::new_bob(
                                         cid,
                                         ConstructorOpts::new_vec_init(
-                                            Some(transfer.crypto_params()),
+                                            transfer.crypto_params(),
                                             transfer.security_level(),
                                         ),
                                         transfer,
@@ -141,6 +179,11 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             header.session_cid.get(),
                             ticket,
                         );
+                        // What a recovery in this exchange would be bound to.
+                        let binding = citadel_user::auth::pq::channel_binding(
+                            &payload,
+                            &stage1_packet[HDP_HEADER_BYTE_LEN..],
+                        );
 
                         // Single lock for commit and state-machine validation
                         let ok = {
@@ -152,6 +195,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                     Some(transient_mode_requested);
                                 state_container.register_state.created_ratchet =
                                     Some(finished_ratchet);
+                                state_container.register_state.pq.recover.binding = Some(binding);
                                 state_container.register_state.last_stage =
                                     packet_flags::cmd::aux::do_register::STAGE1;
                                 state_container.register_state.on_register_packet_received();
@@ -185,6 +229,9 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
 
             packet_flags::cmd::aux::do_register::STAGE1 => {
                 log::trace!(target: "citadel", "STAGE 1 REGISTER PACKET");
+                if let Err(err) = check_peer_protocol_version(header.protocol_version.get()) {
+                    return super::recover_packet::fail_client(&session, err);
+                }
                 // Node is Alice. This packet will contain Bob's ciphertext; Alice will now be able to create the shared private key
                 // Release state_container before heavy crypto
                 let (algorithm, alice_constructor_opt, proposed_credentials_opt) = {
@@ -201,6 +248,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         SyncIO::deserialize_from_vector(&payload[..]).ok(),
                         "Unable to deserialize BobToAliceTransfer"
                     );
+                    let stage1_payload = payload.to_vec();
                     let security_level = transfer.security_level();
 
                     // Offload stage1_alice + finish (avoid capturing session in closure)
@@ -222,12 +270,33 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                         "Unable to load proposed credentials"
                     );
 
+                    // A recovery goes on in its own lane instead of STAGE2.
+                    match pq_sign_in::recover::client::begin(
+                        &session,
+                        &new_ratchet,
+                        &stage1_payload,
+                        algorithm,
+                        timestamp,
+                        security_level,
+                        ticket,
+                    ) {
+                        Ok(Some(recover_start)) => {
+                            let mut state_container = inner_mut_state!(session.state_container);
+                            state_container.register_state.created_ratchet = Some(new_ratchet);
+                            state_container.register_state.last_stage =
+                                packet_flags::cmd::aux::do_register::RECOVER_START;
+                            state_container.register_state.on_register_packet_received();
+                            return Ok(PrimaryProcessorResult::ReplyToSender(recover_start));
+                        }
+                        Ok(None) => {}
+                        Err(err) => return super::recover_packet::fail_client(&session, err),
+                    }
+
                     // A server that runs post-quantum sign-in evaluates the OPRF first; STAGE2
                     // then carries the keys instead of a password hash.
                     if let Some(pq_start) = pq_sign_in::register::begin(
                         &session,
                         &new_ratchet,
-                        header.protocol_version.get(),
                         proposed_credentials.username(),
                         algorithm,
                         timestamp,
@@ -324,6 +393,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     Err(err) => {
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
+                            error_code: Some(err.code_u16()),
                             error_message: err.into_string(),
                             admission_challenge: None,
                         }))?;
@@ -355,8 +425,10 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
 
                 let task = {
                     let state_container = inner_state!(session.state_container);
+                    // A recovery never creates an account.
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE1
+                        && !state_container.register_state.pq.recover.in_progress()
                     {
                         let algorithm = header.algorithm;
                         let ratchet = return_if_none!(
@@ -381,7 +453,6 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                 let pq_state = &mut state.register_state.pq;
                                 (pq_state.server.take(), pq_state.admitted)
                             };
-                            let adjacent_version = header.protocol_version.get();
                             let session_crypto_state = initialize_peer_session_crypto(
                                 ratchet.get_cid(),
                                 ratchet.clone(),
@@ -389,23 +460,31 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             );
                             // we must now create the CNAC
                             async move {
+                                // A legacy STAGE2 has the server hash its password: it needs a
+                                // turn under the server's limits, held until the hash is done,
+                                // and asked for before anything else is spent on it.
+                                let legacy_turn = match (&pq, session.session_manager.server_load())
+                                {
+                                    (None, Some(load)) => Some(load.legacy_hash_turn()),
+                                    _ => None,
+                                };
+                                if let Some(Err(refused)) = &legacy_turn {
+                                    log::warn!(target: "citadel", "Legacy registration not taken: {refused:?}");
+                                }
                                 // A legacy STAGE2 that no `PQ_START` admitted is asked now,
                                 // before the account is created.
-                                let gate = match (&pq, admitted) {
-                                    (None, false) => {
+                                let gate = match (&pq, admitted, legacy_turn.as_ref()) {
+                                    (_, _, Some(Err(refused))) => Err(refused.clone()),
+                                    (None, false, _) => {
                                         let ctx = pq_sign_in::admission::register(
                                             &session,
                                             creds.username(),
                                             None,
                                         );
                                         let policy = pq_sign_in::admission::policy(&session);
-                                        let legacy = pq_sign_in::admission::is_legacy_client(
-                                            adjacent_version,
-                                        );
                                         citadel_user::auth::pq::admission::check(
                                             policy.as_ref(),
                                             ctx,
-                                            legacy,
                                         )
                                         .await
                                     }
@@ -496,6 +575,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     let state_container = inner_state!(session.state_container);
                     if state_container.register_state.last_stage
                         == packet_flags::cmd::aux::do_register::STAGE2
+                        && !state_container.register_state.pq.recover.in_progress()
                     {
                         let ratchet = return_if_none!(
                             state_container.register_state.created_ratchet.clone(),
@@ -531,10 +611,10 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                             let session_crypto_state =
                                 initialize_peer_session_crypto(ratchet.get_cid(), ratchet, false);
 
-                            let (registered_pq, recovery_codes) = {
+                            let (registered_pq, recovery_phrase) = {
                                 let mut state_container = inner_mut_state!(session.state_container);
                                 let pq = &mut state_container.register_state.pq;
-                                (pq.registered, std::mem::take(&mut pq.recovery_codes))
+                                (pq.registered, pq.recovery_phrase.take())
                             };
                             async move {
                                 let registered = if registered_pq {
@@ -588,7 +668,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                                     ticket: reg_ticket.get(),
                                                     cid: new_cnac.get_cid(),
                                                     welcome_message: success_message,
-                                                    recovery_codes,
+                                                    recovery_phrase,
                                                 },
                                             ))?;
                                             session.shutdown();
@@ -600,6 +680,7 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                         kernel_tx.unbounded_send(NodeResult::RegisterFailure(
                                             RegisterFailure {
                                                 ticket: reg_ticket.get(),
+                                                error_code: Some(err.code_u16()),
                                                 error_message: err.into_string(),
                                                 admission_challenge: None,
                                             },
@@ -654,12 +735,12 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     {
                         // Freed before the caller hears, so it may retry at once.
                         session.release_provisional_slot();
-                        let (error_message, admission_challenge) =
-                            pq_sign_in::refusal::read_register_failure(error_message);
+                        let refusal = pq_sign_in::refusal::read_register_failure(error_message);
                         session.send_to_kernel(NodeResult::RegisterFailure(RegisterFailure {
                             ticket: session.kernel_ticket.get(),
-                            error_message,
-                            admission_challenge,
+                            error_message: refusal.message,
+                            admission_challenge: refusal.admission_challenge,
+                            error_code: refusal.code,
                         }))?;
                         session.shutdown();
                     } else {
@@ -674,6 +755,10 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                     log::warn!(target: "citadel", "A failure packet was received, but this node never sent a registration request. Dropping");
                     Ok(PrimaryProcessorResult::Void)
                 }
+            }
+
+            aux if super::recover_packet::is_recovery_stage(aux) => {
+                super::recover_packet::process(&session, &header, payload, remote_addr).await
             }
 
             _ => {

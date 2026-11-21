@@ -78,7 +78,7 @@ The project is organized as a Rust workspace with multiple interconnected crates
 - **citadel_sdk**: Main SDK crate providing high-level APIs for building secure network applications
 - **citadel_proto**: Core protocol implementation handling networking, encryption, and session management
 - **citadel_crypt**: Cryptographic primitives including ratcheting algorithms, encryption toolsets, and key management
-- **citadel_pqcrypto**: Post-quantum cryptography implementations (Kyber, NTRU)
+- **citadel_pqcrypto**: Post-quantum cryptography implementations (ML-KEM, ML-DSA, FN-DSA)
 - **citadel_wire**: NAT traversal and network transport layer (TCP, TLS, QUIC)
 - **citadel_user**: User management and authentication
 - **citadel_types**: Common types and utilities
@@ -144,7 +144,9 @@ Configured through feature flags:
 use citadel_sdk::prelude::*;
 
 let server = NodeBuilder::default()
+    .with_link_manager(LinkManagerMode::Legacy)
     .with_node_type(NodeType::server("127.0.0.1:25021")?)
+    .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme)?)
     .build(kernel)?;
 ```
 
@@ -153,14 +155,16 @@ let server = NodeBuilder::default()
 use citadel_sdk::prelude::*;
 
 let client = NodeBuilder::default()
+    .with_link_manager(LinkManagerMode::Legacy)
     .with_node_type(NodeType::client())
+    .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme)?)
     .build(kernel)?;
 ```
 
 #### Custom Security Settings
 ```rust
 let settings = SessionSecuritySettingsBuilder::default()
-    .with_crypto_params(KemAlgorithm::MlKem + EncryptionAlgorithm::AES256GCM)
+    .with_crypto_params(KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256)
     .with_security_level(SecurityLevel::Standard)
     .build()?;
 ```

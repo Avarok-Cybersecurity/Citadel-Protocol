@@ -87,10 +87,14 @@ async fn test_wasm_p2p_connect() {
         .ensure_registered()
         .add();
 
-    let settings_a = DefaultServerConnectionSettingsBuilder::transient_with_id(WS_SERVER, uuid_a)
-        .with_udp_mode(UdpMode::Disabled)
-        .build()
-        .expect("build settings A");
+    let settings_a = DefaultServerConnectionSettingsBuilder::transient_with_id(
+        WS_SERVER,
+        uuid_a,
+        CertVerification::SelfSignedAccepted,
+    )
+    .with_udp_mode(UdpMode::Disabled)
+    .build()
+    .expect("build settings A");
 
     let kernel_a =
         PeerConnectionKernel::new(settings_a, agg_a, |mut connections, remote| async move {
@@ -144,7 +148,9 @@ async fn test_wasm_p2p_connect() {
         });
 
     let client_a = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::BROWSER_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_node_type(NodeType::Peer)
         .build(kernel_a)
         .expect("build client A");
@@ -156,10 +162,14 @@ async fn test_wasm_p2p_connect() {
         .ensure_registered()
         .add();
 
-    let settings_b = DefaultServerConnectionSettingsBuilder::transient_with_id(WS_SERVER, uuid_b)
-        .with_udp_mode(UdpMode::Disabled)
-        .build()
-        .expect("build settings B");
+    let settings_b = DefaultServerConnectionSettingsBuilder::transient_with_id(
+        WS_SERVER,
+        uuid_b,
+        CertVerification::SelfSignedAccepted,
+    )
+    .with_udp_mode(UdpMode::Disabled)
+    .build()
+    .expect("build settings B");
 
     let kernel_b =
         PeerConnectionKernel::new(settings_b, agg_b, |mut connections, remote| async move {
@@ -216,7 +226,9 @@ async fn test_wasm_p2p_connect() {
         });
 
     let client_b = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::BROWSER_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_node_type(NodeType::Peer)
         .build(kernel_b)
         .expect("build client B");

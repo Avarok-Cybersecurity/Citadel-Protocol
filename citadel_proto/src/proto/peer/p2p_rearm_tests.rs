@@ -1,14 +1,9 @@
 use super::*;
 use citadel_io::tokio;
-use embedded_semver::Semver;
 use netbeam::sync::test_utils::create_streams_with_addrs;
 use std::time::Duration;
 
 const BOUND: Duration = Duration::from_secs(10);
-
-fn version(major: usize, minor: usize, patch: usize) -> Option<u32> {
-    Some(Semver::new(major, minor, patch).to_u32().unwrap())
-}
 
 #[test]
 fn requests_merge_until_taken() {
@@ -93,7 +88,7 @@ async fn one_side_asks(asker_is_initiator: bool, original: UdpMode) -> (Retry, R
     let (asker_slot, other_slot) = (RearmSlot::default(), RearmSlot::default());
     let side = |app: NetworkEndpoint, slot: RearmSlot| async move {
         assert!(park(&app, &slot).await, "parked endpoint failed");
-        rendezvous(&app, true, &slot, original, 0).await.unwrap()
+        rendezvous(&app, &slot, original, 0).await.unwrap()
     };
     let asking = async {
         asker_slot.request(true);
@@ -140,51 +135,16 @@ async fn parked_peers_stay_parked_until_asked() {
     );
 }
 
-#[tokio::test]
-async fn a_peer_that_does_not_park_only_syncs() {
-    let (receiver, initiator) = create_streams_with_addrs().await;
-    let slot = RearmSlot::default();
-    slot.request(true);
-    let other = RearmSlot::default();
-    let (a, b) = tokio::time::timeout(BOUND, async {
-        tokio::join!(
-            rendezvous(&initiator, false, &slot, UdpMode::Enabled, 2),
-            rendezvous(&receiver, false, &other, UdpMode::Enabled, 1)
-        )
-    })
-    .await
-    .unwrap();
-    let (a, b) = (a.unwrap(), b.unwrap());
-    assert_eq!(
-        (a.udp_mode, b.udp_mode),
-        (UdpMode::Disabled, UdpMode::Disabled)
-    );
-    assert_eq!(
-        (a.budget, b.budget),
-        (2, 1),
-        "each side keeps its own budget, as before"
-    );
-}
-
 #[test]
 fn an_upgrade_is_refused_when_nothing_can_carry_it() {
-    let current = Some(*crate::constants::PROTOCOL_VERSION);
-    assert!(refuse_upgrade(current, false, true).is_none());
+    assert!(refuse_upgrade(false, true).is_none());
     let code = |err: Option<NetworkError>| err.expect("refused").code;
     assert_eq!(
-        code(refuse_upgrade(version(0, 12, 0), false, true)),
-        ErrorCode::P2pUpgradeUnsupported
-    );
-    assert_eq!(
-        code(refuse_upgrade(None, false, true)),
-        ErrorCode::P2pUpgradeUnsupported
-    );
-    assert_eq!(
-        code(refuse_upgrade(current, false, false)),
+        code(refuse_upgrade(false, false)),
         ErrorCode::P2pUpgradeUnavailable
     );
     assert_eq!(
-        code(refuse_upgrade(current, true, true)),
+        code(refuse_upgrade(true, true)),
         ErrorCode::P2pUpgradeUnavailable
     );
 }

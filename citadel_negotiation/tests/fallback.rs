@@ -46,13 +46,10 @@ fn a_legacy_peer_takes_the_handshake_and_the_requester_redials() {
 fn a_kem_change_is_agreed_in_band_then_taken_by_handshake() {
     let params = CryptoParameters {
         kem_algorithm: KemAlgorithm::MlKem1024Fips203,
-        ..CryptoParameters::default()
+        ..common::BASE_PARAMS
     };
     let target = KeyProfile::new(SecurityLevel::High, params);
-    assert_ne!(
-        params.kem_algorithm,
-        CryptoParameters::default().kem_algorithm
-    );
+    assert_ne!(params.kem_algorithm, common::BASE_PARAMS.kem_algorithm);
     let mut w = world(profile(SecurityLevel::Standard), true);
     w.apply(Action::Request(Side::B, target));
     w.run_to_quiescence(100).expect("quiescent");

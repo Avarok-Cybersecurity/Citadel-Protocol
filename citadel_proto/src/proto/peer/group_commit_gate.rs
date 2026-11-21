@@ -5,14 +5,11 @@
 //! secrecy). So the owner holds the joiner's Welcome until the server reports that the Commit
 //! has *settled*: no member that could still seal at the old epoch is left.
 //!
-//! The rule, for the owner's Commit for `epoch` (owner and server at `GROUP_COMMIT_ACK_SINCE` or
-//! later):
+//! The rule, for the owner's Commit for `epoch`:
 //! - The server waits on every group member, other than the owner, to which it delivered the
-//!   Commit directly and whose session is at `GROUP_COMMIT_ACK_SINCE` or later. A member that
-//!   is offline gets the Commit by mailbox and is not waited on: a session that returns holds no
-//!   group state, so it seals nothing until it has rejoined at the current epoch. An older member
-//!   cannot acknowledge and is not waited on either; it can still lose a joiner a message, which
-//!   the joiner's application then sees as `MessageDropped`.
+//!   Commit directly. A member that is offline gets the Commit by mailbox and is not waited on:
+//!   a session that returns holds no group state, so it seals nothing until it has rejoined at
+//!   the current epoch.
 //! - A member leaves the wait when it acknowledges the Commit (`CommitApplied`), when the
 //!   session the Commit was delivered to ends, or when it is removed from the group. A session
 //!   that replaced that one (a reconnect under the same cid) is not waited on: like a returning

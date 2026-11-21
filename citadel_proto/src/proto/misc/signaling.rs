@@ -14,6 +14,9 @@ use sha3::{Digest, Sha3_256};
 
 use crate::proto::peer::peer_crypt::IceCandidateData;
 
+/// What every signaling operation returns: a boxed, local future of its result.
+pub type SignalingFuture<T> = Pin<Box<dyn Future<Output = io::Result<T>>>>;
+
 fn to_hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(bytes.len() * 2);
@@ -33,29 +36,20 @@ pub struct RoomId(pub String);
 /// once the WebRTC DataChannel opens, signaling is no longer needed.
 pub trait SignalingService: 'static {
     /// Publish a JSON value at `{room}/{key}`.
-    fn publish(
-        &self,
-        room: &str,
-        key: &str,
-        value: serde_json::Value,
-    ) -> Pin<Box<dyn Future<Output = io::Result<()>>>>;
+    fn publish(&self, room: &str, key: &str, value: serde_json::Value) -> SignalingFuture<()>;
 
     /// Read the JSON value at `{room}/{key}`. Returns `None` if absent.
-    fn read(
-        &self,
-        room: &str,
-        key: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<Option<serde_json::Value>>>>>;
+    fn read(&self, room: &str, key: &str) -> SignalingFuture<Option<serde_json::Value>>;
 
     /// List all children under `{room}/{prefix}` as a key-value map.
     fn list_children(
         &self,
         room: &str,
         prefix: &str,
-    ) -> Pin<Box<dyn Future<Output = io::Result<HashMap<String, serde_json::Value>>>>>;
+    ) -> SignalingFuture<HashMap<String, serde_json::Value>>;
 
     /// Delete an entire room and all its children.
-    fn delete_room(&self, room: &str) -> Pin<Box<dyn Future<Output = io::Result<()>>>>;
+    fn delete_room(&self, room: &str) -> SignalingFuture<()>;
 }
 
 /// Hello message published during peer discovery.

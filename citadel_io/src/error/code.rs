@@ -319,9 +319,7 @@ pub enum ErrorCode {
     FirewallUpnpLanIpv6Unsupported = 92,
 
     // --- citadel_types: crypto parameter validation ---
-    /// ML-KEM hybrid encryption was selected without the ML-KEM key-exchange algorithm.
-    #[form = "Invalid crypto parameter combination. ML-KEM hybrid encryption must be paired with ML-KEM"]
-    CryptoParamsHybridRequiresMlKem = 93,
+    // 93 is retired: never reuse it.
     /// ML-KEM hybrid encryption was selected without a post-quantum signature scheme.
     #[form = "A post-quantum signature scheme must be selected when using ML-KEM hybrid encryption"]
     CryptoParamsHybridRequiresSig = 94,
@@ -802,9 +800,7 @@ pub enum ErrorCode {
     /// A keep-alive packet could not be sent (reason).
     #[form = "Unable to send keep-alive: {}"]
     KeepAliveSendFailed = 239,
-    /// A pre-connect SYN referenced a CID that is not registered to this node (cid).
-    #[form = "CID {} is not registered to this node"]
-    PreconnectCidNotRegistered = 240,
+    // 240 is retired: never reuse it.
     /// The incoming protocol semver could not be parsed.
     #[form = "Unable to parse incoming protocol semver"]
     PreconnectSemverParseFailed = 241,
@@ -886,6 +882,19 @@ pub enum ErrorCode {
     /// A provisional outbound connection to the given peer is already in progress (peer addr).
     #[form = "Localhost is already trying to connect to {}"]
     SessionManagerProvisionalConnectionExists = 265,
+    /// A connect stopped because the ticket that requested it aborted it (`AbortLink`) (peer addr).
+    #[form = "The connect to {} was aborted by its requester"]
+    LinkConnectAborted = 480,
+    /// The server already holds a session for the account, and this login neither forced nor
+    /// proved itself that session's own client (the server's refusal).
+    #[form = "The server already holds a session for this account: {}"]
+    RemoteServerHoldsSession = 481,
+    /// A node was built without a link mode; there is no default one.
+    #[form = "A node requires a link mode (NodeBuilder::with_link_manager); there is no default"]
+    NodeLinkManagerMissing = 482,
+    /// A managed node's `LinkPolicy` failed validation (the policy's error).
+    #[form = "A managed node's LinkPolicy is invalid: {}"]
+    LinkPolicyInvalid = 483,
 
     // --- citadel_sdk: builder / node ---
     /// A node could not be built from its configuration (reason).
@@ -995,9 +1004,7 @@ pub enum ErrorCode {
     /// A target_cid of 0 was used without supplying a username.
     #[form = "target_cid=0, yet, no username was provided"]
     RemoteTargetCidZeroNoUsername = 300,
-    /// RE-VFS can only be used with the Kyber/ML-KEM KEM.
-    #[form = "RE-VFS can only be used with Kyber KEM"]
-    RemoteRevfsRequiresKyber = 301,
+    // 301 is retired: never reuse it.
     /// RE-VFS cannot be used with this remote type.
     #[form = "RE-VFS cannot be used with this remote type"]
     RemoteRevfsUnsupportedRemote = 302,
@@ -1160,8 +1167,8 @@ pub enum ErrorCode {
     /// The account needs a factor the caller did not supply (which).
     #[form = "This sign-in needs a factor that was not supplied: {}"]
     PqSignInFactorMissing = 348,
-    /// A session signed in with a recovery code asked for something other than enrolling a key or
-    /// setting the policy.
+    /// A session signed in with the recovery phrase asked for something other than managing the
+    /// account's credentials.
     #[form = "A recovery session may only enrol a security key or set the sign-in policy"]
     PqSignInRestricted = 349,
     /// The server requires an admission check (a Turnstile token) for a fresh sign-in or
@@ -1171,9 +1178,7 @@ pub enum ErrorCode {
     /// The server's admission check refused the token that was sent (reason).
     #[form = "The verification check failed: {}"]
     PqSignInAdmissionFailed = 351,
-    /// The server requires an admission check, and the client is too old to send one.
-    #[form = "This workspace needs a newer app to sign in; update your app"]
-    PqSignInAdmissionNeedsUpdate = 352,
+    // 352 is retired: never reuse it.
     /// The security key, or whoever serves the key channel, declined; the message says why, in
     /// words for the user.
     #[form = "{}"]
@@ -1183,15 +1188,11 @@ pub enum ErrorCode {
     /// A server probe's session ended before the probe was answered or timed out.
     #[form = "The session ended before the server probe was answered"]
     ServerProbeAbandoned = 370,
-    /// The server's protocol version does not answer liveness probes (version).
-    #[form = "The server does not answer liveness probes (protocol version {})"]
-    ServerProbeUnsupported = 371,
+    // 371 is retired: never reuse it.
     /// A server probe was asked of a session that is not connected (cid).
     #[form = "Cannot probe the server: session {} is not connected"]
     ServerProbeNotConnected = 372,
-    /// A P2P path upgrade was asked of a peer whose protocol cannot re-arm the campaign.
-    #[form = "The peer cannot re-arm its P2P path campaign; update it"]
-    P2pUpgradeUnsupported = 373,
+    // 373 is retired: never reuse it.
     /// A P2P path upgrade was asked of a connection with no campaign left to re-arm (reason).
     #[form = "No P2P path campaign to re-arm: {}"]
     P2pUpgradeUnavailable = 374,
@@ -1283,6 +1284,9 @@ pub enum ErrorCode {
     /// A session already has the most routed requests awaiting an answer it may have (cid, limit).
     #[form = "Session {} already has {} requests awaiting an answer; this one was not routed"]
     PendingRequestsAtCap = 433,
+    /// A signal named a peer the sender has no accepted connection with (sender cid, peer cid).
+    #[form = "{} has no accepted connection with {}; the signal was not relayed"]
+    PeerRelayNotConsented = 434,
 
     // --- citadel_user: the account layer ---
     /// An account was asked to record itself as its own peer (cid).
@@ -1292,4 +1296,103 @@ pub enum ErrorCode {
     /// not UTF-8). Choose a backend explicitly.
     #[form = "No usable home directory for the default account store; choose a backend explicitly"]
     BackendHomeDirUnavailable = 461,
+
+    // --- crypto layer: key validation (620..=639) ---
+    /// An encapsulation key received from elsewhere failed the input check (length, and every
+    /// coefficient reduced mod q), so nothing is encapsulated or encrypted to it.
+    #[form = "The {} encapsulation key failed its validity check"]
+    KemPublicKeyInvalid = 620,
+
+    // --- security levels read from the wire ---
+    /// A node was built without a maximum security level; there is no default one.
+    #[form = "A node requires a maximum security level (NodeBuilder::with_max_security_level); there is no default"]
+    NodeMaxSecurityLevelMissing = 470,
+    /// A level read from a peer or server is above what this node builds (level, maximum).
+    #[form = "Security level {} is above this node's maximum, {}; nothing was built"]
+    SecurityLevelAboveMaximum = 471,
+
+    // --- RE-VFS objects sealed under the account's own key ---
+    /// A RE-VFS object was to be sealed or opened with no key configured for its account (cid).
+    #[form = "No RE-VFS key is configured for account {} (NodeBuilder::with_revfs_key_source); nothing was sealed or opened"]
+    RevfsKeyMissing = 490,
+    /// A RE-VFS group carries another key's id: another account or root sealed it.
+    #[form = "This RE-VFS object was sealed under another account's key"]
+    RevfsSealedUnderAnotherKey = 491,
+    /// A RE-VFS group failed to open: it was altered, truncated, or moved from another object or position.
+    #[form = "A RE-VFS group failed to open (object {}, group {}): it was altered, truncated or moved"]
+    RevfsSealBroken = 492,
+    /// A RE-VFS group names a level other than its object's (group level, object level).
+    #[form = "A RE-VFS group is sealed at level {}, its object at {}"]
+    RevfsSealLevelMismatch = 493,
+    /// A RE-VFS key was asked for with a domain that is empty or too long.
+    #[form = "A RE-VFS key needs a canonical server domain of 1 to 65535 bytes"]
+    RevfsKeyDomainInvalid = 494,
+    /// A stored RE-VFS group does not carry the sealed format's prefix (object, group).
+    #[form = "A RE-VFS group is not in the sealed format (object {}, group {}); it is not opened"]
+    RevfsSealUnrecognised = 495,
+
+    // --- account recovery ---
+    /// A recovery phrase was bound to a server domain that is empty or too long.
+    #[form = "A recovery phrase needs a canonical server domain of 1 to 65535 bytes"]
+    RecoveryDomainInvalid = 510,
+    /// What the user typed is not a recovery phrase (the reason: a word count, an unknown word,
+    /// or a check that does not match). It says nothing about any account.
+    #[form = "Not a recovery phrase: {}"]
+    RecoveryPhraseUnreadable = 511,
+    // 512 is retired: never reuse it.
+    /// A sign-in throttle policy with a limit that would admit nothing or lock nothing (reason).
+    #[form = "Invalid sign-in throttle policy: {}"]
+    SignInThrottlePolicyInvalid = 513,
+
+    // --- citadel_proto: before a connection proves anything (540-559) ---
+    /// The server did not go on with a connect's first packet. It reads the same whatever the
+    /// reason, which the server logs.
+    #[form = "The server refused this connect"]
+    PreconnectRefused = 540,
+    /// A connection that requires a verified certificate was offered one without TLS.
+    #[form = "This connection requires a verified TLS certificate, and the server offered none"]
+    PlaintextOfferRefused = 541,
+    /// A server node was built without its limits; there is no default.
+    #[form = "A server node requires its limits (NodeBuilder::with_server_limits); there is no default"]
+    NodeServerLimitsMissing = 542,
+    /// Server limits were given to a node that is not a server.
+    #[form = "Server limits apply only to a server node"]
+    NodeServerLimitsNotServer = 543,
+    /// An address already has the most connections waiting to sign in it may have (ip, limit).
+    #[form = "{} already has {} connections waiting to sign in; this one was not accepted"]
+    ProvisionalPerIpAtCap = 544,
+    /// The server already holds the most connections waiting to sign in it may (limit).
+    #[form = "The server already holds {} connections waiting to sign in; this one was not accepted"]
+    ProvisionalTotalAtCap = 545,
+    /// The server does not take legacy registrations.
+    #[form = "This server does not take legacy registrations; update the client"]
+    LegacyRegistrationRefused = 546,
+    /// The server is hashing as many legacy registrations as it may at once (limit).
+    #[form = "The server is already hashing {} legacy registrations; try again shortly"]
+    LegacyRegistrationBusy = 547,
+    /// A connection that requires a verified certificate was asked of a node built to accept any.
+    #[form = "This connection requires a verified TLS certificate, and this node was built to accept any certificate (with_insecure_skip_cert_verification); nothing was dialled"]
+    CertVerificationUnavailable = 548,
+    /// The system's trusted roots could not be read in full (what the OS reported).
+    #[form = "The system's trusted certificates could not be read in full ({}); a store missing some of them is not used"]
+    TrustStoreUnavailable = 549,
+    /// The other node announced a protocol version this node does not take part with (its
+    /// version, the oldest this node admits). Nothing is translated for an older node.
+    #[form = "The other node speaks protocol {}; this node takes part only with {} or a later patch of that release. Update the older node"]
+    ProtocolVersionUnsupported = 550,
+
+    // --- P2P key exchanges signed by each account's identity key ---
+    /// A peer's key-exchange stage carries a signature that does not verify (peer cid, why).
+    #[form = "Peer {}'s key exchange is not signed by the identity key it names: {}; nothing was built"]
+    P2pKexSignatureInvalid = 660,
+    /// A peer whose identity key this account has pinned sent an unsigned key exchange (peer cid).
+    #[form = "Peer {} has a pinned identity key and sent an unsigned key exchange; nothing was built"]
+    P2pKexSignatureMissing = 661,
+    /// A peer's key exchange is signed by a key other than the one pinned for it (peer cid).
+    #[form = "Peer {}'s identity key changed; no link is built until the new key is accepted"]
+    P2pKexPeerKeyChanged = 662,
+    /// A peer's first verified identity key could not be kept, so the exchange stops before it
+    /// is reported verified (peer cid, why).
+    #[form = "Peer {}'s identity key could not be pinned: {}; nothing was built"]
+    P2pKexPinNotSaved = 663,
 }

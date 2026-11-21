@@ -6,24 +6,16 @@ use bytes::BytesMut;
 use citadel_io::ErrorCode;
 use citadel_media::wire::{self, encode_control, WireMessage};
 use citadel_media::ControlMessage;
-use citadel_proto::constants::{protocol_version_at_least, MEDIA_TRANSPORT_OFFER_SINCE};
 use citadel_proto::prelude::NetworkError;
 use futures::StreamExt;
 
 /// Whether media uses UDP: only if this side holds it and the peer's offer
-/// says it does too. A peer whose protocol version predates transport offers,
-/// or is unknown, sends none and reads none, so it is sent none and never
-/// waited on: the answer is reliable.
+/// says it does too.
 pub(super) async fn agree_on_udp(
-    peer_protocol_version: Option<u32>,
     local_udp: bool,
     sink: &mut dyn MediaDatagramSink,
     src: &mut BoxedSource,
 ) -> Result<bool, NetworkError> {
-    if !protocol_version_at_least(peer_protocol_version, MEDIA_TRANSPORT_OFFER_SINCE) {
-        log::warn!(target: "citadel", "media: peer protocol version {peer_protocol_version:?} predates transport offers; using reliable transport");
-        return Ok(false);
-    }
     let peer_udp = exchange_transport_offer(sink, src, local_udp).await?;
     Ok(local_udp && peer_udp)
 }

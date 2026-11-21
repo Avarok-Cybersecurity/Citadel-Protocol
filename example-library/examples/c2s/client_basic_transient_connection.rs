@@ -34,6 +34,8 @@
 //! can still enforce security through client certificates at the transport
 //! layer to ensure only authorized clients can connect.
 
+#[path = "../shared/max_level.rs"]
+mod max_level;
 #[path = "../shared/stun.rs"]
 mod stun;
 
@@ -50,14 +52,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up session security
     let session_security = SessionSecuritySettingsBuilder::default()
         .with_secrecy_mode(SecrecyMode::Perfect)
-        .with_crypto_params(KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256)
+        .with_crypto_params(KemAlgorithm::MlKem1024Fips203 + EncryptionAlgorithm::AES_GCM_256)
         .build()?;
 
     // Create server connection settings. If a custom transient ID is required, use `transient_with_id` over `transient`.
-    let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient(server_addr)
-        .with_session_security_settings(session_security)
-        .disable_udp()
-        .build()?;
+    let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient(
+        server_addr,
+        CertVerification::SelfSignedAccepted,
+    )
+    .with_session_security_settings(session_security)
+    .disable_udp()
+    .build()?;
 
     // Create client kernel
     let kernel =
@@ -68,7 +73,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build the node
     let client = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(stun::from_env())
+        .with_max_security_level(max_level::extreme())
         .build(kernel)?;
 
     // Run the node

@@ -3,4 +3,4 @@
 /**
  * What a factor is derived from.
  */
-export type FactorKind = "Password" | "SecurityKey" | "RecoveryCode";
+export type FactorKind = "Password" | "SecurityKey" | "RecoveryPhrase";

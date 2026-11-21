@@ -1,7 +1,5 @@
 use crate::tokio::io::{AsyncRead, AsyncWrite};
-use crate::tokio_stream::StreamExt;
 use bytes::Bytes;
-use futures::SinkExt;
 use std::fmt::{self, Debug};
 use std::future::Future;
 use std::hash::Hash;
@@ -53,10 +51,12 @@ pub trait ProtocolIO: Clone + Send + Sync + 'static {
         addr: Self::Addr,
     ) -> impl Future<Output = io::Result<(Self::Listener, Self::Addr)>> + Send;
 
-    /// Connect to a remote address (client side).
+    /// Connect to a remote address (client side), demanding of the server's certificate what
+    /// `verification` says.
     fn connect(
         config: &Self::ClientConfig,
         addr: Self::Addr,
+        verification: crate::CertVerification,
     ) -> impl Future<Output = io::Result<Self::Stream>> + Send;
 
     /// Connect to a server reached by a WebSocket URL (`ws://` or `wss://host[:port]/path`)
@@ -69,6 +69,7 @@ pub trait ProtocolIO: Clone + Send + Sync + 'static {
         _config: &Self::ClientConfig,
         _addr: Self::Addr,
         endpoint: crate::WebSocketEndpoint,
+        _verification: crate::CertVerification,
     ) -> impl Future<Output = io::Result<Self::Stream>> + Send {
         async move {
             Err(io::Error::new(
@@ -294,6 +295,7 @@ pub trait ProtocolUpgrade<T: ProtocolIO>: Send + Sync + 'static {
         local_addr: T::Addr,
         remote_addr: T::Addr,
         client_config: &T::ClientConfig,
+        verification: crate::CertVerification,
     ) -> impl Future<Output = io::Result<T::Stream>> + Send;
 
     // ── Default methods (orchestration process) ───────────────────
@@ -317,23 +319,6 @@ pub trait ProtocolUpgrade<T: ProtocolIO>: Send + Sync + 'static {
         }
     }
 
-    /// Client: connect to the signaling transport, read the redirect signal,
-    /// then connect to the target transport.
-    fn connect_with_upgrade(
-        remote_addr: T::Addr,
-        client_config: &T::ClientConfig,
-    ) -> impl Future<Output = io::Result<T::Stream>> + Send {
-        async move {
-            // 1. Connect to signaling transport
-            let stream = T::connect(client_config, remote_addr.clone()).await?;
-            let local_addr = T::local_addr(&stream)?;
-            // 2. Read the redirect signal
-            let signal = Self::read_signal_from_stream(stream).await?;
-            // 3. Connect to target transport
-            Self::connect_target(signal, local_addr, remote_addr, client_config).await
-        }
-    }
-
     /// Merge a signaling listener and target listener into a composite listener.
     ///
     /// The signal listener runs in the background: it accepts connections,
@@ -345,42 +330,4 @@ pub trait ProtocolUpgrade<T: ProtocolIO>: Send + Sync + 'static {
         signal_listener: T::Listener,
         target_listener: T::Listener,
     ) -> T::Listener;
-
-    /// Read a redirect signal from a connected signaling stream using
-    /// length-delimited framing.
-    fn read_signal_from_stream(
-        stream: T::Stream,
-    ) -> impl Future<Output = io::Result<Self::Signal>> + Send {
-        async move {
-            let mut framed =
-                crate::tokio_util::codec::LengthDelimitedCodec::builder().new_read(stream);
-            let packet = framed
-                .next()
-                .await
-                .ok_or_else(|| io::Error::other("signaling stream closed before signal"))??;
-            Self::deserialize_signal(&packet)
-        }
-    }
-
-    /// Write a redirect signal to a signaling stream using length-delimited
-    /// framing.
-    fn write_signal_to_stream(
-        stream: T::Stream,
-        signal: &Self::Signal,
-    ) -> impl Future<Output = io::Result<()>> + Send {
-        async move {
-            let bytes = Self::serialize_signal(signal)?;
-            let mut framed =
-                crate::tokio_util::codec::LengthDelimitedCodec::builder().new_write(stream);
-            framed
-                .send(bytes)
-                .await
-                .map_err(|e| io::Error::other(e.to_string()))?;
-            // tokio-util 0.7.20 also encodes `&[u8]`, so the item a flush is for must be named.
-            SinkExt::<Bytes>::flush(&mut framed)
-                .await
-                .map_err(|e| io::Error::other(e.to_string()))?;
-            Ok(())
-        }
-    }
 }

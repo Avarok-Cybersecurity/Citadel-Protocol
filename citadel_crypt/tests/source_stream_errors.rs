@@ -10,6 +10,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::streaming_crypt_scrambler::{
     scramble_encrypt_source, FixedSizedSource, ObjectSource,
 };
+use citadel_crypt::scramble::wave_binding::WaveBinding;
 use citadel_io::tokio;
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
@@ -24,7 +25,7 @@ const GROUP: usize = 16 * 1024;
 
 fn pair() -> (R, R) {
     let opts = ConstructorOpts::new_vec_init(
-        Some(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem),
+        EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem768Fips203,
         SecurityLevel::Standard,
     );
     let mut a = <R as Ratchet>::Constructor::new_alice(opts.clone(), 99, 0).unwrap();
@@ -86,7 +87,6 @@ impl ObjectSource for Failing {
 /// Runs the transfer and returns (groups delivered, whether the channel then carried an error).
 async fn run(source: Failing) -> (usize, bool) {
     let (alice, bob) = pair();
-    let (aux, _aux_bob) = pair();
     let (tx, mut rx) = tokio::sync::mpsc::channel(4);
     let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     scramble_encrypt_source::<_, _, HDR, _>(
@@ -97,11 +97,12 @@ async fn run(source: Failing) -> (usize, bool) {
         stop_rx,
         SecurityLevel::Standard,
         alice,
-        aux,
+        None,
         HDR,
         bob.get_cid(),
         0,
         TransferType::FileTransfer,
+        WaveBinding::Bound,
         |_v, _b, _o, _c, buf: &mut bytes::BytesMut| {
             for x in 0..HDR {
                 buf.put_u8(x as u8)

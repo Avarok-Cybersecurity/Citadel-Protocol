@@ -215,7 +215,7 @@ impl PlatformOps for NativeIO {
 }
 
 /// Generate a `HolePunchConfigContainer` with encryption/decryption closures.
-fn generate_hole_punch_crypt_container<R: Ratchet>(
+pub(crate) fn generate_hole_punch_crypt_container<R: Ratchet>(
     ratchet: R,
     security_level: SecurityLevel,
     target_cid: u64,

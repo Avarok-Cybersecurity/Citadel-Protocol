@@ -5,4 +5,4 @@ import type { SignInPolicy } from "./SignInPolicy";
 /**
  * What a [`SignInManagementOp`] that the server carried out returns to the application.
  */
-export type SignInManagementOutcome = { "Credentials": { policy: SignInPolicy, credentials: Array<SignInCredential>, } } | { "Added": { id: number, } } | "Renamed" | "Removed" | "PolicySet" | { "RecoveryCodes": Array<string> };
+export type SignInManagementOutcome = { "Credentials": { policy: SignInPolicy, credentials: Array<SignInCredential>, } } | { "Added": { id: number, } } | "Renamed" | "Removed" | "PolicySet" | "PasswordSet" | { "RecoveryPhrase": Array<string> };

@@ -19,11 +19,12 @@ impl GroupCgkaState {
         let Some(owner_h) = self.hierarchy_self.as_ref() else {
             return Ok(None);
         };
-        let Some(path) = self.pending_ranks.get(&kp.leaf.cid) else {
+        let leaf = &kp.leaf;
+        let Some(path) = self.pending_ranks.get(&leaf.cid) else {
             return Ok(None);
         };
         let member = owner_h.derive_descendant(path.clone())?;
-        Ok(Some(member.seal_to(&kp.leaf.kem_public)?))
+        Ok(Some(member.seal_to(&leaf.kem_public)?))
     }
 
     /// A member applies an assignment sealed to it by the owner, taking up its hierarchy position. This

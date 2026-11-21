@@ -41,6 +41,7 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
+use crate::proto::link::{C2sEstablisher, C2sPath, LinkManagerMode};
 use crate::proto::misc::local_rebind::LocalRebinder;
 use crate::proto::misc::panic_future::catch_panic;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -48,6 +49,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::ServerMode;
 use citadel_io::WebSocketEndpoint;
 use citadel_io::{error, ErrorCode};
+use citadel_link::{CloseReason, ShutdownReason};
 use citadel_user::account_manager::AccountManager;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::prelude::{ConnectProtocol, UserIdentifierExt};
@@ -160,7 +162,7 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     provisional_cid_reservations: HashMap<u64, Instant>,
     /// Client side: provisional keys whose connect is between admission and registration in
     /// `provisional_connections` (see `provisional_reservation`).
-    pub(crate) provisional_reservations: std::collections::HashSet<ProvisionalKey>,
+    pub(crate) provisional_reservations: HashMap<ProvisionalKey, Ticket>,
     kernel_tx: UnboundedSender<NodeResult<R>>,
     time_tracker: TimeTracker,
     /// Every session this node holds in memory, until its last handle drops.
@@ -168,8 +170,15 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     client_config: T::ClientConfig,
     stun_servers: citadel_wire::stun_servers::StunServers,
     turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
+    /// The most security layers this node builds a link with (see [`MaxSecurityLevel`]).
+    max_security_level: citadel_types::crypto::MaxSecurityLevel,
+    /// Where this node gets each account's RE-VFS key; `None` when it was given none.
+    revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+    p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     /// Tracks disconnect signals to ensure at most 1 per session/peer
     disconnect_tracker: DisconnectSignalTracker,
+    /// A server's limits and the state they keep (see [`ServerLoad`]).
+    server_load: Option<ServerLoad>,
     /// Client side: each account's latest resume token, kept after its session ends.
     resume_tokens: ResumeTokens,
     /// Server side: each CID's last ended session's resume token, for admission's grace.
@@ -181,7 +190,11 @@ pub struct HdpSessionManagerInner<R: Ratchet, T: PlatformOps> {
     local_rebinder: LocalRebinder,
     /// This node's traffic by class, counted by every session's streams.
     traffic: crate::proto::traffic::NodeTraffic,
+    /// How this node keeps its links (`proto::link`).
+    link_mode: LinkManagerMode,
 }
+
+use crate::proto::server_limits::{admit_provisional, ServerLoad};
 
 /// The reason given to a login refused because the server already holds a session for the account.
 pub(crate) const SESSION_ALREADY_CONNECTED: &str = "Session Already Connected, or, is in the process of disconnection and an earlier connection attempt beat this connection. Not allowing this connection";
@@ -215,7 +228,12 @@ const PROVISIONAL_CID_RESERVATION_TTL: Duration = Duration::from_secs(30);
 
 impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     /// Creates a new [SessionManager] which handles individual connections
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is one part of the node the manager is built from"
+    )]
     pub fn new(
+        link_mode: LinkManagerMode,
         local_node_type: NodeType,
         kernel_tx: UnboundedSender<NodeResult<R>>,
         account_manager: AccountManager<R, R>,
@@ -223,6 +241,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         client_config: T::ClientConfig,
         stun_servers: citadel_wire::stun_servers::StunServers,
         turn_servers: Option<Vec<crate::proto::session::TurnServerConfig>>,
+        max_security_level: citadel_types::crypto::MaxSecurityLevel,
+        revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+        p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
+        server_load: Option<ServerLoad>,
     ) -> Self {
         let incoming_cxn_count = 0;
         let inner = HdpSessionManagerInner {
@@ -243,15 +265,25 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             client_config,
             stun_servers,
             turn_servers,
+            max_security_level,
+            revfs_keys,
+            p2p_kex_identity,
             disconnect_tracker: DisconnectSignalTracker::new(),
             resume_tokens: ResumeTokens::default(),
             ended_sessions: EndedSessions::default(),
             started: Instant::now(),
             local_rebinder: LocalRebinder::new(),
             traffic: Default::default(),
+            link_mode,
+            server_load,
         };
 
         Self::from(inner)
+    }
+
+    /// A server's limits and the state they keep; `None` on a node that is not a server.
+    pub(crate) fn server_load(&self) -> Option<ServerLoad> {
+        inner!(self).server_load.clone()
     }
 
     /// Loads the server remote, and gets the time tracker for the calling [CitadelNode]
@@ -260,6 +292,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let mut this = inner_mut!(self);
         this.server_remote = Some(server_remote);
         this.time_tracker
+    }
+
+    /// How this node keeps its links.
+    pub(crate) fn link_mode(&self) -> LinkManagerMode {
+        inner!(self).link_mode.clone()
     }
 
     /// Returns the disconnect signal tracker for ensuring at most 1 disconnect signal
@@ -519,6 +556,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         keep_alive_timeout_ns: Option<i64>,
         security_settings: SessionSecuritySettings,
         default_client_config: &T::ClientConfig,
+        cert_verification: citadel_io::CertVerification,
         session_password: PreSharedKey,
     ) -> Result<impl FutureRequirements<Output = Result<(), NetworkError>>, NetworkError> {
         let (session_manager, new_session, peer_addr, primary_stream) = {
@@ -528,6 +566,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             let disconnect_tracker = self.disconnect_tracker();
 
             let (
+                login_deadline,
                 remote,
                 primary_stream,
                 local_bind_addr,
@@ -542,6 +581,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 peer_layer,
                 stun_servers,
                 turn_servers,
+                max_security_level,
+                revfs_keys,
+                p2p_kex_identity,
                 provisional_key,
                 reservation,
             ) = {
@@ -557,6 +599,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_layer,
                     stun_servers,
                     turn_servers,
+                    max_security_level,
+                    revfs_keys,
+                    p2p_kex_identity,
                     provisional_key,
                     reservation,
                 ) = {
@@ -568,10 +613,22 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                                 endpoint,
                                 _,
                                 _,
+                                _,
                             ) => (
                                 *peer_addr,
                                 None,
                                 proposed_credentials.clone(),
+                                endpoint.clone(),
+                            ),
+
+                            // The device holds no account yet; the name is the one recovered.
+                            HdpSessionInitMode::Recover(peer_addr, endpoint, recovery) => (
+                                *peer_addr,
+                                None,
+                                ProposedCredentials::post_quantum(
+                                    recovery.username.clone(),
+                                    String::new(),
+                                ),
                                 endpoint.clone(),
                             ),
 
@@ -655,6 +712,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     let peer_layer = this.hypernode_peer_layer.clone();
                     let stun_servers = this.stun_servers.clone();
                     let turn_servers = this.turn_servers.clone();
+                    let max_security_level = this.max_security_level;
+                    let revfs_keys = this.revfs_keys.clone();
+                    let p2p_kex_identity = this.p2p_kex_identity.clone();
 
                     let provisional_key = ProvisionalKey::for_account(
                         peer_addr,
@@ -682,6 +742,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         &mut this.provisional_reservations,
                         self,
                         &provisional_key,
+                        ticket,
                     )
                     .ok_or_else(|| {
                         error!(
@@ -702,6 +763,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         peer_layer,
                         stun_servers,
                         turn_servers,
+                        max_security_level,
+                        revfs_keys,
+                        p2p_kex_identity,
                         provisional_key,
                         reservation,
                     )
@@ -710,25 +774,22 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let peer_only_connect_mode =
                     ConnectProtocol::P2P(T::server_identity(&listener_underlying_proto));
 
-                // create conn to peer
-                let primary_stream = match provisional_key.endpoint.clone() {
-                    Some(endpoint) => {
-                        T::connect_endpoint(
-                            default_client_config,
-                            T::from_socket_addr(peer_addr),
-                            endpoint,
-                        )
-                        .await
-                    }
-                    None => T::connect(default_client_config, T::from_socket_addr(peer_addr)).await,
-                }
-                .map_err(|err| NetworkError::socket(err.to_string()))?;
-                T::track_client_transport(&primary_stream, &self.local_rebinder());
-                let local_bind_addr: SocketAddr = T::to_socket_addr(
-                    &T::local_addr(&primary_stream)
-                        .map_err(|err| NetworkError::generic(err.to_string()))?,
-                );
+                // Immediately before the dial, after this client's own password hashing: the
+                // server's deadline starts at its accept, after this one.
+                let login_deadline = crate::proto::link::login_deadline(&self.link_mode());
+                let C2sPath {
+                    stream: primary_stream,
+                    local_addr: local_bind_addr,
+                } = C2sEstablisher::<T>::open_path(
+                    default_client_config,
+                    cert_verification,
+                    peer_addr,
+                    provisional_key.endpoint.clone(),
+                    &self.local_rebinder(),
+                )
+                .await?;
                 (
+                    login_deadline,
                     remote,
                     primary_stream,
                     local_bind_addr,
@@ -743,6 +804,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     peer_layer,
                     stun_servers,
                     turn_servers,
+                    max_security_level,
+                    revfs_keys,
+                    p2p_kex_identity,
                     provisional_key,
                     reservation,
                 )
@@ -780,7 +844,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 client_only_settings: Some(client_only_settings),
                 stun_servers,
                 turn_servers,
+                max_security_level,
+                revfs_keys,
+                p2p_kex_identity,
                 init_time,
+                login_deadline,
                 session_password,
                 server_only_session_init_settings: None,
                 disconnect_tracker,
@@ -788,10 +856,22 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
             let (stopper, new_session) = CitadelSession::new(session_init_params)?;
 
-            if let Some((_prev_conn_init_time, _stopper, lingering_session)) = inner_mut!(self)
-                .provisional_connections
-                .insert(provisional_key, (init_time, stopper, new_session.clone()))
-            {
+            let registered = {
+                let mut this = inner_mut!(self);
+                // An abort between the claim and here took the claim away; it may already have
+                // let the next connect claim the key.
+                let still_ours =
+                    this.provisional_reservations.get(&provisional_key) == Some(&ticket);
+                still_ours.then(|| {
+                    this.provisional_connections
+                        .insert(provisional_key, (init_time, stopper, new_session.clone()))
+                })
+            };
+            let Some(lingering) = registered else {
+                new_session.shutdown();
+                return Err(error!(ErrorCode::LinkConnectAborted, peer_addr));
+            };
+            if let Some((_prev_conn_init_time, _stopper, lingering_session)) = lingering {
                 // If the previous connection was not dropped, then we need to drop it
                 log::warn!(target: "citadel", "Found a previous lingering connection to {peer_addr}. Dropping it ...");
                 lingering_session.shutdown();
@@ -1100,9 +1180,19 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let peer_layer = this.hypernode_peer_layer.clone();
         let stun_servers = this.stun_servers.clone();
         let turn_servers = this.turn_servers.clone();
+        let max_security_level = this.max_security_level;
+        let revfs_keys = this.revfs_keys.clone();
+        let p2p_kex_identity = this.p2p_kex_identity.clone();
 
-        // Regardless if the IpAddr existed as a client before, we must treat the connection temporarily as provisional
-        // However, two concurrent provisional connections from the same IP cannot be connecting at once
+        if let Some(load) = &this.server_load {
+            // A server's own entries name no account; a client's own connects do.
+            let held = this
+                .provisional_connections
+                .keys()
+                .filter(|key| key.account.is_none())
+                .map(|key| key.addr.ip());
+            admit_provisional(&load.limits, peer_addr.ip(), held)?;
+        }
         let local_node_type = this.local_node_type;
         let provisional_ticket = Ticket(this.incoming_cxn_count as _);
         this.incoming_cxn_count += 1;
@@ -1127,7 +1217,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             client_only_settings: None,
             stun_servers,
             turn_servers,
+            max_security_level,
+            revfs_keys,
+            p2p_kex_identity,
             init_time,
+            login_deadline: crate::proto::link::login_deadline(&this.link_mode),
             session_password: server_only_session_init_settings
                 .declared_pre_shared_key
                 .clone()
@@ -1471,6 +1565,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     conn_type: Some(ClientConnectionType::Server { session_cid }),
                     message: "Already disconnected".to_string(),
                     disconnect_token: None,
+                    reason: Some(CloseReason::Local(ShutdownReason::Shutdown)),
                 }))?;
         }
 
@@ -1484,6 +1579,38 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     }
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
+    /// A managed node's answer to `AbortLink`: ends what the client connect `ticket` started,
+    /// whatever stage it reached, before the node reads its next request. Its claim on the
+    /// provisional key is given back and its provisional session leaves the map at once, so the
+    /// account's next connect is admitted; the session itself stops on its own task. A session
+    /// that already connected under `ticket` is stopped too: its requester is gone, and a
+    /// session nobody holds would refuse that account's next login.
+    pub(crate) fn abort_connect(&self, ticket: Ticket) -> bool {
+        let mut this = inner_mut!(self);
+        let claims = this.provisional_reservations.len();
+        this.provisional_reservations
+            .retain(|_, held| *held != ticket);
+        let mut aborted = this.provisional_reservations.len() != claims;
+        let started_by =
+            |sess: &CitadelSession<R, T>| !sess.is_server && sess.kernel_ticket.get() == ticket;
+        let provisional = this
+            .provisional_connections
+            .iter()
+            .find(|(_, (_, _, sess))| started_by(sess))
+            .map(|(key, _)| key.clone());
+        if let Some((_, _, sess)) =
+            provisional.and_then(|key| this.provisional_connections.remove(&key))
+        {
+            sess.shutdown();
+            aborted = true;
+        }
+        if let Some((_, sess)) = this.sessions.values().find(|(_, sess)| started_by(sess)) {
+            sess.shutdown();
+            aborted = true;
+        }
+        aborted
+    }
+
     pub fn clear_provisional_session(&self, key: &ProvisionalKey, init_time: Instant) {
         log::trace!(target: "citadel", "Attempting to clear provisional session ...");
         let mut this = inner_mut!(self);
@@ -2148,19 +2275,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         })
     }
 
-    /// The cids among `cids` with a session here whose protocol version is at least `since`.
-    pub fn connected_at_least(&self, cids: &[u64], since: (u8, u8, u8)) -> HashSet<u64> {
+    /// The cids among `cids` with a session here.
+    pub fn connected(&self, cids: &[u64]) -> HashSet<u64> {
         let this = inner!(self);
         cids.iter()
             .copied()
-            .filter(|cid| {
-                this.sessions.get(cid).is_some_and(|(_, sess)| {
-                    crate::constants::protocol_version_at_least(
-                        inner_state!(sess.state_container).adjacent_protocol_version,
-                        since,
-                    )
-                })
-            })
+            .filter(|cid| this.sessions.contains_key(cid))
             .collect()
     }
 
@@ -2261,6 +2381,17 @@ pub struct GroupDelivery {
 }
 
 impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
+    /// Marks `peer_cid`'s route back to `session_cid` ended, as the refusal relayed from
+    /// `session_cid` ended its own route to `peer_cid` (`relay_route::end_refused_route`).
+    pub(crate) fn end_route_back(&self, session_cid: u64, peer_cid: u64) {
+        if let Some(peer_sess) = self.sessions.get(&peer_cid) {
+            let state_container = inner_state!(peer_sess.1.state_container);
+            if let Some(route) = state_container.active_virtual_connections.get(&session_cid) {
+                route.is_active.store(false, Ordering::SeqCst);
+            }
+        }
+    }
+
     /// Clears a session from the SessionManager
     /// Stops every session this node holds for `cid` (admitted or still provisional) and forgets
     /// it, freeing the CID for a new connection. STOP it, do not merely forget it: removing the
@@ -2305,8 +2436,10 @@ impl<R: Ratchet, T: PlatformOps> HdpSessionManagerInner<R, T> {
         self.ended_sessions
             .on_session_end(cid, issued, Instant::now(), policy.resume_grace());
         let pers = self.account_manager.get_persistence_handler().clone();
+        // The end is now, not whenever the write below gets to run.
+        let ended_ms = session_resume_store::now_ms();
         spawn!(async move {
-            let stored = match session_resume_store::now_ms() {
+            let stored = match ended_ms {
                 Ok(ended_ms) => session_resume_store::on_ended(&pers, cid, &issued, ended_ms).await,
                 Err(err) => Err(err),
             };

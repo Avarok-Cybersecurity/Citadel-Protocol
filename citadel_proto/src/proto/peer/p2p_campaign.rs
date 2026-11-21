@@ -21,7 +21,7 @@
 //! fresh budget. Both peers run the same schedule and meet on the coordination endpoint before
 //! each retry; a peer that does not arrive within [`RENDEZVOUS_TIMEOUT`] ends the campaign.
 //!
-//! **Giving up is not for life** with a peer at `PATH_REARM_SINCE`: out of retries (or after a
+//! **Giving up is not for life**: out of retries (or after a
 //! first attempt that failed), the campaign parks on the coordination endpoint until either
 //! application calls `PeerChannel::upgrade`, then retries with a fresh budget. The two peers agree
 //! on every retry at its rendezvous (see `p2p_rearm`), so they give up, park and re-arm together.
@@ -30,7 +30,7 @@
 //! `PeerChannel::ensure_direct` follows. Every attempt's outcome (see `p2p_outcome`) is published
 //! there too, and sent to the kernel.
 
-use crate::proto::peer::coordination::coordination_wire;
+use crate::proto::peer::coordination::COORDINATION_WIRE;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -50,15 +50,15 @@ use crate::proto::peer::p2p_outcome::{
 use crate::proto::peer::p2p_path::CampaignEndGuard;
 use crate::proto::peer::p2p_plan::P2pPlan;
 use crate::proto::peer::p2p_rearm;
-use crate::proto::peer::p2p_retry::{wait_for_fall_back, Retry, RetryEnd, Schedule};
+use crate::proto::peer::p2p_retry::{wait_for_shared_fall_back, Retry, RetryEnd, Schedule};
 use crate::proto::peer::peer_crypt::PeerNatInfo;
 use crate::proto::peer::peer_layer::PeerConnectionType;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 
 /// How long the initiator waits for the receiver's registration greeting before releasing its
-/// channel anyway (the receiver never registered: it lost a dual-connect race, or runs an older
-/// protocol). The channel then works as it always did; only the campaign is skipped.
+/// channel anyway (the receiver never registered: it lost a dual-connect race). The channel then
+/// works as it always did; only the campaign is skipped.
 pub(crate) const REGISTER_TIMEOUT: Duration = Duration::from_secs(15);
 /// Retries after a P2P route is lost, before the connection stays on the relay.
 pub(crate) const RECOVERY_ATTEMPTS: u32 = 3;
@@ -68,7 +68,7 @@ pub(crate) const RECOVERY_BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// A route that stayed up this long resets the retry budget and backoff.
 pub(crate) const STABLE_ROUTE: Duration = Duration::from_secs(300);
 /// How long a retry waits for the peer to meet it on the coordination endpoint.
-pub(crate) const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const RENDEZVOUS_TIMEOUT: Duration = citadel_types::proto::timing::P2P_STAGE_TIMEOUT;
 
 pub(crate) struct Campaign<R: Ratchet, T: PlatformOps> {
     pub(crate) session: CitadelSession<R, T>,
@@ -90,6 +90,9 @@ pub(crate) struct Campaign<R: Ratchet, T: PlatformOps> {
     /// Whether both NATs are unpredictable (no hole punch can work), as the plan was made from.
     pub(crate) direct_impossible: bool,
     pub(crate) guard: CampaignEndGuard,
+    /// The pair's manager, on a `Managed` node (WIRE-A: used only if the peer is Managed too).
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) managed: Option<crate::proto::link::p2p::start::ManagedPair<R, T>>,
 }
 
 /// Starts the campaign on its own task: the inbound packet processor that forged the connection
@@ -116,17 +119,15 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         plan,
         direct_impossible,
         guard,
+        #[cfg(not(target_family = "wasm"))]
+        managed,
     } = campaign;
     let started = Instant::now();
     let cell = guard.cell().clone();
-    let (peer_version, connection_id) = match &channel_signal {
-        NodeResult::PeerChannelCreated(created) => (
-            created.channel.peer_protocol_version(),
-            created.channel.connection_id(),
-        ),
-        _ => (None, None),
+    let connection_id = match &channel_signal {
+        NodeResult::PeerChannelCreated(created) => created.channel.connection_id(),
+        _ => None,
     };
-    let rearmable = p2p_rearm::peer_parks(peer_version);
     let outcomes = OutcomeContext::new(
         peer_cid,
         &plan,
@@ -164,11 +165,7 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         };
         let register = citadel_io::time::timeout(
             REGISTER_TIMEOUT,
-            NetworkEndpoint::register(
-                node_type,
-                hole_punch_compat_stream,
-                coordination_wire(peer_version),
-            ),
+            NetworkEndpoint::register(node_type, hole_punch_compat_stream, COORDINATION_WIRE),
         );
         let app = match node_type {
             RelativeNodeType::Receiver => {
@@ -198,6 +195,15 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
                 return;
             }
         };
+        #[cfg(not(target_family = "wasm"))]
+        let handed_over = crate::proto::link::p2p::start::hand_over(managed, &app).await;
+        // A browser node has no P2P manager: it takes part in the exchange as Legacy (WIRE-A), so
+        // a native peer is never left waiting on the topic.
+        #[cfg(target_family = "wasm")]
+        let handed_over = crate::proto::link::p2p::agree::agree_mode(&app, false).await;
+        if handed_over {
+            return;
+        }
         if plan.is_server_only() {
             log::warn!(target: "citadel", "The P2P connection to {peer_cid} has no path to try (the NATs are incompatible and no TURN config was supplied, or the server's path policy allows none): staying server-relayed");
             let none = crate::proto::peer::p2p_outcome::AttemptReport::nothing_attached(vec![]);
@@ -243,7 +249,6 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
             cell: &cell,
             app: &app,
             slot,
-            rearmable,
             udp_mode,
             peer_cid,
         };
@@ -252,7 +257,13 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
         loop {
             if attached {
                 let attached_at = Instant::now();
-                if !wait_for_fall_back(&cell).await {
+                let cut = || {
+                    if let Some(session) = CitadelSession::upgrade_weak(&weak_session) {
+                        let mut state_container = inner_mut_state!(session.state_container);
+                        let _ = state_container.cut_direct_route(peer_cid);
+                    }
+                };
+                if !wait_for_shared_fall_back(&cell, &app, cut).await {
                     return;
                 }
                 if attached_at.elapsed() >= STABLE_ROUTE {
@@ -260,9 +271,9 @@ async fn run<R: Ratchet, T: PlatformOps>(campaign: Campaign<R, T>) {
                 }
                 schedule.wait_first = true;
             } else {
-                // Out of attempts: stay on the relay. A peer that parks waits to be re-armed.
+                // Out of attempts: stay on the relay and wait to be re-armed.
                 cell.stop_upgrading();
-                if !rearmable || !p2p_rearm::park(&app, slot).await {
+                if !p2p_rearm::park(&app, slot).await {
                     return;
                 }
                 log::info!(target: "citadel", "P2P campaign for peer {peer_cid} re-armed");

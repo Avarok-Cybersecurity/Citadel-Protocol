@@ -47,12 +47,46 @@ pub struct RegisterToHypernode {
     /// remembers it, so later credentialed connects dial it too. `None` dials `remote_addr`.
     pub endpoint: Option<citadel_io::WebSocketEndpoint>,
     /// The password as the user typed it (trimmed, as `ProposedCredentials::new_register` trims
-    /// it), for a post-quantum registration with a server at `PQ_SIGN_IN_SINCE` or later. The
-    /// server never sees it: the client turns it into an ML-KEM key. `None` registers the legacy
-    /// way only.
+    /// it), for a post-quantum registration. The server never sees it: the client turns it into
+    /// an ML-KEM key. `None` registers the legacy way, as does a server with no post-quantum
+    /// settings.
     pub password: Option<citadel_types::crypto::SecBuffer>,
+    /// What this connection demands of the server's certificate. Required: there is no default.
+    pub cert_verification: citadel_io::CertVerification,
     /// The registration's admission token, for a server that asks for one (see
     /// `citadel_user::auth::pq::admission`). Sent only inside the post-quantum channel.
+    pub admission: Option<String>,
+    /// The server's canonical domain, which the new account's recovery phrase is bound to. A new
+    /// account is given the phrase only with this; `None` registers an account with no recovery
+    /// credential until the user makes a phrase.
+    pub recovery_domain: Option<String>,
+}
+
+/// Recovers an account on this device, which holds no bundle for it, with the account's recovery
+/// phrase (see `pq_sign_in::recover`). The server installs the new device's bundle in place of
+/// every other device's. Answered with `NodeResult::RecoverOkay`, or a `RegisterFailure` that
+/// reads exactly the same for a wrong phrase, an unknown name, a throttled or refused attempt.
+pub struct RecoverAccount {
+    pub remote_addr: SocketAddr,
+    /// The server's WebSocket URL, as for `RegisterToHypernode::endpoint`.
+    pub endpoint: Option<citadel_io::WebSocketEndpoint>,
+    pub static_security_settings: SessionSecuritySettings,
+    pub session_password: PreSharedKey,
+    /// What this connection demands of the server's certificate. Required: there is no default.
+    pub cert_verification: citadel_io::CertVerification,
+    pub recovery: AccountRecovery,
+}
+
+/// Which account to recover, with what, and what to call this device.
+#[derive(Clone, Debug)]
+pub struct AccountRecovery {
+    pub username: String,
+    /// The phrase as this server knows it: the seed, bound to the server's canonical domain.
+    pub phrase: citadel_user::auth::pq::phrase::RecoveryPhrase,
+    /// 1 to 64 characters, shown with the account's security events.
+    pub device_label: String,
+    /// The admission token (a Turnstile response for the `recover` action), for a server that
+    /// asks for one. Sent only inside the new key exchange's channel.
     pub admission: Option<String>,
 }
 
@@ -73,6 +107,8 @@ pub struct ConnectToHypernode {
     pub keep_alive_timeout: Option<u64>,
     pub session_password: PreSharedKey,
     pub session_security_settings: SessionSecuritySettings,
+    /// What this connection demands of the server's certificate. Required: there is no default.
+    pub cert_verification: citadel_io::CertVerification,
 }
 
 pub struct ReKey {
@@ -133,12 +169,22 @@ pub struct AbandonSession {
     pub session_cid: u64,
 }
 
+/// Aborts the connect (or registration) that `ticket` requested, at whatever stage it reached:
+/// hashing, dialling, or the handshake (`proto::link`'s abort). Only the requester's own ticket
+/// names it. A managed node frees what the connect held before reading its next request; a
+/// legacy node ignores it.
+pub struct AbortLink {
+    pub ticket: crate::proto::remote::Ticket,
+}
+
 /// These are sent down the stack into the server. Most of the requests expect a ticket ID
 /// in order for processes sitting above the [Kernel] to know how the request went
 #[allow(variant_size_differences)]
 pub enum NodeRequest {
     /// Sends a request to the underlying HdpSessionManager to begin connecting to a new client
     RegisterToHypernode(RegisterToHypernode),
+    /// Recovers an account on a device that holds no bundle for it
+    RecoverAccount(RecoverAccount),
     /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
     PeerCommand(PeerCommand),
     /// For submitting a de-register request
@@ -163,6 +209,8 @@ pub enum NodeRequest {
     ProbeServer(ProbeServer),
     /// Ends a C2S session locally, without the server's ack
     AbandonSession(AbandonSession),
+    /// Aborts an in-flight connect by the ticket that requested it
+    AbortLink(AbortLink),
     /// Returns a list of connected sessions
     GetActiveSessions,
     /// shutdown signal
@@ -172,7 +220,7 @@ pub enum NodeRequest {
 impl NodeRequest {
     pub fn session_cid(&self) -> Option<u64> {
         match self {
-            NodeRequest::RegisterToHypernode(_) => None,
+            NodeRequest::RegisterToHypernode(_) | NodeRequest::RecoverAccount(_) => None,
             NodeRequest::PeerCommand(PeerCommand { session_cid, .. }) => Some(*session_cid),
             NodeRequest::DeregisterFromHypernode(DeregisterFromHypernode {
                 session_cid, ..
@@ -193,6 +241,7 @@ impl NodeRequest {
             }
             NodeRequest::ProbeServer(ProbeServer { session_cid, .. }) => Some(*session_cid),
             NodeRequest::AbandonSession(AbandonSession { session_cid }) => Some(*session_cid),
+            NodeRequest::AbortLink(_) => None,
             NodeRequest::GetActiveSessions => None,
             NodeRequest::Shutdown => None,
         }

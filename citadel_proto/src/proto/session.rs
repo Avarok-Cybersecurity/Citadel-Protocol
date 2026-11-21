@@ -132,21 +132,12 @@ enum SessionShutdownReason {
     Error(NetworkError),
 }
 
-/// How many times the reader yields so the writer can flush a final reply.
-///
-/// The two share one task through the `select!` in `execute`, so the writer only
-/// runs when the reader is not ready. One yield lets the writer take the packet
-/// off the queue; the rest cover the awaits inside its own write path. Cheap,
-/// and only on a session that is already ending.
-const FINAL_REPLY_FLUSH_YIELDS: usize = 8;
-
-/// How long to let the writer finish after those yields.
-///
-/// Paid only on a session that is already ending, and only when a handler
-/// actually queued a closing reply. Bounded rather than awaited-to-completion
-/// because the writer's channel has no drain signal to await, and because a peer
-/// that has already gone will never let the write finish.
-const FINAL_REPLY_FLUSH_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+/// The bound on a session's final reply reaching the socket before the session ends (S-C5): the
+/// flush barrier behind an `EndSessionAndReplyToSender` reply and behind the disconnect
+/// responder's FINAL. The barrier is acknowledged as soon as the writer has flushed, so this is
+/// paid in full only when the peer has stopped reading and the write can never finish.
+pub(crate) const FINAL_REPLY_FLUSH_GRACE: std::time::Duration =
+    std::time::Duration::from_millis(250);
 
 /// How long handlers already running may finish once the inbound stream has ended. They
 /// were answering a peer that has gone; the grace only lets a final packet's processing
@@ -218,6 +209,7 @@ impl<R: Ratchet, T: PlatformOps> SessionAliveTracker<R, T> {
         self.weak.strong_count() > 0
     }
 
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn alive(&self) -> bool {
         if self.weak.strong_count() > 0 {
             true
@@ -303,10 +295,16 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) hypernode_peer_layer: CitadelNodePeerLayer<R>,
     pub(super) stun_servers: citadel_wire::stun_servers::StunServers,
     pub(super) turn_servers: Option<Vec<TurnServerConfig>>,
+    /// The most security layers this node builds a link with: every level read from the wire
+    /// is checked against it before anything is built.
+    pub(crate) max_security_level: citadel_types::crypto::MaxSecurityLevel,
     /// Server side: this server's path policy (see `proto::path_policy`). `None` on a client,
     /// and on a server built without one.
     pub(super) path_policy: Option<citadel_types::proto::PathPolicy>,
     pub(super) init_time: Instant,
+    /// When this login must have connected by: counted from when it began (the client's request,
+    /// the server's accept), so the client's passes first.
+    pub(super) login_deadline: crate::proto::link::LoginDeadline,
     pub(super) file_transfer_compatible: DualLateInit<bool>,
     pub(super) session_password: PreSharedKey,
     pub(super) header_obfuscator_settings: HeaderObfuscatorSettings,
@@ -352,14 +350,23 @@ pub enum HdpSessionInitMode {
     Connect(AuthenticationRequest),
     /// The optional endpoint is the server's WebSocket URL (see `RegisterToHypernode::endpoint`),
     /// the optional password is for a post-quantum registration (see
-    /// `RegisterToHypernode::password`), and the optional token is its admission token (see
-    /// `RegisterToHypernode::admission`).
+    /// `RegisterToHypernode::password`), the optional token is its admission token (see
+    /// `RegisterToHypernode::admission`), and the last is the recovery phrase's domain (see
+    /// `RegisterToHypernode::recovery_domain`).
     Register(
         SocketAddr,
         ProposedCredentials,
         Option<citadel_io::WebSocketEndpoint>,
         Option<SecBuffer>,
         Option<citadel_user::auth::pq::admission::AdmissionToken>,
+        Option<String>,
+    ),
+    /// A new device's recovery of an account (see `pq_sign_in::recover`), with the server's
+    /// WebSocket URL when it is reached through one.
+    Recover(
+        SocketAddr,
+        Option<citadel_io::WebSocketEndpoint>,
+        crate::proto::node_request::AccountRecovery,
     ),
 }
 
@@ -382,7 +389,11 @@ pub(crate) struct SessionInitParams<R: Ratchet, T: PlatformOps> {
     pub client_only_settings: Option<ClientOnlySessionInitSettings<R>>,
     pub stun_servers: citadel_wire::stun_servers::StunServers,
     pub turn_servers: Option<Vec<TurnServerConfig>>,
+    pub max_security_level: citadel_types::crypto::MaxSecurityLevel,
+    pub revfs_keys: Option<citadel_crypt::revfs_seal::RevfsKeys>,
+    pub p2p_kex_identity: Option<crate::proto::peer::kex_auth::P2pKexIdentities>,
     pub init_time: Instant,
+    pub login_deadline: crate::proto::link::LoginDeadline,
     pub session_password: PreSharedKey,
     pub server_only_session_init_settings: Option<ServerOnlySessionInitSettings>,
     /// Disconnect signal tracker - passed in to avoid needing to lock session_manager during construction
@@ -410,6 +421,10 @@ pub struct ServerOnlySessionInitSettings {
     /// built without one, such as the server role of a serverless pair, whose peers then plan
     /// their paths themselves.
     pub path_policy: Option<citadel_types::proto::PathPolicy>,
+    /// The server's limits (see [`ServerLimits`](crate::proto::server_limits::ServerLimits)).
+    /// `None` only on a node built without them, such as the server role of a serverless pair,
+    /// which takes its one connection.
+    pub limits: Option<crate::proto::server_limits::ServerLimits>,
 }
 
 /// TURN server configuration for NAT traversal relay.
@@ -447,7 +462,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .as_ref()
             .map(|r| &r.init_mode)
         {
-            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _)) => endpoint.clone(),
+            Some(HdpSessionInitMode::Register(_, _, endpoint, _, _, _))
+            | Some(HdpSessionInitMode::Recover(_, endpoint, _)) => endpoint.clone(),
             _ => None,
         };
 
@@ -473,7 +489,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         }
                     }
 
-                    HdpSessionInitMode::Register(..) => (None, SessionState::NeedsRegister, None),
+                    HdpSessionInitMode::Register(..) | HdpSessionInitMode::Recover(..) => {
+                        (None, SessionState::NeedsRegister, None)
+                    }
                 }
             } else {
                 (None, SessionState::SocketJustOpened, None)
@@ -524,11 +542,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             .unwrap_or(KEEP_ALIVE_TIMEOUT_NS);
         let stun_servers = session_init_params.stun_servers;
         let turn_servers = session_init_params.turn_servers;
+        let max_security_level = session_init_params.max_security_level;
+        let revfs_keys = session_init_params.revfs_keys;
+        let p2p_kex_identity = session_init_params.p2p_kex_identity;
         let path_policy = session_init_params
             .server_only_session_init_settings
             .as_ref()
             .and_then(|settings| settings.path_policy.clone());
         let init_time = session_init_params.init_time;
+        let login_deadline = session_init_params.login_deadline;
         let session_password = session_init_params.session_password;
         // Use disconnect_tracker passed in through params to avoid needing to lock
         // session_manager during construction (which would cause RefCell double-borrow panic)
@@ -571,6 +593,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 TransferStats::new(timestamp, 0),
                 udp_mode,
                 ledger,
+                revfs_keys,
+                p2p_kex_identity,
             ),
             to_primary_stream: DualLateInit::default(),
             state,
@@ -581,8 +605,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             client_config,
             stun_servers,
             turn_servers,
+            max_security_level,
             path_policy,
             init_time,
+            login_deadline,
             file_transfer_compatible: DualLateInit::default(),
             drop_listener: DualRwLock::from(None),
             session_password,
@@ -622,15 +648,22 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         let this_queue_worker = self.clone();
         let this_close = self.clone();
 
-        let (session_future, handle_zero_state, session_cid, queue_worker_handle) = {
+        let (session_future, handle_zero_state, session_cid, queue_worker_handle, login_deadline) = {
             let quic_conn_opt = T::take_p2p_connection(&mut primary_stream)
                 .and_then(|c| c.downcast::<citadel_wire::exports::Connection>().ok())
                 .map(|c| *c);
             *inner_mut!(this.ws_pinger) = T::ws_pinger(&primary_stream);
             let (writer, reader) = misc::safe_split_stream(primary_stream);
 
+            // A server's streams take its own per-stream limit and also count against its total.
             let (primary_outbound_tx, primary_outbound_rx) =
-                budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES);
+                match this.session_manager.server_load() {
+                    Some(load) => budgeted_primary_channel(
+                        load.limits.outbound_queued_per_stream.get(),
+                        Some(load.outbound_total()),
+                    ),
+                    None => budgeted_primary_channel(MAX_QUEUED_OUTBOUND_BYTES, None),
+                };
 
             // if the primary stream uses QUIC, load this inside for both client and server
             if let Some(quic_conn) = quic_conn_opt {
@@ -668,7 +701,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             let reader_future =
                 Self::execute_inbound_stream(reader, this_inbound, None, obfuscator, meter);
             //let timer_future = Self::execute_timer(this.clone());
-            let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
+            let login_deadline = this.login_deadline.clone();
+            let queue_worker_future =
+                Self::execute_queue_worker(this_queue_worker, login_deadline.clone());
             let stopper_future = Self::stopper(stopper);
             let handle_zero_state = Self::handle_zero_state(
                 None,
@@ -690,11 +725,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             // them apart without knowing which future resolved — and it has to,
             // because one of them must reach the caller as an error and the other
             // must not.
+            //
+            // Biased, writer first and reader last: a final reply the reader queued in one pass
+            // is on the socket before the next pass can see the stopper. Polled in random order,
+            // a stopper the queue worker fired on seeing the session end won the draw against
+            // the writer, and a refused registration reached its client as a bare EOF.
             let session_future = spawn_handle!(async move {
                 citadel_io::tokio::select! {
+                    biased;
                     res0 = writer_future => res0.map(|_| SessionEnd::Stream),
+                    res2 = stopper_future => res2.map(|_| SessionEnd::Deliberate),
                     res1 = reader_future => res1.map(|_| SessionEnd::Stream),
-                    res2 = stopper_future => res2.map(|_| SessionEnd::Deliberate)
                 }
             });
 
@@ -711,6 +752,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 handle_zero_state,
                 session_cid,
                 queue_worker_handle,
+                login_deadline,
             )
         };
 
@@ -720,26 +762,46 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             return Err((NetworkError::generic(err), session_cid.get()));
         }
 
+        let mut session_future = session_future;
         let res = citadel_io::tokio::select! {
-            res = session_future => res.map_err(|err| (NetworkError::generic(err.to_string()), None))?,
-            _ = queue_worker_handle => {
-                // Queue worker ending can be expected (cleanup) or unexpected (error).
-                // The queue worker uses a Weak reference to the session - when it can't upgrade
-                // that reference (session dropped), it ends. This is the designed cleanup mechanism.
-                // However, if strong_count > 1, the session is still actively held elsewhere,
-                // meaning this is an unexpected termination.
-                let strong_count = this_close.strong_count();
-                if strong_count > 1 {
-                    log::error!(target: "citadel", "Queue worker ended unexpectedly while session still active (strong_count: {})", strong_count);
-                    return Err((error!(ErrorCode::SessionQueueWorkerEnded), session_cid.get()));
+            res = &mut session_future => res.map_err(|err| (NetworkError::generic(err.to_string()), None))?,
+            worker = queue_worker_handle => {
+                if let Some(timeout) = this_close.login_deadline_passed() {
+                    return Err((timeout, session_cid.get()));
+                }
+                // `Ok` is the worker seeing its session end: it has fired the stopper, so the
+                // session's own future ends next. Awaiting it, rather than dropping (aborting)
+                // it, lets the reply the ending session is flushing leave first.
+                if matches!(worker, Ok(Ok(()))) {
+                    session_future.await.map_err(|err| (NetworkError::generic(err.to_string()), None))?
                 } else {
-                    log::info!(target: "citadel", "Queue worker ended, session cleanup in progress (strong_count: {})", strong_count);
-                    return Ok(session_cid.get());
+                    // A task asked the worker to end the session, or the worker failed. If
+                    // strong_count > 1 the session is still held elsewhere: unexpected.
+                    let strong_count = this_close.strong_count();
+                    if strong_count > 1 {
+                        log::error!(target: "citadel", "Queue worker ended unexpectedly while session still active (strong_count: {})", strong_count);
+                        return Err((error!(ErrorCode::SessionQueueWorkerEnded), session_cid.get()));
+                    } else {
+                        log::info!(target: "citadel", "Queue worker ended, session cleanup in progress (strong_count: {})", strong_count);
+                        return Ok(session_cid.get());
+                    }
                 }
             }
         };
 
+        // Whichever half noticed first, a session the provisional check ended is reported as the
+        // login timeout it was: the check's shutdown also stops the streams.
+        if let Some(timeout) = this_close.login_deadline_passed() {
+            return Err((timeout, session_cid.get()));
+        }
+
         match res {
+            Ok(SessionEnd::Stream) | Err(_)
+                if this_close.is_provisional() && login_deadline.passed() =>
+            {
+                Err((this_close.login_deadline_end(), session_cid.get()))
+            }
+
             Ok(SessionEnd::Stream) if this_close.is_provisional() => {
                 // The peer hung up mid-handshake, and nothing has been reported.
                 //
@@ -810,11 +872,27 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 // which is what `disconnect()` asked for. With no pending
                 // disconnect it falls to `(None, None)` and behaves exactly as
                 // before.
-                this_close.send_session_dc_signal(None, false, "Inbound stream ending");
+                this_close.send_session_dc_signal(None, false, "Inbound stream ending", None);
 
                 Err((err, cid))
             }
         }
+    }
+
+    /// The provisional check ended this session, still unconnected, at its login deadline. That
+    /// end used to reach the caller as the queue worker stopping ("Queue worker ended
+    /// unexpectedly", "Session dropped") or as the stream closing, so a login that was only slow
+    /// read as a crash. It is a timeout, and says which deadline.
+    fn login_deadline_passed(&self) -> Option<NetworkError> {
+        inner_state!(self.state_container)
+            .connect_state
+            .login_deadline_passed
+            .then(|| self.login_deadline_end())
+    }
+
+    fn login_deadline_end(&self) -> NetworkError {
+        log::warn!(target: "citadel", "Session not connected within its login deadline ({LOGIN_EXPIRATION_TIME:?}); ending it");
+        crate::proto::link::login_deadline_error()
     }
 
     async fn stopper(
@@ -868,7 +946,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 let alice_constructor =
                     <R::Constructor as EndpointRatchetConstructor<R>>::new_alice(
                         ConstructorOpts::new_vec_init(
-                            Some(session_security_settings.crypto_params),
+                            session_security_settings.crypto_params,
                             session_security_settings.security_level,
                         ),
                         proposed_cid,
@@ -889,6 +967,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     passwordless,
                     proposed_cid,
                     ticket,
+                );
+                crate::proto::pq_sign_in::recover::client::on_stage0_sent(
+                    &mut state_container,
+                    &stage0_register_packet,
                 );
                 to_outbound
                     .unbounded_send(stage0_register_packet)
@@ -1138,28 +1220,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             cid_opt: Option<u64>,
         ) -> std::io::Result<()> {
             let mut session_closing_error: Option<String> = None;
-            let mut queued_a_final_reply = false;
-            match &result {
-                Ok(
-                    PrimaryProcessorResult::ReplyToSender { .. }
-                    | PrimaryProcessorResult::EndSessionAndReplyToSender { .. },
-                ) => {
-                    let return_packet = match result {
-                        Ok(PrimaryProcessorResult::ReplyToSender(packet)) => packet,
-                        Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(packet, err)) => {
-                            // Set state to Disconnecting immediately so new connection attempts can wait
-                            session.state.set(SessionState::Disconnecting);
-                            session_closing_error = Some(err.to_string());
-                            queued_a_final_reply = true;
-                            packet
-                        }
-                        _ => unreachable!(),
-                    };
-
+            match result {
+                Ok(PrimaryProcessorResult::ReplyToSender(packet)) => {
                     CitadelSession::<R, T>::send_to_primary_stream_closure(
                         primary_stream,
                         kernel_tx,
-                        return_packet,
+                        packet,
                         None,
                         cid_opt,
                     )
@@ -1169,6 +1235,25 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             err.into_string()
                         ))
                     })?;
+                }
+
+                Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(packet, err)) => {
+                    // Set state to Disconnecting immediately so new connection attempts can wait
+                    session.state.set(SessionState::Disconnecting);
+                    session_closing_error = Some(err.to_string());
+                    // The reply must be on the socket before the reader ends, because ending it
+                    // drops the writer. Queued and left to yields and a sleep, it lost the race on
+                    // loaded runners and the peer saw a bare EOF instead of the refusal. The same
+                    // flush barrier as the disconnect responder's FINAL: acknowledged once the
+                    // writer has flushed, bounded for a peer that has stopped reading.
+                    if let Ok(sent) = citadel_io::time::timeout(
+                        FINAL_REPLY_FLUSH_GRACE,
+                        primary_stream.send_and_flush(packet),
+                    )
+                    .await
+                    {
+                        sent.map_err(|_| std::io::Error::other("Unable to send the final reply"))?;
+                    }
                 }
 
                 Err(reason) => {
@@ -1189,29 +1274,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             }
 
             if let Some(err) = session_closing_error {
-                // The reply this variant is named for is only QUEUED at this
-                // point: `send_to_primary_stream_closure` pushes onto a channel,
-                // and the reader and the writer share one task through the
-                // `select!` in `execute`. Returning Err here ends the reader,
-                // which resolves that select and drops the writer — so the packet
-                // the handler crafted was discarded unsent, and a server refusing
-                // a registration at stage 0 simply hung up. The client then saw a
-                // bare EOF and lost the reason entirely.
-                //
-                // Yield so the select can poll the writer branch. Bounded, and
-                // best effort: this session is ending either way, and a peer that
-                // is gone cannot be told anything.
-                if queued_a_final_reply {
-                    for _ in 0..FINAL_REPLY_FLUSH_YIELDS {
-                        citadel_io::tokio::task::yield_now().await;
-                    }
-                    // The yields alone are a race, and CI won it against us: on a
-                    // loaded Linux runner the writer had not finished its socket
-                    // write when the reader returned, so the peer saw a bare EOF
-                    // and lost the reason. A session that is ending can afford
-                    // the wait; a peer that never learns why cannot.
-                    citadel_io::time::sleep(FINAL_REPLY_FLUSH_GRACE).await;
-                }
                 log::error!(target: "citadel", "[PrimaryProcessor] session ending: {err:?} | Session end state: {:?}", session.state.get());
                 Err(std::io::Error::other(err))
             } else {
@@ -1263,7 +1325,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     // must resolve the caller's pending ticket, not the kernel's.
                     log::warn!(target: "citadel", "[DC_SIGNAL:handle_session_terminating_error] C2S terminating | session_cid: {} | reason: {} | strong_count: {} | is_provisional: {}",
                         session_cid, err_string.as_str(), session.strong_count(), session.is_provisional());
-                    session.send_session_dc_signal(None, false, err_string.as_str());
+                    session.send_session_dc_signal(None, false, err_string.as_str(), None);
                 }
 
                 SessionShutdownReason::Error(NetworkError::generic(err_string))
@@ -1376,7 +1438,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         feature = "localhost-testing",
         tracing::instrument(level = "trace", target = "citadel", skip_all, ret, err(Debug))
     )]
-    async fn execute_queue_worker(this_main: CitadelSession<R, T>) -> Result<(), NetworkError> {
+    async fn execute_queue_worker(
+        this_main: CitadelSession<R, T>,
+        login_deadline: crate::proto::link::LoginDeadline,
+    ) -> Result<(), NetworkError> {
         log::trace!(target: "citadel", "HdpSession async timer subroutine executed");
 
         let queue_worker = {
@@ -1394,21 +1459,30 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
             let kernel_ticket = borrow.kernel_ticket.get();
             let is_server = borrow.is_server;
+            let stopped = inner!(borrow.stopper_tx).subscribe();
+            let queue_handle = (*borrow.queue_handle).clone();
             drop(borrow);
 
             // now, begin loading the subroutines
             //let mut loop_idx = 0;
-            queue_worker.insert_reserved_fn(
-                Some(QueueWorkerTicket::Oneshot(
-                    PROVISIONAL_CHECKER,
-                    RESERVED_CID_IDX,
-                )),
-                LOGIN_EXPIRATION_TIME,
-                // Ends a session still unconnected now, unless it is waiting on a security-key
-                // touch (see `pq_sign_in::presence`).
-                |state_container| {
+            let provisional_checker = Some(QueueWorkerTicket::Oneshot(
+                PROVISIONAL_CHECKER,
+                RESERVED_CID_IDX,
+            ));
+            // Ends a session still unconnected now, unless it is waiting on a security-key
+            // touch (see `pq_sign_in::presence`).
+            let provisional_check =
+                |state_container: &mut dyn crate::inner_arg::ExpectedInnerTargetMut<
+                    StateContainerInner<R>,
+                >| {
                     crate::proto::pq_sign_in::presence::provisional_check(&mut **state_container)
-                },
+                };
+            // The deadline's clock says when, and the queue runs the check.
+            login_deadline.arm(
+                stopped,
+                queue_handle,
+                provisional_checker,
+                provisional_check,
             );
 
             if !is_server {
@@ -1702,11 +1776,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         .unwrap_or_else(|| crypt_container.get_next_object_id());
                     let group_id_start = crypt_container.get_and_increment_group_file_transfer();
                     let latest_hr = crypt_container.get_ratchet(None).unwrap();
-                    let static_aux_ratchet = crypt_container
-                        .toolset()
-                        .read()
-                        .get_static_auxiliary_ratchet()
-                        .clone();
+                    let wave_binding = state_container
+                        .get_endpoint_container(C2S_IDENTITY_CID)?
+                        .wave_binding;
+                    let revfs_key =
+                        state_container.revfs_key_for_transfer(&transfer_type, session_cid)?;
 
                     let to_primary_stream = this.to_primary_stream.clone().unwrap();
                     let target_cid = 0;
@@ -1718,11 +1792,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         stop_rx,
                         security_level,
                         latest_hr.clone(),
-                        static_aux_ratchet,
+                        revfs_key,
                         HDP_HEADER_BYTE_LEN,
                         target_cid,
                         group_id_start,
                         transfer_type.clone(),
+                        wave_binding,
                         packet_crafter::group::craft_wave_payload_packet_into,
                     )
                     .map_err(|err| NetworkError::generic(err.to_string()))?;
@@ -1776,17 +1851,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     peer_cid: target_cid,
                 } => {
                     log::trace!(target: "citadel", "Sending HyperLAN peer ({session_cid}) <-> HyperLAN Peer ({target_cid})");
-                    // here, we don't use the base session's PQC. Instead, we use the c2s vconn's pqc to ensure the peer can't access the contents
-                    // of the file
-                    let ratchet_manager_c2s = &state_container
-                        .get_endpoint_container(C2S_IDENTITY_CID)?
-                        .ratchet_manager;
-                    let static_aux_ratchet = ratchet_manager_c2s
-                        .session_crypto_state()
-                        .toolset()
-                        .read()
-                        .get_static_auxiliary_ratchet()
-                        .clone();
+                    // A RE-VFS object is sealed under this account's own key, which the peer
+                    // storing it never holds.
+                    let revfs_key =
+                        state_container.revfs_key_for_transfer(&transfer_type, session_cid)?;
 
                     let endpoint_container = state_container.get_endpoint_container(target_cid)?;
 
@@ -1830,11 +1898,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         stop_rx,
                         security_level,
                         latest_usable_ratchet.clone(),
-                        static_aux_ratchet,
+                        revfs_key,
                         HDP_HEADER_BYTE_LEN,
                         target_cid,
                         start_group_id,
                         transfer_type.clone(),
+                        endpoint_container.wave_binding,
                         packet_crafter::group::craft_wave_payload_packet_into,
                     )
                     .map_err(|err| NetworkError::generic(err.to_string()))?;
@@ -2411,14 +2480,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
 
         let mut state_container = inner_mut_state!(this.state_container);
 
-        // An older server cannot decode the signal; it would be dropped and the caller would wait.
-        if let PeerSignal::SignInManagement { message, .. } = &peer_command {
-            crate::proto::pq_sign_in::manage::sendable(
-                message,
-                state_container.adjacent_protocol_version,
-            )?;
-        }
-
         // TODO: send errors if any commands have Some() responses
         if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
             let signal_processed = match peer_command {
@@ -2430,16 +2491,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 } => {
                     let target = v_conn.get_original_target_cid();
 
-                    // Validate disconnect token against active vconn to reject stale signals
-                    if let Some(token) = &disconnect_token {
-                        if let Some(vconn) = state_container.active_virtual_connections.get(&target)
-                        {
-                            if vconn.p2p_connection_id != token.connection_id {
-                                log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal for peer {target}: token connection_id {:?} != active {:?}",
-                                    token.connection_id, vconn.p2p_connection_id);
-                                return Ok(());
-                            }
-                        }
+                    if state_container.is_stale_disconnect(target, disconnect_token.as_ref()) {
+                        log::trace!(target: "citadel", "Rejecting stale P2P Disconnect signal for peer {target}: {disconnect_token:?} is not the live connection");
+                        return Ok(());
                     }
 
                     if !state_container
@@ -2489,16 +2543,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                 } => {
                     let target = peer_conn_type.get_original_target_cid();
 
-                    // Validate disconnect token against active vconn to reject stale signals
-                    if let Some(token) = &disconnect_token {
-                        if let Some(vconn) = state_container.active_virtual_connections.get(&target)
-                        {
-                            if vconn.p2p_connection_id != token.connection_id {
-                                log::trace!(target: "citadel", "Rejecting stale P2P DisconnectUDP signal for peer {target}: token connection_id {:?} != active {:?}",
-                                    token.connection_id, vconn.p2p_connection_id);
-                                return Ok(());
-                            }
-                        }
+                    if state_container.is_stale_disconnect(target, disconnect_token.as_ref()) {
+                        log::trace!(target: "citadel", "Rejecting stale P2P DisconnectUDP signal for peer {target}: {disconnect_token:?} is not the live connection");
+                        return Ok(());
                     }
 
                     // disconnect UDP locally
@@ -2802,23 +2849,19 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
         ticket: Option<Ticket>,
         msg: BytesMut,
     ) -> Result<(), NetworkError> {
-        if let Some(tx) = self.to_primary_stream.as_ref() {
-            match tx.unbounded_send(msg) {
-                Ok(_) => Ok(()),
-
-                Err(err) => {
-                    self.send_to_kernel(NodeResult::InternalServerError(InternalServerError {
-                        ticket_opt: ticket,
-                        cid_opt: self.session_cid.get(),
-                        message: err.to_string(),
-                    }))
-                    .map_err(|err| NetworkError::generic(err.to_string()))?;
-                    Err(error!(ErrorCode::SessionPrimaryStreamSendFailed))
-                }
-            }
-        } else {
-            Err(error!(ErrorCode::SessionPrimaryStreamSenderAbsent))
-        }
+        let tx = self
+            .to_primary_stream
+            .as_ref()
+            .ok_or_else(|| error!(ErrorCode::SessionPrimaryStreamSenderAbsent))?;
+        // One body for both senders (S-C2): the stream's refusal is reported to the kernel and
+        // returned as `SessionPrimaryStreamClosed`.
+        CitadelSession::<R, T>::send_to_primary_stream_closure(
+            tx,
+            &self.kernel_tx,
+            msg,
+            ticket,
+            self.session_cid.get(),
+        )
     }
 
     /// will try a running a function, and if an error occurs, will send error to Kernel
@@ -2874,16 +2917,21 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
         state != SessionState::Connected && state != SessionState::Disconnecting
     }
 
+    /// `deliberate` names the close when the caller knows it was one (this node's own
+    /// disconnect, answered by the server's FINAL); a session that ends under a pending
+    /// application disconnect is that disconnect too.
     pub(crate) fn send_session_dc_signal<S: Into<String>>(
         &self,
         ticket: Option<Ticket>,
         disconnect_success: bool,
         msg: S,
+        deliberate: Option<citadel_link::CloseReason>,
     ) {
-        // Only send disconnect signal if we have a valid session CID
-        // Sessions without a CID were never connected, so no disconnect is needed
-        let Some(session_cid) = self.session_cid.get() else {
-            log::trace!(target: "citadel", "Skipping D/C signal - no session CID");
+        // Only a session that connected has a disconnect to report. One that never got there may
+        // still hold a CID (a registered account's login carries it from the start); its
+        // "Session dropped" reached the connect's ticket ahead of the reason the login failed.
+        let Some(session_cid) = self.session_cid.get().filter(|_| self.admitted.get()) else {
+            log::trace!(target: "citadel", "Skipping D/C signal - the session never connected");
             let _ = self.dc_signal_sender.take(); // Consume the sender to prevent future sends
             return;
         };
@@ -2912,10 +2960,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
             // session ends abruptly (lost FINAL): the caller's `disconnect()` future is keyed by
             // that ticket, and from its perspective the outcome is success — the session is gone.
             let pending_dc = self.pending_c2s_disconnect_ticket.take();
-            let (ticket, disconnect_success) = match (ticket, pending_dc) {
-                (Some(explicit), _) => (explicit, disconnect_success),
-                (None, Some(pending)) => (pending, true),
-                (None, None) => (session_ticket, disconnect_success),
+            let own_disconnect =
+                citadel_link::CloseReason::Local(citadel_link::ShutdownReason::Shutdown);
+            let (ticket, disconnect_success, reason) = match (ticket, pending_dc) {
+                (Some(explicit), _) => (explicit, disconnect_success, deliberate),
+                (None, Some(pending)) => (pending, true, Some(own_disconnect)),
+                (None, None) => (session_ticket, disconnect_success, deliberate),
             };
             let _ = tx.unbounded_send(NodeResult::Disconnect(Disconnect {
                 ticket,
@@ -2924,6 +2974,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionInner<R, T> {
                 conn_type,
                 message: msg.into(),
                 disconnect_token,
+                reason,
             }));
         }
     }
@@ -2951,7 +3002,7 @@ impl<R: Ratchet, T: PlatformOps> Drop for CitadelSessionInner<R, T> {
         } else {
             log::warn!(target: "citadel", "[DC_SIGNAL:Drop] Session being dropped | cid: {:?} | is_provisional: {}",
                 self.session_cid.get(), self.is_provisional());
-            self.send_session_dc_signal(None, false, "Session dropped");
+            self.send_session_dc_signal(None, false, "Session dropped", None);
         }
 
         let _ = inner!(self.stopper_tx).send(());

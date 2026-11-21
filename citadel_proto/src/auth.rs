@@ -55,8 +55,7 @@ pub use crate::proto::pq_sign_in::security_key::{
 use citadel_types::crypto::SecBuffer;
 use citadel_types::user::UserIdentifier;
 pub use citadel_user::auth::pq::client::{SecurityKeyCeremony, SecurityKeyRequest};
-use citadel_user::auth::pq::recovery::RecoveryCode;
-use citadel_user::misc::AccountError;
+use citadel_user::auth::pq::phrase::RecoveryPhrase;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
@@ -70,7 +69,7 @@ pub enum AuthenticationRequest {
         password: SecBuffer,
     },
     /// Post-quantum sign-in with any combination of factors: a password, a security key (through
-    /// the application's [`SecurityKeyPrf`] channel), or a single-use recovery code. Which ones the
+    /// the application's [`SecurityKeyPrf`] channel), or the recovery phrase. Which ones the
     /// account needs is its policy. Never serialized: the key channel cannot cross a wire.
     SignIn {
         id: UserIdentifier,
@@ -131,9 +130,9 @@ pub struct SignInFactors {
     pub password: Option<SecBuffer>,
     /// Where to ask for a security-key touch, if the challenge names keys.
     pub security_key: Option<SecurityKeyPrf>,
-    /// A recovery code. A sign-in with one is a recovery sign-in: it spends the code, and the
-    /// session may only enrol a security key and set the policy.
-    pub recovery_code: Option<RecoveryCode>,
+    /// The recovery phrase, as this server knows it. A sign-in with it is a recovery sign-in:
+    /// the session may only manage the account's credentials.
+    pub recovery_phrase: Option<RecoveryPhrase>,
     /// The admission token (a Turnstile response) for a server that asks fresh sign-ins for one.
     /// Sent only inside the post-quantum channel, and never printed.
     pub admission: Option<String>,
@@ -157,12 +156,12 @@ impl SignInFactors {
         self
     }
 
-    /// Reads a typed recovery code (see `RecoveryCode::parse`).
-    pub fn recovery_code(typed: &str) -> Result<Self, AccountError> {
-        Ok(Self {
-            recovery_code: Some(RecoveryCode::parse(typed)?),
+    /// A recovery sign-in with the account's phrase, bound to the server's canonical domain.
+    pub fn recovery_phrase(phrase: RecoveryPhrase) -> Self {
+        Self {
+            recovery_phrase: Some(phrase),
             ..Default::default()
-        })
+        }
     }
 }
 
@@ -171,7 +170,10 @@ impl std::fmt::Debug for SignInFactors {
         f.debug_struct("SignInFactors")
             .field("password", &self.password.as_ref().map(|_| "***"))
             .field("security_key", &self.security_key.is_some())
-            .field("recovery_code", &self.recovery_code.as_ref().map(|_| "***"))
+            .field(
+                "recovery_phrase",
+                &self.recovery_phrase.as_ref().map(|_| "***"),
+            )
             .field("admission", &self.admission.as_ref().map(|_| "***"))
             .finish()
     }

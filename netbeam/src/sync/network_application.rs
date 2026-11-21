@@ -66,34 +66,6 @@ use crate::sync::{RelativeNodeType, SymmetricConvID};
 
 pub type NetworkApplication = MultiplexedConn<SymmetricConvID>;
 
-pub(crate) const INITIAL_CAPACITY: usize = 32;
-
-/// Carries `PreCreate` ids from the connection's single reader to the handshake.
-///
-/// Capacity 1 is enough, and the reader never waits on it: a cancelled handshake is resumed, not
-/// restarted (`in_flight`), so each side has at most one `PreCreate` outstanding and the other side
-/// at most one to read (`tests/prehandshake_cancel_safety.rs` pins this).
-pub struct PreActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
-    tx: citadel_io::tokio::sync::mpsc::Sender<K>,
-    rx: Mutex<citadel_io::tokio::sync::mpsc::Receiver<K>>,
-    /// The id of a handshake whose caller was cancelled before it finished.
-    /// The peer has already been told (or has told us) about this id, so the
-    /// next subscription resumes it instead of starting a new one: starting
-    /// over would leave the peer paired with the abandoned id.
-    in_flight: citadel_io::Mutex<Option<K>>,
-}
-
-impl<K: MultiplexedConnKey> PreActionChannel<K> {
-    pub(crate) fn new() -> Self {
-        let (tx, rx) = citadel_io::tokio::sync::mpsc::channel(1);
-        Self {
-            tx,
-            rx: Mutex::new(rx),
-            in_flight: citadel_io::Mutex::new(None),
-        }
-    }
-}
-
 pub struct PostActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
     tx: Mutex<HashMap<K, citadel_io::tokio::sync::oneshot::Sender<()>>>,
     rx: Mutex<HashMap<K, citadel_io::tokio::sync::oneshot::Receiver<()>>>,
@@ -193,7 +165,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     }
 
     pub async fn forward_packet(&self, packet: &[u8]) -> Result<(), anyhow::Error> {
-        let deserialized = bincode::deserialize::<MultiplexedPacket<K>>(packet)?;
+        let deserialized = citadel_io::decode::deserialize::<MultiplexedPacket<K>>(packet)?;
         match deserialized {
             MultiplexedPacket::ApplicationLayer { id, payload } => {
                 {
@@ -211,23 +183,13 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
                 )))
             }
 
-            MultiplexedPacket::PreCreate { id }
-                if self.wire_revision() == WireRevision::CountPaired =>
-            {
-                Ok(self.pre_action_container().tx.send(id).await?)
-            }
-
             MultiplexedPacket::Open { topic, id }
-                if self.wire_revision() == WireRevision::Exchanged
-                    && self.node_type() == RelativeNodeType::Initiator =>
+                if self.node_type() == RelativeNodeType::Initiator =>
             {
                 self.pairing().proposed(topic, id)
             }
 
-            MultiplexedPacket::OpenAck { id }
-                if self.wire_revision() == WireRevision::Exchanged
-                    && self.node_type() == RelativeNodeType::Receiver =>
-            {
+            MultiplexedPacket::OpenAck { id } if self.node_type() == RelativeNodeType::Receiver => {
                 self.pairing().answered(id)
             }
 
@@ -363,87 +325,10 @@ async fn preaction_sync<
 >(
     ptr: &'a S,
 ) -> Result<<S as Subscribable>::BorrowedSubscriptionType, anyhow::Error> {
-    match (ptr.wire_revision(), ptr.node_type()) {
-        (WireRevision::Exchanged, RelativeNodeType::Receiver) => {
-            return pairing::open_as_receiver(ptr, ptr.topic()).await;
-        }
-        (WireRevision::Exchanged, RelativeNodeType::Initiator) => {
-            return pairing::open_as_initiator(ptr, ptr.topic()).await;
-        }
-        (WireRevision::CountPaired, _) => {}
+    match ptr.node_type() {
+        RelativeNodeType::Receiver => pairing::open_as_receiver(ptr, ptr.topic()).await,
+        RelativeNodeType::Initiator => pairing::open_as_initiator(ptr, ptr.topic()).await,
     }
-
-    let container = ptr.pre_action_container();
-    let mut recv_lock = container.rx.lock().await;
-
-    // Every await below is a cancellation point (each hole-punch attempt runs
-    // under a timeout). An id goes into `in_flight` as soon as the peer knows
-    // it and leaves once the peer considers the pairing done, so a cancelled
-    // handshake is resumed by the next call rather than abandoned: abandoning
-    // it would leave the two sides paired with different ids from then on.
-    let resumed = *container.in_flight.lock();
-    if resumed.is_none() {
-        if let Some(subscription) = ptr.get_next_prereserved() {
-            return Ok(subscription);
-        }
-    }
-
-    let id = match ptr.node_type() {
-        RelativeNodeType::Receiver => {
-            let id = match resumed {
-                Some(id) => id,
-                None => {
-                    // Reserved before the peer learns the id, so what it sends
-                    // right after answering is buffered, not dropped.
-                    let id = ptr.get_next_id();
-                    ptr.reserve(id);
-                    ptr.post_close_container().setup_channel(id).await;
-                    *container.in_flight.lock() = Some(id);
-                    ptr.send_pre_open_signal(id).await?;
-                    id
-                }
-            };
-
-            loop {
-                let recvd_id = recv_lock
-                    .recv()
-                    .await
-                    .ok_or_else(|| anyhow::Error::msg("rx dead"))?;
-                if recvd_id == id {
-                    break;
-                }
-                log::warn!(target: "citadel", "Discarding a stale sync ID: {recvd_id:?} != {id:?}");
-            }
-            id
-        }
-
-        RelativeNodeType::Initiator => {
-            let id = match resumed {
-                Some(id) => id,
-                None => {
-                    let id = recv_lock
-                        .recv()
-                        .await
-                        .ok_or_else(|| anyhow::Error::msg("rx dead"))?;
-                    *container.in_flight.lock() = Some(id);
-                    id
-                }
-            };
-            ptr.reserve(id);
-            ptr.post_close_container().setup_channel(id).await;
-            ptr.send_pre_open_signal(id).await?;
-            id
-        }
-    };
-
-    // No await from here on: the pairing is complete on both sides.
-    *container.in_flight.lock() = None;
-    // we can safely return, knowing the adjacent node will still have the conv open to receive messages
-    ptr.claim_reserved(id).ok_or_else(|| {
-        anyhow::Error::msg(format!(
-            "Subscription {id:?} was claimed by another caller, or refused for buffering too much"
-        ))
-    })
 }
 
 pub(crate) struct PostActionSync<'a> {
@@ -508,8 +393,24 @@ mod transport_end_tests {
     use citadel_io::tokio::sync::Mutex;
     use std::time::Duration;
 
-    /// Opens subscriptions with no peer answering, which only the count-paired wire allows.
-    const WIRE: WireRevision = WireRevision::CountPaired;
+    const WIRE: WireRevision = WireRevision::Exchanged;
+
+    /// Plays the peer for one subscription: reads what the app sent until its `Open`, and
+    /// acknowledges it.
+    async fn answer_open(sent: &mut UnboundedReceiver<Vec<u8>>, to_app: &UnboundedSender<Vec<u8>>) {
+        use crate::multiplex::MultiplexedPacket;
+        use crate::sync::SymmetricConvID;
+        loop {
+            let bytes = sent.recv().await.expect("the app's transport closed");
+            let packet: MultiplexedPacket<SymmetricConvID> =
+                citadel_io::decode::deserialize(&bytes).unwrap();
+            if let MultiplexedPacket::Open { id, .. } = packet {
+                let ack = MultiplexedPacket::<SymmetricConvID>::OpenAck { id };
+                to_app.send(bincode::serialize(&ack).unwrap()).unwrap();
+                return;
+            }
+        }
+    }
 
     /// A transport whose inbound side the test ends by dropping its sender.
     struct Pipe {
@@ -553,8 +454,11 @@ mod transport_end_tests {
             .await
             .unwrap();
 
-        let waiting = app.initiate_subscription().await.unwrap();
-        let closing = app.initiate_subscription().await.unwrap();
+        let (waiting, ()) =
+            tokio::join!(app.initiate_subscription(), answer_open(&mut sent, &to_app));
+        let (closing, ()) =
+            tokio::join!(app.initiate_subscription(), answer_open(&mut sent, &to_app));
+        let (waiting, closing) = (waiting.unwrap(), closing.unwrap());
         let pending_recv = tokio::spawn(async move { waiting.recv().await.map(|_| ()) });
         // The Receiver sends its half of the close, then waits for the peer's.
         drop(closing);

@@ -6,7 +6,6 @@ mod common;
 
 use citadel_negotiation::schedule::{Action, Side, World};
 use citadel_negotiation::settings::{KeyProfile, MediaTransport, MediaTransportKind, TransferMode};
-use citadel_negotiation::Setting;
 use citadel_types::crypto::{CryptoParameters, KemAlgorithm, SecurityLevel};
 use common::{world, Tier};
 use proptest::prelude::*;
@@ -17,7 +16,7 @@ const BUDGET: usize = 2_000;
 /// One scheduling decision: which kind of thing happens, and a number to pick among them.
 type Seed = (u8, u8);
 
-fn run<S: Setting>(
+fn run<S: common::WidestBound>(
     initial: S,
     values: &[S],
     seeds: &[Seed],
@@ -61,10 +60,10 @@ fn run<S: Setting>(
 fn profiles() -> Vec<KeyProfile> {
     let wider = CryptoParameters {
         kem_algorithm: KemAlgorithm::MlKem1024Fips203,
-        ..CryptoParameters::default()
+        ..common::BASE_PARAMS
     };
     let mut values: Vec<KeyProfile> = (0..=4)
-        .map(|l| KeyProfile::new(SecurityLevel::from(l), CryptoParameters::default()))
+        .map(|l| KeyProfile::new(SecurityLevel::from(l), common::BASE_PARAMS))
         .collect();
     values.push(KeyProfile::new(SecurityLevel::Extreme, wider)); // a KEM change: the handshake path
     values

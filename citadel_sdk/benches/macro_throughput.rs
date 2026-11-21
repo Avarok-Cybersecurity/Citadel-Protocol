@@ -19,6 +19,17 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+/// Progress marker that flushes immediately (piped stderr is otherwise fully buffered, so a hang
+/// would swallow all markers). Used only for liveness/diagnosis, not measurement.
+macro_rules! mark {
+    ($($a:tt)*) => {{
+        use std::io::Write;
+        let mut e = std::io::stderr();
+        let _ = writeln!(e, $($a)*);
+        let _ = e.flush();
+    }};
+}
+
 #[cfg(all(
     feature = "localhost-testing",
     feature = "multi-threaded",
@@ -34,17 +45,6 @@ mod imp {
     use futures::StreamExt;
     use std::time::Instant;
     use uuid::Uuid;
-
-    /// Progress marker that flushes immediately (piped stderr is otherwise fully buffered, so a hang
-    /// would swallow all markers). Used only for liveness/diagnosis, not measurement.
-    macro_rules! mark {
-        ($($a:tt)*) => {{
-            use std::io::Write;
-            let mut e = std::io::stderr();
-            let _ = writeln!(e, $($a)*);
-            let _ = e.flush();
-        }};
-    }
 
     /// 4 KiB: a representative application message — above the small-control-packet regime, below
     /// the file-transfer scramble path, so it exercises the per-message AEAD+serialization hot path.
@@ -196,7 +196,7 @@ mod imp {
     async fn run_config(cfg: &Config, msgs: usize, lat_rounds: usize) -> Report {
         let session_security = SessionSecuritySettingsBuilder::default()
             .with_secrecy_mode(cfg.secrecy)
-            .with_crypto_params(KemAlgorithm::MlKem + cfg.enc)
+            .with_crypto_params(KemAlgorithm::MlKem768Fips203 + cfg.enc)
             .build()
             .unwrap();
 
@@ -214,12 +214,15 @@ mod imp {
         let result_c = result.clone();
         let client_barrier = barrier.clone();
 
-        let settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, Uuid::new_v4())
-                .with_udp_mode(UdpMode::Disabled)
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            Uuid::new_v4(),
+            CertVerification::SelfSignedAccepted,
+        )
+        .with_udp_mode(UdpMode::Disabled)
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(settings, move |connection| {
             client_drive(
@@ -234,7 +237,9 @@ mod imp {
         let server = tokio::task::spawn(server);
         let client = tokio::task::spawn(
             DefaultNodeBuilder::default()
+                .with_link_manager(LinkManagerMode::Legacy)
                 .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+                .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(client_kernel)
                 .unwrap(),
         );

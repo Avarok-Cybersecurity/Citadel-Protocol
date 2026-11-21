@@ -75,6 +75,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::Semaphore;
+use zeroize::Zeroizing;
 
 pub struct RatchetManager<S, I, R, P: AttachedPayload = ()>
 where
@@ -91,7 +92,7 @@ where
     rekey_done_notifier_tx: UnboundedSender<Option<R>>,
     last_received_message: Arc<AtomicU64>,
     cid: u64,
-    psks: Arc<Vec<Vec<u8>>>,
+    psks: Arc<Vec<Zeroizing<Vec<u8>>>>,
     role: Arc<Atomic<RekeyRole>>,
     constructors: Arc<Mutex<HashMap<u32, R::Constructor>>>,
     is_initiator: bool,
@@ -344,7 +345,11 @@ where
             attached_payload_rx: Arc::new(Mutex::new(Some(attached_payload_rx))),
             rekey_done_notifier,
             rekey_done_notifier_tx: rekey_done_notifier_tx.clone(),
-            psks: Arc::new(psks.iter().map(|psk| psk.as_ref().to_vec()).collect()),
+            psks: Arc::new(
+                psks.iter()
+                    .map(|psk| Zeroizing::new(psk.as_ref().to_vec()))
+                    .collect(),
+            ),
             role: Arc::new(Atomic::new(RekeyRole::Idle)),
             state: Arc::new(Atomic::new(RekeyState::Idle)),
             local_listener: Arc::new(Mutex::new(None)),
@@ -1134,7 +1139,7 @@ where
                         log::debug!(target: "citadel", "Client {} received AliceToBob", self.cid);
 
                         // Process the AliceToBob message as Bob
-                        let transfer = bincode::deserialize(&payload)
+                        let transfer = citadel_io::decode::deserialize(&payload)
                             .map_err(|err| CryptError::rekey_update(err.to_string()))?;
 
                         let _cid = self.session_crypto_state.cid();
@@ -1493,9 +1498,12 @@ where
                         { self.constructors.lock().remove(&peer_metadata.next_version) };
                     let staged_epoch = self.epochs.unstage(peer_metadata.next_version);
                     if let Some(mut alice_constructor) = constructor.take() {
-                        let transfer = bincode::deserialize(&transfer_data).map_err(|e| {
-                            CryptError::rekey_update(format!("Failed to deserialize transfer: {e}"))
-                        })?;
+                        let transfer =
+                            citadel_io::decode::deserialize(&transfer_data).map_err(|e| {
+                                CryptError::rekey_update(format!(
+                                    "Failed to deserialize transfer: {e}"
+                                ))
+                            })?;
 
                         // Offload stage1_alice (KEM decapsulation) and update_sync_safe
                         let status = citadel_io::spawn_blocking({
@@ -1935,6 +1943,10 @@ where
 }
 
 #[cfg(test)]
+#[path = "ratchet_manager_hygiene_tests.rs"]
+mod hygiene_tests;
+
+#[cfg(test)]
 pub(crate) mod tests {
     pub use crate::endpoint_crypto_container::{EndpointRatchetConstructor, PeerSessionCrypto};
     pub use crate::prelude::Toolset;
@@ -1976,7 +1988,7 @@ pub(crate) mod tests {
         enx: EncryptionAlgorithm,
         kem: KemAlgorithm,
     ) -> (PeerSessionCrypto<R>, PeerSessionCrypto<R>) {
-        let opts = ConstructorOpts::new_vec_init(Some(enx + kem), security_level);
+        let opts = ConstructorOpts::new_vec_init(enx + kem, security_level);
         let (hr_alice, hr_bob) = gen::<R, _>(START_VERSION, opts, TEST_PSKS);
         assert_eq!(hr_alice.version(), START_VERSION);
         assert_eq!(hr_bob.version(), START_VERSION);
@@ -2001,7 +2013,7 @@ pub(crate) mod tests {
         let (alice_container, bob_container) = setup_endpoint_containers::<R>(
             security_level,
             EncryptionAlgorithm::AES_GCM_256,
-            KemAlgorithm::MlKem,
+            KemAlgorithm::MlKem768Fips203,
         );
 
         let (tx_alice, rx_bob) = futures::channel::mpsc::unbounded();
@@ -2427,7 +2439,7 @@ pub(crate) mod tests {
         let (alice_container, _bob_container) = setup_endpoint_containers::<StackedRatchet>(
             SecurityLevel::Standard,
             EncryptionAlgorithm::AES_GCM_256,
-            KemAlgorithm::MlKem,
+            KemAlgorithm::MlKem768Fips203,
         );
         let (tx_alice, peer_inbox) = futures::channel::mpsc::unbounded();
         let (peer_sink, rx_alice) = futures::channel::mpsc::unbounded();
@@ -2499,7 +2511,7 @@ pub(crate) mod tests {
         let (alice_container, _bob_container) = setup_endpoint_containers::<StackedRatchet>(
             SecurityLevel::Standard,
             EncryptionAlgorithm::AES_GCM_256,
-            KemAlgorithm::MlKem,
+            KemAlgorithm::MlKem768Fips203,
         );
         let (tx_alice, peer_inbox) = futures::channel::mpsc::unbounded();
         let (peer_sink, rx_alice) = futures::channel::mpsc::unbounded();

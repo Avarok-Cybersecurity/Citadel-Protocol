@@ -12,15 +12,18 @@ mod tests {
     use citadel_crypt::ratchets::entropy_bank::EntropyBank;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
-    use citadel_crypt::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupReceiver};
+    use citadel_crypt::revfs_seal::{self, RevfsKey};
+    use citadel_crypt::scramble::crypt_splitter::{
+        par_scramble_encrypt_group, GroupReceiver, RevfsGroupSeal, WaveBinding,
+    };
     use citadel_crypt::toolset::{Toolset, ToolsetUpdateStatus, MAX_RATCHETS_IN_MEMORY};
     #[cfg(not(target_family = "wasm"))]
     use citadel_io::tokio;
+    use citadel_io::ErrorCode;
     use citadel_pqcrypto::constructor_opts::ConstructorOpts;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::crypto::{
-        AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecBuffer,
-        SigAlgorithm, KEM_ALGORITHM_COUNT,
+        AlgorithmsExt, CryptoParameters, EncryptionAlgorithm, KemAlgorithm, SecBuffer, SigAlgorithm,
     };
     use citadel_types::proto::{ObjectId, TransferType};
     use rstest::rstest;
@@ -136,7 +139,7 @@ mod tests {
         let buf = SecBuffer::from("Hello, world!");
         let serde = bincode::serialize(&buf).unwrap();
         std::mem::drop(buf);
-        let buf = bincode::deserialize::<SecBuffer>(&serde).unwrap();
+        let buf = citadel_io::decode::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();
@@ -163,13 +166,13 @@ mod tests {
         const LEN: usize = 5;
         const HEADER_LEN: usize = 50;
         let message = "Hello, world!";
-        let algo = KemAlgorithm::MlKem + EncryptionAlgorithm::ChaCha20Poly_1305;
+        let algo = KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::ChaCha20Poly_1305;
 
         let chain = CryptoRelayChain::<R>::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
-                let mut alice_hr = R::Constructor::new_alice(vec![ConstructorOpts::new_init(Some(algo))], 0, 0, None);
+                let mut alice_hr = R::Constructor::new_alice(vec![ConstructorOpts::new_init(algo)], 0, 0, None);
                 let transfer = alice_hr.stage0_alice();
-                let bob_hr = R::Constructor::new_bob(0, 0, vec![ConstructorOpts::new_init(Some(algo))], transfer).unwrap();
+                let bob_hr = R::Constructor::new_bob(0, 0, vec![ConstructorOpts::new_init(algo)], transfer).unwrap();
                 let transfer = bob_hr.stage0_bob().unwrap();
                 alice_hr.stage1_alice(&transfer).unwrap();
                 let toolset = Toolset::new(cid, alice_hr.finish().unwrap());
@@ -205,7 +208,7 @@ mod tests {
         let buf = SecBuffer::from("Hello, world!");
         let serde = bincode::serialize(&buf).unwrap();
         std::mem::drop(buf);
-        let buf = bincode::deserialize::<SecBuffer>(&serde).unwrap();
+        let buf = citadel_io::decode::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();
@@ -222,16 +225,16 @@ mod tests {
     #[test]
     fn ratchets() {
         citadel_logging::setup_log();
-        for x in 0u8..KEM_ALGORITHM_COUNT {
+        for kem in KemAlgorithm::list() {
             for sec in 0..SecurityLevel::Extreme.value() {
                 let _ = gen_ratchet::<StackedRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
+                    kem + EncryptionAlgorithm::AES_GCM_256,
                     Some(sec.into()),
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
                 let _ = gen_ratchet::<StackedRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
+                    kem + EncryptionAlgorithm::ChaCha20Poly_1305,
                     Some(sec.into()),
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
@@ -243,16 +246,16 @@ mod tests {
     #[test]
     fn mono_ratchets() {
         citadel_logging::setup_log();
-        for x in 0u8..KEM_ALGORITHM_COUNT {
+        for kem in KemAlgorithm::list() {
             for _sec in 0..SecurityLevel::Extreme.value() {
                 let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
+                    kem + EncryptionAlgorithm::AES_GCM_256,
                     None,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
                 );
                 let _ = gen_ratchet::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::ChaCha20Poly_1305,
+                    kem + EncryptionAlgorithm::ChaCha20Poly_1305,
                     None,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
@@ -266,11 +269,11 @@ mod tests {
     /// in this process installed with `setup_log`, and plain `cargo test` aborts.
     #[test]
     fn mono_ratchets_fail() {
-        for x in 0u8..KEM_ALGORITHM_COUNT {
+        for kem in KemAlgorithm::list() {
             for sec in 1..SecurityLevel::Extreme.value() {
                 let level = SecurityLevel::from(sec);
                 let (alice, bob) = handshake::<citadel_crypt::ratchets::mono::MonoRatchet, _>(
-                    KemAlgorithm::from_u8(x).unwrap() + EncryptionAlgorithm::AES_GCM_256,
+                    kem + EncryptionAlgorithm::AES_GCM_256,
                     level,
                     &PRE_SHARED_KEYS,
                     &PRE_SHARED_KEYS,
@@ -292,7 +295,7 @@ mod tests {
         citadel_logging::setup_log();
         for sec in 0..SecurityLevel::Extreme.value() {
             let ratchet = gen_ratchet::<StackedRatchet, _>(
-                KemAlgorithm::MlKem + EncryptionAlgorithm::AES_GCM_256,
+                KemAlgorithm::MlKem768Fips203 + EncryptionAlgorithm::AES_GCM_256,
                 Some(sec.into()),
                 &PRE_SHARED_KEYS,
                 &PRE_SHARED_KEYS,
@@ -335,7 +338,6 @@ mod tests {
     ) -> (R, R) {
         let algorithm = algorithm.into();
         log::trace!(target: "citadel", "Using {:?} with {:?} @ {:?} security level", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level);
-        let algorithm = Some(algorithm);
         let mut alice_ratchet = R::Constructor::new_alice(
             ConstructorOpts::new_vec_init(algorithm, security_level),
             99,
@@ -394,28 +396,33 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem1024Fips203,
+        SigAlgorithm::MlDsa65
     )]
     fn toolsets(
         #[case] enx: EncryptionAlgorithm,
@@ -534,15 +541,12 @@ mod tests {
         bob_psks: &[Vec<u8>],
         alice_psks: &[Vec<u8>],
     ) -> Result<(R, R), citadel_crypt::misc::CryptError> {
-        let mut alice = R::Constructor::new_alice(
-            ConstructorOpts::new_vec_init(Some(algorithm), sec),
-            cid,
-            version,
-        )
-        .unwrap();
+        let mut alice =
+            R::Constructor::new_alice(ConstructorOpts::new_vec_init(algorithm, sec), cid, version)
+                .unwrap();
         let mut bob = R::Constructor::new_bob(
             cid,
-            ConstructorOpts::new_vec_init(Some(algorithm), sec),
+            ConstructorOpts::new_vec_init(algorithm, sec),
             alice.stage0_alice().unwrap(),
             bob_psks,
         )
@@ -555,27 +559,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     fn toolset_wrapping_vers_all(
@@ -654,27 +658,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     #[timeout(std::time::Duration::from_secs(240))]
@@ -710,28 +714,33 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem1024Fips203,
+        SigAlgorithm::MlDsa65
     )]
     #[timeout(std::time::Duration::from_secs(240))]
     fn scrambler_transmission_length_spectrum_remote(
@@ -744,20 +753,20 @@ mod tests {
             security_level: SecurityLevel::Standard,
         };
 
-        fn verifier<R: Ratchet>(decrypted: &[u8], plaintext: &[u8], sa_alice: &R, sa_bob: &R) {
-            if !plaintext.is_empty() {
-                assert_ne!(decrypted, plaintext);
+        fn verifier(decrypted: &[u8], plaintext: &[u8], alice: &RevfsKey, bob: &RevfsKey) {
+            // An empty object travels as filler the receiver discards: nothing is sealed.
+            if plaintext.is_empty() {
+                assert!(decrypted.is_empty());
+                return;
             }
-
-            let decrypted_real = sa_alice
-                .local_decrypt(decrypted, SecurityLevel::Standard)
-                .unwrap();
-            assert_eq!(decrypted_real, plaintext);
-            if !plaintext.is_empty() {
-                assert!(sa_bob
-                    .local_decrypt(decrypted, SecurityLevel::Standard)
-                    .is_err());
-            }
+            assert_ne!(decrypted, plaintext);
+            let open =
+                |key| revfs_seal::open(Some(key), 0, 0, 0, SecurityLevel::Standard, decrypted);
+            assert_eq!(open(alice).unwrap(), plaintext.to_vec());
+            assert_eq!(
+                open(bob).unwrap_err().code(),
+                ErrorCode::RevfsSealedUnderAnotherKey
+            );
         }
 
         scrambler_transmission_spectrum::<StackedRatchet>(enx, kem, sig, tx_type.clone(), verifier);
@@ -771,7 +780,7 @@ mod tests {
         kem: KemAlgorithm,
         sig: SigAlgorithm,
         transfer_type: TransferType,
-        verifier: impl for<'a> Fn(&'a [u8], &'a [u8], &R, &R),
+        verifier: impl for<'a> Fn(&'a [u8], &'a [u8], &RevfsKey, &RevfsKey),
     ) {
         citadel_logging::setup_log();
 
@@ -787,14 +796,7 @@ mod tests {
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS,
         );
-        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) = gen::<R>(
-            10,
-            0,
-            SECURITY_LEVEL,
-            enx + kem + sig,
-            &PRE_SHARED_KEYS,
-            &PRE_SHARED_KEYS,
-        );
+        let (revfs_alice, revfs_bob) = revfs_keys();
 
         for x in 0..1500_usize {
             if x != 0 {
@@ -807,12 +809,16 @@ mod tests {
                     input_data,
                     SECURITY_LEVEL,
                     &ratchet_alice,
-                    &pseudo_static_aux_ratchet_alice,
+                    Some(RevfsGroupSeal {
+                        key: &revfs_alice,
+                        group_index: 0,
+                    }),
                     HEADER_SIZE_BYTES,
                     0,
                     ObjectId::zero(),
                     0,
                     transfer_type.clone(),
+                    WaveBinding::Bound,
                     |_vec, _entropy_bank, _target_cid, _, buffer| {
                         for x in 0..HEADER_SIZE_BYTES {
                             buffer.put_u8(x as u8)
@@ -822,7 +828,7 @@ mod tests {
                 .unwrap();
 
             let config = scramble_transmitter.get_receiver_config();
-            let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
+            let mut receiver = GroupReceiver::new(config.clone(), WaveBinding::Bound, 0, 0);
             log::trace!(target: "citadel", "{:?}", config);
 
             while let Some(packet) = scramble_transmitter.get_next_packet() {
@@ -839,10 +845,18 @@ mod tests {
             verifier(
                 &decrypted_descrambled_plaintext,
                 input_data,
-                &pseudo_static_aux_ratchet_alice,
-                &pseudo_static_aux_ratchet_bob,
+                &revfs_alice,
+                &revfs_bob,
             )
         }
+    }
+
+    /// Two accounts' keys: the first seals, the second must not open what it sealed.
+    fn revfs_keys() -> (RevfsKey, RevfsKey) {
+        (
+            RevfsKey::derive(&[1u8; 32], "storage.example", 0).unwrap(),
+            RevfsKey::derive(&[2u8; 32], "storage.example", 0).unwrap(),
+        )
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -865,27 +879,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     #[tokio::test]
@@ -912,28 +926,33 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem1024Fips203,
+        SigAlgorithm::MlDsa65
     )]
     #[tokio::test]
     async fn encrypt_decrypt_file_transfer_remote(
@@ -943,7 +962,7 @@ mod tests {
         #[values(SecurityLevel::Standard, SecurityLevel::Reinforced)] security_level: SecurityLevel,
     ) {
         citadel_logging::setup_log();
-        let (plaintext, bytes_ret, sa_alice, sa_bob) = test_file_transfer_inner(
+        let (plaintext, bytes_ret, alice, bob) = test_file_transfer_inner(
             TransferType::RemoteEncryptedVirtualFilesystem {
                 virtual_path: PathBuf::from("/"),
                 security_level,
@@ -955,9 +974,12 @@ mod tests {
         )
         .await;
         assert_ne!(plaintext, bytes_ret);
-        let decrypted = sa_alice.local_decrypt(&bytes_ret, security_level).unwrap();
-        assert_eq!(decrypted, plaintext);
-        assert!(sa_bob.local_decrypt(&bytes_ret, security_level).is_err());
+        let open = |key| revfs_seal::open(Some(key), 0, 0, 0, security_level, &bytes_ret);
+        assert_eq!(open(&alice).unwrap(), plaintext.to_vec());
+        assert_eq!(
+            open(&bob).unwrap_err().code(),
+            ErrorCode::RevfsSealedUnderAnotherKey
+        );
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -967,7 +989,7 @@ mod tests {
         kem: KemAlgorithm,
         sig: SigAlgorithm,
         security_level: SecurityLevel,
-    ) -> (&'static [u8], Vec<u8>, StackedRatchet, StackedRatchet) {
+    ) -> (&'static [u8], Vec<u8>, RevfsKey, RevfsKey) {
         use citadel_crypt::scramble::crypt_splitter::GroupReceiverStatus;
         use std::time::Instant;
         use tokio::sync::mpsc::channel;
@@ -982,14 +1004,7 @@ mod tests {
             &PRE_SHARED_KEYS,
             &PRE_SHARED_KEYS,
         );
-        let (pseudo_static_aux_ratchet_alice, pseudo_static_aux_ratchet_bob) = gen::<StackedRatchet>(
-            0,
-            0,
-            security_level,
-            enx + kem + sig,
-            &PRE_SHARED_KEYS,
-            &PRE_SHARED_KEYS,
-        );
+        let (revfs_alice, revfs_bob) = revfs_keys();
 
         let cmp = include_bytes!("../../resources/TheBridge.pdf");
         let source = PathBuf::from("../resources/TheBridge.pdf");
@@ -1003,11 +1018,12 @@ mod tests {
             stop_rx,
             security_level,
             alice.clone(),
-            pseudo_static_aux_ratchet_alice.clone(),
+            Some(revfs_alice.clone()),
             HEADER_LEN,
             bob.get_cid(),
             0,
             transfer_type,
+            WaveBinding::Bound,
             header_inscribe,
         )
         .unwrap();
@@ -1022,7 +1038,7 @@ mod tests {
             let mut gs = gs.unwrap();
             let config = gs.get_receiver_config();
             log::error!(target: "citadel", "Config: {config:?}");
-            let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
+            let mut receiver = GroupReceiver::new(config.clone(), WaveBinding::Bound, 0, 0);
             let group_id = config.group_id;
             let mut _seq = 0;
             let _now = Instant::now();
@@ -1053,38 +1069,33 @@ mod tests {
             bytes,
             mbs
         );
-        (
-            cmp,
-            bytes_ret,
-            pseudo_static_aux_ratchet_alice,
-            pseudo_static_aux_ratchet_bob,
-        )
+        (cmp, bytes_ret, revfs_alice, revfs_bob)
     }
 
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     fn test_entropy_bank_encrypt_decrypt_basic(
@@ -1106,7 +1117,7 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     fn test_entropy_bank_encrypt_decrypt_basic_bad_psks(
@@ -1135,27 +1146,27 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::Ascon80pq,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::ChaCha20Poly_1305,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::FnDsa512
     )]
     fn test_entropy_bank_local_encrypt_decrypt(

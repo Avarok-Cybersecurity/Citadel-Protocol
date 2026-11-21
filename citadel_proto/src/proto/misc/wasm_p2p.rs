@@ -13,6 +13,7 @@ use crate::proto::peer::peer_crypt::WebRtcSignalingPayload;
 
 // ── PlatformOps impl ────────────────────────────────────────────────
 
+#[allow(private_interfaces)]
 impl super::platform_ops::PlatformOps for WasmIO {
     /// A browser's transports belong to the browser, which follows address changes itself.
     fn track_client_transport(
@@ -72,7 +73,7 @@ impl super::platform_ops::PlatformOps for WasmIO {
             let send_signaling =
                 |payload: WebRtcSignalingPayload| -> Result<(), crate::error::NetworkError> {
                     let signal = PeerSignal::WebRtcSignaling {
-                        peer_conn_type: peer_connection_type.clone(),
+                        peer_conn_type: peer_connection_type,
                         payload,
                     };
                     let accessor =

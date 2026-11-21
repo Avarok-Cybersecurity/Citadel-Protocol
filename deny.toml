@@ -25,14 +25,22 @@ targets = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin" ,
     "x86_64-pc-windows-msvc",
+    # The browser build.
+    "wasm32-unknown-unknown",
 ]
+# Every optional feature, so an advisory reached only through one (sql pulls sqlx-mysql and rsa)
+# is still seen; cargo audit reads the whole lockfile and caught what this graph once missed.
+all-features = true
 
 # This section is considered when running `cargo deny check advisories`
 # More documentation for the advisories section can be found here:
 # https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
 [advisories]
 # The path where the advisory database is cloned/fetched into
-db-path = "~/.cargo/advisory-db"
+# cargo-deny's own directory, one checkout per URL beneath it. It must not be cargo-audit's
+# ~/.cargo/advisory-db: deny wrote its checkout inside that directory, and audit then refused to
+# clone into a non-empty one (run 44415208817).
+db-path = "~/.cargo/advisory-dbs"
 # The url(s) of the advisory databases to use
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
@@ -40,14 +48,16 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
+#
+# This list is also cargo audit's: ci/cargo-audit.sh passes each id here to `cargo audit --ignore`,
+# and refuses an entry without a reason. One list, so the two tools can never disagree on an
+# exception.
 ignore = [
-    # Bincode is unmaintained but we use it for serialization and there's no
-    # immediate security vulnerability. We'll migrate when a suitable replacement
-    # is identified.
-    "RUSTSEC-2025-0141",
-    # serde_cbor is unmaintained, with no known vulnerability. Only `authenticator` (citadel_proto's
-    # opt-in `security-key` feature) uses it, to parse a security key's CTAP2 responses.
-    "RUSTSEC-2021-0127",
+    { id = "RUSTSEC-2025-0141", reason = "Bincode is unmaintained, with no known vulnerability; it is our serialization format, and it moves when a suitable replacement is identified." },
+    { id = "RUSTSEC-2021-0127", reason = "serde_cbor is unmaintained, with no known vulnerability. Only `authenticator` (citadel_proto's opt-in `security-key` feature) uses it, to parse a security key's CTAP2 responses." },
+    # Reviewed 2026-11-18; the owner chose to keep MySQL support and document this exception.
+    { id = "RUSTSEC-2023-0071", reason = "Reviewed 2026-11-18. rsa 0.9 arrives only through citadel_user's opt-in `sql` feature (sqlx all-databases -> sqlx-mysql). sqlx-mysql 0.8.6 (src/connection/auth.rs, encrypt_rsa) parses the server's RSA public key and calls RsaPublicKey::encrypt with OAEP to send the password; it holds no private key and never decrypts or signs. The Marvin attack is a timing side channel in private-key operations, which this path never performs. Remove when sqlx moves to rsa 0.10." },
+    { id = "RUSTSEC-2016-0007", reason = "Reviewed and accepted by the owner 2026-11-18. jwt is unmaintained, with no known vulnerability. It arrives only through citadel_user's opt-in `google-services` feature, which signs Firebase service tokens; no default build links it." },
     # Each entry below has no release that fits the dependency graph; the
     # reason says why the advisory does not reach what this workspace ships.
     { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 arrives only through elliptic-curve 0.13 (^0.5) under voprf 0.5, the newest stable voprf. The OPRF uses the ristretto255 ciphersuite: its group arithmetic is curve25519-dalek, and the one elliptic-curve item it calls is ExpandMsgXmd, a digest construction with no crypto-bigint code. No crypto-bigint operation runs on a secret." },
@@ -97,6 +107,12 @@ exceptions = [
     { allow = ["MPL-2.0"], name = "attohttpc", version = "*" },
     # this is for testing only, which is not part of the SDK
     { allow = ["MPL-2.0", "CDLA-Permissive-2.0"], name = "webpki-roots", version = "*" },
+    # Accepted by the owner 2026-11-18. The same Mozilla root-certificate data as webpki-roots, under the same data license; reached
+    # through quinn-proto -> rustls-platform-verifier on targets with no platform verifier.
+    { allow = ["CDLA-Permissive-2.0"], name = "webpki-root-certs", version = "*" },
+    # Accepted by the owner 2026-11-18. dirs-sys 0.4's helper, under the opt-in `opfs` feature (opfs -> dirs 5). MPL-2.0 is
+    # file-level copyleft: used unmodified, it places nothing on this code.
+    { allow = ["MPL-2.0"], name = "option-ext", version = "*" },
     # transitive via quinn-proto -> fastbloom. Zlib is a permissive, OSI-approved,
     # FSF-Free license (BSD-like: no attribution or copyleft obligations)
     { allow = ["Zlib"], name = "foldhash", version = "*" },
@@ -183,10 +199,10 @@ skip-tree = [
 [sources]
 # Lint level for what to happen when a crate from a crate registry that is not
 # in the allow list is encountered
-unknown-registry = "warn"
+unknown-registry = "deny"
 # Lint level for what to happen when a crate from a git repository that is not
 # in the allow list is encountered
-unknown-git = "warn"
+unknown-git = "deny"
 # List of URLs for allowed crate registries. Defaults to the crates.io index
 # if not specified. If it is specified but empty, no registries are allowed.
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
@@ -194,10 +210,4 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 # The quinn-proto backport fork (see `[patch.crates-io]` in Cargo.toml).
 allow-git = ["https://github.com/Avarok-Cybersecurity/quinn"]
 
-[sources.allow-org]
-# 1 or more github.com organizations to allow git sources for
-github = [""]
-# 1 or more gitlab.com organizations to allow git sources for
-gitlab = [""]
-# 1 or more bitbucket.org organizations to allow git sources for
-bitbucket = [""]
+# No organisation-wide git allowance: each git source is named in allow-git above.

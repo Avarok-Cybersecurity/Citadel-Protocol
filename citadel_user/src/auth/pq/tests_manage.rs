@@ -6,7 +6,6 @@ use super::kem::{FactorKeypair, FactorSeed, SEED_LEN};
 use super::management_transcript;
 use super::messages::{
     key_binding, CommitCeremony, ManagementBegin, ManagementOp, NewSecurityKey, ServerOutcome,
-    SignInLayout,
 };
 use super::record::PqAuthRecord;
 use super::seed::PrfOutput;
@@ -16,7 +15,6 @@ use citadel_io::{tokio, ErrorCode};
 use citadel_types::auth::{FactorKind, SessionScope, SignInManagementOp, SignInPolicy};
 
 const CRED: &[u8] = b"new-key";
-const CEREMONY: SignInLayout = SignInLayout::SecurityKeyCeremony;
 
 fn add_key() -> SignInManagementOp {
     SignInManagementOp::AddSecurityKey {
@@ -41,8 +39,8 @@ async fn change(
     prf: Option<u8>,
 ) -> Result<ServerOutcome, citadel_io::NetworkError> {
     let pw = step_up.map(password);
-    let (begin, client) = ClientManagement::begin("alice", op, pw.as_ref())?;
-    let (challenge, pending) = begin_management(&settings(), CID, record, scope, begin, CEREMONY)?;
+    let (begin, client) = ClientManagement::begin("alice", op, pw.as_ref(), None)?;
+    let (challenge, pending) = begin_management(&settings(), CID, record, scope, begin)?;
     let new_key = prf.map(created);
     let (commit, committed) = client.commit(CID, &challenge, None, new_key).await?;
     let change = match pending.commit(&commit)? {
@@ -60,7 +58,7 @@ fn code(result: &Result<ServerOutcome, citadel_io::NetworkError>) -> Option<Erro
 
 #[citadel_io::tokio::test]
 async fn a_step_up_with_the_password_lists_and_a_wrong_one_is_refused() {
-    let (mut record, _) = register("pw").await;
+    let mut record = register("pw").await;
     let listed = change(
         &mut record,
         SessionScope::Full,
@@ -71,7 +69,7 @@ async fn a_step_up_with_the_password_lists_and_a_wrong_one_is_refused() {
     assert!(matches!(
         listed.await.unwrap(),
         ServerOutcome::Credentials { credentials, policy: SignInPolicy::Password }
-            if credentials.len() == 11
+            if credentials.len() == 1
     ));
     let wrong = change(
         &mut record,
@@ -87,7 +85,7 @@ async fn a_step_up_with_the_password_lists_and_a_wrong_one_is_refused() {
 /// account with a key may still be `Password`, or `PasswordAndKey`, or `KeyOnly`.
 #[citadel_io::tokio::test]
 async fn a_list_reports_the_policy_the_account_is_judged_by() {
-    let (mut record, _) = register("pw").await;
+    let mut record = register("pw").await;
     for policy in [SignInPolicy::PasswordAndKey, SignInPolicy::KeyOnly] {
         record.policy = policy;
         let listed = Change::List.apply(&mut record, 3).unwrap();
@@ -100,18 +98,11 @@ async fn a_list_reports_the_policy_the_account_is_judged_by() {
 
 #[citadel_io::tokio::test]
 async fn a_key_is_enrolled_only_with_its_proof() {
-    let (mut record, _) = register("pw").await;
+    let mut record = register("pw").await;
     let (begin, client) =
-        ClientManagement::begin("alice", add_key(), Some(&password("pw"))).unwrap();
-    let (challenge, pending) = begin_management(
-        &settings(),
-        CID,
-        &record,
-        SessionScope::Full,
-        begin,
-        CEREMONY,
-    )
-    .unwrap();
+        ClientManagement::begin("alice", add_key(), Some(&password("pw")), None).unwrap();
+    let (challenge, pending) =
+        begin_management(&settings(), CID, &record, SessionScope::Full, begin).unwrap();
     let (commit, committed) = client
         .commit(CID, &challenge, None, Some(created(5)))
         .await
@@ -153,15 +144,15 @@ async fn a_key_is_enrolled_only_with_its_proof() {
 
 #[citadel_io::tokio::test]
 async fn a_server_without_a_relying_party_enrols_no_key() {
-    let (record, _) = register("pw").await;
-    let (begin, _) = ClientManagement::begin("alice", add_key(), Some(&password("pw"))).unwrap();
+    let record = register("pw").await;
+    let (begin, _) =
+        ClientManagement::begin("alice", add_key(), Some(&password("pw")), None).unwrap();
     let refused = begin_management(
         &settings_without_keys(),
         CID,
         &record,
         SessionScope::Full,
         begin,
-        CEREMONY,
     );
     assert_eq!(
         refused.err().map(|err| err.code),
@@ -171,23 +162,19 @@ async fn a_server_without_a_relying_party_enrols_no_key() {
 
 #[citadel_io::tokio::test]
 async fn a_step_up_is_bound_to_its_change_and_to_the_key_being_added() {
-    let (record, _) = register("pw").await;
+    let record = register("pw").await;
     let list = SignInManagementOp::ListCredentials;
-    let (begin, _) = ClientManagement::begin("alice", list, Some(&password("pw"))).unwrap();
-    let (challenge, _) = begin_management(
-        &settings(),
-        CID,
-        &record,
-        SessionScope::Full,
-        begin.clone(),
-        CEREMONY,
-    )
-    .unwrap();
+    let (begin, _) = ClientManagement::begin("alice", list, Some(&password("pw")), None).unwrap();
+    let (challenge, _) =
+        begin_management(&settings(), CID, &record, SessionScope::Full, begin.clone()).unwrap();
     let remove = ManagementBegin {
         op: ManagementOp::RemoveCredential { id: 1 },
         ..begin.clone()
     };
-    let no_key = key_binding(&None, Some(&CommitCeremony { new_key: None }));
+    let no_key = key_binding(&CommitCeremony {
+        password_ek: None,
+        new_key: None,
+    });
     let base = management_transcript(CID, &begin, &challenge, &no_key);
     assert_ne!(
         base,
@@ -200,7 +187,10 @@ async fn a_step_up_is_bound_to_its_change_and_to_the_key_being_added() {
     };
     let binding = |credential_id: &[u8]| {
         let new_key = Some(key(credential_id));
-        key_binding(&None, Some(&CommitCeremony { new_key }))
+        key_binding(&CommitCeremony {
+            password_ek: None,
+            new_key,
+        })
     };
     let with_key = management_transcript(CID, &begin, &challenge, &binding(CRED));
     assert_ne!(base, with_key);
@@ -212,7 +202,7 @@ async fn a_step_up_is_bound_to_its_change_and_to_the_key_being_added() {
 /// holds none of the account's keys.
 #[citadel_io::tokio::test]
 async fn a_new_key_is_created_for_the_relying_party_away_from_the_accounts_keys() {
-    let (mut record, _) = register("pw").await;
+    let mut record = register("pw").await;
     let first = change(
         &mut record,
         SessionScope::Full,
@@ -222,18 +212,11 @@ async fn a_new_key_is_created_for_the_relying_party_away_from_the_accounts_keys(
     );
     assert!(matches!(first.await.unwrap(), ServerOutcome::Added { .. }));
     let (begin, client) =
-        ClientManagement::begin("alice", add_key(), Some(&password("pw"))).unwrap();
-    let (challenge, _) = begin_management(
-        &settings(),
-        CID,
-        &record,
-        SessionScope::Full,
-        begin,
-        CEREMONY,
-    )
-    .unwrap();
+        ClientManagement::begin("alice", add_key(), Some(&password("pw")), None).unwrap();
+    let (challenge, _) =
+        begin_management(&settings(), CID, &record, SessionScope::Full, begin).unwrap();
     let request = client.new_key_request(&challenge).unwrap().unwrap();
-    assert_eq!(request.rp_id.as_deref(), Some(RP_ID));
+    assert_eq!(request.rp_id, RP_ID);
     assert_eq!(request.prf_eval_salt, record.prf_eval_salt);
     let SecurityKeyCeremony::Register {
         user_name,
@@ -249,15 +232,15 @@ async fn a_new_key_is_created_for_the_relying_party_away_from_the_accounts_keys(
 
 #[citadel_io::tokio::test]
 async fn removing_the_last_factor_through_management_is_refused() {
-    let (mut record, _) = register("pw").await;
+    let mut record = register("pw").await;
     let remove = SignInManagementOp::RemoveCredential { id: 1 };
     let refused = change(&mut record, SessionScope::Full, remove, Some("pw"), None).await;
     assert_eq!(code(&refused), Some(ErrorCode::PqSignInPolicy));
 }
 
 #[citadel_io::tokio::test]
-async fn a_recovery_session_may_enrol_a_key_and_set_the_policy_and_nothing_else() {
-    let (mut record, _) = register("pw").await;
+async fn a_recovery_session_manages_credentials_and_nothing_else() {
+    let mut record = register("pw").await;
     let list = change(
         &mut record,
         SessionScope::Recovery,
@@ -265,15 +248,13 @@ async fn a_recovery_session_may_enrol_a_key_and_set_the_policy_and_nothing_else(
         None,
         None,
     );
-    assert_eq!(code(&list.await), Some(ErrorCode::PqSignInRestricted));
-    let regen = change(
-        &mut record,
-        SessionScope::Recovery,
-        SignInManagementOp::RegenerateRecoveryCodes,
-        None,
-        None,
-    );
-    assert_eq!(code(&regen.await), Some(ErrorCode::PqSignInRestricted));
+    assert!(matches!(list.await, Ok(ServerOutcome::Credentials { .. })));
+    let rename = SignInManagementOp::RenameCredential {
+        id: 1,
+        label: "mine".into(),
+    };
+    let renamed = change(&mut record, SessionScope::Recovery, rename, None, None);
+    assert_eq!(code(&renamed.await), Some(ErrorCode::PqSignInRestricted));
 
     let added = change(
         &mut record,
@@ -290,25 +271,4 @@ async fn a_recovery_session_may_enrol_a_key_and_set_the_policy_and_nothing_else(
     let set = change(&mut record, SessionScope::Recovery, key_only, None, None).await;
     assert!(matches!(set.unwrap(), ServerOutcome::PolicySet));
     assert_eq!(record.policy, SignInPolicy::KeyOnly);
-}
-
-#[citadel_io::tokio::test]
-async fn regenerated_codes_replace_every_old_one() {
-    let (mut record, _) = register("pw").await;
-    let old: Vec<_> = record
-        .usable(FactorKind::RecoveryCode)
-        .map(|f| f.id)
-        .collect();
-    let regen = SignInManagementOp::RegenerateRecoveryCodes;
-    let replaced = change(&mut record, SessionScope::Full, regen, Some("pw"), None).await;
-    assert!(matches!(
-        replaced.unwrap(),
-        ServerOutcome::RecoveryCodesReplaced
-    ));
-    let new: Vec<_> = record
-        .usable(FactorKind::RecoveryCode)
-        .map(|f| f.id)
-        .collect();
-    assert_eq!(new.len(), 10);
-    assert!(old.iter().all(|id| !new.contains(id)));
 }

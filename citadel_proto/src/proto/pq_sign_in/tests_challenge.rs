@@ -1,5 +1,5 @@
 //! A refusal's challenge on the wire: in the connect FAILURE's final status packet and in the
-//! registration FAILURE, read by this node and ignored (or never sent) by an older one.
+//! registration FAILURE. A challenge naming a provider this node does not know reads as none.
 
 use super::refusal::{read_register_failure, register_failure};
 use crate::proto::packet_crafter::do_connect::DoConnectFinalStatusPacket;
@@ -17,7 +17,7 @@ fn challenge() -> AdmissionChallenge {
 }
 
 fn required(challenge: Option<AdmissionChallenge>) -> citadel_io::NetworkError {
-    refusal_error(AdmissionRefusal::Required(challenge), false)
+    refusal_error(AdmissionRefusal::Required(challenge))
 }
 
 fn refusal_message() -> &'static [u8] {
@@ -126,31 +126,54 @@ fn a_challenge_from_an_unknown_provider_reads_as_absent() {
 }
 
 #[test]
-fn a_registration_failure_carries_the_challenge_to_a_client_that_reads_one() {
-    let (message, read) =
-        read_register_failure(register_failure(required(Some(challenge())), true));
-    assert_eq!(read, Some(challenge()));
-    let err = refusal_from_message(&message, read).expect("the refusal was not recognised");
+fn a_registration_failure_carries_the_challenge() {
+    let read = read_register_failure(register_failure(required(Some(challenge()))));
+    assert_eq!(read.admission_challenge, Some(challenge()));
+    let err = refusal_from_message(&read.message, read.admission_challenge)
+        .expect("the refusal was not recognised");
     assert_eq!(challenge_of(&err), Some(&challenge()));
 }
 
+/// The 0.12.3 shape of a structured registration refusal: no error code.
+#[derive(Serialize, Deserialize)]
+struct RegisterRefusalOf0123 {
+    message: String,
+    admission_challenge: Option<AdmissionChallenge>,
+}
+
+/// A structured refusal without its code is an older server's, and reads as malformed; a plain
+/// message (a refusal before the post-quantum exchange) still reads as itself.
+/// Control: read `RegisterRefusal::code` as an appended field and the older refusal reads.
 #[test]
-fn an_older_client_and_an_absent_challenge_get_the_plain_message() {
-    let to_old = register_failure(required(Some(challenge())), false);
-    assert_eq!(
-        to_old,
-        refusal_message(),
-        "an older client was sent a challenge"
-    );
-    let absent = register_failure(required(None), true);
-    assert_eq!(absent, refusal_message());
-    assert_eq!(
-        read_register_failure(absent),
-        (String::from_utf8(refusal_message().to_vec()).unwrap(), None)
-    );
-    let generic = register_failure(citadel_io::NetworkError::msg("Server busy"), true);
-    assert_eq!(
-        read_register_failure(generic),
-        ("Server busy".to_string(), None)
-    );
+fn a_structured_refusal_without_its_code_is_malformed() {
+    let older = RegisterRefusalOf0123 {
+        message: String::from_utf8(refusal_message().to_vec()).unwrap(),
+        admission_challenge: Some(challenge()),
+    };
+    let payload = [&[0xFF][..], &older.serialize_to_vector().unwrap()].concat();
+    let read = read_register_failure(payload);
+    assert_eq!(read.message, "Malformed registration refusal");
+    assert_eq!((read.admission_challenge, read.code), (None, None));
+
+    let current = read_register_failure(register_failure(required(None)));
+    let expected = String::from_utf8(refusal_message().to_vec()).unwrap();
+    assert_eq!(current.message, expected);
+    assert_eq!(current.code, Some(required(None).code_u16()));
+
+    let plain = read_register_failure(b"Server busy".to_vec());
+    assert_eq!((plain.message.as_str(), plain.code), ("Server busy", None));
+}
+
+/// Control: leave the code out of `register_failure` and the client reads none.
+#[test]
+fn a_registration_failure_carries_its_code() {
+    let failed = citadel_io::error!(citadel_io::ErrorCode::PqSignInFailed);
+    let read = read_register_failure(register_failure(failed.clone()));
+    assert_eq!(read.code, Some(failed.code_u16()));
+    assert_eq!(read.message, failed.to_string());
+    let rebuilt = citadel_io::NetworkError::from_wire(read.code.unwrap(), read.message);
+    assert_eq!(rebuilt.code(), citadel_io::ErrorCode::PqSignInFailed);
+    let with_challenge = read_register_failure(register_failure(required(Some(challenge()))));
+    assert_eq!(with_challenge.admission_challenge, Some(challenge()));
+    assert!(with_challenge.code.is_some());
 }

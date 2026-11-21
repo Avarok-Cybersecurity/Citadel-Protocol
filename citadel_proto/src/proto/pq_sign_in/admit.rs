@@ -6,7 +6,6 @@ use crate::error::NetworkError;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_crafter::do_connect::DoConnectStage0Packet;
 use crate::proto::session::CitadelSession;
-use crate::proto::session_resume;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::SessionScope;
@@ -42,7 +41,6 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cnac: &ClientNetworkAccount<R, R>,
     payload: &[u8],
-    adjacent_version: u32,
 ) -> Result<(DoConnectStage0Packet, Admission), NetworkError> {
     let stage0 = DoConnectStage0Packet::deserialize_from_vector(payload)
         .map_err(|err| NetworkError::generic(err.into_string()))?;
@@ -54,27 +52,25 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
     let cid = cnac.get_cid();
     let account_manager = &session.account_manager;
     let admission = match (pending, stage0.pq_proof.clone()) {
-        // The legacy login, as before 0.12. An account that has upgraded refuses it.
+        // The legacy login. An account that has upgraded refuses it.
         (None, None) => {
             // No AUTH_START, so nothing was admitted yet: ask before Argon2 runs.
-            let presented = session_resume::exchanged_with(adjacent_version, stage0.resume_token);
+            let presented = stage0.resume_token;
             let username = cnac.get_username();
             let presented = presented.as_ref();
-            super::admission::legacy_sign_in(session, cid, &username, presented, adjacent_version)
-                .await?;
+            super::admission::legacy_sign_in(session, cid, &username, presented).await?;
             legacy_credentials(account_manager, cnac, &stage0).await?;
             Admission::legacy()
         }
         (Some(ServerPending::Factors(pending)), Some(LoginProof::Factors(finish))) => {
-            if !stage0
+            let username = cnac.get_username();
+            let named = stage0
                 .proposed_credentials
-                .compare_username(cnac.get_username().as_bytes())
-            {
-                return Err(failed());
-            }
-            let verified = pending.verify(&finish)?;
-            // Spends a recovery code under the record lock: of two logins that both verified the
-            // same code, only the first gets here without an error.
+                .compare_username(username.as_bytes());
+            let verified = pending.verify(&finish).ok().filter(|_| named);
+            throttle_outcome(session, &username, verified.is_some());
+            let verified = verified.ok_or_else(failed)?;
+            // Records the factors' use under the record lock; a factor removed meanwhile fails it.
             account_manager
                 .record_pq_sign_in(cid, &verified.used)
                 .await
@@ -96,6 +92,20 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
         _ => return Err(error!(ErrorCode::PqSignInMalformed, "a STAGE0 proof")),
     };
     Ok((stage0, admission))
+}
+
+/// The throttle learns how the proof of the attempt `AUTH_START` counted ended.
+fn throttle_outcome<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    username: &str,
+    verified: bool,
+) {
+    let mut state = inner_mut_state!(session.state_container);
+    let attempt = state.connect_state.pq.attempt.take();
+    drop(state);
+    if let Some(attempt) = attempt {
+        super::throttle::outcome(session, username, attempt, verified);
+    }
 }
 
 async fn legacy_credentials<R: Ratchet>(

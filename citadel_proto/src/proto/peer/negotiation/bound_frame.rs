@@ -86,14 +86,13 @@ mod tests {
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_negotiation::frame::Frame;
     use citadel_negotiation::{Epoch, SettingId};
-    use citadel_types::crypto::CryptoParameters;
 
     type Constructor = <StackedRatchet as Ratchet>::Constructor;
 
     /// Two ends of one ratchet version, as a key exchange leaves them.
     fn ends(version: u32) -> (StackedRatchet, StackedRatchet) {
         let opts = ConstructorOpts::new_vec_init(
-            Some(CryptoParameters::default()),
+            crate::proto::misc::session_security_settings::DEFAULT_SESSION_CRYPTO_PARAMS,
             SecurityLevel::Reinforced,
         );
         let psks: &[&[u8]] = &[b"psk"];

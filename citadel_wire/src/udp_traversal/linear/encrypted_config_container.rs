@@ -35,6 +35,13 @@
 //! - Functions must be Send + Sync for thread safety
 //! - Packet encryption is zero-copy optimized
 //! - Custom encryption schemes can be injected
+//! - There is no default: an identity cipher would punch in the clear, so every caller names
+//!   its functions (PCND):
+//!
+//! ```compile_fail,E0599
+//! use citadel_wire::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
+//! let _ = HolePunchConfigContainer::default();
+//! ```
 //!
 //! # Related Components
 //!
@@ -82,12 +89,9 @@ impl HolePunchConfigContainer {
     }
 }
 
-impl Default for HolePunchConfigContainer {
-    // identity transformation
-    fn default() -> Self {
-        Self {
-            generate_packet: Arc::new(|input| BytesMut::from(input)),
-            decrypt_packet: Arc::new(|input| Some(BytesMut::from(input))),
-        }
-    }
+/// The identity cipher, for this crate's unit tests only: production always passes the
+/// session's AEAD, so no build can fall back to it (the type has no `Default`).
+#[cfg(test)]
+pub(crate) fn identity_for_tests() -> HolePunchConfigContainer {
+    HolePunchConfigContainer::new(|p| BytesMut::from(p), |p| Some(BytesMut::from(p)))
 }

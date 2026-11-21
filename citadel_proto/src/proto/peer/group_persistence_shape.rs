@@ -1,26 +1,22 @@
 //! The bytes a [`PersistedGroup`] is stored as.
 //!
-//! A group row was written as `(options, members, pending)`, with the options' three original
-//! fields first. The options have since gained fields (`ephemeral`, `limits`), and bincode has no
-//! field names: storing the options as they are now would put the new fields between `options`
-//! and `members`, where a row written before them holds the members, so an old row would decode
-//! into garbage. The row therefore keeps its original layout, and the new option fields are
-//! appended after `pending`, read as their defaults from a row that predates them.
+//! A group row is `(options, members, pending, relay)`: the options' three original fields first,
+//! and the relay options (`ephemeral`, `limits`) after `pending`. bincode has no field names, so
+//! the order is the format. Every field is required: a row without its relay options, or with
+//! caps that fail validation, is refused rather than read with defaults.
 
 use crate::proto::peer::group_persistence::PersistedGroup;
 use citadel_types::proto::{
     GroupHierarchyMode, GroupMessageLimits, GroupType, MessageGroupOptions,
 };
-use citadel_types::wire_compat::ok_or_default;
 use serde::{Deserialize, Serialize};
 
-/// A group row, in the layout every row has had.
+/// A group row.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct StoredGroup {
     options: StoredOptions,
     members: Vec<u64>,
     pending: Vec<u64>,
-    #[serde(default, deserialize_with = "ok_or_default")]
     relay: StoredRelayOptions,
 }
 
@@ -32,8 +28,8 @@ struct StoredOptions {
     hierarchy: GroupHierarchyMode,
 }
 
-/// The option fields appended to the row.
-#[derive(Serialize, Deserialize, Default)]
+/// The option fields that follow `pending`.
+#[derive(Serialize, Deserialize)]
 struct StoredRelayOptions {
     ephemeral: bool,
     limits: Option<GroupMessageLimits>,
@@ -82,9 +78,9 @@ mod tests {
     use super::*;
     use citadel_user::serialization::SyncIO;
 
-    /// A row exactly as a server before the relay options wrote it.
+    /// A row without its relay options.
     #[derive(Serialize, Deserialize)]
-    struct RowBeforeRelayOptions {
+    struct RowWithoutRelayOptions {
         options: (GroupType, u128, GroupHierarchyMode),
         members: Vec<u64>,
         pending: Vec<u64>,
@@ -105,40 +101,24 @@ mod tests {
     }
 
     #[test]
-    fn a_row_written_before_the_relay_options_reads_as_an_ordinary_group() {
-        let old = RowBeforeRelayOptions {
+    fn a_row_without_its_relay_options_is_refused() {
+        let row = RowWithoutRelayOptions {
             options: (GroupType::Private, 7, GroupHierarchyMode::Flat),
             members: vec![1, 2],
             pending: vec![3],
         }
         .serialize_to_vector()
         .unwrap();
-        let read = PersistedGroup::deserialize_from_vector(&old).unwrap();
-        assert_eq!(
-            (read.options.id, read.members, read.pending),
-            (7, vec![1, 2], vec![3])
-        );
-        assert!(!read.options.ephemeral);
-        assert_eq!(read.options.limits, None);
+        assert!(PersistedGroup::deserialize_from_vector(&row).is_err());
     }
 
     #[test]
-    fn the_relay_options_round_trip_and_follow_the_original_layout() {
+    fn the_relay_options_round_trip() {
         let limits = GroupMessageLimits::new(64, 2).ok();
         let bytes = persisted(true, limits).serialize_to_vector().unwrap();
         let read = PersistedGroup::deserialize_from_vector(&bytes).unwrap();
         assert!(read.options.ephemeral);
         assert_eq!(read.options.limits, limits);
-        let old_layout = RowBeforeRelayOptions {
-            options: (GroupType::Private, 7, GroupHierarchyMode::Flat),
-            members: vec![1, 2],
-            pending: vec![3],
-        }
-        .serialize_to_vector()
-        .unwrap();
-        assert!(
-            bytes.starts_with(&old_layout),
-            "an older server reads the row it always wrote, and ignores the rest"
-        );
+        assert_eq!((read.members, read.pending), (vec![1, 2], vec![3]));
     }
 }

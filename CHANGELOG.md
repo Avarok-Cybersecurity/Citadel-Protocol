@@ -4,6 +4,21 @@
 
 ### Added
 
+- **P2P key exchanges signed by each account's identity key.** Each end signs its stage of a P2P
+  key exchange (the initiator its Stage0, the responder its Stage1) with its account's ML-DSA-65
+  identity key, over a transcript naming both CIDs, the connection id, the digests of the stages
+  as their senders wrote them, and the signer's role (`proto::peer::kex_auth`). The other end
+  checks the signature, then the key against the one pinned for the peer. A node gets the keys and
+  the pins from the application through the `P2pKexIdentity` port
+  (`NodeBuilder::with_p2p_kex_identity`); a node given none signs and checks nothing. A peer seen
+  first is pinned; a stage signed by another key is refused (`P2pKexPeerKeyChanged`) and reported
+  to the port, and the pair connects once the application pins the presented key; an unsigned
+  stage from a pinned peer is refused (`P2pKexSignatureMissing`); a stage that does not verify is
+  refused (`P2pKexSignatureInvalid`). A peer with no pin and no signature (an older node, an
+  account with no identity key) connects as before. `PeerChannel::peer_kex_identity()` reports
+  `Signed { identity_key }` or `Unsigned`. Wire: `PeerSignal::Kex` gains an appended `auth` field,
+  ignored by older nodes; gate `P2P_KEX_SIGNED_SINCE` (0.12.4, the shared bump).
+  `KernelExecutorArguments` gains `p2p_kex_identity`.
 - **P2P path outcomes.** Every background upgrade attempt of a peer connection reports a
   `PathAttemptOutcome`: the attempt number, the plan, the path it attached (`Direct`, `Turn` or
   `ServerRelay`), and every stage (`Coordination`, `Direct`, `Turn`) with its time and, for each
@@ -90,6 +105,33 @@
 
 ### Breaking
 
+- **Sessions default to ML-KEM-1024, and nothing else defaults a KEM.** `KemAlgorithm`,
+  `CryptoParameters` and `SessionSecuritySettings` no longer implement `Default`, and
+  `ConstructorOpts` takes its `CryptoParameters` rather than an `Option`. The one default is
+  `DEFAULT_SESSION_CRYPTO_PARAMS` (AES-256-GCM, `MlKem1024Fips203`, no signature), applied by
+  `SessionSecuritySettingsBuilder` and `default_session_security_settings()`, both in the proto and
+  SDK preludes. A sum of algorithms builds `CryptoParameters` only once it names a KEM
+  (`KemAlgorithm::X + EncryptionAlgorithm::Y`, or `EncryptionAlgorithm::Y + KemAlgorithm::X`);
+  `From<EncryptionAlgorithm>` and `From<SigAlgorithm>` are gone, and
+  `CryptoParameters::new(encryption, kem, signature)` names all three. Both ends take the suite
+  from what the initiator sends. Accounts keep the suite they registered with.
+- **The round-3 KEM is removed.** `KemAlgorithm::MlKem` (Kyber768-90s through `kyber-pke`) and
+  `KemAlgorithm::is_libcrux` are gone; the KEMs are `MlKem768Fips203` (1) and `MlKem1024Fips203`
+  (2). `0` is unassigned: `KemAlgorithm::try_from(0)` and a `CryptoParameters` byte naming it are
+  refused with `CryptoParamEnumCastFailed`. `kyber-pke` and `pqc_kyber` are no longer
+  dependencies. The TypeScript `KemAlgorithm` lists the two FIPS 203 KEMs.
+- **`MlKemHybrid` runs on every KEM.** `EncryptionAlgorithmExt::max_ciphertext_len` takes the
+  session's KEM and bounds the real length (plaintext included) by less than one scramble block;
+  `plaintext_length` returns `None` for the hybrid scheme, whose body is padded.
+  `get_max_packet_size` and `generate_scrambler_metadata` take `CryptoParameters`.
+- **RE-VFS runs on every KEM.** `ErrorCode::RemoteRevfsRequiresKyber` is no longer returned.
+- **TreeKEM keys every tree on ML-KEM-1024 alone.** A `KeyPackage` is its `leaf`, keyed on
+  ML-KEM-1024. `suite_of` and `suite_of_ciphertext` refuse any other KEM by name, and a key
+  package, an added leaf or a path key of another KEM is refused before it changes the group.
+  `Proposal::Add` carries the inserted `leaf: LeafNode`. `kem_keypair_from_seed`,
+  `kem_encapsulate` and `kem_decapsulate` name their suite; `node_keypair_from_path_secret`,
+  `hpke_open`, `generate_update_path`, `HierarchyScheme::node_keypair`, `DheEnvelope::seal` and
+  `HierarchyMember::seal_message` take none.
 - `BackendType` no longer implements `Default`. Use `BackendType::platform_default()`, which
   returns `ErrorCode::BackendHomeDirUnavailable` instead of panicking when there is no usable home
   directory; `NodeBuilder::build` returns that error when no backend is set.

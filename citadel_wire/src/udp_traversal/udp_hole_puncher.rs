@@ -40,6 +40,7 @@ use crate::udp_traversal::multi::DualStackUdpHolePuncher;
 pub use crate::udp_traversal::paired_attempts::PAIRED_ATTEMPTS_HELLO;
 use crate::udp_traversal::paired_attempts::{self, AttemptCoordinator, AttemptLane};
 pub use crate::udp_traversal::punch_budget::PunchBudget;
+pub use crate::udp_traversal::punch_report::{PunchReport, Punched};
 use citadel_io::tokio::net::UdpSocket;
 use futures::Future;
 use netbeam::reliable_conn::{
@@ -67,7 +68,7 @@ struct HolePunchCandidates {
 }
 
 pub struct UdpHolePuncher<'a> {
-    driver: Pin<Box<dyn Future<Output = Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
+    driver: Pin<Box<dyn Future<Output = Result<Punched, anyhow::Error>> + Send + 'a>>,
 }
 
 /// An attempt long enough for a punch over a slow coordination path, for a punch with no deadline
@@ -94,11 +95,22 @@ impl<'a> UdpHolePuncher<'a> {
     }
 }
 
+impl<'a> UdpHolePuncher<'a> {
+    /// The punched socket with its [`PunchReport`] (awaiting the puncher itself yields the
+    /// socket alone).
+    pub async fn reported(self) -> Result<Punched, anyhow::Error> {
+        self.driver.await
+    }
+}
+
 impl Future for UdpHolePuncher<'_> {
     type Output = Result<HolePunchedUdpSocket, anyhow::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.driver.as_mut().poll(cx)
+        self.driver
+            .as_mut()
+            .poll(cx)
+            .map(|punched| punched.map(|punched| punched.socket))
     }
 }
 
@@ -113,8 +125,9 @@ async fn driver(
     encrypted_config_container: HolePunchConfigContainer,
     stun_servers: &StunServers,
     budget: PunchBudget,
-) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    let deadline = citadel_io::time::Instant::now() + budget.total();
+) -> Result<Punched, anyhow::Error> {
+    let started = citadel_io::time::Instant::now();
+    let deadline = started + budget.total();
     let timeout = budget.attempt();
     let control = conn.on(HOLE_PUNCH_CONTROL);
     // The local NAT is a fact about this host, not about one attempt: it is learned once, while
@@ -146,9 +159,15 @@ async fn driver(
                 stun_servers,
             );
             let next = match citadel_io::time::timeout(timeout, task).await {
-                Ok(AttemptOutcome::Punched(res)) => {
+                Ok(AttemptOutcome::Punched(socket)) => {
                     log::trace!(target: "citadel", "[driver] Attempt {attempt} succeeded!");
-                    return Ok(res);
+                    let report = PunchReport {
+                        attempt,
+                        attempts_allowed: MAX_RETRIES,
+                        elapsed: started.elapsed(),
+                        local_nat: local_nat_type.class(),
+                    };
+                    return Ok(Punched { socket, report });
                 }
                 Ok(AttemptOutcome::Failed(err)) => {
                     log::warn!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} failed with error: {err:#}");
@@ -557,7 +576,7 @@ mod tests {
         let server = async move {
             let res = server_stream
                 .begin_udp_hole_punch(
-                    Default::default(),
+                    crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                     crate::stun_servers::unanswered_loopback(),
                     super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
@@ -569,7 +588,7 @@ mod tests {
         let client = async move {
             let res = client_stream
                 .begin_udp_hole_punch(
-                    Default::default(),
+                    crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                     crate::stun_servers::unanswered_loopback(),
                     super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
@@ -617,32 +636,52 @@ mod tests {
     /// resend, or one that lands between the winner's `done` and its reader,
     /// used to fail one side while both held a working socket; the other side
     /// had already returned, so the retry could not recover either.
+    ///
+    /// The punch's budget is one attempt of the punch's own time. The stalls this test injects
+    /// are not that time: the guard counted them for two months, and a slow runner, which needs
+    /// more stalls for the same work, spent the budget on them (#391, 20.168 s). The injected
+    /// stalls stop after one budget's worth, so a punch that hangs is still caught within one
+    /// budget of running afterwards. Nor is a freeze of the host's: the guard counts the budget
+    /// in ticks of runnable time, as the punch's receive window does, so a freeze is one tick.
     #[cfg(not(target_os = "windows"))]
     #[cfg_attr(coverage, ignore)]
     #[tokio::test]
     async fn test_dual_hole_puncher_survives_executor_stalls() {
         use rand::Rng;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
         use std::time::Duration;
         citadel_logging::setup_log();
 
+        const BUDGET: Duration = super::STANDALONE_ATTEMPT_TIMEOUT;
         let (server_stream, client_stream) = create_streams_with_addrs_and_lag(0).await;
+        // The time this test itself has held the executor, in ms.
+        let stalled = Arc::new(AtomicU64::new(0));
+        let stalled_for = {
+            let stalled = stalled.clone();
+            move || Duration::from_millis(stalled.load(Ordering::Relaxed))
+        };
         // Random, so that repeated runs land stalls in different windows.
-        let staller = citadel_io::tokio::spawn(async move {
-            loop {
-                let (between, stall) = {
-                    let mut rng = rand::thread_rng();
-                    (rng.gen_range(0..60), rng.gen_range(50..3500))
-                };
-                citadel_io::tokio::time::sleep(Duration::from_millis(between)).await;
-                // Deliberately blocks the executor, and with it both punchers.
-                std::thread::sleep(Duration::from_millis(stall));
+        let staller = citadel_io::tokio::spawn({
+            let stalled_for = stalled_for.clone();
+            async move {
+                while stalled_for() < BUDGET {
+                    let (between, stall) = {
+                        let mut rng = rand::thread_rng();
+                        (rng.gen_range(0..60), rng.gen_range(50..3500))
+                    };
+                    citadel_io::tokio::time::sleep(Duration::from_millis(between)).await;
+                    // Deliberately blocks the executor, and with it both punchers.
+                    std::thread::sleep(Duration::from_millis(stall));
+                    stalled.fetch_add(stall, Ordering::Relaxed);
+                }
             }
         });
 
         let server = async move {
             server_stream
                 .begin_udp_hole_punch(
-                    Default::default(),
+                    crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                     crate::stun_servers::unanswered_loopback(),
                     super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
@@ -652,21 +691,27 @@ mod tests {
         let client = async move {
             client_stream
                 .begin_udp_hole_punch(
-                    Default::default(),
+                    crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                     crate::stun_servers::unanswered_loopback(),
                     super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                 )
                 .await
                 .map_err(|e| e.to_string())
         };
-        // One attempt's budget: a punch that needed the retry path has already
-        // failed in the way this test is about.
-        let (res0, res1) =
-            citadel_io::tokio::time::timeout(super::STANDALONE_ATTEMPT_TIMEOUT, async move {
-                citadel_io::tokio::join!(server, client)
-            })
-            .await
-            .expect("a hole punch attempt hung until its timeout");
+        let started = citadel_io::time::Instant::now();
+        let punched = async move { citadel_io::tokio::join!(server, client) };
+        // Counted as the punch's own time, the way its receive window is: a stall, injected here
+        // or the host's, is one tick, whatever its length.
+        let budget_spent = citadel_io::time::runnable_window(BUDGET);
+        let (res0, res1) = citadel_io::tokio::select! {
+            biased;
+            punched = punched => punched,
+            _ = budget_spent => panic!(
+                "a hole punch attempt hung past its budget: {:?} elapsed, {:?} of it stalled by this test",
+                started.elapsed(),
+                stalled_for()
+            ),
+        };
         staller.abort();
         let (s0, s1) = (
             res0.expect("server punch err"),
@@ -725,7 +770,7 @@ mod tests {
                 let server = citadel_io::tokio::task::spawn(async move {
                     server_stream
                         .begin_udp_hole_punch(
-                            Default::default(),
+                            crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                             crate::stun_servers::unanswered_loopback(),
                             super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                         )
@@ -735,7 +780,7 @@ mod tests {
                 let client = citadel_io::tokio::task::spawn(async move {
                     client_stream
                         .begin_udp_hole_punch(
-                            Default::default(),
+                            crate::udp_traversal::linear::encrypted_config_container::identity_for_tests(),
                             crate::stun_servers::unanswered_loopback(),
                             super::PunchBudget::per_attempt(super::STANDALONE_ATTEMPT_TIMEOUT),
                         )
@@ -879,3 +924,8 @@ mod attempt_pairing_tests;
 #[cfg(all(test, feature = "localhost-testing"))]
 #[path = "sealed_punch_tests.rs"]
 mod sealed_punch_tests;
+
+// Loopback punches; the same localhost NAT model as `attempt_pairing_tests` above.
+#[cfg(all(test, feature = "localhost-testing"))]
+#[path = "punch_report_tests.rs"]
+mod punch_report_tests;

@@ -40,7 +40,7 @@ async fn a_stuck_round_ends_at_its_deadline_despite_steady_messages() {
     let (alice_container, bob_container) = setup_endpoint_containers::<StackedRatchet>(
         SecurityLevel::Standard,
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
     );
     // Nothing Alice sends reaches Bob: her answer to his round is lost.
     let (alice_out, _alice_sent): Pipe = unbounded();

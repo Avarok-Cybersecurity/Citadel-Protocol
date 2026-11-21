@@ -11,6 +11,8 @@ mod handle;
 /// The `KeyExchange` port: a negotiated key profile as one steered ratchet round.
 pub mod key_epoch;
 pub mod lane;
+pub(crate) mod level_cap;
+pub(crate) mod link_refusal;
 pub mod reason;
 pub(crate) mod refusal;
 pub(crate) mod shared;

@@ -33,7 +33,9 @@ fn dial(from: u64, to: u64, ticket: Ticket) -> PeerSignal {
         },
         ticket_opt: Some(ticket),
         invitee_response: None,
-        session_security_settings: Default::default(),
+        session_security_settings: crate::prelude::SessionSecuritySettingsBuilder::default()
+            .build()
+            .unwrap(),
         udp_mode: Default::default(),
         session_password: None,
     }

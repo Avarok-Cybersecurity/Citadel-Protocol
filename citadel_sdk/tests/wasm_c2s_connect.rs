@@ -21,10 +21,13 @@ const WS_SERVER: &str = "127.0.0.1:25522";
 async fn test_c2s_transient_connect() {
     citadel_logging::setup_log();
 
-    let settings = DefaultServerConnectionSettingsBuilder::transient(WS_SERVER)
-        .with_udp_mode(UdpMode::Disabled)
-        .build()
-        .expect("build settings");
+    let settings = DefaultServerConnectionSettingsBuilder::transient(
+        WS_SERVER,
+        CertVerification::SelfSignedAccepted,
+    )
+    .with_udp_mode(UdpMode::Disabled)
+    .build()
+    .expect("build settings");
 
     let kernel = SingleClientServerConnectionKernel::new(settings, |conn| async move {
         log::info!("Connected to server! cid={}", conn.cid);
@@ -32,7 +35,9 @@ async fn test_c2s_transient_connect() {
     });
 
     let client = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_node_type(NodeType::Peer)
         .build(kernel)
         .expect("build client");

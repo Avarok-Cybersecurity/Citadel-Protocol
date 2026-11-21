@@ -34,15 +34,13 @@
 //!
 //! - [`subscription`]: Stream subscription management
 //! - [`ReliableOrderedStreamToTarget`]: Reliable streaming
-//! - [`TimeTracker`]: Operation timing
+//! - [`TimeTracker`](crate::time_tracker::TimeTracker): Operation timing
 //! - [`MultiplexedConnKey`]: Connection identification
 
 use crate::multiplex::MultiplexedConnKey;
 use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use crate::sync::subscription::Subscribable;
-use crate::sync::wire::WireRevision;
 use crate::sync::RelativeNodeType;
-use crate::time_tracker::TimeTracker;
 use futures::Future;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -127,9 +125,7 @@ pub const MAX_SYNC_START_DELAY: Duration = Duration::from_secs(1);
 enum SyncPacket<P: Send + Sync> {
     Syn(P),
     SynAck(P),
-    /// [`WireRevision::CountPaired`]: the receiver's wall-clock start time, in ns.
-    Ack(i64),
-    /// [`WireRevision::Exchanged`]: start this many ns after receipt.
+    /// Start this many ns after receipt.
     AckAfter(u64),
 }
 
@@ -158,10 +154,6 @@ impl<P: Send + Sync> SyncPacket<P> {
         matches!(self, Self::SynAck(..))
     }
 
-    fn is_ack(&self) -> bool {
-        matches!(self, Self::Ack(..))
-    }
-
     fn is_ack_after(&self) -> bool {
         matches!(self, Self::AckAfter(..))
     }
@@ -172,13 +164,6 @@ impl<P: Send + Sync> SyncPacket<P> {
         match self {
             Self::Syn(payload) | Self::SynAck(payload) => Ok(payload),
             _ => Err(anyhow::Error::msg("Payload not attached")),
-        }
-    }
-
-    fn timestamp(self) -> Result<i64, anyhow::Error> {
-        match self {
-            Self::Ack(ts) => Ok(ts),
-            _ => Err(anyhow::Error::msg("Payload not attached (sync time)")),
         }
     }
 
@@ -210,14 +195,11 @@ where
     Fx: FnOnce(P) -> F,
     Fx: Send,
 {
-    let wire = conn.wire_revision();
     let conn = &(conn.initiate_subscription().await?);
-    let tt = TimeTracker::new();
 
     match relative_node_type {
         RelativeNodeType::Receiver => {
             log::trace!(target: "citadel", "[Sync] Receiver sending SYN ...");
-            let now = tt.get_global_time_ns();
             let sent = citadel_io::time::Instant::now();
             conn.send_serialized::<SyncPacket<P>>(SyncPacket::Syn(payload))
                 .await?;
@@ -227,22 +209,11 @@ where
                 .await?
                 .payload()?;
             log::trace!(target: "citadel", "[Sync] Receiver sending ACK...");
-            let own_delay = match wire {
-                WireRevision::CountPaired => {
-                    let rtt = tt.get_global_time_ns() - now;
-                    let sync_time = tt.get_global_time_ns() + rtt;
-                    conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::Ack(sync_time))
-                        .await?;
-                    Duration::from_nanos(rtt as _)
-                }
-                WireRevision::Exchanged => {
-                    let delays = start_delays(sent.elapsed());
-                    let initiator_ns = delays.initiator.as_nanos() as u64;
-                    conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::AckAfter(initiator_ns))
-                        .await?;
-                    delays.receiver
-                }
-            };
+            let delays = start_delays(sent.elapsed());
+            let initiator_ns = delays.initiator.as_nanos() as u64;
+            conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::AckAfter(initiator_ns))
+                .await?;
+            let own_delay = delays.receiver;
 
             citadel_io::time::sleep(own_delay).await;
             log::trace!(target: "citadel", "[Sync] Executing provided subroutine for receiver ...");
@@ -259,27 +230,11 @@ where
             conn.send_serialized::<SyncPacket<P>>(SyncPacket::SynAck(payload))
                 .await?;
             log::trace!(target: "citadel", "[Sync] Initiator awaiting ACK ...");
-            match wire {
-                WireRevision::CountPaired => {
-                    let sync_time = conn
-                        .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_ack())
-                        .await?
-                        .timestamp()?;
-                    let now = tt.get_global_time_ns();
-
-                    if sync_time > now {
-                        let delta = i64::abs(sync_time - tt.get_global_time_ns());
-                        citadel_io::time::sleep(Duration::from_nanos(delta as _)).await;
-                    }
-                }
-                WireRevision::Exchanged => {
-                    let delay = conn
-                        .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_ack_after())
-                        .await?
-                        .delay()?;
-                    citadel_io::time::sleep(delay).await;
-                }
-            }
+            let delay = conn
+                .recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_ack_after())
+                .await?
+                .delay()?;
+            citadel_io::time::sleep(delay).await;
 
             log::trace!(target: "citadel", "[Sync] Executing provided subroutine for initiator ...");
 

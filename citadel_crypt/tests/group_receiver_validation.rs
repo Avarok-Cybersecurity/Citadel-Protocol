@@ -6,7 +6,7 @@ use citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::scramble::crypt_splitter::{
-    par_scramble_encrypt_group, GroupReceiver, GroupReceiverStatus, GroupSenderDevice,
+    par_scramble_encrypt_group, GroupReceiver, GroupReceiverStatus, GroupSenderDevice, WaveBinding,
 };
 use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 use citadel_types::crypto::{EncryptionAlgorithm, KemAlgorithm, SecurityLevel};
@@ -18,7 +18,7 @@ const HDR: usize = 44;
 
 fn pair() -> (R, R) {
     let opts = ConstructorOpts::new_vec_init(
-        Some(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem),
+        EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem768Fips203,
         SecurityLevel::Standard,
     );
     let mut a = <R as Ratchet>::Constructor::new_alice(opts.clone(), 99, 0).unwrap();
@@ -31,18 +31,18 @@ fn pair() -> (R, R) {
 /// A sender for 5000 bytes (several waves) and the receiver that pairs with it.
 fn group() -> (GroupSenderDevice<HDR>, GroupReceiver, R) {
     let (alice, bob) = pair();
-    let (aux_a, _aux_b) = pair();
     let data = vec![7u8; 5000];
     let tx = par_scramble_encrypt_group::<_, _, _, HDR>(
         &data[..],
         SecurityLevel::Standard,
         &alice,
-        &aux_a,
+        None,
         HDR,
         0,
         ObjectId::zero(),
         0,
         TransferType::FileTransfer,
+        WaveBinding::Bound,
         |_v, _b, _o, _c, buf| {
             for x in 0..HDR {
                 buf.put_u8(x as u8)
@@ -50,7 +50,7 @@ fn group() -> (GroupSenderDevice<HDR>, GroupReceiver, R) {
         },
     )
     .unwrap();
-    let rx = GroupReceiver::new(tx.get_receiver_config().clone(), 0, 0);
+    let rx = GroupReceiver::new(tx.get_receiver_config().clone(), WaveBinding::Bound, 0, 0);
     (tx, rx, bob)
 }
 

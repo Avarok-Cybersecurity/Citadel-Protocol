@@ -17,7 +17,7 @@ fn test_p2p_type_construction() {
         .with_udp_mode(UdpMode::Disabled)
         .add()
         .with_peer_custom("bob")
-        .with_session_security_settings(SessionSecuritySettings::default())
+        .with_session_security_settings(SessionSecuritySettingsBuilder::default().build().unwrap())
         .add();
 }
 
@@ -25,17 +25,19 @@ fn test_p2p_type_construction() {
 #[wasm_bindgen_test]
 fn test_node_builder_construction() {
     let mut builder = DefaultNodeBuilder::default();
+    let _ = builder.with_link_manager(LinkManagerMode::Legacy);
     let _ = builder
         .with_node_type(NodeType::Peer)
         .with_backend(BackendType::InMemory)
-        .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS);
+        .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level());
 }
 
 /// Verify session security settings are constructible on WASM.
 #[wasm_bindgen_test]
 fn test_session_security_settings() {
     let settings = SessionSecuritySettingsBuilder::default()
-        .with_crypto_params(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem)
+        .with_crypto_params(EncryptionAlgorithm::AES_GCM_256 + KemAlgorithm::MlKem768Fips203)
         .with_security_level(SecurityLevel::Standard)
         .build();
     assert!(settings.is_ok());
@@ -83,7 +85,10 @@ async fn test_kernel_lifecycle_on_wasm() {
     };
 
     let mut builder = DefaultNodeBuilder::default();
-    let _ = builder.with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS);
+    let _ = builder.with_link_manager(LinkManagerMode::Legacy);
+    let _ = builder
+        .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level());
     let _ = builder
         .with_node_type(NodeType::Peer)
         .with_backend(BackendType::InMemory);
@@ -103,7 +108,7 @@ fn test_all_encryption_algorithms() {
 
     for enc in algorithms {
         let result = SessionSecuritySettingsBuilder::default()
-            .with_crypto_params(enc + KemAlgorithm::MlKem)
+            .with_crypto_params(enc + KemAlgorithm::MlKem768Fips203)
             .build();
         assert!(result.is_ok(), "Failed for encryption: {enc:?}");
     }
@@ -167,7 +172,9 @@ fn test_hybrid_encryption_settings() {
     // MlKemHybrid requires a post-quantum signature algorithm
     let result = SessionSecuritySettingsBuilder::default()
         .with_crypto_params(
-            EncryptionAlgorithm::MlKemHybrid + KemAlgorithm::MlKem + SigAlgorithm::MlDsa65,
+            EncryptionAlgorithm::MlKemHybrid
+                + KemAlgorithm::MlKem768Fips203
+                + SigAlgorithm::MlDsa65,
         )
         .with_security_level(SecurityLevel::Ultra)
         .build();
@@ -180,7 +187,9 @@ fn test_hybrid_encryption_settings() {
 fn test_injected_listener_requires_a_server_node() {
     let (_injector, listener) = WasmListener::injected();
     let built = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_node_type(NodeType::Peer)
         .with_backend(BackendType::InMemory)
         .with_injected_listener(listener)
@@ -199,9 +208,12 @@ async fn test_a_server_ends_when_its_injector_is_dropped() {
     let (injector, listener) = WasmListener::injected();
     drop(injector);
     let node = DefaultNodeBuilder::default()
+        .with_link_manager(LinkManagerMode::Legacy)
         .with_stun_servers(citadel_sdk::test_common::LOCALHOST_STUN_SERVERS)
+        .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
         .with_node_type(NodeType::server("127.0.0.1:0").expect("addr"))
         .with_path_policy(citadel_sdk::test_common::localhost_path_policy())
+        .with_server_limits(citadel_sdk::test_common::localhost_server_limits())
         .with_backend(BackendType::InMemory)
         .with_injected_listener(listener)
         .build(citadel_sdk::prefabs::server::empty::EmptyKernel::<

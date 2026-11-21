@@ -1,7 +1,5 @@
-//! The `AUTH_CHALLENGE` an `AUTH_START` is answered with, in the layout its client reads, and the
-//! client's reading of it in the layout its server sends.
+//! The `AUTH_CHALLENGE` an `AUTH_START` is answered with, and the client's reading of it.
 
-use super::layout_of;
 use super::packets;
 use super::state::ServerPending;
 use crate::error::NetworkError;
@@ -11,7 +9,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_user::auth::pq::client::{ClientLogin, RelyingParty};
 use citadel_user::auth::pq::login_transcript;
 use citadel_user::auth::pq::messages::{
-    AuthChallenge, ChallengeBody, ChallengeCeremony, LoginChallenge, LoginStart, SignInLayout,
+    AuthChallenge, ChallengeBody, ChallengeCeremony, LoginChallenge, LoginStart,
 };
 use citadel_user::auth::pq::server::{build_login_challenge, Expectation, PqAuthServerSettings};
 use citadel_user::client_account::{ClientNetworkAccount, PqAccountState};
@@ -21,13 +19,12 @@ pub(super) fn issue<R: Ratchet, T: PlatformOps>(
     cnac: &ClientNetworkAccount<R, R>,
     cid: u64,
     start: &LoginStart,
-    client_version: u32,
 ) -> Result<(AuthChallenge, ServerPending), NetworkError> {
     let account = cnac.pq_account_state(&start.username);
     let settings = session.account_manager.pq_settings();
     let sent = |challenge: LoginChallenge| AuthChallenge {
         challenge,
-        ceremony: ceremony(settings, layout_of(Some(client_version))),
+        ceremony: ceremony(settings),
     };
     match settings {
         Some(settings) => {
@@ -61,31 +58,16 @@ pub(super) fn issue<R: Ratchet, T: PlatformOps>(
     }
 }
 
-/// What a challenge appends for a client in `layout`: nothing for a 0.12.2 client.
-pub(super) fn ceremony(
-    settings: Option<&PqAuthServerSettings>,
-    layout: SignInLayout,
-) -> Option<ChallengeCeremony> {
-    match layout {
-        SignInLayout::V0_12_2 => None,
-        SignInLayout::SecurityKeyCeremony => Some(ChallengeCeremony {
-            rp_id: settings
-                .and_then(PqAuthServerSettings::security_key_rp_id)
-                .map(str::to_owned),
-        }),
+/// What a challenge tells the client about its security keys.
+pub(super) fn ceremony(settings: Option<&PqAuthServerSettings>) -> ChallengeCeremony {
+    ChallengeCeremony {
+        rp_id: settings
+            .and_then(PqAuthServerSettings::security_key_rp_id)
+            .map(str::to_owned),
     }
 }
 
-/// Client: the challenge from a server at `server_version`, which must be in that version's
-/// layout.
-pub(super) fn read(payload: &[u8], server_version: u32) -> Result<AuthChallenge, NetworkError> {
-    let sent: AuthChallenge = packets::read(payload)?;
-    let ceremony_expected = layout_of(Some(server_version)) == SignInLayout::SecurityKeyCeremony;
-    if sent.ceremony.is_some() != ceremony_expected {
-        return Err(citadel_io::error!(
-            citadel_io::ErrorCode::PqSignInMalformed,
-            "a challenge in another layout than the server's version"
-        ));
-    }
-    Ok(sent)
+/// Client: the challenge its server sent.
+pub(super) fn read(payload: &[u8]) -> Result<AuthChallenge, NetworkError> {
+    packets::read(payload)
 }

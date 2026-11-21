@@ -42,6 +42,8 @@ use citadel_crypt::ratchets::Ratchet;
 /// Tracks disconnect signals to ensure at most 1 per session/peer
 pub(crate) mod disconnect_tracker;
 pub(crate) mod endpoint_crypto_accessor;
+/// The RobustConnectionManager's protocol side
+pub mod link;
 pub(crate) mod misc;
 /// Used at each HyperNode
 pub mod node;
@@ -51,6 +53,7 @@ pub mod node_result;
 pub(crate) mod outbound_budget;
 pub(crate) mod outbound_primary;
 pub(crate) mod outbound_sender;
+pub(crate) mod outbound_total;
 pub(crate) mod outbound_udp_sender;
 /// The fundamental packet types
 pub(crate) mod packet;
@@ -67,6 +70,7 @@ pub mod remote;
 mod reseal_tests;
 pub(crate) mod seal_identity;
 /// Each CID gets a session
+pub mod server_limits;
 pub mod server_probe;
 pub(crate) mod session;
 mod session_abandon;
@@ -87,8 +91,12 @@ pub mod traffic;
 /// ~!
 pub(crate) mod transfer_stats;
 mod udp_packet_tests;
+#[cfg(test)]
+mod udp_routing_tests;
 /// Packet validations. This is not the same as encryption
 pub(crate) mod validation;
+/// Which adjacent nodes this node takes part with
+pub mod version_gate;
 
 /// Returns the preferred primary stream for returning a response
 pub(crate) fn get_preferred_primary_stream<R: Ratchet, T: PlatformOps>(

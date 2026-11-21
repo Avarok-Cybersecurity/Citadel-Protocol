@@ -126,15 +126,24 @@
 //! #         classes: PathClasses::ALL }).collect();
 //! #     PathPolicy::new(rules, PathClasses::NONE).unwrap()
 //! # }
+//! # fn limits() -> ServerLimits {
+//! #     let n = |n: usize| std::num::NonZeroUsize::new(n).unwrap();
+//! #     ServerLimits { provisional_per_ip: n(32), provisional_total: n(1024),
+//! #         legacy_registration: LegacyRegistration::Accepted { concurrent_hashes: n(4) },
+//! #         outbound_queued_per_stream: n(256 << 20), outbound_queued_total: n(1 << 30) }
+//! # }
 //!
 //! // this server will listen on 127.0.0.1:25021. STUN servers are required configuration for
 //! // every node: there is no built-in list. A server also requires a path policy: which network
-//! // paths its peers may use, in which order (see `PathPolicy`). When calling 'build', a
-//! // NetKernel is specified
+//! // paths its peers may use, in which order (see `PathPolicy`), and its limits (see
+//! // `ServerLimits`). When calling 'build', a NetKernel is specified
 //! let server = DefaultNodeBuilder::default()
+//! .with_link_manager(LinkManagerMode::Legacy)
 //! .with_node_type(NodeType::server("127.0.0.1:25021")?)
 //! .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//! .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme).unwrap())
 //! .with_path_policy(every_path_in_order())
+//! .with_server_limits(limits())
 //! .build(EmptyKernel::default())?;
 //!
 //! // await the server to execute
@@ -151,7 +160,7 @@
 //! use futures::StreamExt;
 //! use citadel_sdk::prelude::*;
 //!
-//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password", CertVerification::Required).build()?;
 //!
 //! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
 //!     // handle program logic here
@@ -164,7 +173,9 @@
 //! });
 //!
 //! let client = DefaultNodeBuilder::default()
+//!     .with_link_manager(LinkManagerMode::Legacy)
 //!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//!     .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme).unwrap())
 //!     .build(client_kernel)?;
 //! # async move {
 //! let result = client.await;
@@ -175,9 +186,10 @@
 //! ## Remote Encrypted Virtual Filesystem (RE-VFS)
 //! The RE-VFS allows clients, servers, and peers to treat each other as remote endpoints for encrypted file storage.
 //! Since encrypting data locally using a symmetric key poses a vulnerability if the local node is compromised, The
-//! Citadel Protocol solves this issue by using a local 1024-Kyber public key to encrypt the data (via Kyber Hybrid Encryption for
-//! keeping the data size to a minimum), then, sending the contents to the adjacent endpoint. By doing this, the private decryption
-//! key and the contents are kept separate, forcing the hacker to compromise both endpoints.
+//! Citadel Protocol solves this issue by sealing each group of the object on the device, under a key derived from the account's
+//! own seed ([`prelude::RevfsKey::derive`]), then sending the sealed contents to the adjacent endpoint. The storing endpoint never
+//! holds the key, so the key and the contents are kept separate, forcing the hacker to compromise both endpoints. The node takes
+//! its keys from the application (`NodeBuilder::with_revfs_key_source`); a node given none refuses every RE-VFS push.
 //!
 //! In order to use the RE-VFS, both endpoints must use the Filesystem backend. Second, the endpoint serving as a storage point
 //! must accept the inbound file transfer requests, otherwise, the transfer will fail. The example below for the receiving endpoint
@@ -195,13 +207,22 @@
 //! #         classes: PathClasses::ALL }).collect();
 //! #     PathPolicy::new(rules, PathClasses::NONE).unwrap()
 //! # }
+//! # fn limits() -> ServerLimits {
+//! #     let n = |n: usize| std::num::NonZeroUsize::new(n).unwrap();
+//! #     ServerLimits { provisional_per_ip: n(32), provisional_total: n(1024),
+//! #         legacy_registration: LegacyRegistration::Accepted { concurrent_hashes: n(4) },
+//! #         outbound_queued_per_stream: n(256 << 20), outbound_queued_total: n(1 << 30) }
+//! # }
 //!
 //! // this server will listen on 127.0.0.1:25021, and will use the built-in defaults with a kernel
 //! // that auto-accepts inbound file transfer requests
 //! let server = DefaultNodeBuilder::default()
+//! .with_link_manager(LinkManagerMode::Legacy)
 //! .with_node_type(NodeType::server("127.0.0.1:25021")?)
 //! .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//! .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme).unwrap())
 //! .with_path_policy(every_path_in_order())
+//! .with_server_limits(limits())
 //! .build(AcceptFileTransferKernel::default())?;
 //!
 //! // await the server to execute
@@ -217,7 +238,7 @@
 //! use futures::StreamExt;
 //! use citadel_sdk::prelude::*;
 //!
-//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password").build()?;
+//! let server_connection_settings = DefaultServerConnectionSettingsBuilder::credentialed_registration("127.0.0.1:25021", "john.doe", "John Doe", "password", CertVerification::Required).build()?;
 //!
 //! let client_kernel = SingleClientServerConnectionKernel::new(server_connection_settings, |conn| async move {
 //!     let virtual_path = "/home/virtual_user/output.pdf";
@@ -229,8 +250,13 @@
 //!     Ok(())
 //! });
 //!
+//! // The account's seed, kept by the application (its recovery or identity seed); never generated by the node
+//! let seed = [0u8; 32];
 //! let client = DefaultNodeBuilder::default()
+//!     .with_link_manager(LinkManagerMode::Legacy)
 //!     .with_stun_servers(["stun1.example.com:3478", "stun2.example.com:3478", "stun3.example.com:3478"])
+//!     .with_max_security_level(MaxSecurityLevel::new(SecurityLevel::Extreme).unwrap())
+//!     .with_revfs_key_source(move |cid| RevfsKey::derive(&seed, "storage.example.com", cid).ok())
 //!     .build(client_kernel)?;
 //! # async move {
 //!     let result = client.await;
@@ -277,6 +303,7 @@ pub mod prelude {
         DefaultServerConnectionSettingsBuilder, ServerConnectionSettings,
     };
     pub use crate::prefabs::ClientServerRemote;
+    pub use crate::recover::{AccountRecoveryExt, RecoverSuccess};
     pub use crate::remote_ext::remote_specialization::PeerRemote;
     pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
@@ -299,6 +326,8 @@ pub mod prelude {
     pub use citadel_user::auth::pq::admission::{
         challenge_of, AdmissionChallenge, AdmissionProvider,
     };
+    pub use citadel_user::auth::pq::phrase::{RecoveryPhrase, RecoverySeed};
+    pub use citadel_user::auth::pq::throttle::ThrottlePolicy;
 }
 
 /// Store data to the backend using this library
@@ -318,8 +347,9 @@ pub mod remote_ext;
 /// For easy construction of replies to common message types
 pub mod responses;
 
-mod server_probe;
 /// Managing a post-quantum account's sign-in factors
+pub mod recover;
+mod server_probe;
 pub mod sign_in;
 #[doc(hidden)]
 pub mod test_common;

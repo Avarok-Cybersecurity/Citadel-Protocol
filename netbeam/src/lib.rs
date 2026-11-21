@@ -29,9 +29,8 @@
 //! use netbeam::sync::wire::WireRevision;
 //! use netbeam::sync::RelativeNodeType;
 //!
-//! // `wire` is the revision both ends speak. netbeam does not negotiate it: the layer that creates
-//! // the connection knows the peer's protocol version and picks it (`WireRevision::Exchanged` when
-//! // both ends support exchanged subscription ids, `WireRevision::CountPaired` for an older peer).
+//! // `wire` is the revision both ends speak (`WireRevision::Exchanged`). netbeam does not
+//! // negotiate it: the layer that creates the connection names it for both ends.
 //! async fn example(wire: WireRevision) -> Result<()> {
 //!     // This is just a placeholder - replace with your actual connection
 //!     let conn = get_connection().await?;

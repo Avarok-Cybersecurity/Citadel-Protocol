@@ -159,8 +159,9 @@ pub async fn connect(
             connect_mode,
             Default::default(),
             None,
+            citadel_sdk::prelude::default_session_security_settings(),
             Default::default(),
-            Default::default(),
+            CertVerification::SelfSignedAccepted,
         )
         .await
 }

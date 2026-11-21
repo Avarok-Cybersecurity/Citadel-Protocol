@@ -63,8 +63,11 @@ impl<R: Ratchet> NetKernel<R> for ServerlessKernel<R> {
                     ConnectMode::Standard { force_login: false },
                     UdpMode::Disabled,
                     None,
-                    Default::default(),
+                    default_session_security_settings(),
                     None,
+                    // The stream is built in place and dialled nowhere: there is no certificate
+                    // to verify and no plaintext offer to refuse.
+                    CertVerification::Required,
                 )
                 .await?;
 

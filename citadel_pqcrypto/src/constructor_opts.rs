@@ -18,10 +18,10 @@
 //!
 //! ```rust
 //! use citadel_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
-//! use citadel_types::crypto::CryptoParameters;
+//! use citadel_types::crypto::{check_structural, CryptoParameters, KemAlgorithm};
 //!
 //! // Create initial constructor options
-//! let opts = ConstructorOpts::new_init(Some(CryptoParameters::default()));
+//! let opts = ConstructorOpts::new_init(CryptoParameters::from(KemAlgorithm::MlKem1024Fips203));
 //!
 //! // Create chain for key derivation
 //! let chain = [1u8; 32];
@@ -43,60 +43,55 @@
 //! - [`citadel_pqcrypto::wire`] - Wire protocol for PQC operations
 //! - [`citadel_pqcrypto::key_store`] - Secure key storage functionality
 
-use citadel_types::crypto::CryptoParameters;
+use citadel_types::crypto::{check_structural, CryptoParameters};
 use citadel_types::prelude::SecurityLevel;
 use serde::{Deserialize, Serialize};
 
 /// WARNING! this struct, especially the `chain`, should never leave a node; it should only be extracted from the previous PQC when bob is constructing his PQC
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ConstructorOpts {
-    pub cryptography: Option<CryptoParameters>,
+    pub cryptography: CryptoParameters,
     pub chain: Option<RecursiveChain>,
 }
 
 pub trait ImpliedSecurityLevel {
-    fn implied_security_level(&self) -> SecurityLevel;
+    /// The level a set of layers builds, or `None` for no layers or more than a ratchet can carry.
+    fn implied_security_level(&self) -> Option<SecurityLevel>;
 }
 
 impl ImpliedSecurityLevel for Vec<ConstructorOpts> {
-    fn implied_security_level(&self) -> SecurityLevel {
-        assert!(
-            !self.is_empty(),
-            "Security level cannot be derived from an empty vector"
-        );
-        assert!(
-            self.len() < u8::MAX as usize,
-            "Security level does not fit in u8"
-        );
-        SecurityLevel::from(self.len().saturating_sub(1) as u8)
+    fn implied_security_level(&self) -> Option<SecurityLevel> {
+        let top = u8::try_from(self.len().checked_sub(1)?).ok()?;
+        let level = SecurityLevel::from(top);
+        check_structural(level).ok().map(|_| level)
     }
 }
 
 impl ConstructorOpts {
     /// Starts off a f(0) chain with a single layer of ratcheting
-    pub fn new_init(cryptography: Option<impl Into<CryptoParameters>>) -> Self {
+    pub fn new_init(cryptography: impl Into<CryptoParameters>) -> Self {
         Self {
-            cryptography: cryptography.map(|r| r.into()),
+            cryptography: cryptography.into(),
             chain: None,
         }
     }
 
     pub fn new_vec_init(
-        cryptography: Option<impl Into<CryptoParameters>>,
+        cryptography: impl Into<CryptoParameters>,
         security_level: SecurityLevel,
     ) -> Vec<Self> {
         let count = security_level.value() as usize + 1;
-        let settings = cryptography.map(|r| r.into()).unwrap_or_default();
-        (0..count).map(|_| Self::new_init(Some(settings))).collect()
+        let settings = cryptography.into();
+        (0..count).map(|_| Self::new_init(settings)).collect()
     }
 
     /// Generates a new f(n) -> f(n +1) chain
     pub fn new_ratcheted(
-        cryptography: Option<impl Into<CryptoParameters>>,
+        cryptography: impl Into<CryptoParameters>,
         previous_shared_secret: RecursiveChain,
     ) -> Self {
         Self {
-            cryptography: cryptography.map(|r| r.into()),
+            cryptography: cryptography.into(),
             chain: Some(previous_shared_secret),
         }
     }

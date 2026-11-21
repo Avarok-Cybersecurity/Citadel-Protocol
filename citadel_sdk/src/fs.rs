@@ -156,12 +156,22 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[case(
         EncryptionAlgorithm::MlKemHybrid,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
+        SigAlgorithm::MlDsa65
+    )]
+    #[case(
+        EncryptionAlgorithm::AES_GCM_256,
+        KemAlgorithm::MlKem1024Fips203,
+        SigAlgorithm::None
+    )]
+    #[case(
+        EncryptionAlgorithm::MlKemHybrid,
+        KemAlgorithm::MlKem1024Fips203,
         SigAlgorithm::MlDsa65
     )]
     #[timeout(Duration::from_secs(90))]
@@ -185,12 +195,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .disable_udp()
-                .with_session_security_settings(session_security_settings)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security_settings)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -248,8 +261,11 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default()
+        let client = crate::test_common::node_builder()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel)
             .unwrap();
 
@@ -266,7 +282,7 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[timeout(std::time::Duration::from_secs(90))]
@@ -290,12 +306,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .disable_udp()
-                .with_session_security_settings(session_security_settings)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security_settings)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -328,8 +347,11 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default()
+        let client = crate::test_common::node_builder()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel)
             .unwrap();
 
@@ -346,7 +368,7 @@ mod tests {
     #[rstest]
     #[case(
         EncryptionAlgorithm::AES_GCM_256,
-        KemAlgorithm::MlKem,
+        KemAlgorithm::MlKem768Fips203,
         SigAlgorithm::None
     )]
     #[timeout(std::time::Duration::from_secs(90))]
@@ -370,12 +392,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid)
-                .disable_udp()
-                .with_session_security_settings(session_security_settings)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security_settings)
+        .build()
+        .unwrap();
 
         let client_kernel = SingleClientServerConnectionKernel::new(
             server_connection_settings,
@@ -409,8 +434,11 @@ mod tests {
             },
         );
 
-        let client = DefaultNodeBuilder::default()
+        let client = crate::test_common::node_builder()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel)
             .unwrap();
 
@@ -431,7 +459,7 @@ mod tests {
     #[citadel_io::tokio::test(flavor = "multi_thread")]
     async fn test_p2p_file_transfer_revfs(
         #[case] secrecy_mode: SecrecyMode,
-        #[values(KemAlgorithm::MlKem)] kem: KemAlgorithm,
+        #[values(KemAlgorithm::MlKem768Fips203, KemAlgorithm::MlKem1024Fips203)] kem: KemAlgorithm,
         #[values(EncryptionAlgorithm::AES_GCM_256)] enx: EncryptionAlgorithm,
     ) {
         citadel_logging::setup_log();
@@ -453,12 +481,15 @@ mod tests {
 
         let source_dir = &PathBuf::from("../resources/TheBridge.pdf");
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid0)
-                .disable_udp()
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid0,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let peer_conn_0 = PeerConnectionSetupAggregator::default()
             .with_peer_custom(uuid1)
@@ -508,12 +539,15 @@ mod tests {
             },
         );
 
-        let server_connection_settings =
-            DefaultServerConnectionSettingsBuilder::transient_with_id(server_addr, uuid1)
-                .disable_udp()
-                .with_session_security_settings(session_security)
-                .build()
-                .unwrap();
+        let server_connection_settings = DefaultServerConnectionSettingsBuilder::transient_with_id(
+            server_addr,
+            uuid1,
+            CertVerification::SelfSignedAccepted,
+        )
+        .disable_udp()
+        .with_session_security_settings(session_security)
+        .build()
+        .unwrap();
 
         let peer_conn_1 = PeerConnectionSetupAggregator::default()
             .with_peer_custom(uuid0)
@@ -561,12 +595,18 @@ mod tests {
             },
         );
 
-        let client0 = DefaultNodeBuilder::default()
+        let client0 = crate::test_common::node_builder()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel0)
             .unwrap();
-        let client1 = DefaultNodeBuilder::default()
+        let client1 = crate::test_common::node_builder()
+            .with_link_manager(LinkManagerMode::Legacy)
             .with_stun_servers(crate::test_common::LOCALHOST_STUN_SERVERS)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_revfs_key_source(crate::test_common::localhost_revfs_keys())
             .build(client_kernel1)
             .unwrap();
         let clients = futures::future::try_join(client0, client1);
@@ -578,7 +618,7 @@ mod tests {
             }
         };
 
-        let _ = citadel_io::time::timeout(Duration::from_secs(120), task)
+        let _ = citadel_io::time::runnable_timeout(Duration::from_secs(120), task)
             .await
             .unwrap();
 

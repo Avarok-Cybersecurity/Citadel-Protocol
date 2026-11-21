@@ -32,7 +32,7 @@ async fn await_js_promise(promise: js_sys::Promise) -> io::Result<JsValue> {
 }
 
 fn js_err(e: JsValue) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, format!("{e:?}"))
+    io::Error::other(format!("{e:?}"))
 }
 
 // ── Public API ──────────────────────────────────────────────────────
@@ -169,7 +169,7 @@ pub async fn create_offer_with_candidates(
     let offer_sdp = js_sys::Reflect::get(&offer_js, &JsValue::from_str("sdp"))
         .map_err(js_err)?
         .as_string()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "SDP offer not a string"))?;
+        .ok_or_else(|| io::Error::other("SDP offer not a string"))?;
 
     let desc = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
     desc.set_sdp(&offer_sdp);
@@ -198,7 +198,7 @@ pub async fn accept_offer_with_candidates(
     let answer_sdp = js_sys::Reflect::get(&answer_js, &JsValue::from_str("sdp"))
         .map_err(js_err)?
         .as_string()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "SDP answer not a string"))?;
+        .ok_or_else(|| io::Error::other("SDP answer not a string"))?;
 
     let desc = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
     desc.set_sdp(&answer_sdp);
@@ -243,17 +243,14 @@ pub async fn wait_for_datachannel_open(dc: &RtcDataChannel) -> io::Result<()> {
     let tx_err = tx.clone();
     let onerror = Closure::wrap(Box::new(move |_: web_sys::Event| {
         if let Some(tx) = tx_err.lock().unwrap().take() {
-            let _ = tx.send(Err(io::Error::new(
-                io::ErrorKind::Other,
-                "DataChannel error during open",
-            )));
+            let _ = tx.send(Err(io::Error::other("DataChannel error during open")));
         }
     }) as Box<dyn FnMut(web_sys::Event)>);
     dc.set_onerror(Some(onerror.as_ref().unchecked_ref()));
 
     let result = rx
         .await
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "DC open channel dropped"))?;
+        .map_err(|_| io::Error::other("DC open channel dropped"))?;
 
     dc.set_onopen(None);
     dc.set_onerror(None);
@@ -278,7 +275,7 @@ pub async fn wait_for_remote_datachannel(pc: &RtcPeerConnection) -> io::Result<R
 
     let dc = rx
         .await
-        .map_err(|_| io::Error::new(io::ErrorKind::Other, "ondatachannel dropped"))?;
+        .map_err(|_| io::Error::other("ondatachannel dropped"))?;
 
     pc.set_ondatachannel(None);
     drop(cb);

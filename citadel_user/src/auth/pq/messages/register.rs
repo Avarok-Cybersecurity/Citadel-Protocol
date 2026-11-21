@@ -12,11 +12,6 @@ pub struct RegStart {
     pub oprf_blinded: Vec<u8>,
     /// The registration's admission token, when the client has one.
     pub admission: Option<AdmissionToken>,
-    /// This client reads a refusal's challenge (`admission::AdmissionChallenge`) off the
-    /// registration FAILURE. An older client's `RegStart` has no such field and reads as false,
-    /// so it is sent the plain message it understands.
-    #[serde(default, deserialize_with = "crate::wire_compat::ok_or_default")]
-    pub reads_challenge: bool,
 }
 
 /// S→C: what the client needs to derive its password factor.
@@ -42,7 +37,7 @@ pub enum RegStartReply {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RegFinish {
     pub password_ek: EncapsulationKey,
-    /// One key per recovery code. Empty when the account upgrades from a legacy record: the user
-    /// generates codes from settings afterwards.
-    pub recovery_eks: Vec<EncapsulationKey>,
+    /// The recovery phrase's key, when the account is given one. `None` for an account given no
+    /// recovery credential, and when it upgrades from a legacy record.
+    pub recovery_phrase_ek: Option<EncapsulationKey>,
 }

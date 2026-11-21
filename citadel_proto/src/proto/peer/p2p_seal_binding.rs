@@ -9,11 +9,9 @@
 //! it fails the AEAD under these keys at every version. The CIDs are the ones the server
 //! authenticated (`packet_processor::peer::server::sender_binding`).
 //!
-//! It changes the keys, so both peers must take part or neither: each binds only when the other's
-//! key-exchange signal names a version at or above [`IDENTITY_BOUND_SEAL_SINCE`]. With an older
-//! or unknown peer, the exchange runs on the session password alone, exactly as before.
+//! Every peer this node takes part with binds (`version_gate`); a peer that derives its keys from
+//! the session password alone shares none with this node.
 
-use crate::constants::{protocol_version_at_least, IDENTITY_BOUND_SEAL_SINCE};
 use crate::proto::remote::Ticket;
 use citadel_types::crypto::PreSharedKey;
 
@@ -41,23 +39,19 @@ impl P2pSealContext {
 }
 
 /// The pre-shared keys this end runs the exchange with: the session password's, then the
-/// connection's context when the peer's protocol version binds it too.
+/// connection's context.
 pub(crate) fn exchange_psks(
     session_password: &PreSharedKey,
     context: P2pSealContext,
-    peer_protocol_version: Option<u32>,
 ) -> Vec<Vec<u8>> {
     let mut psks = session_password.as_ref().to_vec();
-    if protocol_version_at_least(peer_protocol_version, IDENTITY_BOUND_SEAL_SINCE) {
-        psks.push(context.as_psk());
-    }
+    psks.push(context.as_psk());
     psks
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::constants::PROTOCOL_VERSION;
     use crate::proto::packet_crafter::peer_cmd::craft_peer_signal;
     use crate::proto::peer::peer_layer::PeerSignal;
     use crate::proto::validation::aead::validate_custom;
@@ -65,11 +59,10 @@ mod tests {
     use citadel_crypt::prelude::ConstructorOpts;
     use citadel_crypt::ratchets::stacked::StackedRatchet;
     use citadel_crypt::ratchets::Ratchet;
-    use citadel_types::crypto::{CryptoParameters, SecurityLevel};
+    use citadel_types::crypto::SecurityLevel;
     use citadel_types::proto::ClientConnectionType;
-    use embedded_semver::Semver;
 
-    type Constructor = <StackedRatchet as Ratchet>::Constructor;
+    pub(crate) type Constructor = <StackedRatchet as Ratchet>::Constructor;
 
     const ALICE: u64 = 10;
     const BOB: u64 = 20;
@@ -83,18 +76,10 @@ mod tests {
         }
     }
 
-    fn new() -> Option<u32> {
-        Some(*PROTOCOL_VERSION)
-    }
-
-    fn old() -> Option<u32> {
-        Some(Semver::new(0, 12, 2).to_u32().unwrap())
-    }
-
     /// One exchange, each end with its own pre-shared keys; `None` if it did not complete.
     fn exchange(alice: &[Vec<u8>], bob: &[Vec<u8>]) -> Option<(StackedRatchet, StackedRatchet)> {
         let opts = ConstructorOpts::new_vec_init(
-            Some(CryptoParameters::default()),
+            crate::proto::misc::session_security_settings::DEFAULT_SESSION_CRYPTO_PARAMS,
             SecurityLevel::Standard,
         );
         let mut a = Constructor::new_alice(opts.clone(), ALICE, 0)?;
@@ -104,7 +89,7 @@ mod tests {
     }
 
     /// Whether a packet Alice seals opens under Bob's end.
-    fn opens(ends: Option<(StackedRatchet, StackedRatchet)>) -> bool {
+    pub(crate) fn opens(ends: Option<(StackedRatchet, StackedRatchet)>) -> bool {
         let Some((alice, bob)) = ends else {
             return false;
         };
@@ -124,45 +109,31 @@ mod tests {
 
     #[test]
     fn both_ends_of_one_connection_derive_the_same_keys() {
-        let psks = exchange_psks(&password(), context(ALICE, 1), new());
+        let psks = exchange_psks(&password(), context(ALICE, 1));
         assert!(opens(exchange(&psks, &psks)));
     }
 
     #[test]
     fn a_packet_is_not_accepted_under_another_connection_of_the_same_pair() {
-        let alice = exchange_psks(&password(), context(ALICE, 1), new());
-        let bob = exchange_psks(&password(), context(ALICE, 2), new());
+        let alice = exchange_psks(&password(), context(ALICE, 1));
+        let bob = exchange_psks(&password(), context(ALICE, 2));
         assert!(!opens(exchange(&alice, &bob)));
     }
 
     #[test]
     fn a_peer_that_claims_another_cid_does_not_share_the_keys() {
-        let alice = exchange_psks(&password(), context(CAROL, 1), new());
-        let bob = exchange_psks(&password(), context(ALICE, 1), new());
+        let alice = exchange_psks(&password(), context(CAROL, 1));
+        let bob = exchange_psks(&password(), context(ALICE, 1));
         assert!(!opens(exchange(&alice, &bob)));
     }
 
+    /// The derivation before the binding (the session password alone) is refused: the pair
+    /// shares no keys. `both_ends_of_one_connection_derive_the_same_keys` is the control.
     #[test]
-    fn with_an_older_peer_the_exchange_runs_on_the_session_password_alone() {
-        let bound = exchange_psks(&password(), context(ALICE, 1), old());
-        assert_eq!(bound, password().as_ref().to_vec());
-        // An older peer derives from the session password only, so the pair still connects.
-        let older_peer = password().as_ref().to_vec();
-        assert!(opens(exchange(&bound, &older_peer)));
-    }
-
-    #[test]
-    fn an_unknown_peer_version_does_not_bind() {
-        assert_eq!(
-            exchange_psks(&password(), context(ALICE, 1), None),
-            password().as_ref().to_vec()
-        );
-    }
-
-    #[test]
-    fn binding_is_a_wire_change_both_peers_must_agree_on() {
-        let bound = exchange_psks(&password(), context(ALICE, 1), new());
-        let older_peer = password().as_ref().to_vec();
-        assert!(!opens(exchange(&bound, &older_peer)));
+    fn a_peer_deriving_from_the_session_password_alone_shares_no_keys() {
+        let bound = exchange_psks(&password(), context(ALICE, 1));
+        let unbound = password().as_ref().to_vec();
+        assert!(!opens(exchange(&bound, &unbound)));
+        assert!(!opens(exchange(&unbound, &bound)));
     }
 }

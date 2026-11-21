@@ -10,10 +10,13 @@ use citadel_crypt::ratchets::stacked::StackedRatchet;
 use citadel_io::tokio;
 use citadel_types::crypto::SecBuffer;
 use citadel_user::account_manager::AccountManager;
-use citadel_user::auth::pq::client::ClientRegistration;
+use citadel_user::auth::pq::client::{ClientRegistration, NewRecovery};
+use citadel_user::auth::pq::kem::{FactorKeypair, FactorSeed, SEED_LEN};
+use citadel_user::auth::pq::messages::ServerOutcome;
 use citadel_user::auth::pq::oprf::OprfSeed;
 use citadel_user::auth::pq::record::{KsfParams, PqAuthRecord};
-use citadel_user::auth::pq::server::{registration_reply, PqAuthServerSettings};
+use citadel_user::auth::pq::server::{registration_reply, Change, PqAuthServerSettings};
+use citadel_user::auth::pq::throttle::ThrottlePolicy;
 use citadel_user::auth::proposed_credentials::ProposedCredentials;
 use citadel_user::auth::{DeclaredAuthenticationMode, PqAuthSide};
 use citadel_user::backend::host_sql::{HostSqlBackend, HostSqlHandle};
@@ -27,15 +30,26 @@ type Cnac = ClientNetworkAccount<StackedRatchet, StackedRatchet>;
 type Manager = AccountManager<StackedRatchet, StackedRatchet>;
 
 fn settings() -> PqAuthServerSettings {
-    PqAuthServerSettings::new(OprfSeed::from_bytes([9u8; 32]), KsfParams::FLOOR).unwrap()
+    PqAuthServerSettings::new(
+        OprfSeed::from_bytes([9u8; 32]),
+        KsfParams::FLOOR,
+        ThrottlePolicy::RECOMMENDED,
+    )
+    .unwrap()
 }
 
 async fn record(username: &str) -> PqAuthRecord {
     let password = SecBuffer::from(b"pw-host-sql".to_vec());
     let (start, client) = ClientRegistration::start(username, &password).unwrap();
     let (reply, pending) = registration_reply(&settings(), &start).unwrap();
-    let (finish, _) = client.finish(&reply, true).await.unwrap();
-    pending.finish(finish, 5).unwrap()
+    let (finish, _) = client.finish(&reply, NewRecovery::None).await.unwrap();
+    let mut record = pending.finish(finish, 5).unwrap();
+    // The account holds a recovery phrase, as `RegenerateRecoveryPhrase` gives it.
+    let phrase = FactorKeypair::derive(&FactorSeed::new([3u8; SEED_LEN])).unwrap();
+    let ek = phrase.encapsulation_key().clone();
+    let replaced = Change::ReplaceRecoveryPhrase(ek).apply(&mut record, 5);
+    assert_eq!(replaced.unwrap(), ServerOutcome::RecoveryPhraseReplaced);
+    record
 }
 
 async fn cnac(cid: u64, auth_store: DeclaredAuthenticationMode) -> Cnac {
@@ -94,12 +108,12 @@ async fn a_post_quantum_record_round_trips_through_host_sql() {
     let stored = after.auth_store().pq_record().cloned().unwrap();
     assert!(stored.factor(1).unwrap().last_used_ms.is_some());
     assert!(
-        stored.factor(2).unwrap().consumed,
-        "the recovery code was not spent in the row"
+        stored.factor(2).unwrap().last_used_ms.is_some(),
+        "the recovery phrase's use did not reach the row"
     );
     assert!(
-        manager.record_pq_sign_in(4242, &[2]).await.is_err(),
-        "a spent code was spent again"
+        manager.record_pq_sign_in(4242, &[99]).await.is_err(),
+        "a sign-in by a factor the account does not have was recorded"
     );
 }
 

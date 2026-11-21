@@ -31,7 +31,7 @@ pub trait HierarchyScheme {
         descendant: &CommandPath,
     ) -> Result<Secret, Error>;
 
-    /// The ML-KEM `(public, secret)` keypair for a node, from its node secret.
+    /// The `(public, secret)` keypair of the tree's suite for a node, from its node secret.
     fn node_keypair(&self, node_secret: &Secret) -> Result<(Vec<u8>, Vec<u8>), Error>;
 }
 
@@ -64,11 +64,11 @@ impl HierarchyScheme for KdfKemTree {
         use sha3::{Digest, Sha3_512};
         let out = Sha3_512::new()
             .chain_update(node_secret)
-            .chain_update(b"citadel-dhe-kem-seed-v1")
+            .chain_update(b"citadel-dhe-kem-seed-ml-kem-1024-v1")
             .finalize();
         let mut seed = [0u8; 64];
         seed.copy_from_slice(&out);
-        citadel_pqcrypto::kem_keypair_from_seed(&seed)
+        citadel_pqcrypto::kem_keypair_from_seed(crypto::CURRENT_SUITE, &seed)
     }
 }
 
@@ -98,8 +98,10 @@ pub struct FlatWrap {
 const CONTENT_NONCE: [u8; 12] = [0u8; 12];
 
 impl DheEnvelope {
-    /// Seal a message. `sender_node_secret` is the sender's own node secret (held since assignment);
-    /// `flat_group_key` is the flat CGKA epoch key, required iff `policy == BroadcastAudit`.
+    /// Seal a message, wrapping its content key on the tree's suite. `sender_node_secret` is the sender's own
+    /// node secret (held since assignment); `flat_group_key` is the flat CGKA epoch key, required iff
+    /// `policy == BroadcastAudit`.
+    #[allow(clippy::too_many_arguments)]
     pub fn seal<S: HierarchyScheme>(
         scheme: &S,
         sender_path: &CommandPath,

@@ -39,6 +39,8 @@ citadel_io = { workspace = true }
 bitvec = { workspace = true, features = ["alloc"] }
 rust-argon2 = { workspace = true, features = ["serde", "crossbeam-utils"] }
 sha3 = { workspace = true }
+hkdf = { workspace = true }
+chacha20poly1305 = { workspace = true, features = ["alloc"] }
 blake3 = { workspace = true }
 auto_impl = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive", "alloc", "serde"] }

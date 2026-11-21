@@ -21,11 +21,11 @@
 //! use crate::citadel_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 //! use citadel_pqcrypto::constructor_opts::ConstructorOpts;
 //! use citadel_crypt::ratchets::Ratchet;
-//! use citadel_types::crypto::SecurityLevel;
+//! use citadel_types::crypto::{KemAlgorithm, SecurityLevel};
 //!
 //! fn setup_ratchet() -> Option<StackedRatchet> {
-//!     // Create constructor options
-//!     let opts = vec![ConstructorOpts::default()];
+//!     // Create constructor options, naming the KEM
+//!     let opts = vec![ConstructorOpts::new_init(KemAlgorithm::MlKem1024Fips203)];
 //!     
 //!     // Initialize Alice's constructor
 //!     let constructor = StackedRatchetConstructor::new_alice(
@@ -138,7 +138,7 @@ impl Ratchet for StackedRatchet {
                 let next_chain =
                     RecursiveChain::new(&meta_chain[..], prev_chain.alice, prev_chain.bob, false)
                         .unwrap();
-                ConstructorOpts::new_ratcheted(Some(r.pqc.params), next_chain)
+                ConstructorOpts::new_ratcheted(r.pqc.params, next_chain)
             })
             .collect()
     }
@@ -192,9 +192,9 @@ pub mod constructor {
     use citadel_pqcrypto::constructor_opts::{ConstructorOpts, ImpliedSecurityLevel};
     use citadel_pqcrypto::wire::{AliceToBobTransferParameters, BobToAliceTransferParameters};
     use citadel_pqcrypto::PostQuantumContainer;
-    use citadel_types::crypto::CryptoParameters;
     use citadel_types::crypto::SecurityLevel;
     use citadel_types::crypto::LARGEST_NONCE_LEN;
+    use citadel_types::crypto::{check_structural, CryptoParameters};
     use serde::{Deserialize, Serialize};
     use std::fmt::{Debug, Formatter};
 
@@ -226,11 +226,14 @@ pub mod constructor {
         type BobToAliceWireTransfer = BobToAliceTransfer;
 
         fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32) -> Option<Self> {
-            let security_level = opts.implied_security_level();
+            let Some(security_level) = opts.implied_security_level() else {
+                log::warn!(target: "citadel", "[ALICE] refusing to build {} layers", opts.len());
+                return None;
+            };
             log::trace!(target: "citadel", "[ALICE] Client {cid} creating container with {security_level:?} security level");
             //let count = security_level.value() as usize + 1;
             let len = opts.len();
-            let params = opts[0].cryptography.unwrap_or_default();
+            let params = opts[0].cryptography;
             let keys = opts
                 .into_iter()
                 .filter_map(|opts| {
@@ -250,8 +253,7 @@ pub mod constructor {
                 message: MessageRatchetConstructor { inner: keys },
                 scramble: ScrambleRatchetConstructor {
                     entropy_bank: None,
-                    pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params)))
-                        .ok()?,
+                    pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(params)).ok()?,
                 },
                 nonce_message: EntropyBank::generate_public_nonce(params.encryption_algorithm),
                 nonce_scramble: EntropyBank::generate_public_nonce(params.encryption_algorithm),
@@ -270,6 +272,15 @@ pub mod constructor {
             let new_version = transfer.new_version;
             log::trace!(target: "citadel", "[BOB] Client {cid} creating container with {:?} security level", transfer.security_level);
             let count = transfer.security_level.value() as usize + 1;
+            // Every layer is a key exchange: refuse a transfer whose layers are not the ones
+            // this side chose to build, before building any of them.
+            if check_structural(transfer.security_level).is_err()
+                || opts.len() != count
+                || transfer.params_txs.len() != count
+            {
+                log::warn!(target: "citadel", "[BOB] refusing a transfer of {} layers at {:?}; this side builds {}", transfer.params_txs.len(), transfer.security_level, opts.len());
+                return None;
+            }
             let params = transfer.params;
             for nonce in [&transfer.msg_nonce, &transfer.scramble_nonce] {
                 if let Err(err) =
@@ -307,7 +318,7 @@ pub mod constructor {
                 scramble: ScrambleRatchetConstructor {
                     entropy_bank: Some(scramble_entropy_bank),
                     pqc: PostQuantumContainer::new_bob(
-                        ConstructorOpts::new_init(Some(params)),
+                        ConstructorOpts::new_init(params),
                         transfer.scramble_alice_params,
                         psks,
                     )
@@ -378,8 +389,8 @@ pub mod constructor {
                 .iter_mut()
                 .filter_map(|inner| {
                     let entropy_bank = inner.entropy_bank.as_mut()?;
-                    let serialized = entropy_bank.serialize_to_vec().ok()?;
-                    let encrypted = inner.pqc.encrypt(serialized, nonce_msg).ok()?;
+                    let serialized = zeroize::Zeroizing::new(entropy_bank.serialize_to_vec().ok()?);
+                    let encrypted = inner.pqc.encrypt(&*serialized, nonce_msg).ok()?;
                     Some(encrypted)
                 })
                 .collect();
@@ -388,9 +399,13 @@ pub mod constructor {
             }
 
             let scramble_entropy_bank = self.scramble.entropy_bank.as_mut()?;
-            let serialized = scramble_entropy_bank.serialize_to_vec().ok()?;
-            let encrypted_scramble_entropy_bank =
-                self.scramble.pqc.encrypt(serialized, nonce_scramble).ok()?;
+            let serialized =
+                zeroize::Zeroizing::new(scramble_entropy_bank.serialize_to_vec().ok()?);
+            let encrypted_scramble_entropy_bank = self
+                .scramble
+                .pqc
+                .encrypt(&*serialized, nonce_scramble)
+                .ok()?;
 
             let transfer = BobToAliceTransfer {
                 msg_bob_params_txs: msg_bob_cts,
@@ -423,20 +438,22 @@ pub mod constructor {
 
             for (idx, container) in self.message.inner.iter_mut().enumerate() {
                 // now, using the message pqc, decrypt the message entropy_bank
-                let decrypted_msg_entropy_bank = match container.pqc.decrypt(
-                    &transfer
-                        .encrypted_msg_entropy_banks
-                        .get(idx)
-                        .ok_or_else(|| {
-                            citadel_io::error!(citadel_io::ErrorCode::RekeyEntropyBankMissing)
-                        })?[..],
-                    nonce_msg,
-                ) {
-                    Ok(entropy_bank) => entropy_bank,
-                    Err(err) => {
-                        return Err(CryptError::rekey_update(err.to_string()));
-                    }
-                };
+                let decrypted_msg_entropy_bank = zeroize::Zeroizing::new(
+                    match container.pqc.decrypt(
+                        &transfer
+                            .encrypted_msg_entropy_banks
+                            .get(idx)
+                            .ok_or_else(|| {
+                                citadel_io::error!(citadel_io::ErrorCode::RekeyEntropyBankMissing)
+                            })?[..],
+                        nonce_msg,
+                    ) {
+                        Ok(entropy_bank) => entropy_bank,
+                        Err(err) => {
+                            return Err(CryptError::rekey_update(err.to_string()));
+                        }
+                    },
+                );
                 let mut decrypted_entropy_bank =
                     EntropyBank::deserialize_from(&decrypted_msg_entropy_bank[..])?;
                 decrypted_entropy_bank.cid = self.cid;
@@ -449,14 +466,15 @@ pub mod constructor {
                 .alice_on_receive_ciphertext(transfer.scramble_bob_params_tx, psks)
                 .map_err(|err| CryptError::rekey_update(err.to_string()))?;
             // do the same as above
-            let decrypted_scramble_entropy_bank = self
-                .scramble
-                .pqc
-                .decrypt(
-                    &transfer.encrypted_scramble_entropy_bank[..],
-                    nonce_scramble,
-                )
-                .map_err(|err| CryptError::rekey_update(err.to_string()))?;
+            let decrypted_scramble_entropy_bank = zeroize::Zeroizing::new(
+                self.scramble
+                    .pqc
+                    .decrypt(
+                        &transfer.encrypted_scramble_entropy_bank[..],
+                        nonce_scramble,
+                    )
+                    .map_err(|err| CryptError::rekey_update(err.to_string()))?,
+            );
 
             let mut decrypted_entropy_bank =
                 EntropyBank::deserialize_from(&decrypted_scramble_entropy_bank[..])?;

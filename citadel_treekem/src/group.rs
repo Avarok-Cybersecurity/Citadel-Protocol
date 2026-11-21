@@ -118,7 +118,9 @@ impl GroupState {
     ) -> Result<(Commit, Welcome), Error> {
         let mut tree = self.tree.clone();
         let mut proposals = Vec::with_capacity(2);
-        if let Some(stale) = tree.leaf_index_of_cid(key_package.leaf.cid) {
+        let leaf = key_package.leaf.clone();
+        crypto::suite_of(&leaf.kem_public)?;
+        if let Some(stale) = tree.leaf_index_of_cid(leaf.cid) {
             if stale == self.own_leaf {
                 return Err(Error::generic(
                     "treekem: the committer cannot re-add itself",
@@ -127,7 +129,7 @@ impl GroupState {
             tree.remove_leaf(stale)?;
             proposals.push(Proposal::Remove { leaf_index: stale });
         }
-        let joiner_index = tree.add_leaf(key_package.leaf.clone())?;
+        let joiner_index = tree.add_leaf(leaf.clone())?;
         // Capture the previous epoch's init secret BEFORE advancing — the joiner needs it for the schedule.
         let prev_init = self.secrets.init_secret;
 
@@ -150,10 +152,10 @@ impl GroupState {
         let mut payload = Vec::with_capacity(64);
         payload.extend_from_slice(&lca_secret);
         payload.extend_from_slice(&prev_init);
-        let (kem_ct, aead_ct) = crypto::hpke_seal(&key_package.leaf.kem_public, &payload)?;
+        let (kem_ct, aead_ct) = crypto::hpke_seal(&leaf.kem_public, &payload)?;
 
         proposals.push(Proposal::Add {
-            key_package: key_package.clone(),
+            leaf,
             leaf_index: joiner_index,
         });
         let commit = Commit { proposals, path };
@@ -204,10 +206,10 @@ impl GroupState {
         let mut tree = self.tree.clone();
         for proposal in &commit.proposals {
             match proposal {
-                Proposal::Add {
-                    key_package,
-                    leaf_index,
-                } => tree.add_leaf_at(*leaf_index, key_package.leaf.clone())?,
+                Proposal::Add { leaf, leaf_index } => {
+                    crypto::suite_of(&leaf.kem_public)?;
+                    tree.add_leaf_at(*leaf_index, leaf.clone())?
+                }
                 Proposal::Remove { leaf_index } => tree.remove_leaf(*leaf_index)?,
             }
         }
@@ -224,8 +226,11 @@ impl GroupState {
     /// added — it opens the sealed payload and seeds this member's leaf state.
     pub fn join_from_welcome(welcome: &Welcome, own_leaf_secret: Secret) -> Result<Self, Error> {
         let leaf_index = welcome.joiner_leaf_index;
-        let (_pk, sk) = crypto::node_keypair_from_path_secret(&own_leaf_secret)?;
-        let payload = crypto::hpke_open(&welcome.sealed.kem_ct, &welcome.sealed.aead_ct, &sk)?;
+        let payload = crypto::hpke_open_with_path_secret(
+            &own_leaf_secret,
+            &welcome.sealed.kem_ct,
+            &welcome.sealed.aead_ct,
+        )?;
         if payload.len() != 64 {
             return Err(Error::generic("treekem: welcome payload has wrong length"));
         }

@@ -5,14 +5,13 @@
 
 use super::PqAuthServerSettings;
 use crate::auth::pq::kem::{EncapsulationKey, FactorKeypair, FactorSeed, SEED_LEN};
-use crate::auth::pq::recovery::RECOVERY_CODE_COUNT;
 use crate::misc::AccountError;
 use citadel_types::auth::FactorId;
 
 const SALT_USER: &[u8] = b"citadel-decoy-salt-user-v1";
 const PRF_EVAL_SALT: &[u8] = b"citadel-decoy-prf-eval-salt-v1";
 const PASSWORD_SEED: &[u8] = b"citadel-decoy-password-factor-v1";
-const RECOVERY_SEED: &[u8] = b"citadel-decoy-recovery-factor-v1";
+const RECOVERY_PHRASE_SEED: &[u8] = b"citadel-decoy-recovery-phrase-factor-v1";
 
 /// A real account's password factor is the first it is given.
 pub(super) const PASSWORD_FACTOR_ID: FactorId = 1;
@@ -48,17 +47,16 @@ pub(super) fn password_key(
     factor_key(settings, PASSWORD_SEED, username)
 }
 
-/// The recovery code an unknown username (or an unknown code of a real one) appears to have, with
-/// an id in the range a real account's codes are numbered in.
+/// The recovery phrase an unknown username (or an unknown fingerprint of a real one) appears to
+/// have. Its id is the one a new account's phrase is given, after the password.
 pub(super) fn recovery_factor(
     settings: &PqAuthServerSettings,
     username: &str,
     fingerprint: &[u8; 32],
 ) -> Result<(FactorId, EncapsulationKey), AccountError> {
-    let id =
-        PASSWORD_FACTOR_ID + 1 + FactorId::from(fingerprint[0]) % RECOVERY_CODE_COUNT as FactorId;
     let name = format!("{username}\u{0}{}", hex_of(fingerprint));
-    Ok((id, factor_key(settings, RECOVERY_SEED, &name)?))
+    let ek = factor_key(settings, RECOVERY_PHRASE_SEED, &name)?;
+    Ok((PASSWORD_FACTOR_ID + 1, ek))
 }
 
 fn hex_of(bytes: &[u8]) -> String {

@@ -70,7 +70,7 @@ async fn challenge(
 ) -> (Option<ErrorCode>, bool) {
     let reached = AtomicUsize::new(0);
     let ctx = Some(ctx(AdmissionKind::SignIn, token));
-    let built = admission::then(Some(policy), ctx, false, || {
+    let built = admission::then(Some(policy), ctx, || {
         let _ = reached.fetch_add(1, Ordering::SeqCst);
         build_login_challenge(&settings(), AccountAuth::PostQuantum(record), &bad_login())
     })
@@ -83,7 +83,7 @@ async fn challenge(
 
 #[tokio::test]
 async fn a_sign_in_is_refused_before_the_oprf_runs() {
-    let (record, _) = register("pw").await;
+    let record = register("pw").await;
     let wants = Arc::new(Wants::default());
     let policy: Arc<dyn AdmissionPolicy> = wants.clone();
     let (missing, reached) = challenge(&policy, &record, None).await;
@@ -113,14 +113,13 @@ async fn a_registration_is_refused_before_the_oprf_runs() {
         username: "bob".into(),
         oprf_blinded: NOT_A_POINT.to_vec(),
         admission: None,
-        reads_challenge: true,
     };
     let register = |token: Option<&str>| {
         let ctx = ctx(AdmissionKind::Register, token);
         let start = start.clone();
         let policy = policy.clone();
         async move {
-            admission::then(Some(&policy), Some(ctx), false, || {
+            admission::then(Some(&policy), Some(ctx), || {
                 registration_reply(&settings(), &start)
             })
             .await
@@ -141,15 +140,12 @@ async fn a_registration_is_refused_before_the_oprf_runs() {
 
 #[tokio::test]
 async fn without_a_policy_everyone_is_admitted_and_a_login_not_asked_is_not() {
-    let (record, _) = register("pw").await;
-    let ran = admission::then(None, Some(ctx(AdmissionKind::SignIn, None)), false, || {
-        Ok(7)
-    })
-    .await;
+    let record = register("pw").await;
+    let ran = admission::then(None, Some(ctx(AdmissionKind::SignIn, None)), || Ok(7)).await;
     assert_eq!(ran.unwrap(), 7);
     let wants = Arc::new(Wants::default());
     let policy: Arc<dyn AdmissionPolicy> = wants.clone();
-    let _ = admission::then(Some(&policy), None, false, || {
+    let _ = admission::then(Some(&policy), None, || {
         build_login_challenge(&settings(), AccountAuth::PostQuantum(&record), &bad_login())
     })
     .await;

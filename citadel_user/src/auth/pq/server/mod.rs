@@ -3,13 +3,18 @@
 
 mod change;
 mod decoy;
+mod enrol;
 mod login;
 mod manage;
 mod register;
 mod settings;
+mod verify;
 
 pub use change::Change;
-pub use login::{build_login_challenge, AccountAuth, Expectation, PendingLogin, VerifiedLogin};
+pub use login::{
+    build_login_challenge, build_recovery_challenge, AccountAuth, Expectation, Expected,
+    PendingLogin, VerifiedLogin,
+};
 pub use manage::{
     begin_management, CommitStep, PendingEnrol, PendingManagement, MAX_CREDENTIAL_ID_BYTES,
     MAX_LABEL_CHARS,

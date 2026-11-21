@@ -67,23 +67,17 @@ pub(crate) fn check_bob_transfer(
     Ok(())
 }
 
-/// A public-key ciphertext must have exactly the length `kem_alg` produces for a plaintext of
-/// `plaintext_len` bytes, and (for the block-wise scheme) declare that same plaintext length, so the
-/// decryptor never sizes a buffer or a block from a value it was sent.
+/// A public-key ciphertext must have exactly the length `kem_alg`'s KEM-DEM framing produces for a
+/// plaintext of `plaintext_len` bytes, so the decryptor never sizes a buffer from a value it was
+/// sent.
 pub(crate) fn check_pke_ciphertext(
     kem_alg: KemAlgorithm,
     ciphertext: &[u8],
     plaintext_len: usize,
 ) -> Result<(), Error> {
-    let well_formed = match kem_alg {
-        KemAlgorithm::MlKem => {
-            ciphertext.len() == kyber_pke::ct_len(plaintext_len)
-                && kyber_pke::plaintext_len(ciphertext) == Some(plaintext_len)
-        }
-        // The KEM-DEM backend frames its own ciphertext and checks every length before use.
-        KemAlgorithm::MlKem768Fips203 | KemAlgorithm::MlKem1024Fips203 => true,
-    };
-    if well_formed {
+    if ciphertext.len()
+        == crate::encryption::kyber_module::pke_ciphertext_len(kem_alg, plaintext_len)
+    {
         Ok(())
     } else {
         Err(citadel_io::error!(

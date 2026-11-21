@@ -17,7 +17,7 @@ use super::codec::stream_frame_len;
 use super::config::{TurnTransport, TurnUrl};
 use crate::udp_traversal::abort_on_drop::AbortOnDrop;
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: Duration = citadel_types::proto::timing::TURN_CONNECT_TIMEOUT;
 /// Frames buffered between the socket and the allocation driver, per direction.
 pub(crate) const LINK_QUEUE_FRAMES: usize = 2048;
 /// Largest frame the server can send: STUN/ChannelData length fields are 16-bit.

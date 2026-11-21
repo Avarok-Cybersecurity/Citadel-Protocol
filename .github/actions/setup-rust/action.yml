@@ -1,0 +1,111 @@
+name: Set up Rust
+description: >-
+  The toolchain, pinned cargo tools and a shared build cache for one CI job. Replaces
+  Avarok-Cybersecurity/gh-actions-deps, which built cargo-make from source in every job (minutes
+  each, the reason its callers carried five-attempt retry ladders), checked out with
+  actions/checkout@v2 and ran actions-rs/cargo (both on retired Node runtimes and `set-output`),
+  and installed LLVM 13 on Windows for a libclang nothing in the graph links.
+  The caller checks the repository out first.
+
+inputs:
+  cache-key:
+    description: >-
+      The rust-cache shared key: one per tier, job kind and target (for example `t1-core-linux`).
+      Jobs that build the same artifacts share a key and so a cache; jobs that build different
+      ones must not, or each evicts the other's. `none` turns caching off.
+    required: true
+  cache-on-failure:
+    description: >-
+      `true` saves the cache even when the job fails. A job whose cold build alone can outrun its
+      timeout needs it: without it a timed-out job saves nothing, so every later run starts cold
+      and times out again. A new stable Rust changes every cache key, so this recurs with each
+      release (#391: citadel_sdk_release, 67 min cold compile of an 80 min budget).
+    required: true
+  targets:
+    description: Extra rustup targets, comma-separated; empty for the host only.
+    required: true
+  components:
+    description: Extra rustup components, comma-separated; empty for none.
+    required: true
+  tools:
+    description: >-
+      Cargo tools to install, comma-separated, from the pinned set below (nextest, llvm-cov,
+      deny, audit, make, wasm-pack); empty for none.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve pinned tools
+      id: tools
+      shell: bash
+      env:
+        CACHE_KEY: ${{ inputs.cache-key }}
+        TOOLS: ${{ inputs.tools }}
+      run: |
+        set -euo pipefail
+        if [ -z "$CACHE_KEY" ]; then
+          echo "setup-rust: cache-key is required (\`none\` turns caching off)" >&2
+          exit 1
+        fi
+        # The one place tool versions are pinned. Each is at least 14 days old when pinned, the
+        # floor ci/lockfile_age_gate.py holds crates to.
+        pin() {
+          case "$1" in
+            nextest)   echo cargo-nextest@0.9.151 ;;
+            llvm-cov)  echo cargo-llvm-cov@0.9.1 ;;
+            deny)      echo cargo-deny@0.20.2 ;;
+            audit)     echo cargo-audit@0.22.2 ;;
+            make)      echo cargo-make@0.37.24 ;;
+            wasm-pack) echo wasm-pack@0.15.1 ;;
+            *) echo "setup-rust: no pinned version for tool '$1'" >&2; return 1 ;;
+          esac
+        }
+        # No arrays: bash 3.2 (a macOS runner's /bin/bash) reads an empty one as unset under -u.
+        list=""
+        for name in $(echo "$TOOLS" | tr ',' ' '); do
+          version="$(pin "$name")"
+          list="${list:+$list,}$version"
+        done
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+
+    # The `vendored` feature builds OpenSSL from source on Windows, and openssl-src runs Perl's
+    # Configure. Under `shell: bash` (validate.yml's default) Git Bash puts its msys perl first on
+    # PATH, and Configure fails with it ("'perl' reported failure with exit code: 2", run
+    # 44415712499); the old pipeline's steps ran in pwsh, where the runner's Strawberry Perl came
+    # first. openssl-src reads OPENSSL_SRC_PERL before PATH, so the Perl is named, not inherited.
+    - name: Name the Perl openssl-src builds with (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        perl='C:/Strawberry/perl/bin/perl.exe'
+        if [ ! -f "$perl" ]; then
+          echo "setup-rust: Strawberry Perl not found at $perl; openssl-src cannot configure" >&2
+          exit 1
+        fi
+        echo "OPENSSL_SRC_PERL=$perl" >> "$GITHUB_ENV"
+
+    # The version is rust-toolchain.toml's, the one definition; rustup reads it from the checkout.
+    - name: Install the pinned toolchain
+      shell: bash
+      env:
+        TARGETS: ${{ inputs.targets }}
+        COMPONENTS: ${{ inputs.components }}
+      run: |
+        set -euo pipefail
+        rustup toolchain install
+        for target in $(echo "$TARGETS" | tr ',' ' '); do rustup target add "$target"; done
+        for component in $(echo "$COMPONENTS" | tr ',' ' '); do rustup component add "$component"; done
+        rustc --version
+
+    - if: steps.tools.outputs.list != ''
+      uses: taiki-e/install-action@v2
+      with:
+        tool: ${{ steps.tools.outputs.list }}
+
+    - if: inputs.cache-key != 'none'
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.cache-key }}
+        cache-on-failure: ${{ inputs.cache-on-failure }}

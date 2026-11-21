@@ -18,6 +18,8 @@ members = [
     "citadel_types",
     "citadel_media",
     "citadel_negotiation",
+    "citadel_phrase",
+    "citadel_link",
     "example-library",
 ]
 
@@ -51,7 +53,6 @@ await_holding_lock = "warn"
 
 [workspace.dependencies]
 # workspace deps
-citadel_sdk = { path = "./citadel_sdk", default-features = false, version = "0.14.0" }
 citadel_wire = { path = "./citadel_wire", default-features = false, version = "0.14.0" }
 citadel_user = { path = "./citadel_user", default-features = false, version = "0.14.0" }
 citadel_crypt = { path = "./citadel_crypt", default-features = false, version = "0.14.0" }
@@ -63,18 +64,21 @@ citadel_io_macros = { path = "./citadel_io_macros", version = "0.14.0" }
 citadel_treekem = { path = "./citadel_treekem", default-features = false, version = "0.14.0" }
 citadel_types = { path = "./citadel_types", default-features = false, version = "0.14.0" }
 citadel_negotiation = { path = "./citadel_negotiation", version = "0.14.0" }
+citadel_phrase = { path = "./citadel_phrase", version = "0.14.0" }
+citadel_link = { path = "./citadel_link", version = "0.1.0" }
 citadel_media = { path = "./citadel_media", default-features = false, version = "0.14.0" }
 netbeam = { path = "./netbeam", default-features = false, version = "0.14.0" }
 firebase-rtdb = { path = "./firebase-rtdb", default-features = false, version = "0.14.0" }
 async_ip = { path = "./async_ip", default-features = false, version = "0.14.0" }
 
-# examples
-citadel-examples = { path = "./example-library", default-features = false }
 
 # ordinary deps
 generic-array = { version = "0.14.6" }
-enum_primitive = { default-features = false, version = "0.1.1" }
 aes-gcm = { version = "0.10.3", default-features = false }
+# Named directly only to turn on their `zeroize` features: the AES key schedule and the POLYVAL
+# (GHASH) key inside aes-gcm are wiped on drop only with it.
+aes = { version = "0.8.4", default-features = false }
+polyval = { version = "0.6.2", default-features = false }
 chacha20poly1305 = { version = "0.10.1", default-features = false }
 log = { default-features = false, version = "0.4.17" }
 strum = { version = "0.27.1", default-features = false }
@@ -84,10 +88,8 @@ sha3 = { version = "0.10", default-features = false }
 # remains for ratchet key-evolution + the PQ layer. `std` (enabled via citadel_crypt's std feature)
 # turns on x86 runtime SIMD feature detection.
 blake3 = { version = "1.5", default-features = false }
-kyber-pke = { version = "0.5.0", default-features = false }
 # FIPS 203 ML-KEM (SHAKE internals), formally verified in F* via hax, with
-# runtime-detected AVX2/NEON backends. Backs the MlKem*Fips203 KemAlgorithm
-# variants; `MlKem = 0` still routes to kyber-pke and is byte-unchanged.
+# runtime-detected AVX2/NEON backends. Backs every KemAlgorithm variant.
 libcrux-ml-kem = { version = "0.0.10", default-features = false, features = [
     "mlkem768",
     "mlkem1024",
@@ -103,7 +105,6 @@ tokio = { version = "1.47.0" }
 bytes = { default-features = false, version = "1.3.0" }
 async-trait = { default-features = false, version = "0.1.61" }
 anyhow = { default-features = false, version = "1.0.68" }
-thiserror = { default-features = false, version = "2.0" }
 rand = { default-features = false, version = "0.8.5" }
 async-stream = { default-features = false, version = "0.3.3" }
 sync_wrapper = { default-features = false, version = "1.0.0" }
@@ -127,7 +128,6 @@ zeroize = { default-features = false, version = "1.5.7" }
 libc = { version = "0.2.139", default-features = false }
 io-uring = { version = "0.7.9", default-features = false }
 dashmap = { version = "6.1.0", default-features = false }
-kernel32-sys = { version = "0.2.2", default-features = false }
 rayon = { default-features = false, version = "1.7.0" }
 sysinfo = { default-features = false, version = "0.29.8" }
 num_cpus = { default-features = false, version = "1.15.0" }
@@ -147,9 +147,7 @@ itertools = { version = "0.14.0", default-features = false }
 serde_millis = { default-features = false, version = "0.1.1" }
 multimap = { default-features = false, version = "0.10.1" }
 parking_lot = { version = "0.12.1" }
-twox-hash = { default-features = false, version = "2.1.1" }
 serde_json = { default-features = false, version = "1.0.91" }
-base64 = { version = "0.22", default-features = false }
 bstr = { default-features = false, version = "1.1.0" }
 sqlx = { version = "0.8.6" }
 redis-base = { package = "redis", version = "0.32.4" }
@@ -172,7 +170,6 @@ hyper = { version = "1.11.0", default-features = false }
 hyper-util = { version = "0.1.20", default-features = false }
 http-body-util = { version = "0.1.5", default-features = false }
 sha256 = { version = "1.5.0" }
-tokio-openssl = { version = "0.6.3" }
 tokio-tungstenite = { version = "0.28", default-features = false }
 url = { version = "2.5" }
 # >=0.1.0-rc.5 clears CVE-2026-24850 (verify accepted repeated hint indices), CVE-2026-22705

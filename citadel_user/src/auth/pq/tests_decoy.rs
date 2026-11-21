@@ -2,10 +2,10 @@
 //! the same sizes, values as stable across logins as a real account's, and fresh ciphertexts.
 
 use super::messages::{transcript_bytes, ChallengeBody, FactorChallenges, LoginChallenge};
-use super::recovery::RecoveryCode;
+use super::phrase::RecoverySeed;
 use super::tests::{begin, complete, is_generic_failure, register};
+use super::tests_recovery::{phrase_of, with_phrase, DOMAIN};
 use citadel_io::tokio;
-use citadel_types::auth::FactorKind;
 
 fn factors(challenge: &LoginChallenge) -> &FactorChallenges {
     match &challenge.body {
@@ -14,16 +14,19 @@ fn factors(challenge: &LoginChallenge) -> &FactorChallenges {
     }
 }
 
-/// Everything an observer can compare without knowing any secret. A recovery code's id is left
-/// out: it is the code's position, which a decoy draws from the same range.
+/// Everything an observer can compare without knowing any secret.
 fn shape(challenge: &LoginChallenge) -> impl PartialEq + std::fmt::Debug {
     let f = factors(challenge);
     let challenges: Vec<_> = f
         .challenges
         .iter()
         .map(|c| {
-            let id = (c.kind != FactorKind::RecoveryCode).then_some(c.factor_id);
-            (id, c.kind, c.credential_id.clone(), c.ct.as_bytes().len())
+            (
+                c.factor_id,
+                c.kind,
+                c.credential_id.clone(),
+                c.ct.as_bytes().len(),
+            )
         })
         .collect();
     (
@@ -36,7 +39,7 @@ fn shape(challenge: &LoginChallenge) -> impl PartialEq + std::fmt::Debug {
 
 #[citadel_io::tokio::test]
 async fn an_unknown_username_looks_like_a_password_account() {
-    let (record, _) = register("correct horse").await;
+    let record = register("correct horse").await;
     let real = begin(Some(&record), "alice", Some("guess"), None);
     let unknown = begin(None, "alicf", Some("guess"), None);
     assert_eq!(shape(&real.challenge), shape(&unknown.challenge));
@@ -65,21 +68,18 @@ async fn an_unknown_username_looks_like_a_password_account() {
 }
 
 #[citadel_io::tokio::test]
-async fn an_unknown_recovery_code_looks_like_a_real_one() {
-    let (record, codes) = register("correct horse").await;
-    let stranger = RecoveryCode::generate();
-    let real = begin(Some(&record), "alice", None, Some(&codes[0]));
-    let wrong_code = begin(Some(&record), "alice", None, Some(&stranger));
+async fn an_unknown_recovery_phrase_looks_like_a_real_one() {
+    let mut record = register("pw").await;
+    let phrase = phrase_of(&with_phrase(&mut record).await, DOMAIN);
+    let stranger = phrase_of(&RecoverySeed::generate(), DOMAIN);
+    let real = begin(Some(&record), "alice", None, Some(&phrase));
+    let wrong_phrase = begin(Some(&record), "alice", None, Some(&stranger));
     let unknown_user = begin(None, "alicf", None, Some(&stranger));
-    assert_eq!(shape(&real.challenge), shape(&wrong_code.challenge));
-    assert_eq!(shape(&wrong_code.challenge), shape(&unknown_user.challenge));
-    for x in [&real, &wrong_code, &unknown_user] {
-        let id = factors(&x.challenge).challenges[0].factor_id;
-        assert!(
-            (2..=11).contains(&id),
-            "recovery code ids are 2..=11, got {id}"
-        );
-    }
-    assert!(is_generic_failure(&complete(wrong_code).await));
+    assert_eq!(shape(&real.challenge), shape(&wrong_phrase.challenge));
+    assert_eq!(
+        shape(&wrong_phrase.challenge),
+        shape(&unknown_user.challenge)
+    );
+    assert!(is_generic_failure(&complete(wrong_phrase).await));
     assert!(is_generic_failure(&complete(unknown_user).await));
 }

@@ -35,7 +35,11 @@ use tokio::sync::oneshot::Receiver;
 
 use crate::packet_vector::PacketVector;
 use crate::ratchets::entropy_bank::EntropyBank;
-use crate::scramble::crypt_splitter::{par_scramble_encrypt_group, GroupSenderDevice};
+use crate::revfs_seal::RevfsKey;
+use crate::scramble::crypt_splitter::{
+    par_scramble_encrypt_group, GroupSenderDevice, RevfsGroupSeal,
+};
+use crate::scramble::wave_binding::WaveBinding;
 
 use crate::misc::CryptError;
 use crate::ratchets::Ratchet;
@@ -212,13 +216,24 @@ pub fn scramble_encrypt_source<
     stop: Receiver<()>,
     security_level: SecurityLevel,
     ratchet: R,
-    static_aux_ratchet: R,
+    revfs_key: Option<RevfsKey>,
     header_size_bytes: usize,
     target_cid: u64,
     group_id: u64,
     transfer_type: TransferType,
+    binding: WaveBinding,
     header_inscriber: F,
 ) -> Result<(usize, usize, usize), CryptError> {
+    if matches!(
+        transfer_type,
+        TransferType::RemoteEncryptedVirtualFilesystem { .. }
+    ) && revfs_key.is_none()
+    {
+        return Err(citadel_io::error!(
+            citadel_io::ErrorCode::RevfsKeyMissing,
+            ratchet.get_cid()
+        ));
+    }
     let path = source.path();
     let source = source.try_get_stream()?;
     let object_len = source
@@ -259,9 +274,10 @@ pub fn scramble_encrypt_source<
         group_id,
         security_level,
         ratchet,
-        static_aux_ratchet,
+        revfs_key,
         reader,
         transfer_type,
+        binding,
         file_len: object_len,
         max_bytes_per_group,
         read_cursor: 0,
@@ -318,9 +334,10 @@ struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize, Ra: Ra
     /// Read on the scrambling task, not the async one, so a slow source never blocks the runtime.
     reader: Arc<Mutex<BufReader<R>>>,
     ratchet: Ra,
-    static_aux_ratchet: Ra,
+    revfs_key: Option<RevfsKey>,
     security_level: SecurityLevel,
     transfer_type: TransferType,
+    binding: WaveBinding,
     file_len: usize,
     read_cursor: usize,
     object_id: ObjectId,
@@ -405,7 +422,7 @@ impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet
     ) -> Poll<Option<Result<GroupSenderDevice<N>, CryptError>>> {
         let Self {
             ratchet,
-            static_aux_ratchet,
+            revfs_key,
             file_len,
             read_cursor,
             buffer,
@@ -420,6 +437,7 @@ impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet
             max_bytes_per_group,
             cur_task,
             transfer_type,
+            binding,
             poll_amt,
             ..
         } = &mut *self;
@@ -437,11 +455,13 @@ impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet
             let buffer = buffer.clone();
             let security_level = *security_level;
             let ratchet = ratchet.clone();
-            let static_aux_ratchet = static_aux_ratchet.clone();
+            let revfs_key = revfs_key.clone();
+            let group_index = *groups_rendered as u64;
             let header_size_bytes = *header_size_bytes;
             let target_cid = *target_cid;
             let object_id = *object_id;
             let transfer_type = transfer_type.clone();
+            let binding = *binding;
 
             let task = scramble_off_task(move || {
                 let mut buffer = buffer.lock();
@@ -453,12 +473,15 @@ impl<F: HeaderInscriberFn, R: Read + Send + 'static, const N: usize, Ra: Ratchet
                     bytes,
                     security_level,
                     &ratchet,
-                    &static_aux_ratchet,
+                    revfs_key
+                        .as_ref()
+                        .map(|key| RevfsGroupSeal { key, group_index }),
                     header_size_bytes,
                     target_cid,
                     object_id,
                     group_id_input,
                     transfer_type,
+                    binding,
                     |a, b, c, d, e| (header_inscriber)(a, b, c, d, e),
                 )
             });
