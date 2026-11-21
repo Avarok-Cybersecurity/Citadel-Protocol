@@ -32,7 +32,8 @@
 
 use super::super::includes::*;
 use super::{
-    group_commit_ack, group_commit_relay, group_control, group_message_relay, group_resume_relay,
+    group_backup_relay, group_commit_ack, group_commit_relay, group_control, group_message_relay,
+    group_restore, group_resume_relay,
 };
 use crate::error::NetworkError;
 use crate::functional::*;
@@ -41,7 +42,6 @@ use crate::proto::node_result::{GroupChannelCreated, GroupEvent};
 use crate::proto::packet_crafter::peer_cmd::C2S_IDENTITY_CID;
 use crate::proto::peer::group_cgka::GroupCgkaState;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
-use crate::proto::peer::group_state_store;
 use crate::proto::peer::group_watch::GroupWatch;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
@@ -299,6 +299,35 @@ pub enum GroupBroadcast {
         /// Group key
         key: MessageGroupKey,
     },
+    /// Server → member, after replaying what it held for the member: the group is live from here.
+    Resumed {
+        /// Group key
+        key: MessageGroupKey,
+    },
+    /// Member → server: keep this sealed state of the member's for the group, in place of the
+    /// last (see `peer::group_backup`). The server cannot open it.
+    KeepState {
+        /// Group key
+        key: MessageGroupKey,
+        /// The state, sealed under the account's key
+        sealed: Vec<u8>,
+    },
+    /// Member → server: the session holds no state for the group; send the one kept for it.
+    FetchState {
+        /// Group key
+        key: MessageGroupKey,
+    },
+    /// Server → member: the state kept for it, if any, on the group's current tree.
+    KeptState {
+        /// Group key
+        key: MessageGroupKey,
+        /// The generation of the owner's tree the group is on
+        tree: u64,
+        /// Whether the member is the group's owner
+        as_owner: bool,
+        /// The sealed state, if the server keeps one for the member
+        sealed: Option<Vec<u8>>,
+    },
     /// Restoring a group whose owner's session ended and was re-established within the grace period.
     ///
     /// Server → owner, at the owner's (re)connect: the group still exists here but the owner's TreeKEM
@@ -382,10 +411,29 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
     payload: &[u8],
     sess_ratchet: &R,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
+    let ticket = header.context_info.get().into();
+    let security_level = header.security_level.into();
     let result = process_signal(session_ref, header, payload, sess_ratchet).await;
     if !session_ref.is_server {
-        // Whatever this packet changed in a group's state is kept before the next one.
-        inner_mut_state!(session_ref.state_container).save_changed_group_states();
+        // Whatever this packet changed in a group's state is kept before the next one, here
+        // and, sealed, at the server.
+        let backups = {
+            let mut state = inner_mut_state!(session_ref.state_container);
+            state.save_changed_group_states();
+            state.take_group_backups()
+        };
+        let timestamp = session_ref.time_tracker.get_global_time_ns();
+        for backup in backups {
+            let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+                sess_ratchet,
+                &backup,
+                ticket,
+                C2S_IDENTITY_CID,
+                timestamp,
+                security_level,
+            )?;
+            session_ref.send_to_primary_stream(Some(ticket), packet)?;
+        }
     }
     result
 }
@@ -408,6 +456,12 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
     let session_cid = header.session_cid.get();
     let crafter = group_commit_ack::Crafter {
         ratchet: sess_ratchet,
+        timestamp,
+        security_level,
+    };
+    let reply = group_restore::Reply {
+        sess_ratchet,
+        ticket,
         timestamp,
         security_level,
     };
@@ -1311,34 +1365,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                 log::warn!(target: "citadel", "Ignoring RestoreMembership for {key:?}: only a non-owner member acts on it");
                 return Ok(PrimaryProcessorResult::Void);
             }
-            // A member that kept its state for this tree resumes it, and reads what was sent
-            // while it was away; any other rejoins with a fresh KeyPackage.
-            if resume_stored(session, key, tree, false).await? {
-                return reply_resume(
-                    sess_ratchet,
-                    GroupBroadcast::ResumeMembership { key },
-                    ticket,
-                    timestamp,
-                    security_level,
-                );
-            }
-            let published = cgka_joiner_publish_key_package(
-                session,
-                sess_ratchet,
-                key,
-                session_cid,
-                ticket,
-                timestamp,
-                security_level,
-                JoinMode::Replace,
-            );
-            if let Some(cgka) = inner_mut_state!(session.state_container)
-                .group_cgka
-                .get_mut(&key)
-            {
-                cgka.tree = tree;
-            }
-            published
+            group_restore::restore(session, reply, key, tree, false).await
         }
 
         GroupBroadcast::ResumeMembership { key } | GroupBroadcast::ResumeOwnership { key } => {
@@ -1368,25 +1395,45 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                 group_resume_relay::refounded(session, key, ticket, timestamp, security_level)
                     .await;
                 Ok(PrimaryProcessorResult::Void)
-            } else if resume_stored(session, key, tree, true).await? {
-                reply_resume(
-                    sess_ratchet,
-                    GroupBroadcast::ResumeOwnership { key },
-                    ticket,
-                    timestamp,
-                    security_level,
-                )
             } else {
-                cgka_owner_refound(
-                    session,
-                    sess_ratchet,
-                    key,
-                    tree,
-                    ticket,
-                    timestamp,
-                    security_level,
-                )
+                group_restore::restore(session, reply, key, tree, true).await
             }
+        }
+
+        GroupBroadcast::Resumed { key } => {
+            if session.is_server {
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            group_restore::resumed(session, reply, key)
+        }
+
+        GroupBroadcast::KeepState { key, sealed } => {
+            if session.is_server {
+                group_backup_relay::keep(session, session_cid, key, sealed).await?;
+            }
+            Ok(PrimaryProcessorResult::Void)
+        }
+
+        GroupBroadcast::FetchState { key } => {
+            if !session.is_server {
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            match group_backup_relay::fetch(session, session_cid, key).await? {
+                Some(kept) => reply.send(kept),
+                None => Ok(PrimaryProcessorResult::Void),
+            }
+        }
+
+        GroupBroadcast::KeptState {
+            key,
+            tree,
+            as_owner,
+            sealed,
+        } => {
+            if session.is_server {
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            group_restore::kept(session, reply, key, tree, as_owner, sealed)
         }
 
         GroupBroadcast::CommitApplied { key, epoch } => {
@@ -1429,7 +1476,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
 }
 
 /// Create a group channel
-fn create_group_channel<R: Ratchet, T: PlatformOps>(
+pub(super) fn create_group_channel<R: Ratchet, T: PlatformOps>(
     ticket: Ticket,
     key: MessageGroupKey,
     session: &CitadelSession<R, T>,
@@ -1450,7 +1497,7 @@ fn create_group_channel<R: Ratchet, T: PlatformOps>(
 
 /// Whether a KeyPackage publish may replace state this session already holds as a member.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum JoinMode {
+pub(super) enum JoinMode {
     /// An invitation accepted: a session already in the group has nothing to publish.
     KeepMembership,
     /// A restore prompt: any state held is not in the owner's current tree, so start over.
@@ -1460,7 +1507,7 @@ enum JoinMode {
 /// A joiner generates its TreeKEM `KeyPackage`, stores its pending CGKA state, and publishes the
 /// KeyPackage to the owner (routed by the relay). The group channel is deferred until the Welcome.
 #[allow(clippy::too_many_arguments)]
-fn cgka_joiner_publish_key_package<R: Ratchet, T: PlatformOps>(
+pub(super) fn cgka_joiner_publish_key_package<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     sess_ratchet: &R,
     key: MessageGroupKey,
@@ -1520,7 +1567,7 @@ fn cgka_joiner_publish_key_package<R: Ratchet, T: PlatformOps>(
 /// Owner, prompted by the server after reconnecting: re-found the group's tree (the old one died
 /// with the previous session), open the group channel for the application, and tell the server it
 /// may bring the members back. A fresh leaf secret and epoch 0: nothing from the old tree is reused.
-fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
+pub(super) fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     sess_ratchet: &R,
     key: MessageGroupKey,
@@ -1555,54 +1602,6 @@ fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
     )?;
     session.send_to_primary_stream(Some(ticket), packet)?;
     Ok(PrimaryProcessorResult::Void)
-}
-
-/// Client, prompted to restore `key` on `tree`: loads the state this node kept for it and, when
-/// it is for that tree and the expected role, makes it this session's and opens the channel.
-/// `false` when there is none to resume (the caller rejoins or re-founds).
-async fn resume_stored<R: Ratchet, T: PlatformOps>(
-    session: &CitadelSession<R, T>,
-    key: MessageGroupKey,
-    tree: u64,
-    as_owner: bool,
-) -> Result<bool, NetworkError> {
-    let session_cid = session
-        .session_cid
-        .get()
-        .ok_or_else(|| error!(ErrorCode::StateImplicatedCidNotLoaded))?;
-    let pers = session.account_manager.get_persistence_handler();
-    let stored = group_state_store::load(pers, session_cid, key).await?;
-    let Some(cgka) = stored.filter(|cgka| cgka.tree == tree && cgka.is_owner() == as_owner) else {
-        return Ok(false);
-    };
-    let channel_open = {
-        let mut state = inner_mut_state!(session.state_container);
-        let _ = state.group_cgka.insert(key, cgka);
-        state.group_channels.contains_key(&key)
-    };
-    log::info!(target: "citadel", "Resuming {key:?} from the state this node kept");
-    if !channel_open {
-        let _ = create_group_channel(Ticket::default(), key, session)?;
-    }
-    Ok(true)
-}
-
-fn reply_resume<R: Ratchet>(
-    sess_ratchet: &R,
-    signal: GroupBroadcast,
-    ticket: Ticket,
-    timestamp: i64,
-    security_level: SecurityLevel,
-) -> Result<PrimaryProcessorResult, NetworkError> {
-    let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-        sess_ratchet,
-        &signal,
-        ticket,
-        C2S_IDENTITY_CID,
-        timestamp,
-        security_level,
-    )?;
-    Ok(PrimaryProcessorResult::ReplyToSender(packet))
 }
 
 impl From<GroupBroadcast> for GroupBroadcastPayload {

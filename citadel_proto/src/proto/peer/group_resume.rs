@@ -21,6 +21,16 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         Some(this.message_groups.get(&key.cid)?.get(&key.mgid)?.tree)
     }
 
+    /// The generation of `key`'s tree, if `member` is in the group.
+    pub async fn tree_of_member(&self, key: MessageGroupKey, member: u64) -> Option<u64> {
+        let this = self.inner.read().await;
+        let group = this.message_groups.get(&key.cid)?.get(&key.mgid)?;
+        group
+            .concurrent_peers
+            .contains_key(&member)
+            .then_some(group.tree)
+    }
+
     /// Marks `member`'s current session back in `key`. `false` when it is not a member.
     pub async fn mark_resumed(&self, key: MessageGroupKey, member: u64) -> bool {
         let mut this = self.inner.write().await;

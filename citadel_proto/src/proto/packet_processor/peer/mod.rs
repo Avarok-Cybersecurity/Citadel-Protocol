@@ -32,11 +32,13 @@ use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
 
+mod group_backup_relay;
 pub mod group_broadcast;
 pub(crate) mod group_commit_ack;
 mod group_commit_relay;
 mod group_control;
 mod group_message_relay;
+mod group_restore;
 mod group_resume_relay;
 pub mod peer_cmd_packet;
 pub mod server;

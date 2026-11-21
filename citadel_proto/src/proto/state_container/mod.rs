@@ -244,6 +244,8 @@ pub struct StateContainerInner<R: Ratchet> {
             crate::proto::peer::group_state_store::StateWrite,
         >,
     >,
+    /// Groups whose state was written since its last `KeepState` (see `group_state_saving`).
+    group_backups_due: std::collections::HashSet<MessageGroupKey>,
     pub(super) transfer_stats: TransferStats,
     pub(super) udp_mode: UdpMode,
     /// The rekey each target CID currently has in flight, by the ticket that
@@ -626,6 +628,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             group_channels: Default::default(),
             group_cgka: Default::default(),
             group_state_writer: None,
+            group_backups_due: Default::default(),
             udp_mode,
             transfer_stats,
             queue_handle: Default::default(),

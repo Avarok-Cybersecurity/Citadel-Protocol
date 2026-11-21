@@ -57,9 +57,10 @@ pub mod group_commit_gate;
 pub mod group_persistence;
 pub(crate) mod group_persistence_shape;
 
+/// What a server holds for a group member that is away.
+pub mod group_backup;
 /// Server-side caps on a group's message size and rate
 pub(crate) mod group_limits;
-/// What a server holds for a group member that is away.
 pub mod group_mail;
 /// Whom the server relays a group broadcast to, and whether a message is within its caps
 pub mod group_relay;

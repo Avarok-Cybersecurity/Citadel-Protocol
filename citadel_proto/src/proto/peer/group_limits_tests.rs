@@ -120,18 +120,20 @@ fn a_groups_creation_carries_its_relay_options() {
 /// Caps that fail validation refuse the `Create`; they are never read as a group without caps.
 #[test]
 fn a_creation_with_invalid_caps_is_refused() {
+    /// The wire shape of `MessageGroupOptions`, with its caps unchecked.
+    type RawOptions = (
+        GroupType,
+        u128,
+        GroupHierarchyMode,
+        bool,
+        Option<(u32, u32)>,
+        Option<std::time::Duration>,
+    );
     #[derive(serde::Serialize, serde::Deserialize)]
     enum BroadcastWithRawCaps {
         Create {
             initial_invitees: Vec<u64>,
-            options: (
-                GroupType,
-                u128,
-                GroupHierarchyMode,
-                bool,
-                Option<(u32, u32)>,
-                Option<std::time::Duration>,
-            ),
+            options: RawOptions,
         },
     }
     let encode = |caps: (u32, u32)| {

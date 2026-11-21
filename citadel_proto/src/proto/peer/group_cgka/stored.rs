@@ -14,6 +14,7 @@ use zeroize::{Zeroize, Zeroizing};
 struct Stored {
     tree: u64,
     is_owner: bool,
+    needs_new_leaf: bool,
     own_leaf_secret: [u8; 32],
     group: Vec<u8>,
 }
@@ -28,6 +29,7 @@ impl GroupCgkaState {
         let mut stored = Stored {
             tree: self.tree,
             is_owner: self.is_owner,
+            needs_new_leaf: self.needs_new_leaf,
             own_leaf_secret: self.own_leaf_secret,
             group: group.export()?.to_vec(),
         };
@@ -58,9 +60,10 @@ impl GroupCgkaState {
             tree: stored.tree,
             saved: None,
             opens: 0,
+            needs_new_leaf: stored.needs_new_leaf,
         });
         stored.zeroize();
-        Ok(state?)
+        state
     }
 
     /// Whether the state changed in a way worth writing since it was last written: its epoch or

@@ -31,7 +31,7 @@ async fn take_backlog<R: Ratchet, T: PlatformOps>(
 }
 
 /// Server, on `ResumeMembership`/`ResumeOwnership` from `member`'s own session: replay its
-/// backlog on this session, then send it the group live.
+/// backlog on this session, mark the end of it (`Resumed`), then send it the group live.
 pub(crate) async fn resume<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     sess_ratchet: &R,
@@ -60,7 +60,15 @@ pub(crate) async fn resume<R: Ratchet, T: PlatformOps>(
         )?;
         session.send_to_primary_stream(Some(ticket), packet)?;
     }
-    Ok(())
+    let resumed = packet_crafter::peer_cmd::craft_group_message_packet(
+        sess_ratchet,
+        &GroupBroadcast::Resumed { key },
+        ticket,
+        C2S_IDENTITY_CID,
+        timestamp,
+        security_level,
+    )?;
+    session.send_to_primary_stream(Some(ticket), resumed)
 }
 
 /// Server, once a Welcome for `joiner` is relayed: the joiner is in the group from here on, and

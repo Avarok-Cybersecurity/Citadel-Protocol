@@ -2,7 +2,8 @@
 //! `peer::group_state_store`).
 
 use super::StateContainerInner;
-use crate::proto::peer::group_state_store;
+use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::proto::peer::{group_backup, group_state_store};
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::MessageGroupKey;
 
@@ -27,7 +28,36 @@ impl<R: Ratchet> StateContainerInner<R> {
                 }
             };
             self.write_group_state(key, Some(state));
+            let _ = self.group_backups_due.insert(key);
         }
+    }
+
+    /// The `KeepState` signals for the states written since the last call, sealed under the
+    /// account's key; none when the application gave the node no key for this account.
+    pub(crate) fn take_group_backups(&mut self) -> Vec<GroupBroadcast> {
+        let due = std::mem::take(&mut self.group_backups_due);
+        let Some(cid) = self.cnac.as_ref().map(|cnac| cnac.get_cid()) else {
+            return Vec::new();
+        };
+        let Some(account_key) = self
+            .revfs_keys
+            .as_ref()
+            .and_then(|keys| keys.revfs_key(cid))
+        else {
+            return Vec::new();
+        };
+        due.into_iter()
+            .filter_map(|key| {
+                let state = self.group_cgka.get(&key)?.export().ok()??;
+                match group_backup::seal(&account_key, key, &state) {
+                    Ok(sealed) => Some(GroupBroadcast::KeepState { key, sealed }),
+                    Err(err) => {
+                        log::error!(target: "citadel", "{err}");
+                        None
+                    }
+                }
+            })
+            .collect()
     }
 
     /// Forgets the stored state of `key`: the group is over for this member.

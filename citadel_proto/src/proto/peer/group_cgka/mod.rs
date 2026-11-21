@@ -13,6 +13,7 @@
 
 mod hierarchy;
 pub mod join_queue;
+mod new_leaf;
 mod stored;
 
 use crate::error::NetworkError;
@@ -54,6 +55,8 @@ pub struct GroupCgkaState {
     saved: Option<(u64, u64, u64)>,
     /// Messages opened by this state since it was made or read back.
     opens: u64,
+    /// Whether another device of this account may hold this leaf (see `new_leaf`).
+    needs_new_leaf: bool,
 }
 
 /// A fresh, cryptographically-random 32-byte secret (for leaf re-keys giving post-compromise security).
@@ -98,6 +101,7 @@ impl GroupCgkaState {
             tree: 0,
             saved: None,
             opens: 0,
+            needs_new_leaf: false,
         })
     }
 
@@ -124,6 +128,7 @@ impl GroupCgkaState {
                 tree: 0,
                 saved: None,
                 opens: 0,
+                needs_new_leaf: false,
             },
             payload,
         ))
@@ -219,6 +224,7 @@ impl GroupCgkaState {
             Welcome::deserialize_from_vector(welcome_bytes).map_err(|_| ser_err("welcome"))?;
         let group = GroupState::join_from_welcome(&welcome, self.own_leaf_secret)?;
         self.group = Some(group);
+        self.needs_new_leaf = false;
         Ok(())
     }
 

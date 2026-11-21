@@ -105,6 +105,7 @@ mod crossed_redials_after_a_refused_exchange_connect;
 mod deliberate_drop_is_not_a_lost_link;
 mod each_connection_chooses_its_certificate_check;
 mod ephemeral_groups;
+mod group_follows_its_account_to_a_new_device;
 mod group_mail_is_bounded;
 mod group_mail_is_read_on_return;
 mod group_membership_survives_reconnect;
