@@ -4,6 +4,38 @@
 
 ### Added
 
+- **Group state that outlives the session, and the account's device.**
+  - **Local state.** A client keeps each ordinary group's TreeKEM state in its account store
+    (`peer::group_state_store`). A returning session resumes it (`ResumeMembership`,
+    `ResumeOwnership`) instead of rejoining.
+  - **Replay on return.** The server replays, oldest first, what it held for the member while it
+    was away, then marks the end of the replay (`Resumed`). One lock orders every group fan-out
+    against a replay.
+  - **Sealed copy at the server.** The state is also kept at the server, sealed under the
+    account's RE-VFS key (`RevfsKeySource`, derived from the recovery or identity seed;
+    `peer::group_backup`). An account recovered on a new device with its phrase resumes its
+    groups and reads what was sent while it was away.
+  - **Leaf replacement.** It then replaces its leaf, so the device it left reads nothing from the
+    owner's next epoch on.
+- **Group sends are answered per member.** `MessageResponse::delivery` is a `GroupDelivery`:
+  - `Relayed` lists the members it reached now, the members it is held for, and each member it did
+    not reach, with the reason (`NotDelivered::{Offline, BacklogFull, Unreachable}`);
+  - `NotRelayed` says why it reached no one.
+- **Bounded group backlogs.**
+  - `ServerLimits::group_mail: GroupMailLimits { max_age, max_messages, max_bytes }` is required
+    configuration.
+  - `MessageGroupOptions::retention` asks for less than `max_age`, never more.
+  - A message past a member's cap is not held for that member, and the sender's `GroupDelivery`
+    says so. Group control is always held.
+- **Group messages are signed by their sender.** Each leaf carries an ML-DSA-65 key derived from
+  its leaf secret, and every application message and hierarchy frame is signed under it.
+  - A member delivers a message only when its signer is the sender the server relays, and opens
+    each message once (a replay window per epoch, sender and incarnation).
+  - The server relays a group message as from the session that sent it, and refuses one from a
+    non-member (`GroupMessageRefusal::NotAMember`).
+  - A state read back sends under a fresh incarnation, which is part of the message key, so no
+    message key is used twice.
+
 - **P2P key exchanges signed by each account's identity key.** Each end signs its stage of a P2P
   key exchange (the initiator its Stage0, the responder its Stage1) with its account's ML-DSA-65
   identity key, over a transcript naming both CIDs, the connection id, the digests of the stages
@@ -104,6 +136,21 @@
   `KsfParams::FLOOR` reads the same constants.
 
 ### Breaking
+
+- **Groups (protocol 0.12.5; older nodes are refused by name).**
+  - **Delivery reports.** `MessageResponse { success }` is now `MessageResponse { key, delivery }`.
+  - **Group configuration.** `ServerLimits::group_mail` is required. `MessageGroupOptions` gains
+    `retention`.
+  - **Message API.**
+    - `GroupState::decrypt_message` returns an `OpenedMessage { sender_cid, plaintext }`;
+      `GroupCgkaState::decrypt_message` returns `(sender, plaintext)`.
+    - `AppCiphertext` gains `signature` and `incarnation`.
+    - Signatures add about 3.3 KB to each group message, which counts toward the group's caps.
+  - **Wire.**
+    - `RestoreMembership`, `RestoreOwnership` and `Welcome` carry `tree`.
+    - New `ResumeMembership`, `ResumeOwnership`, `Resumed`, `KeepState`, `FetchState` and
+      `KeptState`.
+    - `InboundGroupMessage` has no `sender`: the server sets it.
 
 - **Sessions default to ML-KEM-1024, and nothing else defaults a KEM.** `KemAlgorithm`,
   `CryptoParameters` and `SessionSecuritySettings` no longer implement `Default`, and

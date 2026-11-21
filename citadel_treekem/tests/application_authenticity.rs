@@ -43,7 +43,7 @@ fn sealed_as(epoch_secret: &[u8; 32], leaf: u32, generation: u32) -> Vec<u8> {
 #[test]
 fn a_member_cannot_seal_a_message_as_another_member() {
     let (a, b, mut c) = trio();
-    let forged = AppCiphertext {
+    let sealed_by_b_as_owner = AppCiphertext {
         epoch: b.epoch,
         sender: a.own_leaf,
         incarnation: 0,
@@ -52,7 +52,7 @@ fn a_member_cannot_seal_a_message_as_another_member() {
         signature: b"not the owner's".to_vec(),
     };
     assert!(
-        c.decrypt_message(&forged).is_err(),
+        c.decrypt_message(&sealed_by_b_as_owner).is_err(),
         "C opened, as the owner's, a message B sealed"
     );
 }

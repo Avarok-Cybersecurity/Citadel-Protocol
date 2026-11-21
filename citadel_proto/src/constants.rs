@@ -53,7 +53,9 @@ pub const MINOR_VERSION: u8 = 12;
 // coordination subscriptions; the security-key ceremony.
 // 3 -> 4: link-manager modes; session reattach; signed P2P key-exchange stages; account
 // recovery; shared path loss; bound waves.
-pub const PATCH_VERSION: u8 = 4;
+// 4 -> 5: group integrity: signed group messages bound to their sender, per-member delivery
+// reports, bounded group backlogs, resumable group state.
+pub const PATCH_VERSION: u8 = 5;
 
 /// Media endpoints send and expect a transport offer as the first message on the reliable lane.
 pub const MEDIA_TRANSPORT_OFFER_SINCE: (u8, u8, u8) = (0, 10, 1);
@@ -138,6 +140,10 @@ pub const P2P_KEX_SIGNED_SINCE: (u8, u8, u8) = (0, 12, 4);
 /// peer to lose the route wakes the other over the coordination endpoint, so both fall back and
 /// meet for the retry together.
 pub const PATH_LOSS_SHARED_SINCE: (u8, u8, u8) = (0, 12, 4);
+
+/// Group messages are signed by their sender's leaf and bound to the relaying session; sends are
+/// answered per member; members resume their kept group state and read what was held for them.
+pub const GROUP_INTEGRITY_SINCE: (u8, u8, u8) = (0, 12, 5);
 
 /// Whether an adjacent node's protocol version is known and at least `since`. An unknown or
 /// unparseable version is not.
@@ -282,6 +288,18 @@ mod tests {
         assert!(!protocol_version_at_least(
             version(0, 12, 2),
             SECURITY_KEY_CEREMONY_SINCE
+        ));
+    }
+
+    #[test]
+    fn this_node_carries_group_integrity_and_the_previous_patch_does_not() {
+        assert!(protocol_version_at_least(
+            Some(*PROTOCOL_VERSION),
+            GROUP_INTEGRITY_SINCE
+        ));
+        assert!(!protocol_version_at_least(
+            version(0, 12, 4),
+            GROUP_INTEGRITY_SINCE
         ));
     }
 
