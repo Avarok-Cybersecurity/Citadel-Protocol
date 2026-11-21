@@ -51,6 +51,12 @@ jobs:
           fi
         continue-on-error: true
 
+      - name: A types change that npm already has is a failure, not a skip
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          echo "::error::@avarok/citadel-protocol-types@${{ steps.version.outputs.version }} is already on npm; bump citadel-protocol-types-ts/package.json"
+          exit 1
+
       - name: Publish to npm
         if: steps.check.outputs.exists != 'true'
         working-directory: citadel-protocol-types-ts

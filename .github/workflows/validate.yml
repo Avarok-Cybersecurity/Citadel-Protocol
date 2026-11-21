@@ -183,6 +183,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: A change to the types bumps the npm package version
+        env:
+          BASE_REF: ${{ github.base_ref || 'master' }}
+        run: python3 ci/types_version_gate.py . "origin/$BASE_REF"
       - uses: actions/setup-node@v5
         with:
           node-version: '20'
