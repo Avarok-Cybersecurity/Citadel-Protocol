@@ -520,6 +520,8 @@ pub mod re_imports {
 
     #[cfg(not(target_family = "wasm"))]
     pub use crate::proto::misc::native_io::NativeClientConfig;
+    #[cfg(not(target_family = "wasm"))]
+    pub use crate::proto::misc::native_twin_ports::server_socket_pair;
     pub use citadel_io::tokio_stream::wrappers::UnboundedReceiverStream;
     pub use citadel_io::tokio_util::io::{SinkWriter, StreamReader};
     pub use citadel_pqcrypto::build_tag;

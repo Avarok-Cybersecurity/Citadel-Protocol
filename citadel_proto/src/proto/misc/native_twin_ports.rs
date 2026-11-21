@@ -90,7 +90,7 @@ fn bind_tcp(addr: SocketAddr) -> io::Result<TcpListener> {
 }
 
 /// The server's TCP signalling listener and QUIC socket, on one address.
-pub(crate) fn server_socket_pair(addr: SocketAddr) -> io::Result<(TcpListener, UdpSocket)> {
+pub fn server_socket_pair(addr: SocketAddr) -> io::Result<(TcpListener, UdpSocket)> {
     draw_pair(
         addr,
         |at| {
