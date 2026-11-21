@@ -13,7 +13,7 @@
   "scripts": {
     "prebuild": "node scripts/inject-versions.js",
     "build": "tsc",
-    "test": "node --test tests/",
+    "test": "node --test tests/*.test.js",
     "prepublishOnly": "npm run build"
   },
   "repository": {
