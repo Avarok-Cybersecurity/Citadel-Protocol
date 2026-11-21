@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["check","seal_level"],"struct":["Floor","FloorViolation","MessageFloor"]};
