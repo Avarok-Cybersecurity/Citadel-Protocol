@@ -50,10 +50,11 @@ pub struct GroupState {
     pub(crate) transcript_hash: [u8; 32],
     /// This member's outgoing message counter within the current epoch (reset each epoch).
     pub(crate) send_generation: u32,
-    /// `(epoch, encryption_secret)` of the earlier epochs still readable: those left by Add-only
-    /// commits since the last commit that removed a member or re-keyed without a membership change.
-    /// A member cannot know a Commit is in flight to it, so it seals at the epoch it holds; every
-    /// sender of such an epoch is still a member, so reading it admits no one the group has not.
+    /// `(epoch, encryption_secret)` of the earlier epochs still readable: those left by membership
+    /// commits (adds and removals) since the last commit that only re-keyed. A member cannot know a
+    /// Commit is in flight to it, so it seals at the epoch it holds. A frame of such an epoch is
+    /// opened only when its signature verifies under a leaf of the current tree, so a member that
+    /// was removed, or a leaf that was replaced, is never read from it.
     pub(crate) readable_past_epochs: Vec<(u64, Secret)>,
     /// This member's leaf signing key (see [`crate::signing`]).
     pub(crate) signing_key: LeafSigningKey,
@@ -400,12 +401,10 @@ impl GroupState {
 
     /// Roll the transcript + key schedule forward into the next epoch from a new root secret.
     fn advance_epoch(&mut self, root_secret: &Secret, commit: &Commit) {
-        let adds_only = !commit.proposals.is_empty()
-            && commit
-                .proposals
-                .iter()
-                .all(|proposal| matches!(proposal, Proposal::Add { .. }));
-        if adds_only {
+        // A pure re-key (no proposals) retires the epoch it leaves; a membership change keeps it
+        // readable for the members still in the tree.
+        let membership_change = !commit.proposals.is_empty();
+        if membership_change {
             if self.readable_past_epochs.len() == MAX_READABLE_PAST_EPOCHS {
                 self.readable_past_epochs.remove(0).1.zeroize();
             }
@@ -678,9 +677,10 @@ mod tests {
         }
     }
 
-    /// removed member held that epoch's secret, so nothing sealed under it may be read afterwards.
+    /// The epoch before a join stays readable to the members, never to the joiner; a removal keeps
+    /// readable what the remaining members sealed, never what the removed member did.
     #[test]
-    fn a_pre_add_epoch_stays_readable_until_a_removal() {
+    fn earlier_epochs_stay_readable_only_for_members_still_in_the_tree() {
         let a_secret = [11u8; 32];
         let mut a = GroupState::create(member_leaf(1, &a_secret), a_secret);
         let b_secret = [22u8; 32];
@@ -706,12 +706,15 @@ mod tests {
 
         b.process_commit(&commit_c).unwrap();
         let before_removal = b.encrypt_message(b"before C was removed").unwrap();
-        let commit_r = a.remove_member(c.own_leaf, [0xA3; 32]).unwrap();
-        b.process_commit(&commit_r).unwrap();
-        assert!(a.decrypt_message(&before_add).is_err());
+        let from_c = c.encrypt_message(b"sent by C").unwrap();
+        let _ = a.remove_member(c.own_leaf, [0xA3; 32]).unwrap();
+        assert_eq!(
+            a.decrypt_message(&before_removal).unwrap().plaintext,
+            b"before C was removed"
+        );
         assert!(
-            a.decrypt_message(&before_removal).is_err(),
-            "an epoch the removed member held must not stay readable"
+            a.decrypt_message(&from_c).is_err(),
+            "the removed member was read at an epoch it held"
         );
     }
 
