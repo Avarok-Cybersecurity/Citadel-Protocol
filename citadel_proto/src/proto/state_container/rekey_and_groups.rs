@@ -4,7 +4,7 @@ use super::includes::*;
 use crate::proto::packet_processor::peer::group_commit_ack;
 use crate::proto::peer::group_relay;
 use citadel_io::{error, ErrorCode};
-use citadel_types::proto::GroupHierarchyMode;
+use citadel_types::proto::{GroupDelivery, GroupHierarchyMode, NotRelayed};
 
 impl<R: Ratchet> StateContainerInner<R> {
     #[allow(unused_results)]
@@ -110,7 +110,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             // returned `Ok` vanish. Other commands from an ended session (e.g. the `LeaveRoom` a
             // dropped channel sends) must not reach the server, and nobody awaits them.
             if let GroupBroadcast::Message { key, .. } = command {
-                self.report_group_message_not_delivered(*key);
+                self.report_group_message_not_delivered(*key, NotRelayed::SessionEnded);
             }
             return Ok(());
         }
@@ -169,7 +169,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 message,
             } => {
                 let Some(cgka) = self.group_cgka.get_mut(key) else {
-                    self.report_group_message_not_delivered(*key);
+                    self.report_group_message_not_delivered(*key, NotRelayed::NoGroupKey);
                     return Err(error!(ErrorCode::ProtoGroupCgkaNoState));
                 };
                 let ciphertext = cgka.encrypt_message(message.as_ref())?;
@@ -293,13 +293,17 @@ impl<R: Ratchet> StateContainerInner<R> {
     }
 
     /// Tells the group channel of `key` that a message sent on it never left this node, with the
-    /// same `MessageResponse { success: false }` the server sends when it cannot deliver one.
-    pub(crate) fn report_group_message_not_delivered(&self, key: MessageGroupKey) {
-        log::warn!(target: "citadel", "A group message for {key:?} was not sent; reporting it to the sender");
+    /// same `MessageResponse` the server sends when it relays one to nobody.
+    pub(crate) fn report_group_message_not_delivered(
+        &self,
+        key: MessageGroupKey,
+        reason: NotRelayed,
+    ) {
+        log::warn!(target: "citadel", "A group message for {key:?} was not sent ({reason:?}); reporting it to the sender");
         if let Some(tx) = self.group_channels.get(&key) {
             let refusal = GroupBroadcast::MessageResponse {
                 key,
-                success: false,
+                delivery: GroupDelivery::NotRelayed(reason),
             };
             if let Err(err) = tx.unbounded_send(refusal.into()) {
                 log::error!(target: "citadel", "Unable to report an undelivered group message for {key:?}: {err:?}");

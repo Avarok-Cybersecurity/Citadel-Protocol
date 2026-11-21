@@ -87,6 +87,8 @@ pub enum GroupMessageRefusal {
     TooLarge { bytes: u64, max_bytes: u32 },
     /// The sender already sent `max_per_second` messages to the group in this one-second window.
     RateLimited { max_per_second: u32 },
+    /// The sending session is not a member of the group.
+    NotAMember,
 }
 
 impl Display for GroupMessageRefusal {
@@ -100,6 +102,7 @@ impl Display for GroupMessageRefusal {
                 f,
                 "the group allows each sender at most {max_per_second} messages per second"
             ),
+            Self::NotAMember => write!(f, "only a member of the group may send to it"),
         }
     }
 }

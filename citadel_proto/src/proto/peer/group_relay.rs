@@ -49,7 +49,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     }
 
     /// Admits a message of `bytes` from `sender` to `key` under the group's limits, counting it
-    /// against the sender's rate, and returns its targets. A group that does not exist here has
+    /// against the sender's rate, and returns its targets. Only a member may send. A group that does not exist here has
     /// no limits and no targets, as before limits.
     pub async fn admit_group_message(
         &self,
@@ -66,6 +66,9 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         else {
             return Ok(None);
         };
+        if !group.concurrent_peers.contains_key(&sender) {
+            return Err(GroupMessageRefusal::NotAMember);
+        }
         admit(
             group.options.limits.as_ref(),
             &mut group.rates.lock(),

@@ -168,7 +168,9 @@ impl GroupChannelSendHalf {
             // a message it cannot deliver.
             let refusal = GroupBroadcast::MessageResponse {
                 key: self.key,
-                success: false,
+                delivery: citadel_types::proto::GroupDelivery::NotRelayed(
+                    citadel_types::proto::NotRelayed::SessionEnded,
+                ),
             };
             let _ = self.undelivered.send(refusal.into());
             return Ok(());

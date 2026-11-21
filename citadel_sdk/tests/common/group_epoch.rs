@@ -154,9 +154,12 @@ pub async fn relayed(channel: &mut GroupChannel, count: u64) {
     while acknowledged < count {
         match channel.recv().await {
             Some(GroupBroadcastPayload::Event {
-                payload: GroupBroadcast::MessageResponse { success, .. },
+                payload: GroupBroadcast::MessageResponse { delivery, .. },
             }) => {
-                assert!(success, "the server could not relay a message");
+                assert!(
+                    delivery.is_complete(),
+                    "the server could not relay a message: {delivery:?}"
+                );
                 acknowledged += 1;
             }
             Some(_) => {}

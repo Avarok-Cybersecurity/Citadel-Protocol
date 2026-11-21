@@ -45,8 +45,8 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::{
-    GroupHierarchyMode, GroupMemberAlterMode, GroupMessageRefusal, MemberState, MessageGroupKey,
-    MessageGroupOptions,
+    GroupDelivery, GroupHierarchyMode, GroupMemberAlterMode, GroupMessageRefusal, MemberState,
+    MessageGroupKey, MessageGroupOptions,
 };
 use citadel_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
@@ -101,12 +101,12 @@ pub enum GroupBroadcast {
         /// Message payload
         message: SecBuffer,
     },
-    /// Response to a message broadcast
+    /// The server's account of a message broadcast, member by member
     MessageResponse {
         /// Group key
         key: MessageGroupKey,
-        /// Success status
-        success: bool,
+        /// Which members received it, have it held for them, or will not receive it
+        delivery: GroupDelivery,
     },
     /// A joiner publishes its post-quantum TreeKEM `KeyPackage` to the group owner so the owner can
     /// Add it to the ratchet tree. `payload` is an opaque serialized `citadel_treekem::KeyPackage` —
@@ -617,7 +617,6 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
                 log::trace!(target: "citadel", "[Group/Server] Received message {message:?}");
                 let inbound = group_message_relay::InboundGroupMessage {
                     session_cid,
-                    sender: username,
                     key,
                     message,
                     ticket,
@@ -688,11 +687,11 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
             }
         }
 
-        GroupBroadcast::MessageResponse { key, success } => forward_signal(
+        GroupBroadcast::MessageResponse { key, delivery } => forward_signal(
             session,
             ticket,
             Some(key),
-            GroupBroadcast::MessageResponse { key, success },
+            GroupBroadcast::MessageResponse { key, delivery },
         ),
 
         GroupBroadcast::MessageRefused { key, refusal } => {

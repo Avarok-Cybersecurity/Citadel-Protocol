@@ -60,10 +60,8 @@ mod tests {
                             .send_message(SecBuffer::from(format!("m-{n}").into_bytes()))
                             .await?;
                         let answer = next_send_answer(&mut channel).await;
-                        if !matches!(
-                            answer,
-                            GroupBroadcast::MessageResponse { success: true, .. }
-                        ) {
+                        if !matches!(&answer, GroupBroadcast::MessageResponse { delivery, .. } if delivery.is_complete())
+                        {
                             let _ = not_stored.fetch_add(1, Ordering::SeqCst);
                         }
                     }

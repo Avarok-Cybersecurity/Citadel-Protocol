@@ -2216,10 +2216,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         mail_if_offline: bool,
         signal: GroupBroadcast,
         security_level: SecurityLevel,
-    ) -> Result<GroupDelivery, String> {
+    ) -> Result<GroupFanOut, String> {
         let mut peers_failed = Vec::new();
         let mut peers_okay = Vec::new();
         let mut to_mail = Vec::new();
+        let mut offline = Vec::new();
 
         let pers = {
             let this = inner!(self);
@@ -2241,6 +2242,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                         // on error, try adding to mailbox
                         if mail_if_offline {
                             to_mail.push(peer);
+                        } else {
+                            offline.push(peer);
                         }
                     } else {
                         // okay
@@ -2268,9 +2271,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             .map_err(|err| err.into_string())?;
         }
 
-        Ok(GroupDelivery {
+        Ok(GroupFanOut {
             direct: peers_okay,
             mailed: to_mail,
+            offline,
             failed: peers_failed,
         })
     }
@@ -2373,10 +2377,12 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 }
 
 /// Where a group signal went: to a connected session, to the mailbox of a registered peer that
-/// had none, or nowhere (not registered with the sender).
-pub struct GroupDelivery {
+/// had none, to nobody because the peer is offline and nothing is mailed, or nowhere (not
+/// registered with the sender).
+pub struct GroupFanOut {
     pub direct: Vec<u64>,
     pub mailed: Vec<u64>,
+    pub offline: Vec<u64>,
     pub failed: Vec<u64>,
 }
 

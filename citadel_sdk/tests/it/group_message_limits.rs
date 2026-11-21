@@ -60,7 +60,7 @@ mod tests {
                     channel.send_message(SecBuffer::from(END.to_vec())).await?;
                     let end = next_send_answer(&mut channel).await;
                     assert!(
-                        matches!(end, GroupBroadcast::MessageResponse { success: true, .. }),
+                        matches!(&end, GroupBroadcast::MessageResponse { delivery, .. } if delivery.is_complete()),
                         "{end:?}"
                     );
                     done.wait().await;
@@ -113,7 +113,7 @@ mod tests {
     fn delivered(answer: &GroupBroadcast) -> bool {
         matches!(
             answer,
-            GroupBroadcast::MessageResponse { success: true, .. }
+            GroupBroadcast::MessageResponse { delivery, .. } if delivery.is_complete()
         )
     }
 

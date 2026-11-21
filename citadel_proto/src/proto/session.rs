@@ -2396,7 +2396,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                     SessionRequest::Group(Group {
                                         broadcast: GroupBroadcast::Message { key, .. },
                                         ..
-                                    }) => inner_state!(this.state_container).report_group_message_not_delivered(key),
+                                    }) => inner_state!(this.state_container).report_group_message_not_delivered(key, citadel_types::proto::NotRelayed::SessionEnded),
                                     SessionRequest::Group(_) => {}
                                 }
                             }

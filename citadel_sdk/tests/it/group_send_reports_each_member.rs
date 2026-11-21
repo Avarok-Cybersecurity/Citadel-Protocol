@@ -80,10 +80,7 @@ mod tests {
             .take()
             .expect("the send was answered");
         assert!(
-            !matches!(
-                answer,
-                GroupBroadcast::MessageResponse { success: true, .. }
-            ),
+            !matches!(&answer, GroupBroadcast::MessageResponse { delivery, .. } if delivery.is_complete()),
             "a message that reached no member was reported delivered: {answer:?}"
         );
     }
