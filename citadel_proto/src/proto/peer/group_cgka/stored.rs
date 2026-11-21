@@ -60,7 +60,7 @@ impl GroupCgkaState {
             opens: 0,
         });
         stored.zeroize();
-        Ok(state?)
+        state
     }
 
     /// Whether the state changed in a way worth writing since it was last written: its epoch or

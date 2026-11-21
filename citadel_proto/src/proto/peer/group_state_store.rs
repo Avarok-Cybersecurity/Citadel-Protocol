@@ -48,7 +48,7 @@ pub(crate) fn writer<R: Ratchet>(
             }
         }
     };
-    let _ = spawn!(task);
+    std::mem::drop(spawn!(task));
     tx
 }
 
