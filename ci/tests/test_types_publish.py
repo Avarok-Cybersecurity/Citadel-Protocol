@@ -8,7 +8,6 @@ npm-published.sh is run against a stand-in `npm` on PATH that answers as npm doe
 outage cannot be produced on demand.
 """
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
