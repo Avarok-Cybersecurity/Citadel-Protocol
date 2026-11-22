@@ -101,3 +101,41 @@ fn an_update_for_another_members_leaf_is_refused() {
     }];
     assert!(b.process_commit(&replacement).is_err());
 }
+
+/// What a removal guarantees about the removed member C, at every member that applied it:
+///
+/// - nothing sealed at the epoch the removal starts, or any later one, opens for C;
+/// - a frame C seals at the epoch it was removed from is refused, whenever C seals it.
+///
+/// It does not guarantee that C cannot read a message another member sealed at that earlier
+/// epoch before applying the removal: C held that epoch's key, so such a message is readable by
+/// C if it reaches C. The server stops relaying to C once it has processed the removal, so only
+/// what was already on its way to C before then can reach it. This is the MLS guarantee too.
+#[test]
+fn a_removed_member_reads_nothing_sealed_after_and_is_refused_at_the_epoch_it_left() {
+    let (mut a, mut b, mut c) = trio();
+    let removal = a.remove_member(c.own_leaf, [7u8; 32]).unwrap();
+    b.process_commit(&removal).unwrap();
+    assert!(
+        c.process_commit(&removal).is_err(),
+        "the removed member followed its removal"
+    );
+    let from_c = c.encrypt_message(b"sealed by c after its removal").unwrap();
+    assert!(
+        a.decrypt_message(&from_c).is_err(),
+        "the owner read the removed member"
+    );
+    assert!(
+        b.decrypt_message(&from_c).is_err(),
+        "a member read the removed member"
+    );
+
+    let next = a.encrypt_message(b"at the removal's epoch").unwrap();
+    let from_b = b.encrypt_message(b"from b at the removal's epoch").unwrap();
+    assert!(c.decrypt_message(&next).is_err());
+    assert!(c.decrypt_message(&from_b).is_err());
+    let re_key = a.commit_update([4u8; 32]).unwrap();
+    b.process_commit(&re_key).unwrap();
+    let later = a.encrypt_message(b"an epoch later").unwrap();
+    assert!(c.decrypt_message(&later).is_err());
+}

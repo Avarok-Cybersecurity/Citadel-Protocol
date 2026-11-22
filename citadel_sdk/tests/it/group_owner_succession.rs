@@ -9,6 +9,7 @@
 //! O's kick is refused; O owns no group
 //! M sends "after-owner-left"; S reads it
 //! S kicks M; M is told it is out, and S owns the group
+//! S sends "after-kick"; the server relays it to nobody, held or live: M is out
 //! ```
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -101,6 +102,16 @@ mod tests {
             .await;
             assert!(kicked, "the new owner's kick was refused");
             assert_eq!(conn.list_owned_groups().await?, vec![channel.key()]);
+            channel
+                .send_message(SecBuffer::from(b"after-kick".to_vec()))
+                .await?;
+            let answer = next_send_answer(&mut channel).await;
+            assert!(
+                matches!(&answer, GroupBroadcast::MessageResponse {
+                    delivery: GroupDelivery::Relayed { delivered, stored, not_delivered }, ..
+                } if delivered.is_empty() && stored.is_empty() && not_delivered.is_empty()),
+                "a message sent after a removal was relayed to the removed member: {answer:?}"
+            );
         } else {
             let reason = disconnected(&mut channel).await;
             assert_eq!(reason, GroupEndReason::Removed);
