@@ -4,6 +4,8 @@
 
 /// C7: negotiation frames bound to their connection.
 pub mod bound_frame;
+/// A dial made while this side's accept of the peer's offer is still being exchanged.
+pub(crate) mod displaced_accept;
 pub(crate) mod driver;
 /// C1, C4, C5: the message floor of a negotiated key epoch.
 pub mod floor;

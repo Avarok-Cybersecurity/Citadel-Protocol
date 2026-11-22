@@ -12,9 +12,16 @@
 //!
 //! The roles are fixed by CID so the losing order is the one exercised: the lower CID dials, the
 //! higher CID accepts that dial and immediately dials back.
+//!
+//! The dial back can be stronger than the offer it follows (two windows of one chat, at
+//! different levels). The higher CID then judged the exchange its accept had started against the
+//! stronger dial and refused it, while the lower CID had set that dial aside for the exchange to
+//! answer: neither end got a channel. The accept's exchange now makes the link, and the stronger
+//! dial is answered by it with a refusal, never with a channel below its offer.
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
+    use crate::dials::settings;
     use crate::group::{register_connect_and_befriend, Events, GroupTestKernel};
     use citadel_io::tokio;
     use citadel_sdk::prefabs::server::empty::EmptyKernel;
@@ -65,15 +72,12 @@ mod tests {
         remote: &NodeRemote<StackedRatchet>,
         events: &mut Events,
         peer: &str,
+        level: SecurityLevel,
     ) -> Outcome {
         let dial = async {
             conn.find_target(conn.cid, peer.to_string())
                 .await?
-                .connect_to_peer_custom(
-                    citadel_sdk::prelude::default_session_security_settings(),
-                    UdpMode::Enabled,
-                    None,
-                )
+                .connect_to_peer_custom(settings(level), UdpMode::Enabled, None)
                 .await
         };
         tokio::pin!(dial);
@@ -117,6 +121,7 @@ mod tests {
         addr: std::net::SocketAddr,
         me: String,
         peer: String,
+        back: SecurityLevel,
     ) -> Result<(), NetworkError> {
         let conn = register_connect_and_befriend(&remote, addr, &me, &peer).await?;
         let peer_cid = conn
@@ -126,10 +131,13 @@ mod tests {
             .await?
             .get_original_target_cid();
         wait_for_peers().await;
-        if conn.cid > peer_cid {
+        let level = if conn.cid > peer_cid {
             accept_first_offer(&mut events, &remote).await;
-        }
-        let outcome = dial_while_accepting(&conn, &remote, &mut events, &peer).await;
+            back
+        } else {
+            SecurityLevel::Standard
+        };
+        let outcome = dial_while_accepting(&conn, &remote, &mut events, &peer, level).await;
         let role = if conn.cid > peer_cid {
             "accepted, then dialled back"
         } else {
@@ -142,6 +150,11 @@ mod tests {
         let channel = outcome.channel.unwrap_or_else(|| {
             panic!("{report}; no channel to {peer} within {CHANNEL_DEADLINE:?}")
         });
+        let built = channel.session_security_settings().security_level;
+        assert!(
+            outcome.dial != Some(Ok(())) || built.value() >= level.value(),
+            "{report}; the dial at {level:?} was answered with a link at {built:?}"
+        );
         let (mut tx, mut rx) = channel.split();
         tx.send(SecBuffer::from(format!("hello from {me}").as_bytes()))
             .await
@@ -161,6 +174,15 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn a_dial_back_during_the_first_exchange_connects_both_ends() {
+        run(SecurityLevel::Standard).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn a_stronger_dial_back_during_the_first_exchange_connects_both_ends() {
+        run(SecurityLevel::High).await;
+    }
+
+    async fn run(back: SecurityLevel) {
         citadel_logging::setup_log();
         TestBarrier::setup(2);
         let (server, addr) = server_test_node(EmptyKernel::<StackedRatchet>::default(), |_| {});
@@ -174,7 +196,7 @@ mod tests {
                 .with_max_security_level(citadel_sdk::test_common::localhost_max_security_level())
                 .build(GroupTestKernel::new(
                     move |remote: NodeRemote<StackedRatchet>, events: Events| {
-                        one_end(remote, events, addr, me, peer)
+                        one_end(remote, events, addr, me, peer, back)
                     },
                 ))
                 .unwrap()

@@ -284,8 +284,21 @@ pub struct FileKey {
     pub object_id: ObjectId,
 }
 
+/// This side's offer for a link to one peer: a dial, or an accept of the peer's dial.
 #[derive(Copy, Clone, Debug)]
 pub struct OutgoingPeerConnectionAttempt {
+    pub ticket: Ticket,
+    pub session_security_settings: SessionSecuritySettings,
+    /// An accept of the peer's offer, not a dial of this side's own.
+    pub accept: bool,
+    /// The accept this dial took the slot from, its exchange possibly still under way
+    /// (`peer::negotiation::displaced_accept`).
+    pub displaced_accept: Option<AcceptRecord>,
+}
+
+/// An accept this side sent: its ticket and the settings it agreed to.
+#[derive(Copy, Clone, Debug)]
+pub struct AcceptRecord {
     pub ticket: Ticket,
     pub session_security_settings: SessionSecuritySettings,
 }

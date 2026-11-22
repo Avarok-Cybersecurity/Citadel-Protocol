@@ -76,6 +76,7 @@ use crate::proto::packet_processor::disconnect_packet::SUCCESS_DISCONNECT;
 use crate::proto::packet_processor::includes::{Duration, SocketAddr};
 use crate::proto::packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::proto::packet_processor::{self, PrimaryProcessorResult};
+use crate::proto::peer::negotiation::displaced_accept;
 use crate::proto::peer::p2p_conn_handler::P2PInboundHandle;
 use crate::proto::peer::peer_layer::{CitadelNodePeerLayer, PeerSignal};
 use crate::proto::remote::{NodeRemote, Ticket};
@@ -86,9 +87,8 @@ use crate::proto::session_queue_handler::{
     RESERVED_CID_IDX,
 };
 use crate::proto::state_container::{
-    FileKey, GroupKey, OutboundFileTransfer, OutboundTransmitterContainer,
-    OutgoingPeerConnectionAttempt, StateContainer, StateContainerInner, VirtualConnectionType,
-    VirtualTargetType,
+    FileKey, GroupKey, OutboundFileTransfer, OutboundTransmitterContainer, StateContainer,
+    StateContainerInner, VirtualConnectionType, VirtualTargetType,
 };
 use crate::proto::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use crate::proto::state_subcontainers::rekey_container::calculate_update_frequency;
@@ -2623,14 +2623,22 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                         session_password,
                     );
 
-                    // in case the ticket gets mapped during simultaneous_connect, store locally
-                    let _ = state_container.outgoing_peer_connect_attempts.insert(
-                        peer_conn_type.get_original_target_cid(),
-                        OutgoingPeerConnectionAttempt {
-                            ticket,
-                            session_security_settings,
-                        },
+                    // in case the ticket gets mapped during simultaneous_connect, store locally.
+                    // A dial keeps an accept it displaces: that accept's exchange may be under
+                    // way (`displaced_accept`).
+                    let target = peer_conn_type.get_original_target_cid();
+                    let previous = state_container
+                        .outgoing_peer_connect_attempts
+                        .remove(&target);
+                    let attempt = displaced_accept::record(
+                        previous,
+                        ticket,
+                        session_security_settings,
+                        invitee_response.is_some(),
                     );
+                    let _ = state_container
+                        .outgoing_peer_connect_attempts
+                        .insert(target, attempt);
                     PeerSignal::PostConnect {
                         peer_conn_type,
                         ticket_opt,
