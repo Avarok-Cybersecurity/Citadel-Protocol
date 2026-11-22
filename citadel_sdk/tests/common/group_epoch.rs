@@ -173,6 +173,7 @@ pub async fn read_until_final(
     }
 }
 
+#[cfg(feature = "localhost-testing")]
 /// Wait until the server has relayed `count` more messages from `sender`, each to every member.
 /// This is observed at the server, so it does not wait on `sender` handling anything inbound
 /// (its group traffic is handled in order, and may be behind a Commit it has not applied yet).
