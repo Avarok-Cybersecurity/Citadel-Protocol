@@ -30,28 +30,22 @@ jobs:
           tools: make
       - name: Compile documentation
         run: cargo make docs
+      # The site as GitHub Pages serves it from gh-pages: the SDK's pages under docs/ and a root page
+      # that redirects there. It is laid out here so that one deploy publishes it, as one commit. It
+      # was rearranged after the deploy, on a second checkout of gh-pages over the workspace: two
+      # commits and two Pages builds per push, and the setup-rust post step, which reads the
+      # action from the workspace, failed every run (45004463334).
+      - name: Lay out the published site
+        run: |
+          mv target/doc/citadel_sdk target/doc/docs
+          printf '%s\n' '<meta http-equiv="refresh" content="0; url=docs">' > target/doc/index.html
       - name: Deploy documentation
-        if: success()
         uses: crazy-max/ghaction-github-pages@v5
         with:
           build_dir: target/doc
           target_branch: gh-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/checkout@v5
-        if: success()
-        with:
-          ref: gh-pages
-      - name: Ensure valid redirection
-        run: |
-          mv "${GITHUB_WORKSPACE}/citadel_sdk" "${GITHUB_WORKSPACE}/docs"
-          echo "<meta http-equiv=\"refresh\" content=\"0; url=docs\">" > "${GITHUB_WORKSPACE}/index.html"
-          git config --global user.name "tbraun96"
-          git config --global user.email "thomas.braun@avarok.net"
-          git add .
-          git commit -m "redirection config"
-          git push
 #      - uses: katyo/publish-crates@v1
 #        with:
 #          registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}

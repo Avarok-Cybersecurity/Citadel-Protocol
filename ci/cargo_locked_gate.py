@@ -51,6 +51,10 @@ NON_RESOLVING_FORMS = [
     re.compile(r"\bcargo pgo info\b"),
     # runs the fuzzer on the binary `cargo afl build --locked` built
     re.compile(r"\bcargo afl fuzz\b"),
+    # builds AFL++'s own C sources into cargo-afl's data directory
+    re.compile(r"\bcargo afl config\b"),
+    # prints cargo-afl's version
+    re.compile(r"\bcargo afl --version\b"),
 ]
 
 CARGO = re.compile(r"(?<![\w-])cargo\s+(\+\S+\s+)?(?P<sub>--version|[a-z][\w-]*)")

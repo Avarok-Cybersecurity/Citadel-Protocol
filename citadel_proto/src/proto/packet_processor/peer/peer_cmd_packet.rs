@@ -37,6 +37,7 @@ use std::sync::atomic::Ordering;
 use bytes::BytesMut;
 
 use crate::proto::misc::platform_ops::PlatformOps;
+use crate::proto::peer::negotiation::displaced_accept;
 use crate::proto::peer::negotiation::level_cap::{above_maximum_error, refuse_if_above_maximum};
 use crate::proto::peer::negotiation::link_refusal::refuse_link;
 use crate::proto::peer::negotiation::reason::reported_reason;
@@ -341,6 +342,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             &mut inner_mut_state!(session.state_container),
                                             *original_session_cid,
                                             *endpoint_security_settings,
+                                            ticket,
                                         );
                                         if let Some(attempt) = stamped_below {
                                             return refuse_stamp(
@@ -688,6 +690,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         &mut state_container,
                                         peer_cid,
                                         *session_security_settings,
+                                        ticket,
                                     ) {
                                         drop(state_container);
                                         return refuse_stamp(
@@ -1207,7 +1210,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         channel,
                                         udp_rx_opt,
                                         endpoint_ratchet,
-                                        local_outgoing_connection_attempt_metadata,
+                                        delivery,
                                         needs_turn,
                                         kem_session_security_settings,
                                         hole_punch_cancel_rx,
@@ -1279,6 +1282,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         log::trace!(target: "citadel", "[NAT] Peer addr as observed by the Citadel server (diagnostic, unverified): {:?} || needs TURN? {}", alice_predicted_socket_addr, needs_turn);
 
                                         let p2p_connection_id = kem.p2p_connection_id;
+                                        let answered_ticket = kem.answered_ticket;
                                         let channel = match state_container
                                             .create_virtual_connection(
                                                 //alice_predicted_socket_addr,
@@ -1302,10 +1306,16 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                         .with_kex_identity(peer_kex_identity);
 
                                         log::trace!(target: "citadel", "Virtual connection forged on endpoint tuple {this_cid} -> {peer_cid}");
-                                        let local_outgoing_connection_attempt_metadata =
-                                            state_container
-                                                .outgoing_peer_connect_attempts
-                                                .remove(&peer_cid);
+                                        let delivery = state_container
+                                            .outgoing_peer_connect_attempts
+                                            .remove(&peer_cid)
+                                            .map(|attempt| {
+                                                displaced_accept::deliver(
+                                                    attempt,
+                                                    answered_ticket,
+                                                    session_security_settings,
+                                                )
+                                            });
                                         let hole_punch_compat_stream =
                                             ReliableOrderedCompatStream::<R>::new(
                                                 return_if_none!(session.to_primary_stream.clone()),
@@ -1319,12 +1329,30 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                                             channel,
                                             udp_rx_opt,
                                             endpoint_ratchet,
-                                            local_outgoing_connection_attempt_metadata,
+                                            delivery,
                                             needs_turn,
                                             session_security_settings,
                                             hole_punch_cancel_rx,
                                         )
                                     };
+                                    let (local_outgoing_connection_attempt_metadata, refused_dial) =
+                                        delivery.map_or((None, None), |delivery| {
+                                            (Some(delivery.channel_to), delivery.refused_dial)
+                                        });
+                                    if let Some((dial_ticket, error)) = refused_dial {
+                                        log::warn!(target: "citadel", "R-DIAL: the accepted link to {peer_cid} answers a stronger dial: {error}");
+                                        session.send_to_kernel(NodeResult::PeerEvent(
+                                            PeerEvent {
+                                                event: PeerSignal::SignalError {
+                                                    ticket: dial_ticket,
+                                                    error,
+                                                    peer_connection_type: conn.reverse(),
+                                                },
+                                                ticket: dial_ticket,
+                                                session_cid,
+                                            },
+                                        ))?;
+                                    }
 
                                     let diff = Duration::from_nanos(i64::abs(
                                         timestamp - *sync_time_ns,

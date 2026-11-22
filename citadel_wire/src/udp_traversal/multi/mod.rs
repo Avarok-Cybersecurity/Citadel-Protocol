@@ -17,6 +17,7 @@
 //! # Examples
 //!
 //! ```rust
+//! use citadel_wire::udp_traversal::attempt_commit::AttemptCommit;
 //! use citadel_wire::udp_traversal::multi::DualStackUdpHolePuncher;
 //! use citadel_wire::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 //! use citadel_wire::udp_traversal::hole_punch_config::HolePunchConfig;
@@ -28,13 +29,15 @@
 //!     node_type: RelativeNodeType,
 //!     config: HolePunchConfigContainer,
 //!     hole_punch_config: HolePunchConfig,
-//!     network: NetworkEndpoint
+//!     network: NetworkEndpoint,
+//!     commit: AttemptCommit,
 //! ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
 //!     let puncher = DualStackUdpHolePuncher::new(
 //!         node_type,
 //!         config,
 //!         hole_punch_config,
-//!         network
+//!         network,
+//!         commit,
 //!     )?;
 //!     
 //!     puncher.await
@@ -58,6 +61,7 @@
 //!
 
 use crate::udp_traversal::abort_on_drop::AbortOnDrop;
+use crate::udp_traversal::attempt_commit::AttemptCommit;
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
@@ -102,6 +106,7 @@ impl DualStackUdpHolePuncher {
         encrypted_config_container: HolePunchConfigContainer,
         mut hole_punch_config: HolePunchConfig,
         napp: NetworkEndpoint,
+        commit: AttemptCommit,
     ) -> Result<Self, anyhow::Error> {
         let mut hole_punchers = Vec::new();
         let sockets = hole_punch_config
@@ -143,7 +148,7 @@ impl DualStackUdpHolePuncher {
         // used to leave a task looping forever on its bound UDP sockets, and
         // the next attempt bound a fresh set. See udp_traversal/abort_on_drop.rs.
         let task = async move {
-            AbortOnDrop::spawn(drive(hole_punchers, relative_node_type, napp))
+            AbortOnDrop::spawn(drive(hole_punchers, relative_node_type, napp, commit))
                 .await
                 .map_err(|err| anyhow::Error::msg(format!("panic in hole puncher: {err:?}")))?
         };
@@ -170,7 +175,9 @@ async fn drive(
     hole_punchers: Vec<SingleUDPHolePuncher>,
     node_type: RelativeNodeType,
     app: NetworkEndpoint,
+    commit: AttemptCommit,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+    let commit = &commit;
     // We use a single mutex to resolve timing/priority conflicts automatically
     // Which ever node FIRST can set the value will "win"
     let value = if node_type == RelativeNodeType::Initiator {
@@ -425,6 +432,11 @@ async fn drive(
                         // resolver received a completed future; since in variable NAT setups, the adjacent side may fail
                         // entirely, it could never finish, thus never trigger the code that sets the commanded_winner
                         // and thus prompts the background code to return the socket on the adjacent node.
+                        if !commit.commit() {
+                            return Err(anyhow::Error::msg(
+                                "the attempt expired before the winner could announce",
+                            ));
+                        }
                         coord.announce_winner(peer_unique_id, local_id).await?;
                         while let Some(socket) = current_enqueued_set.lock().await.pop() {
                             if socket.local_id != local_id {
@@ -532,8 +544,12 @@ async fn drive(
 
     if commanded_winner.lock().await.is_none() {
         coord.await_winner_can_end().await?;
-    } else {
+    } else if commit.commit() {
         coord.release_winner().await;
+    } else {
+        return Err(anyhow::Error::msg(
+            "the attempt expired before the loser could release the winner",
+        ));
     }
 
     log::trace!(target: "citadel", "*** ENDING DualStack ***");

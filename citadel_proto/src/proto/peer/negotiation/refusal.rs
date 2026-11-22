@@ -7,6 +7,7 @@ use crate::proto::node_result::NodeResult;
 use crate::proto::node_result::PeerEvent;
 use crate::proto::packet_crafter;
 use crate::proto::packet_processor::PrimaryProcessorResult;
+use crate::proto::peer::negotiation::displaced_accept;
 use crate::proto::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use crate::proto::remote::Ticket;
 use crate::proto::state_container::{OutgoingPeerConnectionAttempt, StateContainerInner};
@@ -16,17 +17,21 @@ use citadel_types::crypto::{PreSharedKey, SecurityLevel};
 use citadel_types::proto::{falls_short_of, SessionSecuritySettings, UdpMode};
 
 /// R-DIAL 3. When this side made an offer for the link to `peer_cid` (a dial, or an accept), and
-/// the settings it is now told to build with fall short of it, the attempt ends here: it is
-/// taken and returned, so the caller refuses. A stamp at or above the offer leaves it in place.
+/// the settings it is now told to build with, by the exchange on `exchange`, fall short of the
+/// offer that exchange answers, the attempt ends here: it is taken and returned, so the caller
+/// refuses. A stamp at or above the offer leaves it in place.
 pub(crate) fn take_attempt_stamped_below<R: Ratchet>(
     state_container: &mut StateContainerInner<R>,
     peer_cid: u64,
     stamped: SessionSecuritySettings,
+    exchange: Ticket,
 ) -> Option<OutgoingPeerConnectionAttempt> {
-    let own = state_container
-        .outgoing_peer_connect_attempts
-        .get(&peer_cid)?
-        .session_security_settings;
+    let own = displaced_accept::offer_answered(
+        state_container
+            .outgoing_peer_connect_attempts
+            .get(&peer_cid)?,
+        exchange,
+    );
     if falls_short_of(stamped, own) {
         state_container
             .outgoing_peer_connect_attempts

@@ -10,19 +10,25 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # npm trusted publishing
+    outputs:
+      published: ${{ steps.publish.outcome == 'success' }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          # npm trusted publishing (OIDC) needs npm 11.5.1 or later, which ships with Node 24
+          # npm trusted publishing (OIDC) needs npm 11.5.1 or later, which ships with Node 24.
+          # ci/types_node_gate.py holds validate.yml's typescript_types job to this major.
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
@@ -43,16 +49,15 @@ jobs:
         working-directory: citadel-protocol-types-ts
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
+      # A lookup that fails for any reason but "not found" fails here; it was read as "not
+      # published" (`npm view ... 2>/dev/null`), which sends a registry outage on to publish.
       - name: Check if version exists on npm
         id: check
-        working-directory: citadel-protocol-types-ts
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if npm view @avarok/citadel-protocol-types@${{ steps.version.outputs.version }} version 2>/dev/null; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-        continue-on-error: true
+          exists="$(ci/npm-published.sh @avarok/citadel-protocol-types "$VERSION")"
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
 
       - name: A types change that npm already has is a failure, not a skip
         if: steps.check.outputs.exists == 'true'
@@ -61,12 +66,13 @@ jobs:
           exit 1
 
       - name: Publish to npm
-        if: steps.check.outputs.exists != 'true'
+        id: publish
+        if: steps.check.outputs.exists == 'false'
         working-directory: citadel-protocol-types-ts
         run: npm publish --access public
 
       - name: Create GitHub Release
-        if: steps.check.outputs.exists != 'true'
+        if: steps.check.outputs.exists == 'false'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ts-v${{ steps.version.outputs.version }}
@@ -81,3 +87,46 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # The consumers re-pin these types in their types-bump workflows, on a `types-released`
+  # dispatch or nightly. Without the dispatch a release waited for the nightly run. It runs
+  # whenever npm has the new version, even if a later step of the publish job failed.
+  notify:
+    needs: publish
+    if: ${{ !cancelled() && needs.publish.outputs.published == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      CONSUMERS: citadel-internal-service,citadel-workspace
+      VERSION: ${{ needs.publish.outputs.version }}
+    steps:
+      - name: The types-sync App is configured
+        env:
+          APP_ID: ${{ vars.TYPES_SYNC_APP_ID }}
+          APP_KEY: ${{ secrets.TYPES_SYNC_APP_PRIVATE_KEY }}
+        run: |
+          missing=""
+          [ -n "$APP_ID" ] || missing="$missing variable TYPES_SYNC_APP_ID"
+          [ -n "$APP_KEY" ] || missing="$missing secret TYPES_SYNC_APP_PRIVATE_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::not configured:$missing (the types-sync GitHub App, installed on $CONSUMERS). They were NOT told about types $VERSION; their nightly types-bump will still find it."
+            exit 1
+          fi
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ vars.TYPES_SYNC_APP_ID }}
+          private-key: ${{ secrets.TYPES_SYNC_APP_PRIVATE_KEY }}
+          owner: Avarok-Cybersecurity
+          repositories: ${{ env.CONSUMERS }}
+      - name: Dispatch types-released
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          for repo in ${CONSUMERS//,/ }; do
+            gh api "repos/Avarok-Cybersecurity/$repo/dispatches" \
+              -f event_type=types-released \
+              -f "client_payload[producer]=sdk" \
+              -f "client_payload[version]=$VERSION" \
+              -f "client_payload[rev]=$GITHUB_SHA"
+            echo "told $repo: types $VERSION ($GITHUB_SHA)"
+          done

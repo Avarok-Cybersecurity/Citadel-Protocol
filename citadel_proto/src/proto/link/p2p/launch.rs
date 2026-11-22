@@ -87,6 +87,7 @@ pub(crate) fn launch_link<R: Ratchet, T: PlatformOps>(pair: LaunchedPair<R, T>) 
         Some(OutgoingPeerConnectionAttempt {
             ticket: stored_ticket,
             session_security_settings: stored_settings,
+            ..
         }) => (stored_ticket, stored_settings),
         None => {
             log::trace!(target: "citadel", "Using the exchange's ticket for peer {peer_cid} (no dial of our own)");

@@ -58,6 +58,12 @@ jobs:
         run: python3 ci/toolchain_pin_gate.py .
       - name: Every workspace dependency is used by a member
         run: python3 ci/workspace_deps_gate.py .
+      - name: No job checks out over a local action it ran
+        run: python3 ci/checkout_over_local_action_gate.py .
+      - name: The types' tests run on the Node the publish job uses
+        run: python3 ci/types_node_gate.py .
+      - name: Every check branch protection requires is one a pull request reports
+        run: python3 ci/required_checks_gate.py .
       - name: No internal tracking identifier enters public history
         env:
           BASE_REF: ${{ github.base_ref || 'master' }}
@@ -174,9 +180,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+      # No build cache where it saves under a minute. Every key is saved per pull request, and one
+      # pull request's 24 keys filled the 10 GB Actions cache (10.56 GB on 2026-11-22, #397), so
+      # each cache pays for its size by evicting another. Cold against cached, runs 44912599709 /
+      # 45000163171: docs 1.4 / 0.7 min for 0.20 GB.
       - uses: ./.github/actions/setup-rust
         with:
-          cache-key: t0-docs
+          cache-key: none
           cache-on-failure: "false"
           targets: ""
           components: ""
@@ -294,9 +304,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
+      # No build cache (see `docs`): 2.0 / 1.1 min for 0.44 GB.
       - uses: ./.github/actions/setup-rust
         with:
-          cache-key: t1-doctests-linux
+          cache-key: none
           cache-on-failure: "false"
           targets: ""
           components: ""
@@ -312,9 +323,10 @@ jobs:
       SDK_WASM_TESTS: wasm_basic_p2p wasm_crypto wasm_backend wasm_browser_connection_split
     steps:
       - uses: actions/checkout@v5
+      # No build cache (see `docs`): 3.4 / 3.0 min for 0.28 GB.
       - uses: ./.github/actions/setup-rust
         with:
-          cache-key: t1-wasm-tests
+          cache-key: none
           cache-on-failure: "false"
           targets: wasm32-unknown-unknown
           components: ""
@@ -350,9 +362,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+      # No build cache (see `docs`): 11.0 / 10.1 min for 0.25 GB; the loop is all test time.
       - uses: ./.github/actions/setup-rust
         with:
-          cache-key: t1-stability-linux
+          cache-key: none
           cache-on-failure: "false"
           targets: ""
           components: ""
@@ -378,10 +391,12 @@ jobs:
       VENDORED: ${{ startsWith(matrix.os, 'windows') && ',vendored' || '' }}
     steps:
       - uses: actions/checkout@v5
+      # Saved on failure too: cold on Windows the job took 51 of its 60 minutes (run 44912599709;
+      # 31 cached), so a cold run that times out must still leave the next one a cache.
       - uses: ./.github/actions/setup-rust
         with:
           cache-key: t2-core-${{ matrix.os }}
-          cache-on-failure: "false"
+          cache-on-failure: "true"
           targets: ""
           components: ""
           tools: nextest
