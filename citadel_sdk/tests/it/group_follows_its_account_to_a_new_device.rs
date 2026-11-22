@@ -8,7 +8,8 @@
 //! O creates a group inviting M; D1 joins; the server keeps M's sealed state
 //! D1 disconnects; O sends "while-away", which the server holds for M
 //! M recovers on a second device (D2) with its phrase, sets a password and logs in
-//! D2 must read "while-away"; then O must read D2's "back", and D2 O's "after"
+//! D2 must read "while-away" and be told its group came back from the account's backup; then O
+//! must read D2's "back", and D2 O's "after"
 //! ```
 //!
 //! Each device derives the account's key from the phrase's seed, as an application does; the
@@ -48,6 +49,7 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
         let member_cid = Arc::new(Mutex::new(None::<(u64, MessageGroupKey)>));
+        let source = Arc::new(Mutex::new(None::<GroupStateSource>));
 
         let owner = {
             let (me, peer) = (owner_name.clone(), member_name.clone());
@@ -137,6 +139,7 @@ mod tests {
             );
             let (read_away, read_back, read_after) =
                 (read_away.clone(), read_back.clone(), read_after.clone());
+            let source = source.clone();
             GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, mut events: Events| async move {
                     let phrase = phrase_rx.await.expect("the first device registered");
@@ -153,6 +156,7 @@ mod tests {
                     let channel = next_group_channel(&mut events, "second device").await;
                     let (tx, mut rx) = channel.split();
                     read_away.store(read(&mut rx, "while-away").await, Ordering::SeqCst);
+                    *source.lock().unwrap() = restored(&mut rx).await;
                     back_in.wait().await;
                     if read_away.load(Ordering::SeqCst) {
                         let reading = async {
@@ -178,6 +182,11 @@ mod tests {
         assert!(
             read_away.load(Ordering::SeqCst),
             "the new device did not read what was sent while the account was away"
+        );
+        assert_eq!(
+            *source.lock().unwrap(),
+            Some(GroupStateSource::Backup),
+            "the new device was not told its group came back from the account's backup"
         );
         assert!(
             read_back.load(Ordering::SeqCst),

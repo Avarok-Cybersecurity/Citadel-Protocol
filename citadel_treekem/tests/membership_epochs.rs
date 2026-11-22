@@ -47,3 +47,57 @@ fn a_re_key_retires_the_epoch_it_leaves() {
     let _ = a.commit_update([6u8; 32]).unwrap();
     assert!(a.decrypt_message(&from_b).is_err());
 }
+
+/// A commit replaces the committer's leaf keys, its signing key among them: a copy of the
+/// committer's state from before the commit (another device that held it) signs nothing the
+/// group accepts, even at an epoch the remaining members still read.
+#[test]
+fn a_copy_of_the_committers_previous_leaf_signs_nothing_the_group_accepts() {
+    let (mut a, mut b, c) = trio();
+    let mut old_copy = GroupState::import(&a.export().unwrap(), 1).unwrap();
+    let removal = a.remove_member(c.own_leaf, [7u8; 32]).unwrap();
+    b.process_commit(&removal).unwrap();
+
+    let forged = old_copy.encrypt_message(b"from the old leaf").unwrap();
+    assert!(
+        b.decrypt_message(&forged).is_err(),
+        "a copy of the committer's previous leaf was accepted"
+    );
+    let live = a.encrypt_message(b"from the live leaf").unwrap();
+    assert_eq!(
+        b.decrypt_message(&live).unwrap().plaintext,
+        b"from the live leaf"
+    );
+}
+
+/// A member's message in flight across the committer replacing its own leaf is still read, and
+/// a copy of the committer's previous leaf is shut out of the new epoch and of the one it left.
+#[test]
+fn a_leaf_replacement_keeps_messages_in_flight_and_shuts_out_the_old_leaf() {
+    let (mut a, mut b, _c) = trio();
+    let mut old_copy = GroupState::import(&a.export().unwrap(), 1).unwrap();
+    let in_flight = b
+        .encrypt_message(b"sent before b saw the replacement")
+        .unwrap();
+    let replacement = a.replace_own_leaf([5u8; 32]).unwrap();
+    assert_eq!(
+        a.decrypt_message(&in_flight).unwrap().plaintext,
+        b"sent before b saw the replacement"
+    );
+    b.process_commit(&replacement).unwrap();
+    let after = a.encrypt_message(b"after").unwrap();
+    assert_eq!(b.decrypt_message(&after).unwrap().plaintext, b"after");
+    assert!(old_copy.decrypt_message(&after).is_err());
+    let forged = old_copy.encrypt_message(b"from the old leaf").unwrap();
+    assert!(b.decrypt_message(&forged).is_err());
+}
+
+#[test]
+fn an_update_for_another_members_leaf_is_refused() {
+    let (mut a, mut b, c) = trio();
+    let mut replacement = a.replace_own_leaf([5u8; 32]).unwrap();
+    replacement.proposals = vec![citadel_treekem::Proposal::Update {
+        leaf_index: c.own_leaf,
+    }];
+    assert!(b.process_commit(&replacement).is_err());
+}

@@ -102,7 +102,8 @@ mod tests {
             assert!(kicked, "the new owner's kick was refused");
             assert_eq!(conn.list_owned_groups().await?, vec![channel.key()]);
         } else {
-            disconnected(&mut channel).await;
+            let reason = disconnected(&mut channel).await;
+            assert_eq!(reason, GroupEndReason::Removed);
             shared.kicked_member_told.store(true, Ordering::SeqCst);
         }
         shared.sync.wait().await; // test over

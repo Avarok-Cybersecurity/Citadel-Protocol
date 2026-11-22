@@ -28,6 +28,18 @@
   - `MessageGroupOptions::retention` asks for less than `max_age`, never more.
   - A message past a member's cap is not held for that member, and the sender's `GroupDelivery`
     says so. Group control is always held.
+- **Groups tell the application how they end and come back.**
+  - `GroupBroadcast::Disconnected { key, reason }` carries a `GroupEndReason`: `ClosedByOwner`,
+    `Removed`, or `HierarchyOwnerGone` (a command hierarchy ends when its owner leaves; its ranks
+    are the owner's alone, so the members may start a new group).
+  - `GroupBroadcast::Restored { key, source }` is told once per group when a session gets it back:
+    `GroupStateSource::{ThisDevice, Backup, Rejoined, Refounded}`.
+  - `GroupDelivery`, `NotDelivered`, `NotRelayed`, `GroupMessageRefusal`, `GroupEndReason` and
+    `GroupStateSource` are exported by `@avarok/citadel-protocol-types`.
+- **An owner restored from the account's backup replaces its own leaf.** A Commit with an
+  `Update` proposal replaces the leaf's KEM and signing keys; the epoch it leaves stays readable
+  for the other members. Every commit now replaces the committer's signing key with its KEM key
+  (`UpdatePath::leaf_sig_public`).
 - **Group traffic is handled in the order it arrived.** A session's group broadcasts are handled
   one after another, on the server and on every member, so one sender's messages reach every
   member in the order it sent them.
@@ -143,6 +155,8 @@
 
 - **Groups (protocol 0.12.5; older nodes are refused by name).**
   - **Delivery reports.** `MessageResponse { success }` is now `MessageResponse { key, delivery }`.
+  - **Group lifecycle.** `GroupBroadcast::Disconnected` gains `reason: GroupEndReason`; new
+    `GroupBroadcast::Restored`. TreeKEM: `Proposal::Update`, `UpdatePath::leaf_sig_public`.
   - **Group configuration.** `NodeBuilder::with_group_mail_limits` (optional, defaulting to
     `GroupMailLimits::default()`). `MessageGroupOptions` gains `retention`.
   - **Message API.**

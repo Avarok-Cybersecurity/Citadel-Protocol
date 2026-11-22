@@ -76,10 +76,11 @@ pub async fn ownership_transferred(channel: &mut GroupChannel) -> u64 {
     .await
 }
 
-/// Waits for the server's word that this member is out of the group of `channel`.
-pub async fn disconnected(channel: &mut GroupChannel) {
-    next_on_channel(channel, "Disconnected", |event| {
-        matches!(event, GroupBroadcast::Disconnected { .. }).then_some(())
+/// Waits for the server's word that this member is out of the group of `channel`, and why.
+pub async fn disconnected(channel: &mut GroupChannel) -> GroupEndReason {
+    next_on_channel(channel, "Disconnected", |event| match event {
+        GroupBroadcast::Disconnected { reason, .. } => Some(*reason),
+        _ => None,
     })
     .await
 }

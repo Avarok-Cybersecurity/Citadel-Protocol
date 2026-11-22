@@ -3,9 +3,13 @@
 //! publishes a KeyPackage for a fresh leaf; the owner's next Commit replaces the old leaf with it,
 //! and from that epoch on the group's keys are sealed to the new leaf only. Until the Welcome
 //! for it arrives, the member reads and sends on the state it has.
+//!
+//! The owner commits, so it replaces its own leaf itself: a Commit that re-keys its path from a
+//! fresh leaf secret, which replaces the leaf's KEM and signing keys alike.
 
 use super::{fresh_secret, ser_err, GroupCgkaState};
 use crate::error::NetworkError;
+use citadel_io::{error, ErrorCode};
 use citadel_treekem::KeyPackage;
 use citadel_user::serialization::SyncIO;
 
@@ -30,6 +34,26 @@ impl GroupCgkaState {
             .map_err(|_| ser_err("key_package"))?;
         self.own_leaf_secret = secret;
         Ok(payload)
+    }
+
+    /// Owner: replaces this owner's leaf with a fresh one, in a Commit for every member. Returns
+    /// the Commit and its epoch.
+    pub fn replace_own_leaf(&mut self) -> Result<(Vec<u8>, u64), NetworkError> {
+        if !self.is_owner {
+            return Err(error!(ErrorCode::ProtoGroupCgkaNotOwner));
+        }
+        let group = self
+            .group
+            .as_mut()
+            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?;
+        let commit = group.replace_own_leaf(fresh_secret())?;
+        let epoch = group.epoch;
+        let payload = commit
+            .serialize_to_vector()
+            .map_err(|_| ser_err("commit"))?;
+        self.needs_new_leaf = false;
+        self.saved = None;
+        Ok((payload, epoch))
     }
 }
 
@@ -79,5 +103,42 @@ mod tests {
         );
         let sent = new_device.encrypt_message(b"from the new leaf").unwrap();
         assert_eq!(owner.decrypt_message(&sent).unwrap().0, 2);
+    }
+
+    /// An owner restored on a new device replaces its own leaf; from that Commit on, the copy
+    /// another device still holds neither reads the group nor speaks in it as the owner.
+    #[test]
+    fn an_owner_that_replaces_its_leaf_shuts_out_every_other_copy() {
+        let mut owner = GroupCgkaState::new_owner(1, GroupHierarchyMode::Flat).unwrap();
+        let (mut member, kp) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();
+        let (welcome, _, _, _) = owner.add_member(&kp).unwrap();
+        member.join(&welcome).unwrap();
+
+        let kept = owner
+            .export()
+            .unwrap()
+            .expect("a flat owner's state is kept");
+        let mut old_device = GroupCgkaState::import(&kept).unwrap();
+        let mut new_device = GroupCgkaState::import(&kept)
+            .unwrap()
+            .restored_from_backup();
+        let (commit, epoch) = new_device.replace_own_leaf().unwrap();
+        assert!(!new_device.needs_new_leaf());
+        member.process_commit(&commit, epoch).unwrap();
+
+        let after = new_device.encrypt_message(b"after").unwrap();
+        assert_eq!(
+            member.decrypt_message(&after).unwrap(),
+            (1, b"after".to_vec())
+        );
+        assert!(
+            old_device.decrypt_message(&after).is_err(),
+            "the old device still reads the group"
+        );
+        let forged = old_device.encrypt_message(b"from the old leaf").unwrap();
+        assert!(
+            member.decrypt_message(&forged).is_err(),
+            "the old device still speaks as the owner"
+        );
     }
 }

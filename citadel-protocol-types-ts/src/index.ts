@@ -26,6 +26,12 @@ export * from './GroupMemberAlterMode';
 export * from './MessageGroupOptions';
 export * from './GroupType';
 export * from './MessageGroupKey';
+export * from './GroupDelivery';
+export * from './NotDelivered';
+export * from './NotRelayed';
+export * from './GroupMessageRefusal';
+export * from './GroupEndReason';
+export * from './GroupStateSource';
 export * from './TransferType';
 
 // Crypto types

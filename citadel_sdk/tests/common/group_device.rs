@@ -68,6 +68,42 @@ pub async fn read(rx: &mut GroupChannelRecvHalf, prefix: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// The next report on `channel` that its group was restored, and where its state came from.
+pub async fn next_restored(channel: &mut GroupChannel, who: &str) -> GroupStateSource {
+    tokio::time::timeout(REJOIN_DEADLINE, async {
+        while let Some(payload) = channel.recv().await {
+            if let GroupBroadcastPayload::Event {
+                payload: GroupBroadcast::Restored { source, .. },
+            } = payload
+            {
+                return source;
+            }
+            log::info!(target: "citadel", "[{who}] while waiting for the restore: {payload:?}");
+        }
+        panic!("[{who}] group channel closed before the restore was reported");
+    })
+    .await
+    .unwrap_or_else(|_| panic!("[{who}] was not told its group was restored"))
+}
+
+/// Reads `rx` until the group is reported restored, and returns where its state came from.
+pub async fn restored(rx: &mut GroupChannelRecvHalf) -> Option<GroupStateSource> {
+    tokio::time::timeout(REJOIN_DEADLINE, async {
+        while let Some(payload) = rx.next().await {
+            match payload {
+                GroupBroadcastPayload::Event {
+                    payload: GroupBroadcast::Restored { source, .. },
+                } => return Some(source),
+                other => log::info!(target: "citadel", "while waiting for the restore: {other:?}"),
+            }
+        }
+        None
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 /// Sends `prefix-N` every 500 ms until `read` is set: a message sent before the reader's
 /// Welcome lands is sealed under a leaf it no longer holds.
 pub async fn send_until_read(

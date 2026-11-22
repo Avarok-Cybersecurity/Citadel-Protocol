@@ -1,9 +1,13 @@
 //! What became of one group message, member by member, as its sender's server reports it.
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "typescript")]
+use ts_rs::TS;
 
 /// The server's account of a group message it was asked to relay.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum GroupDelivery {
     /// The server relayed it; each other member is in exactly one list.
     Relayed {
@@ -20,6 +24,8 @@ pub enum GroupDelivery {
 
 /// Why one member will not receive a relayed group message.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum NotDelivered {
     /// The member is offline and the group is ephemeral: nothing is held for it.
     Offline,
@@ -31,6 +37,8 @@ pub enum NotDelivered {
 
 /// Why a group message was not relayed to anyone.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum NotRelayed {
     /// The session that would have carried it has ended.
     SessionEnded,

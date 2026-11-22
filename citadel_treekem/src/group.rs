@@ -51,7 +51,7 @@ pub struct GroupState {
     /// This member's outgoing message counter within the current epoch (reset each epoch).
     pub(crate) send_generation: u32,
     /// `(epoch, encryption_secret)` of the earlier epochs still readable: those left by membership
-    /// commits (adds and removals) since the last commit that only re-keyed. A member cannot know a
+    /// commits (adds, removals and leaf replacements) since the last commit that only re-keyed. A member cannot know a
     /// Commit is in flight to it, so it seals at the epoch it holds. A frame of such an epoch is
     /// opened only when its signature verifies under a leaf of the current tree, so a member that
     /// was removed, or a leaf that was replaced, is never read from it.
@@ -109,15 +109,32 @@ impl GroupState {
     /// Re-key this member's direct path with a fresh leaf secret (no membership change), advancing the
     /// epoch. Returns the `Commit` to broadcast.
     pub fn commit_update(&mut self, fresh_leaf_secret: Secret) -> Result<Commit, Error> {
+        self.commit_own_path(fresh_leaf_secret, Vec::new())
+    }
+
+    /// Replace this member's own leaf, its KEM and signing keys, with ones from a fresh leaf secret,
+    /// advancing the epoch. The epoch it leaves stays readable for the other members (an `Update`
+    /// proposal), so what they sealed before applying it is not lost. Returns the `Commit` to
+    /// broadcast.
+    pub fn replace_own_leaf(&mut self, fresh_leaf_secret: Secret) -> Result<Commit, Error> {
+        let update = Proposal::Update {
+            leaf_index: self.own_leaf,
+        };
+        self.commit_own_path(fresh_leaf_secret, vec![update])
+    }
+
+    fn commit_own_path(
+        &mut self,
+        fresh_leaf_secret: Secret,
+        proposals: Vec<Proposal>,
+    ) -> Result<Commit, Error> {
         let mut tree = self.tree.clone();
-        let (path, root_secret, own_secrets) =
+        let (path, root_secret, own_secrets, signing_key) =
             generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
         self.tree = tree;
         self.own_secrets = own_secrets;
-        let commit = Commit {
-            proposals: Vec::new(),
-            path,
-        };
+        self.signing_key = signing_key;
+        let commit = Commit { proposals, path };
         self.advance_epoch(&root_secret, &commit);
         Ok(commit)
     }
@@ -154,7 +171,7 @@ impl GroupState {
         // Capture the previous epoch's init secret BEFORE advancing — the joiner needs it for the schedule.
         let prev_init = self.secrets.init_secret;
 
-        let (path, root_secret, own_secrets) =
+        let (path, root_secret, own_secrets, signing_key) =
             generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
 
         // The joiner ratchets up from the lowest node where its path meets the committer's re-keyed path.
@@ -182,6 +199,7 @@ impl GroupState {
         let commit = Commit { proposals, path };
         self.tree = tree;
         self.own_secrets = own_secrets;
+        self.signing_key = signing_key;
         self.advance_epoch(&root_secret, &commit);
 
         let welcome = Welcome {
@@ -206,10 +224,11 @@ impl GroupState {
     ) -> Result<Commit, Error> {
         let mut tree = self.tree.clone();
         tree.remove_leaf(leaf_index)?;
-        let (path, root_secret, own_secrets) =
+        let (path, root_secret, own_secrets, signing_key) =
             generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
         self.tree = tree;
         self.own_secrets = own_secrets;
+        self.signing_key = signing_key;
         let commit = Commit {
             proposals: vec![Proposal::Remove { leaf_index }],
             path,
@@ -232,6 +251,12 @@ impl GroupState {
                     tree.add_leaf_at(*leaf_index, leaf.clone())?
                 }
                 Proposal::Remove { leaf_index } => tree.remove_leaf(*leaf_index)?,
+                Proposal::Update { leaf_index } if *leaf_index == commit.path.leaf_index => {}
+                Proposal::Update { .. } => {
+                    return Err(Error::generic(
+                        "treekem: an Update replaces only the committer's own leaf",
+                    ))
+                }
             }
         }
         let (root_secret, learned) = apply_update_path(&mut tree, &commit.path, &self.own_secrets)?;
@@ -401,8 +426,8 @@ impl GroupState {
 
     /// Roll the transcript + key schedule forward into the next epoch from a new root secret.
     fn advance_epoch(&mut self, root_secret: &Secret, commit: &Commit) {
-        // A pure re-key (no proposals) retires the epoch it leaves; a membership change keeps it
-        // readable for the members still in the tree.
+        // A pure re-key (no proposals) retires the epoch it leaves; a membership change or a leaf
+        // replacement keeps it readable for the members still in the tree.
         let membership_change = !commit.proposals.is_empty();
         if membership_change {
             if self.readable_past_epochs.len() == MAX_READABLE_PAST_EPOCHS {

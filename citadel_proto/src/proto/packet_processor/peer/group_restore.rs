@@ -4,8 +4,8 @@
 //! owner).
 
 use super::group_broadcast::{
-    cgka_joiner_publish_key_package, cgka_owner_refound, create_group_channel, GroupBroadcast,
-    JoinMode,
+    cgka_joiner_publish_key_package, cgka_owner_refound, create_group_channel, forward_signal,
+    GroupBroadcast, JoinMode,
 };
 use crate::error::NetworkError;
 use crate::proto::misc::platform_ops::PlatformOps;
@@ -20,7 +20,7 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_crypt::revfs_seal::RevfsKey;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecurityLevel;
-use citadel_types::proto::MessageGroupKey;
+use citadel_types::proto::{GroupStateSource, MessageGroupKey};
 
 /// What every answer here is sent with.
 pub(super) struct Reply<'a, R: Ratchet> {
@@ -44,7 +44,7 @@ impl<R: Ratchet> Reply<'_, R> {
     }
 }
 
-fn session_cid<R: Ratchet, T: PlatformOps>(
+pub(super) fn session_cid<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
 ) -> Result<u64, NetworkError> {
     session
@@ -155,6 +155,17 @@ fn start_over<R: Ratchet, T: PlatformOps>(
         timestamp,
         security_level,
     } = reply;
+    let source = if as_owner {
+        GroupStateSource::Refounded
+    } else {
+        GroupStateSource::Rejoined
+    };
+    let _ = forward_signal(
+        session,
+        ticket,
+        Some(key),
+        GroupBroadcast::Restored { key, source },
+    )?;
     if as_owner {
         return cgka_owner_refound(
             session,
@@ -184,29 +195,4 @@ fn start_over<R: Ratchet, T: PlatformOps>(
         cgka.tree = tree;
     }
     published
-}
-
-/// Client, once the server has replayed what it held: a state that came from the server's sealed
-/// copy has its leaf replaced now, so no other device of the account can follow the group on.
-pub(super) fn resumed<R: Ratchet, T: PlatformOps>(
-    session: &CitadelSession<R, T>,
-    reply: Reply<'_, R>,
-    key: MessageGroupKey,
-) -> Result<PrimaryProcessorResult, NetworkError> {
-    let cid = session_cid(session)?;
-    let payload = {
-        let mut state = inner_mut_state!(session.state_container);
-        match state.group_cgka.get_mut(&key) {
-            Some(cgka) if cgka.needs_new_leaf() && !cgka.is_owner() => {
-                cgka.new_leaf_key_package(cid)?
-            }
-            _ => return Ok(PrimaryProcessorResult::Void),
-        }
-    };
-    log::info!(target: "citadel", "Replacing this member's leaf in {key:?}");
-    reply.send(GroupBroadcast::KeyPackage {
-        key,
-        joiner_cid: cid,
-        payload,
-    })
 }

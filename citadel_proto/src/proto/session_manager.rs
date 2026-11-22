@@ -1681,7 +1681,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             for peer_cid in group.concurrent_peers.keys() {
                 if *peer_cid != cid_host {
                     if let Err(err) = this.send_signal_to_peer_direct(*peer_cid, |peer_ratchet| {
-                        let signal = GroupBroadcast::Disconnected { key };
+                        let signal = GroupBroadcast::Disconnected {
+                            key,
+                            reason: citadel_types::proto::GroupEndReason::ClosedByOwner,
+                        };
                         super::packet_crafter::peer_cmd::craft_group_message_packet(
                             peer_ratchet,
                             &signal,
@@ -1719,7 +1722,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
         let mut to_broadcast_dc = vec![];
         let mut to_broadcast_left = vec![];
-        let dc_signal = GroupBroadcast::Disconnected { key };
+        let dc_signal = GroupBroadcast::Disconnected {
+            key,
+            reason: citadel_types::proto::GroupEndReason::Removed,
+        };
 
         let left_signal = match peer_layer.remove_peers_from_message_group(key, peers).await {
             Ok((peers_removed, peers_remaining)) => {
@@ -1831,7 +1837,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     // An offline member is told when it next connects; at a server start every
                     // member is offline, and without the mailbox none of them would ever know.
                     true,
-                    GroupBroadcast::Disconnected { key },
+                    GroupBroadcast::Disconnected {
+                        key,
+                        reason: citadel_types::proto::GroupEndReason::HierarchyOwnerGone,
+                    },
                     security_level,
                 )
                 .await

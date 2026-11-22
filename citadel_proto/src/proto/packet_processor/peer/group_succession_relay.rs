@@ -18,7 +18,7 @@ use crate::proto::peer::group_succession::Leave;
 use crate::proto::remote::Ticket;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
-use citadel_types::proto::{MemberState, MessageGroupKey};
+use citadel_types::proto::{GroupEndReason, MemberState, MessageGroupKey};
 
 /// Server: `leaver`'s session leaves `key`. `false` when it was not a member.
 pub(crate) async fn leave<R: Ratchet, T: PlatformOps>(
@@ -82,7 +82,11 @@ async fn tell_members<R: Ratchet, T: PlatformOps>(
         Leave::NotAMember => return,
         Leave::Closed { remaining } => {
             log::info!(target: "citadel", "{leaver} left {key:?}, which is closed");
-            signals.push(GroupBroadcast::Disconnected { key });
+            // Members remain only when a command hierarchy's owner left (see `after_leave`).
+            signals.push(GroupBroadcast::Disconnected {
+                key,
+                reason: GroupEndReason::HierarchyOwnerGone,
+            });
             remaining
         }
         Leave::Left { remaining } => {

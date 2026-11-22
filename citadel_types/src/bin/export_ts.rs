@@ -1,8 +1,6 @@
 #[cfg(feature = "typescript")]
 use citadel_types::auth::*;
 #[cfg(feature = "typescript")]
-use citadel_types::errors::*;
-#[cfg(feature = "typescript")]
 use citadel_types::prelude::*;
 #[cfg(feature = "typescript")]
 use citadel_types::proto::*;
@@ -43,6 +41,14 @@ fn export_types() -> Result<(), Box<dyn std::error::Error>> {
     MessageGroupKey::export()?;
     TransferType::export()?;
 
+    // Export group delivery and lifecycle types
+    GroupDelivery::export()?;
+    NotDelivered::export()?;
+    NotRelayed::export()?;
+    GroupMessageRefusal::export()?;
+    GroupEndReason::export()?;
+    GroupStateSource::export()?;
+
     // Export connection types
     ClientConnectionType::export()?;
     PeerConnectionType::export()?;
@@ -66,8 +72,8 @@ fn export_types() -> Result<(), Box<dyn std::error::Error>> {
     SignInManagementOp::export()?;
     SignInManagementOutcome::export()?;
 
-    // Export error types
-    Error::export()?;
+    // Error.ts is kept as published: the error type is now `citadel_io::NetworkError`, which
+    // derives no TS.
 
     println!("TypeScript types exported successfully!");
     Ok(())

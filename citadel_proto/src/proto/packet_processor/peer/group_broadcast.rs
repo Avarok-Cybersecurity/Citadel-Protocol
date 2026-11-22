@@ -33,7 +33,7 @@
 use super::super::includes::*;
 use super::{
     group_backup_relay, group_commit_ack, group_commit_relay, group_control, group_message_relay,
-    group_restore, group_resume_relay, group_succession_relay,
+    group_restore, group_resume_relay, group_resumed, group_succession_relay,
 };
 use crate::error::NetworkError;
 use crate::functional::*;
@@ -48,8 +48,8 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::{
-    GroupDelivery, GroupHierarchyMode, GroupMemberAlterMode, GroupMessageRefusal, MemberState,
-    MessageGroupKey, MessageGroupOptions,
+    GroupDelivery, GroupEndReason, GroupHierarchyMode, GroupMemberAlterMode, GroupMessageRefusal,
+    GroupStateSource, MemberState, MessageGroupKey, MessageGroupOptions,
 };
 use citadel_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
@@ -90,10 +90,21 @@ pub enum GroupBroadcast {
         /// Success status
         success: bool,
     },
-    /// Disconnected from a group
+    /// The group has ended for this member, and why.
     Disconnected {
         /// Group key
         key: MessageGroupKey,
+        /// Why
+        reason: GroupEndReason,
+    },
+    /// To the application, never on the wire: this device has the group back after its session
+    /// was restored, from `source`. Sent once per group, once the server has replayed what it held
+    /// (or, for `Rejoined` and `Refounded`, once the device has started over).
+    Restored {
+        /// Group key
+        key: MessageGroupKey,
+        /// Where the state came from
+        source: GroupStateSource,
     },
     /// Message broadcast to a group
     Message {
@@ -715,13 +726,13 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             })
         }
 
-        GroupBroadcast::Disconnected { key } => {
+        GroupBroadcast::Disconnected { key, reason } => {
             inner_mut_state!(session.state_container).record_group_owner(key, None);
             forward_signal(
                 session,
                 ticket,
                 Some(key),
-                GroupBroadcast::Disconnected { key },
+                GroupBroadcast::Disconnected { key, reason },
             )
             .inspect(|_res| {
                 let mut state = inner_mut_state!(session.state_container);
@@ -1467,7 +1478,12 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             if session.is_server {
                 return Ok(PrimaryProcessorResult::Void);
             }
-            group_restore::resumed(session, reply, key)
+            group_resumed::resumed(session, reply, key)
+        }
+
+        GroupBroadcast::Restored { key, .. } => {
+            log::warn!(target: "citadel", "Ignoring a Restored for {key:?}: it is only ever told to the application");
+            Ok(PrimaryProcessorResult::Void)
         }
 
         GroupBroadcast::KeepState { key, sealed } => {

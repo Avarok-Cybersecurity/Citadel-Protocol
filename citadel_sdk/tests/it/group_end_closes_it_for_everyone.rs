@@ -64,7 +64,8 @@ mod tests {
                 move |remote: NodeRemote<StackedRatchet>, mut events: Events| async move {
                     let (conn, mut channel) =
                         join_group(&remote, addr, (&me, &peer), &mut events).await?;
-                    disconnected(&mut channel).await;
+                    let reason = disconnected(&mut channel).await;
+                    assert_eq!(reason, GroupEndReason::ClosedByOwner);
                     member_told.store(true, Ordering::SeqCst);
                     assert_eq!(channel.owner(), None);
                     sync.wait().await; // closed

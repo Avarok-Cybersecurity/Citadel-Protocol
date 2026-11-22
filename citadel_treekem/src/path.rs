@@ -7,6 +7,7 @@
 //! then KDF-ratchets the recovered secret up to the same root secret.
 
 use crate::crypto::{self, Secret, SecretMap};
+use crate::signing::{leaf_signature_keys, LeafSigningKey};
 use crate::tree::math::*;
 use crate::tree::node::Node;
 use crate::tree::ratchet_tree::RatchetTree;
@@ -35,18 +36,22 @@ pub struct UpdatePath {
     pub leaf_index: u32,
     /// The committer's fresh leaf KEM public key.
     pub leaf_kem_public: Vec<u8>,
+    /// The committer's fresh leaf signature verifying key, derived from the same fresh leaf
+    /// secret: a commit replaces both, so a copy of the committer's previous leaf can neither
+    /// open nor sign anything at the new epoch.
+    pub leaf_sig_public: Vec<u8>,
     /// One entry per node on the committer's direct path (leaf's parent → root).
     pub nodes: Vec<UpdatePathNode>,
 }
 
 /// Committer re-keys leaf `leaf_index`'s direct path with a fresh `leaf_secret`, deriving its leaf
 /// and direct-path keys. Mutates `tree` to the post-commit public state and returns
-/// `(update_path, root_secret, own_path_secrets)`.
+/// `(update_path, root_secret, own_path_secrets, leaf_signing_key)`.
 pub fn generate_update_path(
     tree: &mut RatchetTree,
     leaf_index: LeafIndex,
     leaf_secret: Secret,
-) -> Result<(UpdatePath, Secret, SecretMap), Error> {
+) -> Result<(UpdatePath, Secret, SecretMap, LeafSigningKey), Error> {
     let n = tree.num_leaves();
     let dp = direct_path(leaf_index, n)?;
     let cp = copath(leaf_index, n)?;
@@ -58,8 +63,10 @@ pub fn generate_update_path(
 
     // Fresh leaf keypair → update our leaf node's public key.
     let (leaf_pk, _leaf_sk) = crypto::node_keypair_from_path_secret(&leaf_secret)?;
+    let (leaf_sig_public, leaf_signing_key) = leaf_signature_keys(&leaf_secret);
     if let Node::Leaf(mut l) = tree.get(leaf_node_idx)?.clone() {
         l.kem_public = leaf_pk.clone();
+        l.sig_public = leaf_sig_public.clone();
         tree.set(leaf_node_idx, Node::Leaf(l))?;
     } else {
         return Err(Error::generic("treekem: committer leaf slot is not a leaf"));
@@ -111,9 +118,10 @@ pub fn generate_update_path(
     let update = UpdatePath {
         leaf_index,
         leaf_kem_public: leaf_pk,
+        leaf_sig_public,
         nodes: update_nodes,
     };
-    Ok((update, root_secret, own_secrets))
+    Ok((update, root_secret, own_secrets, leaf_signing_key))
 }
 
 /// A member applies a committer's `UpdatePath`. Mutates `tree` to the post-commit public state and
@@ -139,6 +147,7 @@ pub fn apply_update_path(
     }
     if let Node::Leaf(mut l) = tree.get(leaf_to_node(committer))?.clone() {
         l.kem_public = update.leaf_kem_public.clone();
+        l.sig_public = update.leaf_sig_public.clone();
         tree.set(leaf_to_node(committer), Node::Leaf(l))?;
     } else {
         return Err(Error::generic("treekem: committer leaf slot is not a leaf"));
