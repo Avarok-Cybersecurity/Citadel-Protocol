@@ -103,14 +103,8 @@ mod tests {
                     }
                     channel.invite(shared.b_cid.load(Ordering::SeqCst)).await?;
 
-                    read_until_final(
-                        &mut channel,
-                        a_cid,
-                        &shared.reads.final_idx,
-                        &shared.reads.owner,
-                        "owner",
-                    )
-                    .await;
+                    read_until_final(&mut channel, a_cid, &shared.reads, Role::Owner, "owner")
+                        .await;
                     sync.wait().await;
                     drop(channel);
                     conn.shutdown_kernel().await
@@ -210,14 +204,7 @@ mod tests {
                     let mut channel = next_group_channel(&mut events, "B").await;
                     shared.b_joined.store(true, Ordering::SeqCst);
                     let a_cid = a_cid_cell.load(Ordering::SeqCst);
-                    read_until_final(
-                        &mut channel,
-                        a_cid,
-                        &shared.reads.final_idx,
-                        &shared.reads.b,
-                        "B",
-                    )
-                    .await;
+                    read_until_final(&mut channel, a_cid, &shared.reads, Role::Joiner, "B").await;
                     sync.wait().await;
                     drop(channel);
                     conn.shutdown_kernel().await

@@ -111,8 +111,8 @@ mod tests {
                     read_until_final(
                         &mut channel,
                         shared.a_cid.load(Ordering::SeqCst),
-                        &shared.reads.final_idx,
-                        &shared.reads.owner,
+                        &shared.reads,
+                        Role::Owner,
                         "owner",
                     )
                     .await;
@@ -215,8 +215,8 @@ mod tests {
                     read_until_final(
                         &mut channel,
                         shared.a_cid.load(Ordering::SeqCst),
-                        &shared.reads.final_idx,
-                        &shared.reads.b,
+                        &shared.reads,
+                        Role::Joiner,
                         "B",
                     )
                     .await;

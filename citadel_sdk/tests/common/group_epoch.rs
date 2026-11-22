@@ -109,18 +109,36 @@ impl Reads {
     }
 }
 
-/// Read `a_cid`'s `a-N` messages into `reader` until the one at `final_idx` arrives (or the idle
-/// bound passes), counting every `MessageDropped`.
+/// Which of A's messages a reader must read: the owner every one, the joiner B every one A sent
+/// after B's channel opened.
+#[derive(Clone, Copy)]
+pub enum Role {
+    Owner,
+    Joiner,
+}
+
+/// Read `a_cid`'s `a-N` messages until this reader holds every one its `role` must read, up to
+/// A's last (or the idle bound passes), counting every `MessageDropped`. A group does not promise
+/// one sender's messages arrive in the order sent, so A's last message is not taken to mean the
+/// rest have arrived.
 pub async fn read_until_final(
     channel: &mut GroupChannel,
     a_cid: u64,
-    final_idx: &AtomicU64,
-    reader: &Reader,
+    reads: &Reads,
+    role: Role,
     who: &str,
 ) {
+    let reader = match role {
+        Role::Owner => &reads.owner,
+        Role::Joiner => &reads.b,
+    };
     loop {
-        let final_idx = final_idx.load(Ordering::SeqCst);
-        if final_idx != UNSET && reader.seen.lock().unwrap().contains(&final_idx) {
+        let final_idx = reads.final_idx.load(Ordering::SeqCst);
+        let from = match role {
+            Role::Owner => 0,
+            Role::Joiner => reads.first_after_join.load(Ordering::SeqCst),
+        };
+        if final_idx != UNSET && from != UNSET && reader.missing(from..=final_idx).is_empty() {
             return;
         }
         match tokio::time::timeout(IDLE_BOUND, channel.recv()).await {
