@@ -36,6 +36,8 @@ pub(crate) async fn relay<R: Ratchet, T: PlatformOps>(
         timestamp,
         security_level,
     } = inbound;
+    #[cfg(feature = "localhost-testing")]
+    crate::test_hooks::before_group_relay(session_cid).await;
     // The sender is the session that sent it, never the `sender` the message claims: that cid is
     // both what the rate is charged to and what every member is told.
     let admitted = session
@@ -83,6 +85,8 @@ pub(crate) async fn relay<R: Ratchet, T: PlatformOps>(
             GroupDelivery::NotRelayed(NotRelayed::UnknownGroup)
         }
     };
+    #[cfg(feature = "localhost-testing")]
+    crate::test_hooks::group_message_relayed(key, session_cid, delivery.is_complete());
     GroupBroadcast::MessageResponse { key, delivery }
 }
 

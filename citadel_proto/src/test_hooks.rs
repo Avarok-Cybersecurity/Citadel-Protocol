@@ -28,6 +28,9 @@ fn lock<T>(cell: &'static OnceLock<Mutex<T>>, init: fn() -> T) -> MutexGuard<'st
 static HOLDS: OnceLock<Mutex<HashMap<u64, Hold>>> = OnceLock::new();
 static GATE_OBSERVERS: OnceLock<Mutex<Vec<mpsc::UnboundedSender<CommitGateOpened>>>> =
     OnceLock::new();
+static SLOW_RELAYS: OnceLock<Mutex<HashMap<u64, SlowRelay>>> = OnceLock::new();
+static RELAY_OBSERVERS: OnceLock<Mutex<Vec<mpsc::UnboundedSender<GroupMessageRelayed>>>> =
+    OnceLock::new();
 
 /// Holds every group `Commit` the client session `session_cid` receives, before it is applied,
 /// until the returned handle is released or dropped.
@@ -124,4 +127,74 @@ pub(crate) fn commit_gate_opened(key: MessageGroupKey, epoch: u64, awaiting: &Ha
         awaiting: awaiting.iter().copied().collect(),
     };
     lock(&GATE_OBSERVERS, Vec::new).retain(|tx| tx.send(opened.clone()).is_ok());
+}
+
+/// The server finished fanning out one group message.
+#[derive(Debug, Clone)]
+pub struct GroupMessageRelayed {
+    /// The group
+    pub key: MessageGroupKey,
+    /// The member that sent it
+    pub sender: u64,
+    /// Whether it reached every member, live or held for them
+    pub complete: bool,
+}
+
+/// Every [`GroupMessageRelayed`] in this process from now on. Unlike the sender's own
+/// acknowledgement, this does not depend on the sender handling anything inbound.
+pub fn observe_group_message_relays() -> mpsc::UnboundedReceiver<GroupMessageRelayed> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    lock(&RELAY_OBSERVERS, Vec::new).push(tx);
+    rx
+}
+
+/// Called by the server once it has fanned a group message out.
+pub(crate) fn group_message_relayed(key: MessageGroupKey, sender: u64, complete: bool) {
+    let relayed = GroupMessageRelayed {
+        key,
+        sender,
+        complete,
+    };
+    lock(&RELAY_OBSERVERS, Vec::new).retain(|tx| tx.send(relayed.clone()).is_ok());
+}
+
+#[derive(Clone, Copy)]
+struct SlowRelay {
+    every: u64,
+    by: std::time::Duration,
+    seen: u64,
+}
+
+/// Makes the server take `by` longer over every `every`th group message `sender` sends, until
+/// the returned guard is dropped: a later message is then ready first, and only the order the
+/// server keeps puts it back in line.
+pub fn slow_group_messages_from(sender: u64, every: u64, by: std::time::Duration) -> SlowRelays {
+    let slow = SlowRelay { every, by, seen: 0 };
+    let _ = lock(&SLOW_RELAYS, HashMap::new).insert(sender, slow);
+    SlowRelays { sender }
+}
+
+/// A slowdown placed by [`slow_group_messages_from`]. Dropping it ends the slowdown.
+pub struct SlowRelays {
+    sender: u64,
+}
+
+impl Drop for SlowRelays {
+    fn drop(&mut self) {
+        let _ = lock(&SLOW_RELAYS, HashMap::new).remove(&self.sender);
+    }
+}
+
+/// Called by the server before it relays a group message from `sender`.
+pub(crate) async fn before_group_relay(sender: u64) {
+    let delay = {
+        let mut slow = lock(&SLOW_RELAYS, HashMap::new);
+        slow.get_mut(&sender).and_then(|slow| {
+            slow.seen += 1;
+            (slow.seen % slow.every == 1 % slow.every).then_some(slow.by)
+        })
+    };
+    if let Some(delay) = delay {
+        citadel_io::time::sleep(delay).await;
+    }
 }

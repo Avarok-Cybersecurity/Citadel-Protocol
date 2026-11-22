@@ -45,10 +45,28 @@ pub fn parse_idx(payload: &[u8]) -> Option<u64> {
 #[derive(Default)]
 pub struct Reader {
     pub seen: Mutex<BTreeSet<u64>>,
+    /// Every index read, in the order the channel yielded them
+    pub order: Mutex<Vec<u64>>,
     pub dropped: AtomicU64,
 }
 
 impl Reader {
+    /// Record that `idx` was read, after everything recorded before it.
+    pub fn record(&self, idx: u64) {
+        let _ = self.seen.lock().unwrap().insert(idx);
+        self.order.lock().unwrap().push(idx);
+    }
+
+    /// Each index read after a later one, as (earlier read, later read) pairs.
+    fn out_of_order(&self) -> Vec<(u64, u64)> {
+        let order = self.order.lock().unwrap();
+        order
+            .windows(2)
+            .filter(|pair| pair[1] <= pair[0])
+            .map(|pair| (pair[0], pair[1]))
+            .collect()
+    }
+
     fn missing(&self, range: std::ops::RangeInclusive<u64>) -> Vec<u64> {
         let seen = self.seen.lock().unwrap();
         range.filter(|idx| !seen.contains(idx)).collect()
@@ -78,8 +96,9 @@ impl Default for Reads {
 
 impl Reads {
     /// The owner must have read every message A sent, and B every one A sent after B's channel
-    /// opened, and neither may have been handed a message it could not read (`MessageDropped` on
-    /// its channel); otherwise panic with `lost`, then `context`, then what each one missed.
+    /// opened, each in the order A sent them, and neither may have been handed a message it could
+    /// not read (`MessageDropped` on its channel); otherwise panic with `lost`, then `context`,
+    /// then what each one missed or read out of order.
     pub fn assert_nothing_lost(&self, context: &str, lost: &str) {
         let final_idx = self.final_idx.load(Ordering::SeqCst);
         let first_after_join = self.first_after_join.load(Ordering::SeqCst);
@@ -92,10 +111,13 @@ impl Reads {
         let b_missing = self.b.missing(first_after_join..=final_idx);
         let owner_dropped = self.owner.dropped.load(Ordering::SeqCst);
         let b_dropped = self.b.dropped.load(Ordering::SeqCst);
+        let owner_reordered = self.owner.out_of_order();
+        let b_reordered = self.b.out_of_order();
         let report = format!(
             "{context}A sent a-0..=a-{final_idx}; B's channel opened before a-{first_after_join}. \
              Owner missing {} {owner_missing:?} (MessageDropped seen: {}); \
-             B missing {} of those sent after its join {b_missing:?} (MessageDropped seen: {})",
+             B missing {} of those sent after its join {b_missing:?} (MessageDropped seen: {}); \
+             out of order (read, then read next) owner {owner_reordered:?}, B {b_reordered:?}",
             owner_missing.len(),
             owner_dropped,
             b_missing.len(),
@@ -103,48 +125,34 @@ impl Reads {
         );
         log::warn!(target: "citadel", "{report}");
         assert!(
-            owner_missing.is_empty() && b_missing.is_empty() && owner_dropped + b_dropped == 0,
+            owner_missing.is_empty()
+                && b_missing.is_empty()
+                && owner_dropped + b_dropped == 0
+                && owner_reordered.is_empty()
+                && b_reordered.is_empty(),
             "{lost}: {report}"
         );
     }
 }
 
-/// Which of A's messages a reader must read: the owner every one, the joiner B every one A sent
-/// after B's channel opened.
-#[derive(Clone, Copy)]
-pub enum Role {
-    Owner,
-    Joiner,
-}
-
-/// Read `a_cid`'s `a-N` messages until this reader holds every one its `role` must read, up to
-/// A's last (or the idle bound passes), counting every `MessageDropped`. A group does not promise
-/// one sender's messages arrive in the order sent, so A's last message is not taken to mean the
-/// rest have arrived.
+/// Read `a_cid`'s `a-N` messages into `reader` until the one at `final_idx` arrives (or the idle
+/// bound passes), counting every `MessageDropped`.
 pub async fn read_until_final(
     channel: &mut GroupChannel,
     a_cid: u64,
-    reads: &Reads,
-    role: Role,
+    final_idx: &AtomicU64,
+    reader: &Reader,
     who: &str,
 ) {
-    let reader = match role {
-        Role::Owner => &reads.owner,
-        Role::Joiner => &reads.b,
-    };
     loop {
-        let final_idx = reads.final_idx.load(Ordering::SeqCst);
-        let from = match role {
-            Role::Owner => 0,
-            Role::Joiner => reads.first_after_join.load(Ordering::SeqCst),
-        };
-        if final_idx != UNSET && from != UNSET && reader.missing(from..=final_idx).is_empty() {
+        let final_idx = final_idx.load(Ordering::SeqCst);
+        if final_idx != UNSET && reader.seen.lock().unwrap().contains(&final_idx) {
             return;
         }
         match tokio::time::timeout(IDLE_BOUND, channel.recv()).await {
             Ok(Some(GroupBroadcastPayload::Message { payload, sender })) if sender == a_cid => {
                 if let Some(idx) = parse_idx(payload.as_ref()) {
-                    let _ = reader.seen.lock().unwrap().insert(idx);
+                    reader.record(idx);
                 }
             }
             Ok(Some(GroupBroadcastPayload::Event {
@@ -165,23 +173,25 @@ pub async fn read_until_final(
     }
 }
 
-/// Wait for the server's acknowledgement of each of this member's next `count` messages. A
-/// message the server has acknowledged has been relayed to every member of the group.
-pub async fn relayed(channel: &mut GroupChannel, count: u64) {
-    let mut acknowledged = 0;
-    while acknowledged < count {
-        match channel.recv().await {
-            Some(GroupBroadcastPayload::Event {
-                payload: GroupBroadcast::MessageResponse { delivery, .. },
-            }) => {
-                assert!(
-                    delivery.is_complete(),
-                    "the server could not relay a message: {delivery:?}"
-                );
-                acknowledged += 1;
-            }
-            Some(_) => {}
-            None => panic!("the sender's group channel closed"),
+/// Wait until the server has relayed `count` more messages from `sender`, each to every member.
+/// This is observed at the server, so it does not wait on `sender` handling anything inbound
+/// (its group traffic is handled in order, and may be behind a Commit it has not applied yet).
+pub async fn relayed(
+    relays: &mut tokio::sync::mpsc::UnboundedReceiver<
+        citadel_proto::test_hooks::GroupMessageRelayed,
+    >,
+    sender: u64,
+    count: u64,
+) {
+    let mut relayed = 0;
+    while relayed < count {
+        let relay = relays.recv().await.expect("the relay observer closed");
+        if relay.sender == sender {
+            assert!(
+                relay.complete,
+                "the server could not relay a message: {relay:?}"
+            );
+            relayed += 1;
         }
     }
 }

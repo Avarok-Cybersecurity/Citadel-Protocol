@@ -72,6 +72,7 @@ mod a_late_credentialed_login_is_a_timeout;
 mod a_level_above_the_maximum_is_refused;
 mod a_lost_direct_route_is_not_a_disconnect;
 mod a_managed_pair_keeps_its_direct_route;
+mod a_members_group_messages_arrive_in_the_order_sent;
 mod a_p2p_key_exchange_is_signed_by_each_identity;
 mod a_reconnected_peer_can_send_files_again;
 mod a_refused_accept_is_not_left_as_a_dial;

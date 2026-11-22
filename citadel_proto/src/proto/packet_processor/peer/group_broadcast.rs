@@ -427,10 +427,11 @@ pub async fn process_group_broadcast<R: Ratchet, T: PlatformOps>(
     header: Ref<&[u8], HdpHeader>,
     payload: &[u8],
     sess_ratchet: &R,
+    turn: Option<crate::proto::group_lane::Turn>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let ticket = header.context_info.get().into();
     let security_level = header.security_level.into();
-    let result = process_signal(session_ref, header, payload, sess_ratchet).await;
+    let result = process_signal(session_ref, header, payload, sess_ratchet, turn).await;
     if !session_ref.is_server {
         // Whatever this packet changed in a group's state is kept before the next one, here
         // and, sealed, at the server.
@@ -460,12 +461,15 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
     header: Ref<&[u8], HdpHeader>,
     payload: &[u8],
     sess_ratchet: &R,
+    turn: Option<crate::proto::group_lane::Turn>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let signal = return_if_none!(
         GroupBroadcast::deserialize_from_vector(payload).ok(),
         "invalid GroupBroadcast packet"
     );
+    let _turn = crate::proto::group_lane::in_order(turn).await;
+
     let timestamp = session.time_tracker.get_global_time_ns();
     let ticket = header.context_info.get().into();
     let security_level = header.security_level.into();
