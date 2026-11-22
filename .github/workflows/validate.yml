@@ -58,6 +58,8 @@ jobs:
         run: python3 ci/toolchain_pin_gate.py .
       - name: Every workspace dependency is used by a member
         run: python3 ci/workspace_deps_gate.py .
+      - name: No job checks out over a local action it ran
+        run: python3 ci/checkout_over_local_action_gate.py .
       - name: No internal tracking identifier enters public history
         env:
           BASE_REF: ${{ github.base_ref || 'master' }}
