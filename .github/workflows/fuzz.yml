@@ -39,16 +39,13 @@ jobs:
           cache-on-failure: "false"
           targets: ""
           components: ""
-          tools: ""
+          tools: make
 
-      - name: Rust toolchain
-        run: rustc --version && cargo --version
-
-      - name: Install cargo-make + cargo-afl
-        run: |
-          cargo install cargo-binstall --locked || true
-          cargo binstall -y cargo-make cargo-afl \
-            || { cargo install cargo-make --locked; cargo install cargo-afl --locked; }
+      # cargo-afl from source at the afl crate's version, then `cargo afl config --build` for the
+      # pinned toolchain. A prebuilt cargo-afl from binstall had no runtime and cannot build one,
+      # so no run of this workflow passed (45014739877: "AFL LLVM runtime was not built").
+      - name: cargo-afl and its AFL++ runtime for the pinned toolchain
+        run: ci/afl-runtime.sh install
 
       - name: AFL system config (core pattern, governor) — best-effort
         run: sudo cargo afl system-config || true

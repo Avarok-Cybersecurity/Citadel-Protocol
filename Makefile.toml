@@ -460,9 +460,9 @@ export AFL_SKIP_CPUFREQ=1
 export AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1
 export AFL_NO_AFFINITY=1
 
-echo "[fuzz] ensuring cargo-afl is installed ..."
-# The CLI subcommand is the `cargo-afl` crate (the `afl` crate is the library/harness only).
-command -v cargo-afl >/dev/null 2>&1 || cargo install cargo-afl --locked
+# The CLI subcommand is the `cargo-afl` crate (the `afl` crate is the library/harness only). Its
+# version, and its AFL++ runtime for the pinned toolchain, are checked before anything is built.
+ci/afl-runtime.sh check
 
 cd fuzz
 echo "[fuzz] building AFL-instrumented harnesses ..."
