@@ -691,34 +691,42 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
         }
 
-        GroupBroadcast::EndResponse { key, success } => forward_signal(
-            session,
-            ticket,
-            Some(key),
-            GroupBroadcast::EndResponse { key, success },
-        )
-        .inspect(|_res| {
+        GroupBroadcast::EndResponse { key, success } => {
+            // The channel reads no owner by the time its application hears the group ended.
             if success {
+                inner_mut_state!(session.state_container).record_group_owner(key, None);
+            }
+            forward_signal(
+                session,
+                ticket,
+                Some(key),
+                GroupBroadcast::EndResponse { key, success },
+            )
+            .inspect(|_res| {
+                if success {
+                    let _ = inner_mut_state!(session.state_container)
+                        .group_channels
+                        .remove(&key);
+                }
+            })
+        }
+
+        GroupBroadcast::Disconnected { key } => {
+            inner_mut_state!(session.state_container).record_group_owner(key, None);
+            forward_signal(
+                session,
+                ticket,
+                Some(key),
+                GroupBroadcast::Disconnected { key },
+            )
+            .inspect(|_res| {
                 let mut state = inner_mut_state!(session.state_container);
                 let _ = state.group_channels.remove(&key);
-                state.record_group_owner(key, None);
-            }
-        }),
-
-        GroupBroadcast::Disconnected { key } => forward_signal(
-            session,
-            ticket,
-            Some(key),
-            GroupBroadcast::Disconnected { key },
-        )
-        .inspect(|_res| {
-            let mut state = inner_mut_state!(session.state_container);
-            let _ = state.group_channels.remove(&key);
-            state.record_group_owner(key, None);
-            // The group is gone for this member: its keys are of no further use.
-            let _ = state.group_cgka.remove(&key);
-            state.forget_group_state(key);
-        }),
+                // The group is gone for this member: its keys are of no further use.
+                let _ = state.group_cgka.remove(&key);
+                state.forget_group_state(key);
+            })
+        }
 
         GroupBroadcast::Message {
             sender: username,
@@ -1012,23 +1020,27 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             key,
             success,
             message: response,
-        } => forward_signal(
-            session,
-            ticket,
-            Some(key),
-            GroupBroadcast::LeaveRoomResponse {
-                key,
-                success,
-                message: response,
-            },
-        )
-        .inspect(|_res| {
-            let mut state = inner_mut_state!(session.state_container);
-            let _ = state.group_channels.remove(&key);
+        } => {
+            // The channel reads no owner by the time its application hears it has left.
             if success {
-                state.record_group_owner(key, None);
+                inner_mut_state!(session.state_container).record_group_owner(key, None);
             }
-        }),
+            forward_signal(
+                session,
+                ticket,
+                Some(key),
+                GroupBroadcast::LeaveRoomResponse {
+                    key,
+                    success,
+                    message: response,
+                },
+            )
+            .inspect(|_res| {
+                let _ = inner_mut_state!(session.state_container)
+                    .group_channels
+                    .remove(&key);
+            })
+        }
 
         GroupBroadcast::Add {
             key,
