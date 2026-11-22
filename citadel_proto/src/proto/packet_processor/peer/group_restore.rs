@@ -70,6 +70,14 @@ fn resume_signal(key: MessageGroupKey, as_owner: bool) -> GroupBroadcast {
     }
 }
 
+/// Whether a kept state resumes `tree` for this member. A member's state also resumes as the
+/// owner, for a member made the owner while it was away: it takes over once the server has
+/// replayed what it held (`group_resumed`), and keeps every backlog. An owner's state does not
+/// resume as a member's.
+fn resumable(cgka: &GroupCgkaState, tree: u64, as_owner: bool) -> bool {
+    cgka.tree == tree && (as_owner || !cgka.is_owner())
+}
+
 /// Makes `cgka` this session's state for `key` and opens the group's channel if it has none.
 fn install<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
@@ -80,7 +88,7 @@ fn install<R: Ratchet, T: PlatformOps>(
     let channel_open = {
         let mut state = inner_mut_state!(session.state_container);
         let _ = state.group_cgka.insert(key, cgka);
-        state.group_channels.contains_key(&key)
+        state.has_open_group_channel(key)
     };
     if !channel_open {
         let _ = create_group_channel(Ticket::default(), key, session, owner)?;
@@ -88,9 +96,8 @@ fn install<R: Ratchet, T: PlatformOps>(
     Ok(())
 }
 
-/// Client, prompted to restore `key` on `tree` under `owner`. A state kept as a member is not
-/// resumed as the owner: the member it was did not commit, and the departed owner's leaf may still
-/// be in it, so a new owner founds the tree afresh.
+/// Client, prompted to restore `key` on `tree` under `owner`. A state kept as a member resumes
+/// as the owner too (see [`resumable`]); only a node with no state for the tree founds it afresh.
 pub(super) async fn restore<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     reply: Reply<'_, R>,
@@ -102,7 +109,7 @@ pub(super) async fn restore<R: Ratchet, T: PlatformOps>(
     let as_owner = owner == cid;
     let pers = session.account_manager.get_persistence_handler();
     let stored = group_state_store::load(pers, cid, key).await?;
-    if let Some(cgka) = stored.filter(|cgka| cgka.tree == tree && cgka.is_owner() == as_owner) {
+    if let Some(cgka) = stored.filter(|cgka| resumable(cgka, tree, as_owner)) {
         log::info!(target: "citadel", "Resuming {key:?} from the state this node kept");
         install(session, key, cgka, owner)?;
         return reply.send(resume_signal(key, as_owner));
@@ -131,7 +138,7 @@ pub(super) fn kept<R: Ratchet, T: PlatformOps>(
             .ok(),
         _ => None,
     };
-    match opened.filter(|cgka| cgka.tree == tree && cgka.is_owner() == as_owner) {
+    match opened.filter(|cgka| resumable(cgka, tree, as_owner)) {
         Some(cgka) => {
             log::info!(target: "citadel", "Resuming {key:?} from the state the server keeps for this account");
             install(session, key, cgka.restored_from_backup(), owner)?;

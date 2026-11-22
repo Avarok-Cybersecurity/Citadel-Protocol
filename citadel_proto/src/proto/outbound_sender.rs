@@ -67,6 +67,12 @@ impl<T> UnboundedSender<T> {
     pub fn unbounded_send(&self, item: T) -> Result<(), SendError<T>> {
         self.0.send(item)
     }
+
+    /// Whether the receiving side is gone.
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.0.is_closed()
+    }
 }
 
 pub fn channel<T>(len: usize) -> (Sender<T>, Receiver<T>) {

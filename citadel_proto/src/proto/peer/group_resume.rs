@@ -85,4 +85,14 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         let group = this.message_groups.get(&key.cid)?.get(&key.mgid)?;
         Some((group.tree, group.owner))
     }
+
+    /// `key`'s owner and its members, as recorded here.
+    pub async fn group_owner_and_members(&self, key: MessageGroupKey) -> Option<(u64, Vec<u64>)> {
+        let this = self.inner.read().await;
+        let group = this.message_groups.get(&key.cid)?.get(&key.mgid)?;
+        Some((
+            group.owner,
+            group.concurrent_peers.keys().copied().collect(),
+        ))
+    }
 }

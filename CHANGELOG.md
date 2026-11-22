@@ -40,6 +40,16 @@
   `Update` proposal replaces the leaf's KEM and signing keys; the epoch it leaves stays readable
   for the other members. Every commit now replaces the committer's signing key with its KEM key
   (`UpdatePath::leaf_sig_public`).
+- **A group passes to its highest-cid member when its owner leaves, closes it or deletes its
+  account.** The server records the successor at once, whether or not it is online, and the group
+  keeps relaying: the owner is not needed for that. A successor that was away takes over when it
+  resumes, from the state it kept: it reads everything held for it, then commits the departed
+  owner out (`Resumed` carries the group's owner and members). Nothing held for anyone is
+  dropped. An owner that is only offline, however long, is not succeeded. A command hierarchy
+  ends with its owner instead (`HierarchyOwnerGone`).
+- **Group rows are keyed by group id** (`<creator cid>-<mgid>`, under the owner's account) and move
+  with ownership, so a group outlives its creator's account. A row in any other format is refused
+  by name at startup.
 - **Group traffic is handled in the order it arrived.** A session's group broadcasts are handled
   one after another, on the server and on every member, so one sender's messages reach every
   member in the order it sent them.
@@ -124,7 +134,7 @@
   `GROUP_RELAY_OPTIONS_SINCE` (0.12.2) gets `MessageResponse { success: false }` instead. A client
   refuses to create a group with either option on a server below that version
   (`ErrorCode::GroupRelayOptionsUnsupported`), which would ignore them. Both options are stored in
-  the group registry, which still reads rows written before them. The server's mailbox byte map
+  the group registry. The server's mailbox byte map
   is now public as `PEER_MAILBOX_MAP`; it remains unbounded.
 
 ### Fixed
@@ -155,6 +165,11 @@
 
 - **Groups (protocol 0.12.5; older nodes are refused by name).**
   - **Delivery reports.** `MessageResponse { success }` is now `MessageResponse { key, delivery }`.
+  - **Leaving is explicit.** Dropping a `GroupChannel` (or its receiving half) no longer leaves
+    the group: it closes the channel on this node only, and the member stays in the group, as the
+    owner if it was one. A crash, reconnect or dropped handle never hands a group away. Leave with
+    `GroupChannel::leave()`. A group whose channel was dropped reaches the kernel as
+    `GroupEvent`s; a restore opens a new channel.
   - **Group lifecycle.** `GroupBroadcast::Disconnected` gains `reason: GroupEndReason`; new
     `GroupBroadcast::Restored`. TreeKEM: `Proposal::Update`, `UpdatePath::leaf_sig_public`.
   - **Group configuration.** `NodeBuilder::with_group_mail_limits` (optional, defaulting to
@@ -166,8 +181,8 @@
     - Signatures add about 3.3 KB to each group message, which counts toward the group's caps.
   - **Wire.**
     - `RestoreMembership`, `RestoreOwnership` and `Welcome` carry `tree`.
-    - New `ResumeMembership`, `ResumeOwnership`, `Resumed`, `KeepState`, `FetchState` and
-      `KeptState`.
+    - New `ResumeMembership`, `ResumeOwnership`, `Resumed { key, owner, members }`, `KeepState`,
+      `FetchState` and `KeptState`.
     - `InboundGroupMessage` has no `sender`: the server sets it.
 
 - **Sessions default to ML-KEM-1024, and nothing else defaults a KEM.** `KemAlgorithm`,

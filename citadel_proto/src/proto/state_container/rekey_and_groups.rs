@@ -322,6 +322,20 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
     }
 
+    /// Whether the application holds an open channel for `key`. A channel the application dropped
+    /// is forgotten here: dropping a channel closes it on this node only, and the member stays in
+    /// the group (leaving is `GroupChannel::leave`).
+    pub(crate) fn has_open_group_channel(&mut self, key: MessageGroupKey) -> bool {
+        if self
+            .group_channels
+            .get(&key)
+            .is_some_and(|tx| tx.is_closed())
+        {
+            let _ = self.group_channels.remove(&key);
+        }
+        self.group_channels.contains_key(&key)
+    }
+
     pub(crate) fn setup_group_channel_endpoints<T: PlatformOps>(
         &mut self,
         key: MessageGroupKey,
@@ -336,7 +350,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             .map(|r| r.get_cid())
             .ok_or(error!(ErrorCode::StateCnacNotLoaded))?;
 
-        if self.group_channels.contains_key(&key) {
+        if self.has_open_group_channel(key) {
             return Err(error!(ErrorCode::StateGroupChannelExists));
         }
 

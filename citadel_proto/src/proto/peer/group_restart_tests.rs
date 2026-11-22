@@ -120,14 +120,13 @@ async fn a_groups_row_moves_with_its_ownership() {
 }
 
 #[tokio::test]
-async fn a_row_of_an_earlier_release_is_read_as_its_group() {
+async fn a_row_of_an_earlier_release_is_refused_by_name() {
     use crate::proto::peer::group_persistence::{PersistedGroup, GROUPS};
     use citadel_user::serialization::SyncIO;
     let manager = Manager::new(BackendType::InMemory, None, None, None)
         .await
         .unwrap();
     let creator = register(&manager, "creator").await;
-    let mgid = 7u128;
     let row = PersistedGroup {
         owner: creator,
         options: MessageGroupOptions::default(),
@@ -141,12 +140,15 @@ async fn a_row_of_an_earlier_release_is_read_as_its_group() {
             creator,
             0,
             GROUPS,
-            &format!("{mgid:032x}"),
+            &format!("{:032x}", 7u128),
             row.serialize_to_vector().unwrap(),
         )
         .await
         .unwrap();
-    let restarted = restart(&manager).await;
-    let key = MessageGroupKey { cid: creator, mgid };
-    assert_eq!(restarted.group_owner(key).await, Some(creator));
+    let restarted = CitadelNodePeerLayer::new(manager.get_persistence_handler().clone());
+    let err = restarted.restore_persisted_groups().await.unwrap_err();
+    assert!(
+        err.to_string().contains("a row of an earlier release"),
+        "an old-format row was not refused by name: {err}"
+    );
 }

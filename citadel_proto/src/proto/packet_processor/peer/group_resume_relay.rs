@@ -60,9 +60,17 @@ pub(crate) async fn resume<R: Ratchet, T: PlatformOps>(
         )?;
         session.send_to_primary_stream(Some(ticket), packet)?;
     }
+    let (owner, members) = peer_layer
+        .group_owner_and_members(key)
+        .await
+        .ok_or_else(|| NetworkError::msg(format!("{key:?} ended while {member} resumed it")))?;
     let resumed = packet_crafter::peer_cmd::craft_group_message_packet(
         sess_ratchet,
-        &GroupBroadcast::Resumed { key },
+        &GroupBroadcast::Resumed {
+            key,
+            owner,
+            members,
+        },
         ticket,
         C2S_IDENTITY_CID,
         timestamp,

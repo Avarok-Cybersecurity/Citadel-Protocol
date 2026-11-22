@@ -48,7 +48,7 @@ let (send_half, recv_half) = group_channel.split();
 */
 
 use crate::error::NetworkError;
-use crate::proto::outbound_sender::{send_from_sync, Sender, UnboundedReceiver};
+use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::peer::group_owner::GroupOwner;
 use crate::proto::remote::Ticket;
@@ -90,7 +90,7 @@ impl GroupChannel {
         let (undelivered_tx, undelivered) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         Self {
             send_half: GroupChannelSendHalf {
-                tx: tx.clone(),
+                tx,
                 ticket,
                 key,
                 session_cid,
@@ -100,8 +100,6 @@ impl GroupChannel {
 
             recv_half: GroupChannelRecvHalf {
                 recv,
-                tx,
-                ticket,
                 session_cid,
                 key,
                 undelivered,
@@ -280,10 +278,9 @@ impl GroupChannelSendHalf {
     }
 }
 
+/// The receiving half. It holds no way to reach the session, so dropping it sends nothing.
 pub struct GroupChannelRecvHalf {
     recv: UnboundedReceiver<GroupBroadcastPayload>,
-    tx: Sender<SessionRequest>,
-    ticket: Ticket,
     session_cid: u64,
     key: MessageGroupKey,
     undelivered: citadel_io::tokio::sync::mpsc::UnboundedReceiver<GroupBroadcastPayload>,
@@ -314,21 +311,12 @@ impl Stream for GroupChannelRecvHalf {
     }
 }
 
+/// Dropping a channel closes it on this node only: the member stays in the group, and the owner
+/// keeps owning it. A crash, a reconnect or a dropped handle never hands a group away; leaving is
+/// [`GroupChannelSendHalf::leave`]. What reaches the group afterwards goes to the kernel as a
+/// `GroupEvent`, and a restore opens a new channel.
 impl Drop for GroupChannelRecvHalf {
     fn drop(&mut self) {
-        log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}", self.session_cid, self.key);
-        let request = SessionRequest::Group(Group {
-            ticket: self.ticket,
-            broadcast: GroupBroadcast::LeaveRoom { key: self.key },
-        });
-
-        // TODO: remove group channel locally on the inner process in state container
-        if let Err(err) = send_from_sync(&self.tx, request) {
-            log::warn!(target: "citadel", "Group channel drop warning: {err:?}")
-        }
+        log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}; the member stays in the group", self.session_cid, self.key);
     }
 }
-
-#[cfg(test)]
-#[path = "group_channel_drop_signal_tests.rs"]
-mod drop_signal_tests;

@@ -318,6 +318,11 @@ pub enum GroupBroadcast {
     Resumed {
         /// Group key
         key: MessageGroupKey,
+        /// The group's owner, as the server records it
+        owner: u64,
+        /// The group's members, as the server records them. A member made the owner while it was
+        /// away takes over from these: it removes every leaf of a cid not among them.
+        members: Vec<u64>,
     },
     /// Member → server: keep this sealed state of the member's for the group, in place of the
     /// last (see `peer::group_backup`). The server cannot open it.
@@ -1332,7 +1337,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                     }
                     cgka.tree = _claimed;
                     state.record_group_owner(key, Some(claimed_owner));
-                    state.group_channels.contains_key(&key)
+                    state.has_open_group_channel(key)
                 };
                 // A member rejoining a re-founded group keeps the channel its application already has.
                 if channel_open {
@@ -1474,11 +1479,15 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             }
         }
 
-        GroupBroadcast::Resumed { key } => {
+        GroupBroadcast::Resumed {
+            key,
+            owner,
+            members,
+        } => {
             if session.is_server {
                 return Ok(PrimaryProcessorResult::Void);
             }
-            group_resumed::resumed(session, reply, key)
+            group_resumed::resumed(session, reply, key, owner, &members)
         }
 
         GroupBroadcast::Restored { key, .. } => {
@@ -1696,7 +1705,7 @@ pub(super) fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
         cgka.tree = tree + 1;
         let _ = state.group_cgka.insert(key, cgka);
         state.record_group_owner(key, Some(session_cid));
-        state.group_channels.contains_key(&key)
+        state.has_open_group_channel(key)
     };
     if !channel_open {
         let _ = create_group_channel(ticket, key, session, session_cid)?;
@@ -1736,19 +1745,32 @@ pub(super) fn forward_signal<R: Ratchet, T: PlatformOps>(
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     let session_cid = return_if_none!(session.session_cid.get(), "Implicated CID not loaded");
 
-    if let Some(key) = key {
-        // send to the dedicated channel
-        if let Some(tx) = inner_mut_state!(session.state_container)
-            .group_channels
-            .get(&key)
-        {
-            if let Err(err) = tx.unbounded_send(broadcast.into()) {
-                log::error!(target: "citadel", "Unable to forward group broadcast signal. Reason: {err:?}");
+    // To the group's channel while the application holds it open; otherwise to the kernel.
+    let broadcast = match key {
+        Some(key) => {
+            let mut state = inner_mut_state!(session.state_container);
+            match state.group_channels.get(&key) {
+                Some(tx) => match tx.unbounded_send(broadcast.into()) {
+                    Ok(()) => return Ok(PrimaryProcessorResult::Void),
+                    Err(unsent) => {
+                        let _ = state.group_channels.remove(&key);
+                        match unsent.0 {
+                            GroupBroadcastPayload::Event { payload } => payload,
+                            GroupBroadcastPayload::Message { payload, sender } => {
+                                GroupBroadcast::Message {
+                                    sender,
+                                    key,
+                                    message: payload,
+                                }
+                            }
+                        }
+                    }
+                },
+                None => broadcast,
             }
-
-            return Ok(PrimaryProcessorResult::Void);
         }
-    }
+        None => broadcast,
+    };
 
     // send to kernel
     session

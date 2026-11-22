@@ -147,7 +147,8 @@ pub(crate) struct Transfer {
 enum Step {
     /// Nothing beyond telling the application.
     Nothing,
-    /// This member is the new owner but holds no usable state: re-found the group.
+    /// This member is the new owner, and its state cannot commit (a join still in flight, or a
+    /// hierarchy's): re-found the group.
     Refound,
     /// This member's join was in flight to the departed owner: publish again, to the new one.
     Republish,
@@ -176,6 +177,7 @@ pub(crate) fn ownership_transferred<R: Ratchet, T: PlatformOps>(
         let held = state.group_cgka.get(&key);
         let pending = held.is_some_and(|cgka| cgka.is_pending_join());
         let usable = held.is_some_and(|cgka| !cgka.is_pending_join() && cgka.is_flat());
+        let restoring = held.is_none();
         if owner != session_cid {
             if pending {
                 Step::Republish
@@ -201,6 +203,11 @@ pub(crate) fn ownership_transferred<R: Ratchet, T: PlatformOps>(
                 )?;
                 session.send_to_primary_stream(Some(ticket), packet)?;
             }
+            Step::Nothing
+        } else if restoring {
+            // This session's restore of the group is still in flight: the member takes over when
+            // it is back in the group (`group_resumed`), keeping what was held for everyone.
+            log::info!(target: "citadel", "{session_cid} owns {key:?} now; it takes over once its restore completes");
             Step::Nothing
         } else {
             let _ = state.group_cgka.remove(&key);

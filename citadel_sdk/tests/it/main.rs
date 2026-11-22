@@ -90,6 +90,7 @@ mod a_verified_transfer_is_not_failed_by_the_receivers_disconnect;
 mod a_weaker_server_stamp_is_refused;
 mod abandon_session;
 mod an_accept_for_a_withdrawn_dial_is_refused;
+mod an_away_successor_owns_the_group_on_return;
 mod an_ended_p2p_connection_releases_its_keys;
 mod an_expired_outbound_group_fails_the_senders_handle;
 mod an_owner_accepted_join_receives_its_welcome;

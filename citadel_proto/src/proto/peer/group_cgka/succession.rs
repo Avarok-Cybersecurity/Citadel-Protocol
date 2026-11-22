@@ -27,6 +27,40 @@ impl GroupCgkaState {
         self.saved = None;
         self.remove_member_by_cid(previous)
     }
+
+    /// This member was made the owner while it was away, and is back with the state it kept as a
+    /// member. It commits from here on, and removes every leaf of a cid that is no longer among
+    /// `members`, the group's members as the server records them: the owner that left among them.
+    /// Returns those Commits and their epochs, in order.
+    pub fn take_ownership_as_of(
+        &mut self,
+        members: &[u64],
+    ) -> Result<Vec<(Vec<u8>, u64)>, NetworkError> {
+        let tree_cids = self
+            .group
+            .as_ref()
+            .ok_or_else(|| error!(ErrorCode::ProtoGroupCgkaNoState))?
+            .tree
+            .member_cids();
+        let departed: Vec<u64> = tree_cids
+            .into_iter()
+            .filter(|cid| !members.contains(cid))
+            .collect();
+        let mut commits = Vec::with_capacity(departed.len());
+        let Some((first, rest)) = departed.split_first() else {
+            if !self.is_flat() {
+                return Err(error!(ErrorCode::ProtoGroupCgkaNotOwner));
+            }
+            self.is_owner = true;
+            self.saved = None;
+            return Ok(commits);
+        };
+        commits.extend(self.take_ownership(*first)?);
+        for cid in rest {
+            commits.extend(self.remove_member_by_cid(*cid)?);
+        }
+        Ok(commits)
+    }
 }
 
 #[cfg(test)]
@@ -110,5 +144,27 @@ mod tests {
         assert!(successor.take_unsaved());
         let stored = successor.export().unwrap().unwrap();
         assert!(GroupCgkaState::import(&stored).unwrap().is_owner());
+    }
+
+    /// A successor that was away takes over from the members the server records: the owner that
+    /// left, and nobody else, is cut out, and the group reads on.
+    #[test]
+    fn a_successor_back_from_away_cuts_out_whoever_left_while_it_was_away() {
+        let (mut owner, mut member, mut successor) = trio();
+        let commits = successor
+            .take_ownership_as_of(&[MEMBER, SUCCESSOR])
+            .unwrap();
+        assert!(successor.is_owner());
+        assert_eq!(commits.len(), 1, "exactly the owner that left is removed");
+        for (commit, epoch) in &commits {
+            member.process_commit(commit, *epoch).unwrap();
+            let _ = owner.process_commit(commit, *epoch);
+        }
+        let from_successor = successor.encrypt_message(b"from the new owner").unwrap();
+        assert!(owner.decrypt_message(&from_successor).is_err());
+        assert_eq!(
+            member.decrypt_message(&from_successor).unwrap().1,
+            b"from the new owner"
+        );
     }
 }

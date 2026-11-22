@@ -19,8 +19,8 @@
 //! Layout: `(owner, 0, "message_groups", <creator cid hex>-<mgid hex>)` → [`PersistedGroup`]. The
 //! sub-key is the group's id (`MessageGroupKey`, whose cid is its creator's and stays so after
 //! ownership passes); the row is under the account of the owner it was written for, and moves
-//! with ownership, so a group outlives its creator's account. A row of an earlier release, under
-//! its creator and keyed by its mgid alone, is read as the same group and moved on its next write.
+//! with ownership, so a group outlives its creator's account. A row of an earlier release, keyed
+//! by its mgid alone, is refused by name: there is no older format to read.
 
 use crate::error::NetworkError;
 use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
@@ -107,20 +107,20 @@ impl Row {
     }
 }
 
-/// The group a sub-key under `holder` names. A row of an earlier release is keyed by the group's
-/// mgid alone, under its creator, whose cid is the group's.
-fn key_of(holder: u64, sub: &str) -> Result<MessageGroupKey, NetworkError> {
+/// The group a sub-key names. A sub-key that is not a group id (`<cid hex>-<mgid hex>`), such
+/// as the mgid-only key of an earlier release, is refused by name: there is no older format.
+fn key_of(sub: &str) -> Result<MessageGroupKey, NetworkError> {
     let parse_err = |err| persistence_error(&format!("parse group id {sub:?}"), err);
-    match sub.split_once('-') {
-        Some((cid, mgid)) => Ok(MessageGroupKey {
-            cid: u64::from_str_radix(cid, 16).map_err(parse_err)?,
-            mgid: u128::from_str_radix(mgid, 16).map_err(parse_err)?,
-        }),
-        None => Ok(MessageGroupKey {
-            cid: holder,
-            mgid: u128::from_str_radix(sub, 16).map_err(parse_err)?,
-        }),
-    }
+    let (cid, mgid) = sub.split_once('-').ok_or_else(|| {
+        persistence_error(
+            "read a group row",
+            format!("{sub:?} is a row of an earlier release, not a group id; it is not read"),
+        )
+    })?;
+    Ok(MessageGroupKey {
+        cid: u64::from_str_radix(cid, 16).map_err(parse_err)?,
+        mgid: u128::from_str_radix(mgid, 16).map_err(parse_err)?,
+    })
 }
 
 fn persistence_error(what: &str, err: impl std::fmt::Display) -> NetworkError {
@@ -175,7 +175,7 @@ pub(crate) async fn load_all<R: Ratchet>(
             .await
             .map_err(|err| persistence_error("read groups", err))?;
         for (sub, bytes) in held {
-            let key = key_of(holder, &sub)?;
+            let key = key_of(&sub)?;
             let group = PersistedGroup::deserialize_from_vector(&bytes)
                 .map_err(|err| persistence_error(&format!("decode group {sub}"), err))?;
             rows.push((key, Row { holder, sub }, group));
