@@ -8,3 +8,15 @@
 # version = "1.2.3"
 # added = 2026-11-18
 # reason = "RUSTSEC-YYYY-NNNN fix; the prior release is exploitable through <path>"
+
+[[exception]]
+name = "url"
+version = "2.5.9"
+added = 2026-11-22
+reason = "RUSTSEC-2026-0592 fix; url 2.5.8 overflows the stack in Url::origin() on nested blob: URLs, which cargo deny refuses (run 45036244555)"
+
+[[exception]]
+name = "form_urlencoded"
+version = "1.2.3"
+added = 2026-11-22
+reason = "required by url 2.5.9 (the RUSTSEC-2026-0592 fix); url 2.5.9 does not build with 1.2.2"
