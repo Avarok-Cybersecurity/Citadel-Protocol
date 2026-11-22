@@ -4,7 +4,7 @@ use super::includes::*;
 use crate::proto::packet_processor::peer::group_commit_ack;
 use crate::proto::peer::group_relay;
 use citadel_io::{error, ErrorCode};
-use citadel_types::proto::GroupHierarchyMode;
+use citadel_types::proto::{GroupDelivery, GroupHierarchyMode, NotRelayed};
 
 impl<R: Ratchet> StateContainerInner<R> {
     #[allow(unused_results)]
@@ -104,13 +104,24 @@ impl<R: Ratchet> StateContainerInner<R> {
         ticket: Ticket,
         command: &GroupBroadcast,
     ) -> Result<(), NetworkError> {
+        let result = self.process_outbound_group_command(ticket, command);
+        // A Create founds a state, a Kick commits; either is kept before the next command.
+        self.save_changed_group_states();
+        result
+    }
+
+    fn process_outbound_group_command(
+        &mut self,
+        ticket: Ticket,
+        command: &GroupBroadcast,
+    ) -> Result<(), NetworkError> {
         if !self.state.is_connected() {
             log::warn!(target: "citadel", "Unable to execute group command since session is not connected");
             // A message has a sender waiting on its outcome: tell it, rather than let a send that
             // returned `Ok` vanish. Other commands from an ended session (e.g. the `LeaveRoom` a
             // dropped channel sends) must not reach the server, and nobody awaits them.
             if let GroupBroadcast::Message { key, .. } = command {
-                self.report_group_message_not_delivered(*key);
+                self.report_group_message_not_delivered(*key, NotRelayed::SessionEnded);
             }
             return Ok(());
         }
@@ -169,7 +180,7 @@ impl<R: Ratchet> StateContainerInner<R> {
                 message,
             } => {
                 let Some(cgka) = self.group_cgka.get_mut(key) else {
-                    self.report_group_message_not_delivered(*key);
+                    self.report_group_message_not_delivered(*key, NotRelayed::NoGroupKey);
                     return Err(error!(ErrorCode::ProtoGroupCgkaNoState));
                 };
                 let ciphertext = cgka.encrypt_message(message.as_ref())?;
@@ -293,13 +304,17 @@ impl<R: Ratchet> StateContainerInner<R> {
     }
 
     /// Tells the group channel of `key` that a message sent on it never left this node, with the
-    /// same `MessageResponse { success: false }` the server sends when it cannot deliver one.
-    pub(crate) fn report_group_message_not_delivered(&self, key: MessageGroupKey) {
-        log::warn!(target: "citadel", "A group message for {key:?} was not sent; reporting it to the sender");
+    /// same `MessageResponse` the server sends when it relays one to nobody.
+    pub(crate) fn report_group_message_not_delivered(
+        &self,
+        key: MessageGroupKey,
+        reason: NotRelayed,
+    ) {
+        log::warn!(target: "citadel", "A group message for {key:?} was not sent ({reason:?}); reporting it to the sender");
         if let Some(tx) = self.group_channels.get(&key) {
             let refusal = GroupBroadcast::MessageResponse {
                 key,
-                success: false,
+                delivery: GroupDelivery::NotRelayed(reason),
             };
             if let Err(err) = tx.unbounded_send(refusal.into()) {
                 log::error!(target: "citadel", "Unable to report an undelivered group message for {key:?}: {err:?}");
@@ -307,11 +322,26 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
     }
 
+    /// Whether the application holds an open channel for `key`. A channel the application dropped
+    /// is forgotten here: dropping a channel closes it on this node only, and the member stays in
+    /// the group (leaving is `GroupChannel::leave`).
+    pub(crate) fn has_open_group_channel(&mut self, key: MessageGroupKey) -> bool {
+        if self
+            .group_channels
+            .get(&key)
+            .is_some_and(|tx| tx.is_closed())
+        {
+            let _ = self.group_channels.remove(&key);
+        }
+        self.group_channels.contains_key(&key)
+    }
+
     pub(crate) fn setup_group_channel_endpoints<T: PlatformOps>(
         &mut self,
         key: MessageGroupKey,
         ticket: Ticket,
         session: &CitadelSession<R, T>,
+        owner: u64,
     ) -> Result<GroupChannel, NetworkError> {
         let (tx, rx) = unbounded();
         let session_cid = self
@@ -320,11 +350,12 @@ impl<R: Ratchet> StateContainerInner<R> {
             .map(|r| r.get_cid())
             .ok_or(error!(ErrorCode::StateCnacNotLoaded))?;
 
-        if self.group_channels.contains_key(&key) {
+        if self.has_open_group_channel(key) {
             return Err(error!(ErrorCode::StateGroupChannelExists));
         }
 
         let _ = self.group_channels.insert(key, tx);
+        let owner = self.open_group_owner(key, owner);
 
         let (to_session_tx, to_session_rx) =
             crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
@@ -338,6 +369,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             key,
             ticket,
             session_cid,
+            owner,
             rx,
         ))
     }

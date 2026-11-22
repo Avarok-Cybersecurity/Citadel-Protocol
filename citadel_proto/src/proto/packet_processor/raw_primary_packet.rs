@@ -60,6 +60,7 @@ pub async fn process_raw_packet<R: Ratchet, T: PlatformOps>(
     remote_peer: SocketAddr,
     local_primary_port: u16,
     mut packet: BytesMut,
+    group_turn: Option<crate::proto::group_lane::Turn>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
     crate::proto::seal_identity::bind_to_session(session.is_server, this_session_cid, &mut packet);
@@ -160,6 +161,7 @@ pub async fn process_raw_packet<R: Ratchet, T: PlatformOps>(
                     packet,
                     header_entropy_bank_vers,
                     endpoint_cid_info,
+                    group_turn,
                 )
                 .await
             }

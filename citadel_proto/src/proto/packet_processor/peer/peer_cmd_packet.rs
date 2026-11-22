@@ -99,6 +99,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
     packet: HdpPacket,
     header_entropy_bank_version: u32,
     endpoint_cid_info: Option<(u64, u64)>,
+    group_turn: Option<crate::proto::group_lane::Turn>,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
     // ALL PEER_CMD packets require that the current session contain a CNAC (not anymore since switching to async)
     let session = session_orig.clone();
@@ -139,6 +140,7 @@ pub async fn process_peer_cmd<R: Ratchet, T: PlatformOps>(
                     header,
                     &payload[..],
                     &sess_ratchet,
+                    group_turn,
                 )
                 .await
             }

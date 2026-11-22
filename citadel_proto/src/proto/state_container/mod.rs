@@ -150,6 +150,8 @@ mod channels;
 mod completed_groups;
 mod early_hole_punch;
 mod group_hierarchy_outbound;
+mod group_owners;
+mod group_state_saving;
 pub(crate) mod inbound_group_bounds;
 mod inbound_transfer;
 mod monitoring;
@@ -237,6 +239,17 @@ pub struct StateContainerInner<R: Ratchet> {
     /// Per-group zero-trust TreeKEM CGKA state (the ratchet tree + epoch keys). The relay holds none
     /// of this; only group members hold an entry. Keyed identically to [`Self::group_channels`].
     pub(super) group_cgka: HashMap<MessageGroupKey, crate::proto::peer::group_cgka::GroupCgkaState>,
+    /// The owner each open group channel acts under (see `group_owners`). Keyed identically to
+    /// [`Self::group_channels`].
+    pub(super) group_owners: HashMap<MessageGroupKey, crate::proto::peer::group_owner::GroupOwner>,
+    /// Where this client's group states are written as they change (see `group_state_saving`).
+    group_state_writer: Option<
+        citadel_io::tokio::sync::mpsc::UnboundedSender<
+            crate::proto::peer::group_state_store::StateWrite,
+        >,
+    >,
+    /// Groups whose state was written since its last `KeepState` (see `group_state_saving`).
+    group_backups_due: std::collections::HashSet<MessageGroupKey>,
     pub(super) transfer_stats: TransferStats,
     pub(super) udp_mode: UdpMode,
     /// The rekey each target CID currently has in flight, by the ticket that
@@ -618,6 +631,9 @@ impl<R: Ratchet> StateContainerInner<R> {
             file_transfer_handles: DashMap::new(),
             group_channels: Default::default(),
             group_cgka: Default::default(),
+            group_owners: Default::default(),
+            group_state_writer: None,
+            group_backups_due: Default::default(),
             udp_mode,
             transfer_stats,
             queue_handle: Default::default(),

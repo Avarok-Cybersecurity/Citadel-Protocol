@@ -39,7 +39,10 @@ fn no_address_is_held_past_the_total() {
 
 #[test]
 fn a_server_that_refuses_legacy_registration_gives_no_turn() {
-    let load = ServerLoad::new(limits(1, 1, LegacyRegistration::Refused));
+    let load = ServerLoad::new(
+        limits(1, 1, LegacyRegistration::Refused),
+        GroupMailLimits::default(),
+    );
     let code = load.legacy_hash_turn().err().unwrap().code;
     assert_eq!(code, ErrorCode::LegacyRegistrationRefused);
 }
@@ -47,13 +50,16 @@ fn a_server_that_refuses_legacy_registration_gives_no_turn() {
 #[test]
 fn legacy_hashes_take_turns_up_to_the_limit() {
     let two = NonZeroUsize::new(2).unwrap();
-    let load = ServerLoad::new(limits(
-        1,
-        1,
-        LegacyRegistration::Accepted {
-            concurrent_hashes: two,
-        },
-    ));
+    let load = ServerLoad::new(
+        limits(
+            1,
+            1,
+            LegacyRegistration::Accepted {
+                concurrent_hashes: two,
+            },
+        ),
+        GroupMailLimits::default(),
+    );
     let first = load.legacy_hash_turn().unwrap();
     let _second = load.legacy_hash_turn().unwrap();
     let code = load.legacy_hash_turn().err().unwrap().code;
@@ -63,4 +69,15 @@ fn legacy_hashes_take_turns_up_to_the_limit() {
         load.legacy_hash_turn().is_ok(),
         "an ended turn was not returned"
     );
+}
+
+#[test]
+fn group_mail_limits_default_to_a_week_a_thousand_messages_and_16_mib() {
+    let limits = GroupMailLimits::default();
+    assert_eq!(
+        limits.max_age,
+        std::time::Duration::from_secs(7 * 24 * 3600)
+    );
+    assert_eq!(limits.max_messages.get(), 1_000);
+    assert_eq!(limits.max_bytes.get(), 16 * 1024 * 1024);
 }

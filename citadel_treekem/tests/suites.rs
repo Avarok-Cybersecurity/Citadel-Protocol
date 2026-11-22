@@ -54,13 +54,13 @@ fn a_group_keys_its_whole_tree_on_ml_kem_1024() {
         [2u8; 32],
     );
     let mut members = [b];
-    let c = add(
+    let mut c = add(
         &mut owner,
         &mut members,
         &KeyPackage::generate(3, &[3u8; 32]).unwrap(),
         [3u8; 32],
     );
-    let [b] = members;
+    let [mut b] = members;
 
     let mut keys = 0;
     for x in 0..owner.tree.nodes.len() as u32 {
@@ -71,8 +71,11 @@ fn a_group_keys_its_whole_tree_on_ml_kem_1024() {
     }
     assert!(keys >= 4, "three leaves and the owner's path: {keys}");
     let sealed = owner.encrypt_message(b"status").unwrap();
-    for reader in [&b, &c] {
-        assert_eq!(reader.decrypt_message(&sealed).unwrap(), b"status");
+    for reader in [&mut b, &mut c] {
+        assert_eq!(
+            reader.decrypt_message(&sealed).unwrap().plaintext,
+            b"status"
+        );
     }
 }
 

@@ -42,11 +42,14 @@ pub struct Settled {
     pub key: MessageGroupKey,
     /// The epoch the settled Commit advanced the group into
     pub epoch: u64,
+    /// The owner that made the Commit, to tell
+    pub owner: u64,
 }
 
 struct Gate {
     epoch: u64,
-    /// The owner's session that made the Commit.
+    /// The owner that made the Commit, and its session.
+    owner_cid: u64,
     owner: Session,
     /// Each member waited on, and the session the Commit was delivered to.
     awaiting: HashMap<u64, Session>,
@@ -69,13 +72,14 @@ impl CommitGates {
         &mut self,
         key: MessageGroupKey,
         epoch: u64,
-        owner: Session,
+        (owner_cid, owner): (u64, Session),
         awaiting: HashMap<u64, Session>,
     ) -> Option<Settled> {
         let _ = self.gates.insert(
             key,
             Gate {
                 epoch,
+                owner_cid,
                 owner,
                 awaiting,
             },
@@ -108,7 +112,7 @@ impl CommitGates {
     /// session under the same cid is untouched.
     pub fn session_ended(&mut self, cid: u64, ended: Instant) -> Vec<Settled> {
         self.gates
-            .retain(|key, gate| key.cid != cid || !same_session(gate.owner, ended));
+            .retain(|_, gate| gate.owner_cid != cid || !same_session(gate.owner, ended));
         let keys: Vec<MessageGroupKey> = self
             .gates
             .iter_mut()
@@ -149,13 +153,13 @@ impl CommitGates {
     }
 
     fn settle_if_done(&mut self, key: MessageGroupKey) -> Option<Settled> {
-        let epoch = self
+        let gate = self
             .gates
             .get(&key)
-            .filter(|gate| gate.awaiting.is_empty())?
-            .epoch;
+            .filter(|gate| gate.awaiting.is_empty())?;
+        let (epoch, owner) = (gate.epoch, gate.owner_cid);
         let _ = self.gates.remove(&key);
-        Some(Settled { key, epoch })
+        Some(Settled { key, epoch, owner })
     }
 }
 
@@ -174,15 +178,19 @@ mod tests {
     fn a_commit_nobody_must_apply_settles_at_once() {
         let mut gates = CommitGates::default();
         assert_eq!(
-            gates.open(KEY, 3, None, set(&[])),
-            Some(Settled { key: KEY, epoch: 3 })
+            gates.open(KEY, 3, (KEY.cid, None), set(&[])),
+            Some(Settled {
+                key: KEY,
+                epoch: 3,
+                owner: KEY.cid
+            })
         );
     }
 
     #[test]
     fn a_commit_settles_once_every_member_applied_it() {
         let mut gates = CommitGates::default();
-        assert_eq!(gates.open(KEY, 3, None, set(&[2, 3])), None);
+        assert_eq!(gates.open(KEY, 3, (KEY.cid, None), set(&[2, 3])), None);
         assert_eq!(
             gates.applied(KEY, 3, 2),
             None,
@@ -195,7 +203,11 @@ mod tests {
         );
         assert_eq!(
             gates.applied(KEY, 3, 3),
-            Some(Settled { key: KEY, epoch: 3 })
+            Some(Settled {
+                key: KEY,
+                epoch: 3,
+                owner: KEY.cid
+            })
         );
         assert_eq!(
             gates.applied(KEY, 3, 3),
@@ -207,44 +219,56 @@ mod tests {
     #[test]
     fn an_ack_for_another_epoch_or_member_settles_nothing() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, None, set(&[2]));
+        let _ = gates.open(KEY, 3, (KEY.cid, None), set(&[2]));
         assert_eq!(gates.applied(KEY, 2, 2), None);
         assert_eq!(gates.applied(KEY, 3, 9), None);
         assert_eq!(gates.undelivered(KEY, 4, &[2]), None);
         assert_eq!(
             gates.applied(KEY, 3, 2),
-            Some(Settled { key: KEY, epoch: 3 })
+            Some(Settled {
+                key: KEY,
+                epoch: 3,
+                owner: KEY.cid
+            })
         );
     }
 
     #[test]
     fn a_later_commit_replaces_the_wait() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, None, set(&[2]));
-        let _ = gates.open(KEY, 4, None, set(&[2]));
+        let _ = gates.open(KEY, 3, (KEY.cid, None), set(&[2]));
+        let _ = gates.open(KEY, 4, (KEY.cid, None), set(&[2]));
         assert_eq!(gates.applied(KEY, 3, 2), None);
         assert_eq!(
             gates.applied(KEY, 4, 2),
-            Some(Settled { key: KEY, epoch: 4 })
+            Some(Settled {
+                key: KEY,
+                epoch: 4,
+                owner: KEY.cid
+            })
         );
     }
 
     #[test]
     fn members_that_cannot_apply_it_leave_the_wait() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, None, set(&[2, 3, 4]));
+        let _ = gates.open(KEY, 3, (KEY.cid, None), set(&[2, 3, 4]));
         assert_eq!(gates.undelivered(KEY, 3, &[2]), None);
         assert_eq!(gates.removed(KEY, &[3]), None);
         assert_eq!(
             gates.session_ended(4, Instant::now()),
-            vec![Settled { key: KEY, epoch: 3 }]
+            vec![Settled {
+                key: KEY,
+                epoch: 3,
+                owner: KEY.cid
+            }]
         );
     }
 
     #[test]
     fn an_owners_departure_ends_its_waits_unsettled() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, None, set(&[2]));
+        let _ = gates.open(KEY, 3, (KEY.cid, None), set(&[2]));
         assert_eq!(gates.session_ended(KEY.cid, Instant::now()), vec![]);
         assert_eq!(gates.applied(KEY, 3, 2), None);
     }
@@ -252,7 +276,7 @@ mod tests {
     #[test]
     fn a_closed_group_settles_nothing() {
         let mut gates = CommitGates::default();
-        let _ = gates.open(KEY, 3, None, set(&[2]));
+        let _ = gates.open(KEY, 3, (KEY.cid, None), set(&[2]));
         gates.close(KEY);
         assert_eq!(gates.applied(KEY, 3, 2), None);
     }

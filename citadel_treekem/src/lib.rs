@@ -18,12 +18,15 @@
 pub mod application;
 pub mod commit;
 pub mod crypto;
+pub mod export;
 pub mod group;
 pub mod hierarchy;
 pub mod hierarchy_member;
 pub mod keys;
 pub mod path;
+pub mod replay;
 pub mod schedule;
+pub mod signing;
 pub mod tree;
 pub mod welcome;
 

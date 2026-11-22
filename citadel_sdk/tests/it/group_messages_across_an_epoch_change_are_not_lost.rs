@@ -12,7 +12,8 @@
 //! A: sends "a-N" continuously
 //! O: after reading 20 of them, invites B → B accepts → B's channel opens
 //! A: sends 200 more after it sees B's channel open, then stops
-//! O must read every "a-N" A sent; B must read every one A sent after its channel opened
+//! O must read every "a-N" A sent, and B every one A sent after its channel opened, each in
+//! the order A sent them
 //! ```
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -95,7 +96,7 @@ mod tests {
                         {
                             if sender == a_cid {
                                 if let Some(idx) = parse_idx(payload.as_ref()) {
-                                    let _ = shared.reads.owner.seen.lock().unwrap().insert(idx);
+                                    shared.reads.owner.record(idx);
                                     read += 1;
                                 }
                             }

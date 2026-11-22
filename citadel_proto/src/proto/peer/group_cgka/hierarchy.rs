@@ -207,8 +207,11 @@ mod tests {
 
         // C (subordinate) sends. B (superior) and the owner (root) read it; D (sibling) cannot.
         let wire = c.encrypt_message(b"sitrep from bravo").unwrap();
-        assert_eq!(b.decrypt_message(&wire).unwrap(), b"sitrep from bravo");
-        assert_eq!(owner.decrypt_message(&wire).unwrap(), b"sitrep from bravo");
+        assert_eq!(b.decrypt_message(&wire).unwrap().1, b"sitrep from bravo");
+        assert_eq!(
+            owner.decrypt_message(&wire).unwrap().1,
+            b"sitrep from bravo"
+        );
         assert!(d.decrypt_message(&wire).is_err(), "sibling cannot read");
 
         // Promote D under /alpha; D now reads C's subtree.
@@ -219,7 +222,7 @@ mod tests {
         let wire2 = c.encrypt_message(b"second sitrep").unwrap();
         // D at /alpha/delta is a sibling of /alpha/bravo, still cannot read C; but B (/alpha) still can.
         assert!(d.decrypt_message(&wire2).is_err());
-        assert_eq!(b.decrypt_message(&wire2).unwrap(), b"second sitrep");
+        assert_eq!(b.decrypt_message(&wire2).unwrap().1, b"second sitrep");
     }
 
     /// After demotion, the demoted superior can no longer read a former subordinate's new messages.
@@ -240,7 +243,7 @@ mod tests {
 
         // Before demotion, B reads C.
         let pre = c.encrypt_message(b"before").unwrap();
-        assert_eq!(b.decrypt_message(&pre).unwrap(), b"before");
+        assert_eq!(b.decrypt_message(&pre).unwrap().1, b"before");
 
         // Demote B: rotate + reseal. B and C apply their new assignments + the epoch-bump commit.
         let (assignments, commit, epoch) = owner.demote(2).unwrap();
@@ -260,6 +263,6 @@ mod tests {
             b.decrypt_message(&post).is_err(),
             "demoted superior loses future reads"
         );
-        assert_eq!(owner.decrypt_message(&post).unwrap(), b"after");
+        assert_eq!(owner.decrypt_message(&post).unwrap().1, b"after");
     }
 }

@@ -25,6 +25,18 @@ pub struct GroupBroadcastTargets {
     pub mail_if_offline: bool,
 }
 
+impl<R: Ratchet> CitadelNodePeerLayer<R> {
+    /// The retention `key` asked for (`None`: the server's maximum, or no such group).
+    pub async fn group_retention(&self, key: MessageGroupKey) -> Option<std::time::Duration> {
+        let this = self.inner.read().await;
+        this.message_groups
+            .get(&key.cid)?
+            .get(&key.mgid)?
+            .options
+            .retention
+    }
+}
+
 impl GroupBroadcastTargets {
     /// The targets of `group`, or `None` when it has no members.
     fn of(group: &MessageGroup) -> Option<Self> {
@@ -49,7 +61,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     }
 
     /// Admits a message of `bytes` from `sender` to `key` under the group's limits, counting it
-    /// against the sender's rate, and returns its targets. A group that does not exist here has
+    /// against the sender's rate, and returns its targets. Only a member may send. A group that does not exist here has
     /// no limits and no targets, as before limits.
     pub async fn admit_group_message(
         &self,
@@ -66,6 +78,9 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         else {
             return Ok(None);
         };
+        if !group.concurrent_peers.contains_key(&sender) {
+            return Err(GroupMessageRefusal::NotAMember);
+        }
         admit(
             group.options.limits.as_ref(),
             &mut group.rates.lock(),
@@ -138,3 +153,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "group_relay_member_tests.rs"]
+mod member_tests;

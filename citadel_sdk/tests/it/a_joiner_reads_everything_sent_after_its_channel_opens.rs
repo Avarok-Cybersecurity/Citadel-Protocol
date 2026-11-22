@@ -10,7 +10,7 @@
 //! A: waits until B's channel opens, or the server reports it is waiting on A
 //! A: seals BURST messages at the old epoch; the server relays every one of them
 //! A: releases the Commit and applies it; waits for B's channel; sends AFTER_JOIN more
-//! B must read every message A sent after B's channel opened
+//! B must read every message A sent after B's channel opened, in the order A sent them
 //! ```
 //!
 //! A Welcome sent at once opens B's channel before the burst, and B can read none of it.
@@ -21,7 +21,9 @@ mod tests {
     use crate::common::group_epoch::*;
     use citadel_io::tokio;
     use citadel_io::tokio::sync::{watch, Barrier};
-    use citadel_proto::test_hooks::{hold_inbound_commits, observe_commit_gates};
+    use citadel_proto::test_hooks::{
+        hold_inbound_commits, observe_commit_gates, observe_group_message_relays,
+    };
     use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::server_info;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -146,10 +148,11 @@ mod tests {
 
                     let invitation = next_invitation(&mut events).await;
                     let _ = responses::group_invite(invitation, true, &remote).await?;
-                    let mut channel = next_group_channel(&mut events, "A").await;
+                    let channel = next_group_channel(&mut events, "A").await;
                     let key = channel.key();
                     let mut hold = hold_inbound_commits(reg.cid);
                     let mut gates = observe_commit_gates();
+                    let mut relays = observe_group_message_relays();
                     sync.wait().await; // A's channel is open and A holds its Commits
 
                     hold.arrived().await;
@@ -170,7 +173,7 @@ mod tests {
                     for idx in 0..BURST {
                         send_indexed(&channel, &shared, idx).await?;
                     }
-                    relayed(&mut channel, BURST).await;
+                    relayed(&mut relays, reg.cid, BURST).await;
                     hold.release().await;
 
                     let _ = b_open.wait_for(|open| *open).await;

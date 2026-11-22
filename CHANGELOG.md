@@ -4,6 +4,64 @@
 
 ### Added
 
+- **Group state that outlives the session, and the account's device.**
+  - **Local state.** A client keeps each ordinary group's TreeKEM state in its account store
+    (`peer::group_state_store`). A returning session resumes it (`ResumeMembership`,
+    `ResumeOwnership`) instead of rejoining.
+  - **Replay on return.** The server replays, oldest first, what it held for the member while it
+    was away, then marks the end of the replay (`Resumed`). One lock orders every group fan-out
+    against a replay.
+  - **Sealed copy at the server.** The state is also kept at the server, sealed under the
+    account's RE-VFS key (`RevfsKeySource`, derived from the recovery or identity seed;
+    `peer::group_backup`). An account recovered on a new device with its phrase resumes its
+    groups and reads what was sent while it was away.
+  - **Leaf replacement.** It then replaces its leaf, so the device it left reads nothing from the
+    owner's next epoch on.
+- **Group sends are answered per member.** `MessageResponse::delivery` is a `GroupDelivery`:
+  - `Relayed` lists the members it reached now, the members it is held for, and each member it did
+    not reach, with the reason (`NotDelivered::{Offline, BacklogFull, Unreachable}`);
+  - `NotRelayed` says why it reached no one.
+- **Bounded group backlogs.**
+  - `NodeBuilder::with_group_mail_limits(GroupMailLimits { max_age, max_messages, max_bytes })`
+    sets what a server holds per away member and group. Without it a server holds
+    `GroupMailLimits::default()`: 7 days, 1000 messages, 16 MiB.
+  - `MessageGroupOptions::retention` asks for less than `max_age`, never more.
+  - A message past a member's cap is not held for that member, and the sender's `GroupDelivery`
+    says so. Group control is always held.
+- **Groups tell the application how they end and come back.**
+  - `GroupBroadcast::Disconnected { key, reason }` carries a `GroupEndReason`: `ClosedByOwner`,
+    `Removed`, or `HierarchyOwnerGone` (a command hierarchy ends when its owner leaves; its ranks
+    are the owner's alone, so the members may start a new group).
+  - `GroupBroadcast::Restored { key, source }` is told once per group when a session gets it back:
+    `GroupStateSource::{ThisDevice, Backup, Rejoined, Refounded}`.
+  - `GroupDelivery`, `NotDelivered`, `NotRelayed`, `GroupMessageRefusal`, `GroupEndReason` and
+    `GroupStateSource` are exported by `@avarok/citadel-protocol-types`.
+- **An owner restored from the account's backup replaces its own leaf.** A Commit with an
+  `Update` proposal replaces the leaf's KEM and signing keys; the epoch it leaves stays readable
+  for the other members. Every commit now replaces the committer's signing key with its KEM key
+  (`UpdatePath::leaf_sig_public`).
+- **A group passes to its highest-cid member when its owner leaves, closes it or deletes its
+  account.** The server records the successor at once, whether or not it is online, and the group
+  keeps relaying: the owner is not needed for that. A successor that was away takes over when it
+  resumes, from the state it kept: it reads everything held for it, then commits the departed
+  owner out (`Resumed` carries the group's owner and members). Nothing held for anyone is
+  dropped. An owner that is only offline, however long, is not succeeded. A command hierarchy
+  ends with its owner instead (`HierarchyOwnerGone`).
+- **Group rows are keyed by group id** (`<creator cid>-<mgid>`, under the owner's account) and move
+  with ownership, so a group outlives its creator's account. A row in any other format is refused
+  by name at startup.
+- **Group traffic is handled in the order it arrived.** A session's group broadcasts are handled
+  one after another, on the server and on every member, so one sender's messages reach every
+  member in the order it sent them.
+- **Group messages are signed by their sender.** Each leaf carries an ML-DSA-65 key derived from
+  its leaf secret, and every application message and hierarchy frame is signed under it.
+  - A member delivers a message only when its signer is the sender the server relays, and opens
+    each message once (a replay window per epoch, sender and incarnation).
+  - The server relays a group message as from the session that sent it, and refuses one from a
+    non-member (`GroupMessageRefusal::NotAMember`).
+  - A state read back sends under a fresh incarnation, which is part of the message key, so no
+    message key is used twice.
+
 - **P2P key exchanges signed by each account's identity key.** Each end signs its stage of a P2P
   key exchange (the initiator its Stage0, the responder its Stage1) with its account's ML-DSA-65
   identity key, over a transcript naming both CIDs, the connection id, the digests of the stages
@@ -76,7 +134,7 @@
   `GROUP_RELAY_OPTIONS_SINCE` (0.12.2) gets `MessageResponse { success: false }` instead. A client
   refuses to create a group with either option on a server below that version
   (`ErrorCode::GroupRelayOptionsUnsupported`), which would ignore them. Both options are stored in
-  the group registry, which still reads rows written before them. The server's mailbox byte map
+  the group registry. The server's mailbox byte map
   is now public as `PEER_MAILBOX_MAP`; it remains unbounded.
 
 ### Fixed
@@ -104,6 +162,28 @@
   `KsfParams::FLOOR` reads the same constants.
 
 ### Breaking
+
+- **Groups (protocol 0.12.5; older nodes are refused by name).**
+  - **Delivery reports.** `MessageResponse { success }` is now `MessageResponse { key, delivery }`.
+  - **Leaving is explicit.** Dropping a `GroupChannel` (or its receiving half) no longer leaves
+    the group: it closes the channel on this node only, and the member stays in the group, as the
+    owner if it was one. A crash, reconnect or dropped handle never hands a group away. Leave with
+    `GroupChannel::leave()`. A group whose channel was dropped reaches the kernel as
+    `GroupEvent`s; a restore opens a new channel.
+  - **Group lifecycle.** `GroupBroadcast::Disconnected` gains `reason: GroupEndReason`; new
+    `GroupBroadcast::Restored`. TreeKEM: `Proposal::Update`, `UpdatePath::leaf_sig_public`.
+  - **Group configuration.** `NodeBuilder::with_group_mail_limits` (optional, defaulting to
+    `GroupMailLimits::default()`). `MessageGroupOptions` gains `retention`.
+  - **Message API.**
+    - `GroupState::decrypt_message` returns an `OpenedMessage { sender_cid, plaintext }`;
+      `GroupCgkaState::decrypt_message` returns `(sender, plaintext)`.
+    - `AppCiphertext` gains `signature` and `incarnation`.
+    - Signatures add about 3.3 KB to each group message, which counts toward the group's caps.
+  - **Wire.**
+    - `RestoreMembership`, `RestoreOwnership` and `Welcome` carry `tree`.
+    - New `ResumeMembership`, `ResumeOwnership`, `Resumed { key, owner, members }`, `KeepState`,
+      `FetchState` and `KeptState`.
+    - `InboundGroupMessage` has no `sender`: the server sets it.
 
 - **Sessions default to ML-KEM-1024, and nothing else defaults a KEM.** `KemAlgorithm`,
   `CryptoParameters` and `SessionSecuritySettings` no longer implement `Default`, and

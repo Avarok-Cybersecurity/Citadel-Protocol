@@ -35,7 +35,6 @@ use crate::macros::SyncContextRequirements;
 use crate::proto::disconnect_tracker::DisconnectToken;
 use crate::proto::packet_processor::includes::Instant;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::proto::peer::group_persistence;
 use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
 use crate::proto::peer::peer_crypt::KeyExchangeProcess;
 use crate::proto::remote::Ticket;
@@ -70,11 +69,11 @@ impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction f
 pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     // When a signal is routed to the target destination, the server needs to keep track of the state while awaiting
     pub(crate) persistence_handler: PersistenceHandler<R, R>,
+    /// Groups by their creator's cid (`MessageGroupKey::cid`), which is the group's id and stays
+    /// so after ownership passes; the current owner is `MessageGroup::owner`.
     pub(crate) message_groups: HashMap<u64, HashMap<u128, MessageGroup>>,
-    /// Owners whose session ended while they still held groups, with the token of that departure
-    /// (see `group_retention`). Cleared when the owner reconnects.
-    pub(crate) ownerless_groups: HashMap<u64, u64>,
-    pub(crate) next_departure_token: u64,
+    /// Where each group's durable row is (see `group_persistence`).
+    pub(crate) group_rows: HashMap<MessageGroupKey, crate::proto::peer::group_persistence::Row>,
     /// Sessions waiting for a group that does not exist yet (see `group_watch`).
     pub(crate) group_watches: HashMap<u64, HashMap<MessageGroupKey, Vec<Ticket>>>,
     /// Waits for members to apply each group's latest Commit (see `group_commit_gate`).
@@ -134,6 +133,9 @@ pub struct CitadelNodePeerLayer<R: Ratchet> {
     /// The same state as `inner.inner`, reachable without the async lock, so a session is
     /// admitted here synchronously with the session manager's map.
     shared: Arc<citadel_io::RwLock<SharedInner>>,
+    /// Held while a group broadcast is mailed or sent, and while a member's backlog is replayed
+    /// (see `group_resume`), so nothing is held after a replay and nothing overtakes one.
+    pub(crate) group_mail_lock: Arc<citadel_io::tokio::sync::Mutex<()>>,
 }
 
 pub struct CitadelNodePeerLayerExecutor {
@@ -211,8 +213,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             simultaneous_ticket_mappings: Default::default(),
             persistence_handler,
             message_groups: HashMap::new(),
-            ownerless_groups: HashMap::new(),
-            next_departure_token: 0,
+            group_rows: HashMap::new(),
             group_watches: HashMap::new(),
             commit_gates: Default::default(),
         };
@@ -222,6 +223,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             inner,
             waker,
             shared,
+            group_mail_lock: Default::default(),
         }
     }
 
@@ -257,11 +259,6 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                 log::trace!(target: "citadel", "Adding message group hashmap for {cid}");
                 HashMap::new()
             });
-            // If this cid owns groups held since its last session ended, they are its again.
-            if this_orig.ownerless_groups.remove(&cid).is_some() {
-                group_persistence::store_hold(&this_orig.persistence_handler, cid, None).await?;
-            }
-
             let mut this = this_orig.inner.write();
 
             // Otherwise, add only if it doesn't already exist
@@ -291,8 +288,8 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         }
     }
 
-    /// Cleans up the internal entries. The cid's owned message groups are NOT removed here: they
-    /// outlive the session for a grace period (see `group_retention::on_owner_departure`).
+    /// Cleans up the internal entries. The cid's owned message groups are NOT removed here: a
+    /// session ending is not leaving (see `group_retention::on_owner_departure`).
     #[allow(unused_results)]
     ///
     /// Only the cid's current session releases them: one that a newer session replaced would
@@ -315,6 +312,14 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
                 shared.observed_postings.remove(&session_cid);
             }
             this.simultaneous_ticket_mappings.remove(&session_cid);
+            // A member is back in its groups only once its next session resumes them.
+            for group in this
+                .message_groups
+                .values_mut()
+                .flat_map(|g| g.values_mut())
+            {
+                group.resumed.remove(&session_cid);
+            }
             this.persistence_handler.clone()
         };
 
@@ -338,10 +343,14 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         if map.len() <= u8::MAX as usize {
             if let std::collections::hash_map::Entry::Vacant(e) = map.entry(mgid) {
                 let mut message_group = MessageGroup {
+                    owner: session_cid,
                     concurrent_peers: HashMap::new(),
                     pending_peers: HashMap::with_capacity(initial_peers.len()),
                     options,
                     rates: Default::default(),
+                    tree: 0,
+                    // The owner founds the group from its live session.
+                    resumed: std::iter::once(session_cid).collect(),
                 };
                 // insert peers into the pending_peers map to allow/process AcceptMembership signals
                 for peer_cid in initial_peers {
@@ -500,21 +509,26 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         Ok((peers_successfully_removed, peers_remaining))
     }
 
-    pub async fn list_message_groups_for(&self, cid: u64) -> Option<Vec<MessageGroupKey>> {
-        Some(
-            self.inner
-                .read()
-                .await
-                .message_groups
-                .get(&cid)?
-                .keys()
-                .copied()
-                .map(|mgid| MessageGroupKey { cid, mgid })
-                .collect(),
-        )
+    /// The groups `cid` owns now: those it created and still owns, and those it succeeded to.
+    pub async fn list_message_groups_for(&self, cid: u64) -> Vec<MessageGroupKey> {
+        self.inner
+            .read()
+            .await
+            .message_groups
+            .iter()
+            .flat_map(|(creator, groups)| {
+                groups
+                    .iter()
+                    .filter(|(_, group)| group.owner == cid)
+                    .map(|(mgid, _)| MessageGroupKey {
+                        cid: *creator,
+                        mgid: *mgid,
+                    })
+            })
+            .collect()
     }
 
-    /// The groups, owned by someone else, that list `cid` as a member.
+    /// The groups, owned now by someone else, that list `cid` as a member.
     ///
     /// Membership is recorded here (by owner) and outlives the member's session, but the member's
     /// group keys do not, so a re-established session uses this to find the groups it must rejoin.
@@ -524,13 +538,14 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             .await
             .message_groups
             .iter()
-            .filter(|(owner, _)| **owner != cid)
-            .flat_map(|(owner, groups)| {
+            .flat_map(|(creator, groups)| {
                 groups
                     .iter()
-                    .filter(|(_, group)| group.concurrent_peers.contains_key(&cid))
+                    .filter(|(_, group)| {
+                        group.owner != cid && group.concurrent_peers.contains_key(&cid)
+                    })
                     .map(|(mgid, _)| MessageGroupKey {
-                        cid: *owner,
+                        cid: *creator,
                         mgid: *mgid,
                     })
             })

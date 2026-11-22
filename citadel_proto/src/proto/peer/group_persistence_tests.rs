@@ -3,15 +3,18 @@ use citadel_types::proto::{GroupType, ReadPolicy};
 
 fn group(hierarchy: GroupHierarchyMode) -> MessageGroup {
     PersistedGroup {
+        owner: 1,
         options: MessageGroupOptions {
             group_type: GroupType::Private,
             id: 7,
             hierarchy,
             ephemeral: false,
             limits: None,
+            retention: None,
         },
         members: vec![1, 2],
         pending: vec![3],
+        tree: 0,
     }
     .into_group()
 }
@@ -43,18 +46,4 @@ fn a_hierarchy_keeps_its_flag_and_read_policy_but_never_a_rank_table() {
             ranks: Default::default(),
         }
     );
-}
-
-#[test]
-fn a_hold_keeps_only_what_is_left_of_its_grace() {
-    let grace = Duration::from_secs(900);
-    let sec = 1_000_000_000i64;
-    assert_eq!(remaining_grace(None, 50 * sec, grace), grace);
-    assert_eq!(
-        remaining_grace(Some(0), 60 * sec, grace),
-        Duration::from_secs(840)
-    );
-    assert_eq!(remaining_grace(Some(0), 1000 * sec, grace), Duration::ZERO);
-    // A clock that moved backwards grants the whole period rather than underflowing.
-    assert_eq!(remaining_grace(Some(100 * sec), 0, grace), grace);
 }

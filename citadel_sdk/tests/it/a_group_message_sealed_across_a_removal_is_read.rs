@@ -1,17 +1,14 @@
 #![cfg(not(target_family = "wasm"))]
-//! A flat-group message the receiver cannot decrypt reaches its application as `MessageDropped`,
-//! not as nothing.
-//!
-//! A Commit that removes a member clears every earlier epoch's key (post-compromise security), so
-//! a message another member sealed before applying that Commit can no longer be opened by anyone
-//! who has. The receiver used to drop it at TRACE level: a lost message nobody was told about.
+//! A message a member seals at the epoch before a removal Commit, because the Commit has not
+//! reached it yet, is read by the members that remain. A removal keeps the epoch it leaves
+//! readable for frames signed by a leaf still in the tree.
 //!
 //! ```text
 //! O creates a group with A and C; once both are in, A holds every Commit it receives
 //! O kicks C → the removal Commit reaches A and is held
 //! A: sends "a-old", sealed at the epoch before the removal; the server relays it
 //! A: releases and applies the Commit, then sends "a-new"
-//! O must see MessageDropped from A, then "a-new"
+//! O must read "a-old", then "a-new", and no MessageDropped
 //! ```
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -20,7 +17,7 @@ mod tests {
     use crate::common::group_epoch::*;
     use citadel_io::tokio;
     use citadel_io::tokio::sync::Barrier;
-    use citadel_proto::test_hooks::hold_inbound_commits;
+    use citadel_proto::test_hooks::{hold_inbound_commits, observe_group_message_relays};
     use citadel_sdk::prelude::*;
     use citadel_sdk::test_common::server_info;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -75,7 +72,7 @@ mod tests {
     }
 
     #[citadel_io::tokio::test(flavor = "multi_thread")]
-    async fn a_message_sealed_before_a_removal_commit_is_reported_as_dropped() {
+    async fn a_message_sealed_before_a_removal_commit_is_read() {
         citadel_logging::setup_log();
         let (server, server_addr) = server_info::<StackedRatchet>();
         let tag = &Uuid::new_v4().to_string()[..8];
@@ -158,7 +155,7 @@ mod tests {
                 (a_name.clone(), o_name.clone(), sync.clone(), shared.clone());
             GroupTestKernel::new(
                 move |remote: NodeRemote<StackedRatchet>, events: Events| async move {
-                    let (conn, mut channel) = member(
+                    let (conn, channel) = member(
                         remote,
                         events,
                         server_addr,
@@ -169,14 +166,16 @@ mod tests {
                         &sync,
                     )
                     .await?;
-                    let mut hold = hold_inbound_commits(shared.a_cid.load(Ordering::SeqCst));
+                    let a_cid = shared.a_cid.load(Ordering::SeqCst);
+                    let mut hold = hold_inbound_commits(a_cid);
+                    let mut relays = observe_group_message_relays();
                     sync.wait().await; // A holds its Commits
 
                     hold.arrived().await;
                     channel
                         .send_message(SecBuffer::from(b"a-old".to_vec()))
                         .await?;
-                    relayed(&mut channel, 1).await;
+                    relayed(&mut relays, a_cid, 1).await;
                     hold.release().await;
                     channel
                         .send_message(SecBuffer::from(b"a-new".to_vec()))
@@ -237,10 +236,10 @@ mod tests {
 
         let saw = shared.owner_saw.lock().unwrap().clone();
         log::warn!(target: "citadel", "the owner saw from A: {saw:?}");
-        assert!(
-            saw.len() == 2 && saw[0].starts_with("MessageDropped") && saw[1] == "a-new",
-            "a message A sealed before the removal Commit was lost without a MessageDropped: \
-             the owner saw {saw:?}"
+        assert_eq!(
+            saw,
+            vec!["a-old".to_string(), "a-new".to_string()],
+            "the owner did not read what A sealed before the removal Commit reached it"
         );
     }
 }

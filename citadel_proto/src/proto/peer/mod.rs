@@ -44,8 +44,14 @@ pub mod group_channel;
 /// Client-side coordinator for the zero-trust post-quantum TreeKEM group CGKA.
 pub mod group_cgka;
 
-/// Server-side retention of a departed owner's message groups.
+/// What a server keeps of an owner's message groups when the owner's session ends.
 pub mod group_retention;
+
+/// Who owns a group once its owner leaves, and when a group ends.
+pub mod group_succession;
+
+/// The owner a client's group channel acts under.
+pub mod group_owner;
 
 /// Server-side rendezvous for a member waiting on a group its owner has not created yet.
 pub mod group_watch;
@@ -57,10 +63,15 @@ pub mod group_commit_gate;
 pub mod group_persistence;
 pub(crate) mod group_persistence_shape;
 
+/// What a server holds for a group member that is away.
+pub mod group_backup;
 /// Server-side caps on a group's message size and rate
 pub(crate) mod group_limits;
+pub mod group_mail;
 /// Whom the server relays a group broadcast to, and whether a message is within its caps
 pub mod group_relay;
+pub mod group_resume;
+pub mod group_state_store;
 
 /// Loading the group registry at server start, and keeping its durable copy in step
 pub mod group_restart;

@@ -48,8 +48,9 @@ let (send_half, recv_half) = group_channel.split();
 */
 
 use crate::error::NetworkError;
-use crate::proto::outbound_sender::{send_from_sync, Sender, UnboundedReceiver};
+use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::proto::peer::group_owner::GroupOwner;
 use crate::proto::remote::Ticket;
 use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
@@ -83,22 +84,22 @@ impl GroupChannel {
         key: MessageGroupKey,
         ticket: Ticket,
         session_cid: u64,
+        owner: GroupOwner,
         recv: UnboundedReceiver<GroupBroadcastPayload>,
     ) -> Self {
         let (undelivered_tx, undelivered) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         Self {
             send_half: GroupChannelSendHalf {
-                tx: tx.clone(),
+                tx,
                 ticket,
                 key,
                 session_cid,
+                owner,
                 undelivered: undelivered_tx,
             },
 
             recv_half: GroupChannelRecvHalf {
                 recv,
-                tx,
-                ticket,
                 session_cid,
                 key,
                 undelivered,
@@ -138,6 +139,8 @@ pub struct GroupChannelSendHalf {
     ticket: Ticket,
     key: MessageGroupKey,
     session_cid: u64,
+    /// The group's owner, as the server last reported it.
+    owner: GroupOwner,
     /// Where a message is reported undelivered once the session that carried it has ended.
     undelivered: citadel_io::tokio::sync::mpsc::UnboundedSender<GroupBroadcastPayload>,
 }
@@ -168,12 +171,20 @@ impl GroupChannelSendHalf {
             // a message it cannot deliver.
             let refusal = GroupBroadcast::MessageResponse {
                 key: self.key,
-                success: false,
+                delivery: citadel_types::proto::GroupDelivery::NotRelayed(
+                    citadel_types::proto::NotRelayed::SessionEnded,
+                ),
             };
             let _ = self.undelivered.send(refusal.into());
             return Ok(());
         }
         sent
+    }
+
+    /// The group's owner as the server last reported it: its creator until the owner leaves, then
+    /// its successor. `None` once this channel has left the group.
+    pub fn owner(&self) -> Option<u64> {
+        self.owner.get()
     }
 
     /// Kicks a peer from the group. User must be owner
@@ -259,7 +270,7 @@ impl GroupChannelSendHalf {
     }
 
     fn permission_gate(&self) -> Result<(), NetworkError> {
-        if self.session_cid == self.key.cid {
+        if self.owner.is(self.session_cid) {
             Ok(())
         } else {
             Err(error!(ErrorCode::PeerPermissionDenied))
@@ -267,10 +278,9 @@ impl GroupChannelSendHalf {
     }
 }
 
+/// The receiving half. It holds no way to reach the session, so dropping it sends nothing.
 pub struct GroupChannelRecvHalf {
     recv: UnboundedReceiver<GroupBroadcastPayload>,
-    tx: Sender<SessionRequest>,
-    ticket: Ticket,
     session_cid: u64,
     key: MessageGroupKey,
     undelivered: citadel_io::tokio::sync::mpsc::UnboundedReceiver<GroupBroadcastPayload>,
@@ -301,21 +311,12 @@ impl Stream for GroupChannelRecvHalf {
     }
 }
 
+/// Dropping a channel closes it on this node only: the member stays in the group, and the owner
+/// keeps owning it. A crash, a reconnect or a dropped handle never hands a group away; leaving is
+/// [`GroupChannelSendHalf::leave`]. What reaches the group afterwards goes to the kernel as a
+/// `GroupEvent`, and a restore opens a new channel.
 impl Drop for GroupChannelRecvHalf {
     fn drop(&mut self) {
-        log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}", self.session_cid, self.key);
-        let request = SessionRequest::Group(Group {
-            ticket: self.ticket,
-            broadcast: GroupBroadcast::LeaveRoom { key: self.key },
-        });
-
-        // TODO: remove group channel locally on the inner process in state container
-        if let Err(err) = send_from_sync(&self.tx, request) {
-            log::warn!(target: "citadel", "Group channel drop warning: {err:?}")
-        }
+        log::trace!(target: "citadel", "Dropping group channel recv half for {:?} | {:?}; the member stays in the group", self.session_cid, self.key);
     }
 }
-
-#[cfg(test)]
-#[path = "group_channel_drop_signal_tests.rs"]
-mod drop_signal_tests;

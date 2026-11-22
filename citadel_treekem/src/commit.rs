@@ -13,6 +13,10 @@ pub enum Proposal {
     Add { leaf: LeafNode, leaf_index: u32 },
     /// Blank the leaf (and its path) at `leaf_index`.
     Remove { leaf_index: u32 },
+    /// The committer, at `leaf_index`, replaces its own leaf: the commit's path carries the new
+    /// leaf's keys. Unlike a pure re-key, it keeps the epoch it leaves readable, so what the other
+    /// members sealed before they saw it is not lost.
+    Update { leaf_index: u32 },
 }
 
 /// A commit: zero or more membership proposals followed by the committer's path re-key. The whole commit

@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
+#[cfg(feature = "typescript")]
+use ts_rs::TS;
 
 /// The per-group caps on message size and rate, enforced by the server.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -82,11 +84,15 @@ impl TryFrom<UncheckedGroupMessageLimits> for GroupMessageLimits {
 
 /// Why the server refused to relay a group message. The message reached nobody.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 pub enum GroupMessageRefusal {
     /// The message's relayed ciphertext was `bytes` long; the group allows `max_bytes`.
     TooLarge { bytes: u64, max_bytes: u32 },
     /// The sender already sent `max_per_second` messages to the group in this one-second window.
     RateLimited { max_per_second: u32 },
+    /// The sending session is not a member of the group.
+    NotAMember,
 }
 
 impl Display for GroupMessageRefusal {
@@ -100,6 +106,7 @@ impl Display for GroupMessageRefusal {
                 f,
                 "the group allows each sender at most {max_per_second} messages per second"
             ),
+            Self::NotAMember => write!(f, "only a member of the group may send to it"),
         }
     }
 }

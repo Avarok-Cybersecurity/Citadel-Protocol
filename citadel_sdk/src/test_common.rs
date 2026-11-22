@@ -120,6 +120,17 @@ pub fn localhost_server_limits() -> ServerLimits {
     }
 }
 
+/// What servers under test hold for an away group member: room for every test's offline
+/// traffic; the bounds themselves are tested with their own.
+pub fn localhost_group_mail_limits() -> GroupMailLimits {
+    let nonzero = |n: usize| std::num::NonZeroUsize::new(n).expect("a positive test limit");
+    GroupMailLimits {
+        max_age: std::time::Duration::from_secs(3600),
+        max_messages: nonzero(10_000),
+        max_bytes: nonzero(256 * 1024 * 1024),
+    }
+}
+
 /// The link policy of managed nodes under test. `LinkPolicy` has no defaults, so every bound is
 /// explicit. The values are the campaign's own (2 s first retry, 60 s cap, 5 s rearm floor), so
 /// the two modes are timed alike, and the reattach grace is the owner's 5 minutes (Q2).
@@ -231,6 +242,7 @@ mod native {
             .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_path_policy(localhost_path_policy())
             .with_server_limits(localhost_server_limits())
+            .with_group_mail_limits(localhost_group_mail_limits())
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),
             ));

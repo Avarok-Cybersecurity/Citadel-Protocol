@@ -48,6 +48,23 @@ strip = true
 [profile.dev.package.rust-argon2]
 opt-level = 3
 
+# ML-DSA-65 signs and verifies every group message, so it too runs optimised in every build:
+# unoptimised, a 3-member, 500-message group broadcast took four times as long, almost all of it
+# signing and verifying. ml-dsa is generic over its parameter set, so its code is instantiated in
+# citadel_pqcrypto, which is optimised with it. Release builds are untouched.
+[profile.dev.package.citadel_pqcrypto]
+opt-level = 3
+[profile.dev.package.ml-dsa]
+opt-level = 3
+[profile.dev.package.module-lattice]
+opt-level = 3
+[profile.dev.package.keccak]
+opt-level = 3
+[profile.dev.package.shake]
+opt-level = 3
+[profile.dev.package.hybrid-array]
+opt-level = 3
+
 [workspace.lints.clippy]
 await_holding_lock = "warn"
 

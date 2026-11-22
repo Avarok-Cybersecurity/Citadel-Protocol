@@ -63,9 +63,12 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
+/// Signs `message` (ML-DSA pure mode, empty context) with an encoded secret key.
+pub use crate::functions::signature_sign;
 /// Verifies a detached signature (ML-DSA pure mode, empty context) by an encoded public key.
 pub use crate::functions::signature_verify;
 pub use crate::replay_attack_container::AntiReplayAttackContainer;
+pub use crate::seeded_signature::ml_dsa65_keypair_from_seed;
 
 pub mod prelude {
     pub use crate::{EncryptionAlgorithmExt, PQNode, PostQuantumContainer, PostQuantumMeta};
@@ -89,6 +92,7 @@ mod aead_zeroize_tests;
 /// The validity check on encapsulation keys received from elsewhere
 pub mod kem_key_check;
 pub mod libcrux_kem;
+mod seeded_signature;
 
 pub mod wire;
 

@@ -89,4 +89,4 @@ pub(crate) async fn mail_from<R: Ratchet>(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "mailbox_tests.rs"]
-mod tests;
+pub(crate) mod tests;

@@ -10,8 +10,9 @@
 //! ```text
 //! A (owner), B: register → connect → mutual peer register
 //! A: create group inviting B → B accepts → A sends "before" → B receives it
-//! A: disconnect → connect (fresh session) → drop the dead channel
-//! A must get a group channel back without asking; A sends "after-N" until
+//! A: drops its channel (a dropped handle is not a leave) → disconnect → connect (fresh
+//!   session); A still owns the group
+//! A must get a group channel back without asking, told it resumed the state it kept; A sends "after-N" until
 //!   B receives one on the channel B never closed; then B sends "reply-N"
 //!   until A receives one
 //! ```
@@ -19,6 +20,7 @@
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use crate::common::group::*;
+    use crate::common::group_device::next_restored;
     use citadel_io::tokio;
     use citadel_io::tokio::sync::Barrier;
     use citadel_sdk::prelude::*;
@@ -59,15 +61,25 @@ mod tests {
                         .await?;
                     received_before.wait().await;
 
-                    // Not dropped first: that is an explicit LeaveRoom, not a lost session.
+                    // Dropping the channel, as a crash or a closed tab does, is not leaving.
+                    drop(first_channel);
                     conn.disconnect().await?;
                     let conn = connect(&remote, &me).await?;
-                    drop(first_channel);
+                    assert_eq!(
+                        conn.list_owned_groups().await?,
+                        vec![key],
+                        "a dropped channel handed the group away"
+                    );
                     reconnected.wait().await;
 
                     // Nothing group-related is called from here on.
                     let mut channel = next_group_channel(&mut events, "owner").await;
                     assert_eq!(channel.key(), key, "the owner gets the same group back");
+                    assert_eq!(
+                        next_restored(&mut channel, "owner").await,
+                        GroupStateSource::ThisDevice,
+                        "the owner was not told it resumed the state it kept"
+                    );
                     send_until(&channel, "after", &member_got_after).await?;
                     let reply = next_message_with_prefix(&mut channel, "reply-").await;
                     log::info!(target: "citadel", "[owner] received {:?} after reconnecting", String::from_utf8_lossy(&reply));

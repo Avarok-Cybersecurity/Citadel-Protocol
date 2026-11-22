@@ -40,6 +40,16 @@ impl RatchetTree {
         })
     }
 
+    /// The cid of every live leaf, in leaf order.
+    pub fn member_cids(&self) -> Vec<u64> {
+        (0..self.num_leaves())
+            .filter_map(|i| match self.nodes.get(leaf_to_node(i) as usize) {
+                Some(Node::Leaf(leaf)) => Some(leaf.cid),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The live leaf carrying `cid` (for sealing to that member's current KEM public key).
     pub fn leaf_of_cid(&self, cid: u64) -> Option<&LeafNode> {
         let idx = self.leaf_index_of_cid(cid)?;

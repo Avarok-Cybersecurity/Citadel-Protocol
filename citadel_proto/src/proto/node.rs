@@ -168,8 +168,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
         let time_tracker = TimeTracker::new();
         let server_load = server_only_session_init_settings
             .as_ref()
-            .and_then(|settings| settings.limits.clone())
-            .map(crate::proto::server_limits::ServerLoad::new);
+            .and_then(|settings| {
+                let limits = settings.limits.clone()?;
+                Some(crate::proto::server_limits::ServerLoad::new(
+                    limits,
+                    settings.group_mail,
+                ))
+            });
         let session_manager = CitadelSessionManager::new(
             link_mode,
             local_node_type,

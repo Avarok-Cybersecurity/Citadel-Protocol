@@ -5,13 +5,13 @@
 //! ended. A message sent on it used to be dropped with a log line ("session is not connected")
 //! while the send itself returned `Ok`, so the agent answered `GroupMessageSuccess` and nobody,
 //! sender or member, ever learned the message went nowhere. The sender now receives
-//! `MessageResponse { success: false }` on that channel, which the agent already turns into
-//! `GroupMessageResponse { success: false }`.
+//! `MessageResponse` on that channel saying the message was not relayed because its session
+//! ended.
 //!
 //! ```text
 //! A: register → connect → create a group → disconnect
 //! A: send on the group channel of the ended session
-//! A must receive MessageResponse { success: false } for that group on the channel
+//! A must receive MessageResponse { NotRelayed(SessionEnded) } for that group on the channel
 //! ```
 
 #[cfg(all(test, feature = "localhost-testing"))]
@@ -59,8 +59,8 @@ mod tests {
                         loop {
                             match channel.recv().await {
                                 Some(GroupBroadcastPayload::Event {
-                                    payload: GroupBroadcast::MessageResponse { key: k, success },
-                                }) if k == key => return Some(success),
+                                    payload: GroupBroadcast::MessageResponse { key: k, delivery },
+                                }) if k == key => return Some(delivery),
                                 Some(other) => {
                                     log::info!(target: "citadel", "while waiting for the refusal: {other:?}")
                                 }
@@ -71,7 +71,7 @@ mod tests {
                     .await;
                     assert_eq!(
                         outcome,
-                        Ok(Some(false)),
+                        Ok(Some(GroupDelivery::NotRelayed(NotRelayed::SessionEnded))),
                         "the sender must be told the message was not delivered"
                     );
                     reported.store(true, Ordering::SeqCst);

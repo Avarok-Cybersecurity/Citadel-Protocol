@@ -1,6 +1,6 @@
 //! The server's message-group registry, kept in the account backend so it outlives the process.
 //!
-//! The registry (owner → groups, members, pending invitees, retention holds) used to live only in
+//! The registry (creator → groups, their owners, members, pending invitees) used to live only in
 //! [`CitadelNodePeerLayer`]'s memory. A server restart (a Durable Object reset, an eviction, a
 //! deploy, a crash) therefore destroyed every group silently: clients reconnected by themselves,
 //! the restore protocol (`RestoreOwnership` / `RestoreMembership`) found nothing to restore, and
@@ -11,13 +11,16 @@
 //! and the registry is loaded when a server node starts. The in-memory map stays the authority
 //! while the process runs; the backend is its durable copy.
 //!
-//! Only routing metadata is stored: owner, group id, type, hierarchy flag and read policy, members,
-//! pending invitees, and when the owner's retention hold began. The server never holds CGKA secrets
+//! Only routing metadata is stored: creator, current owner, group id, type, hierarchy flag and read
+//! policy, members and pending invitees. The server never holds CGKA secrets
 //! or any other key material, and the rank table of a command hierarchy stays owner-local, so none
 //! of that can be written here.
 //!
-//! Layout: `(owner, 0, "message_groups", <mgid hex>)` → [`PersistedGroup`], and
-//! `(owner, 0, "message_group_hold", "since_ns")` → the hold's start, in ns since the Unix epoch.
+//! Layout: `(owner, 0, "message_groups", <creator cid hex>-<mgid hex>)` → [`PersistedGroup`]. The
+//! sub-key is the group's id (`MessageGroupKey`, whose cid is its creator's and stays so after
+//! ownership passes); the row is under the account of the owner it was written for, and moves
+//! with ownership, so a group outlives its creator's account. A row of an earlier release, keyed
+//! by its mgid alone, is refused by name: there is no older format to read.
 
 use crate::error::NetworkError;
 use crate::proto::peer::message_group::{MessageGroup, MessageGroupPeer};
@@ -27,11 +30,8 @@ use citadel_user::backend::PersistenceHandler;
 use citadel_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
 
-const GROUPS: &str = "message_groups";
-const HOLD: &str = "message_group_hold";
-const HOLD_SINCE: &str = "since_ns";
+pub(crate) const GROUPS: &str = "message_groups";
 /// Byte-map entries are addressed by `(cid, peer_cid)`; registry rows belong to the owner alone.
 const NO_PEER: u64 = 0;
 
@@ -43,9 +43,11 @@ const NO_PEER: u64 = 0;
     from = "super::group_persistence_shape::StoredGroup"
 )]
 pub struct PersistedGroup {
+    pub owner: u64,
     pub options: MessageGroupOptions,
     pub members: Vec<u64>,
     pub pending: Vec<u64>,
+    pub tree: u64,
 }
 
 impl PersistedGroup {
@@ -61,9 +63,11 @@ impl PersistedGroup {
             cids
         };
         Self {
+            owner: group.owner,
             options,
             members: sorted(&group.concurrent_peers),
             pending: sorted(&group.pending_peers),
+            tree: group.tree,
         }
     }
 
@@ -74,136 +78,110 @@ impl PersistedGroup {
                 .collect()
         };
         MessageGroup {
+            owner: self.owner,
             concurrent_peers: peers(self.members),
             pending_peers: peers(self.pending),
             options: self.options,
             rates: Default::default(),
+            tree: self.tree,
+            resumed: Default::default(),
         }
     }
 }
 
-fn sub_key(mgid: u128) -> String {
-    format!("{mgid:032x}")
+/// Where one group's row is: the account it is stored under (the group's owner when it was
+/// written) and its sub-key, the group's id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Row {
+    pub holder: u64,
+    pub sub: String,
+}
+
+impl Row {
+    /// The row `group` is written to: under its owner, keyed by the group's id.
+    pub(crate) fn for_group(key: MessageGroupKey, group: &MessageGroup) -> Self {
+        Self {
+            holder: group.owner,
+            sub: format!("{:016x}-{:032x}", key.cid, key.mgid),
+        }
+    }
+}
+
+/// The group a sub-key names. A sub-key that is not a group id (`<cid hex>-<mgid hex>`), such
+/// as the mgid-only key of an earlier release, is refused by name: there is no older format.
+fn key_of(sub: &str) -> Result<MessageGroupKey, NetworkError> {
+    let parse_err = |err| persistence_error(&format!("parse group id {sub:?}"), err);
+    let (cid, mgid) = sub.split_once('-').ok_or_else(|| {
+        persistence_error(
+            "read a group row",
+            format!("{sub:?} is a row of an earlier release, not a group id; it is not read"),
+        )
+    })?;
+    Ok(MessageGroupKey {
+        cid: u64::from_str_radix(cid, 16).map_err(parse_err)?,
+        mgid: u128::from_str_radix(mgid, 16).map_err(parse_err)?,
+    })
 }
 
 fn persistence_error(what: &str, err: impl std::fmt::Display) -> NetworkError {
     NetworkError::msg(format!("group registry: unable to {what}: {err}"))
 }
 
-/// Writes the group's current state, or removes its row when `group` is `None`.
-pub(crate) async fn store_group<R: Ratchet>(
+/// Writes `group` to `row`.
+pub(crate) async fn store_row<R: Ratchet>(
     pers: &PersistenceHandler<R, R>,
-    key: MessageGroupKey,
-    group: Option<&MessageGroup>,
+    row: &Row,
+    group: &MessageGroup,
 ) -> Result<(), NetworkError> {
-    let sub = sub_key(key.mgid);
-    match group {
-        Some(group) => {
-            let bytes = PersistedGroup::of(group)
-                .serialize_to_vector()
-                .map_err(|err| persistence_error("encode a group", err))?;
-            pers.store_byte_map_value(key.cid, NO_PEER, GROUPS, &sub, bytes)
-                .await
-                .map_err(|err| persistence_error("store a group", err))?;
-        }
-        None => {
-            pers.remove_byte_map_value(key.cid, NO_PEER, GROUPS, &sub)
-                .await
-                .map_err(|err| persistence_error("remove a group", err))?;
-        }
-    }
+    let bytes = PersistedGroup::of(group)
+        .serialize_to_vector()
+        .map_err(|err| persistence_error("encode a group", err))?;
+    let _ = pers
+        .store_byte_map_value(row.holder, NO_PEER, GROUPS, &row.sub, bytes)
+        .await
+        .map_err(|err| persistence_error("store a group", err))?;
     Ok(())
 }
 
-/// Records that `owner`'s groups are being held since `since_ns`, or clears the hold.
-pub(crate) async fn store_hold<R: Ratchet>(
+/// Removes `row`.
+pub(crate) async fn remove_row<R: Ratchet>(
     pers: &PersistenceHandler<R, R>,
-    owner: u64,
-    since_ns: Option<i64>,
+    row: &Row,
 ) -> Result<(), NetworkError> {
-    match since_ns {
-        Some(since) => pers
-            .store_byte_map_value(
-                owner,
-                NO_PEER,
-                HOLD,
-                HOLD_SINCE,
-                since.to_be_bytes().to_vec(),
-            )
-            .await
-            .map(|_| ()),
-        None => pers
-            .remove_byte_map_value(owner, NO_PEER, HOLD, HOLD_SINCE)
-            .await
-            .map(|_| ()),
-    }
-    .map_err(|err| persistence_error("store a retention hold", err))
+    let _ = pers
+        .remove_byte_map_value(row.holder, NO_PEER, GROUPS, &row.sub)
+        .await
+        .map_err(|err| persistence_error("remove a group", err))?;
+    Ok(())
 }
 
-/// One owner's registry as the backend holds it.
-#[derive(Debug, Default)]
-pub struct PersistedOwner {
-    pub groups: HashMap<u128, PersistedGroup>,
-    pub held_since_ns: Option<i64>,
-}
+/// One group as the backend holds it, and where.
+pub(crate) type PersistedRow = (MessageGroupKey, Row, PersistedGroup);
 
-/// Reads every owner's registry. A row that does not decode is an error, not a skipped group: a
-/// group dropped here would be the same silent loss this module exists to prevent.
+/// Reads every account's group rows. A row that does not decode is an error, not a skipped group:
+/// a group dropped here would be the same silent loss this module exists to prevent.
 pub(crate) async fn load_all<R: Ratchet>(
     pers: &PersistenceHandler<R, R>,
-) -> Result<HashMap<u64, PersistedOwner>, NetworkError> {
+) -> Result<Vec<PersistedRow>, NetworkError> {
     let accounts = pers
         .get_clients_metadata(None)
         .await
         .map_err(|err| persistence_error("list accounts", err))?;
-    let mut owners = HashMap::new();
+    let mut rows = Vec::new();
     for account in accounts {
-        let owner = account.cid;
-        let rows = pers
-            .get_byte_map_values_by_key(owner, NO_PEER, GROUPS)
+        let holder = account.cid;
+        let held = pers
+            .get_byte_map_values_by_key(holder, NO_PEER, GROUPS)
             .await
             .map_err(|err| persistence_error("read groups", err))?;
-        if rows.is_empty() {
-            continue;
-        }
-        let mut groups = HashMap::with_capacity(rows.len());
-        for (sub, bytes) in rows {
-            let mgid = u128::from_str_radix(&sub, 16)
-                .map_err(|err| persistence_error(&format!("parse group id {sub:?}"), err))?;
+        for (sub, bytes) in held {
+            let key = key_of(&sub)?;
             let group = PersistedGroup::deserialize_from_vector(&bytes)
                 .map_err(|err| persistence_error(&format!("decode group {sub}"), err))?;
-            let _ = groups.insert(mgid, group);
+            rows.push((key, Row { holder, sub }, group));
         }
-        let held_since_ns = pers
-            .get_byte_map_value(owner, NO_PEER, HOLD, HOLD_SINCE)
-            .await
-            .map_err(|err| persistence_error("read a retention hold", err))?
-            .map(|bytes| {
-                <[u8; 8]>::try_from(bytes.as_slice())
-                    .map(i64::from_be_bytes)
-                    .map_err(|_| persistence_error("decode a retention hold", "not 8 bytes"))
-            })
-            .transpose()?;
-        let _ = owners.insert(
-            owner,
-            PersistedOwner {
-                groups,
-                held_since_ns,
-            },
-        );
     }
-    Ok(owners)
-}
-
-/// How much of the grace period an owner has left at start-up. At start-up no owner is connected,
-/// so every owner is departed: one whose hold began before the restart keeps the remainder of it;
-/// one that was connected when the server went down starts a full grace period now.
-pub fn remaining_grace(held_since_ns: Option<i64>, now_ns: i64, grace: Duration) -> Duration {
-    let Some(since) = held_since_ns else {
-        return grace;
-    };
-    let elapsed = Duration::from_nanos(now_ns.saturating_sub(since).max(0) as u64);
-    grace.saturating_sub(elapsed)
+    Ok(rows)
 }
 
 #[cfg(test)]

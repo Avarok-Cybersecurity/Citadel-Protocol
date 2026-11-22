@@ -425,6 +425,8 @@ pub struct ServerOnlySessionInitSettings {
     /// `None` only on a node built without them, such as the server role of a serverless pair,
     /// which takes its one connection.
     pub limits: Option<crate::proto::server_limits::ServerLimits>,
+    /// What the server holds for a group member that is away.
+    pub group_mail: crate::proto::server_limits::GroupMailLimits,
 }
 
 /// TURN server configuration for NAT traversal relay.
@@ -1362,38 +1364,47 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
         // 64 (2x the flush burst) keeps inbound parallelism while bounding writer starvation. (Tunable —
         // sweep on the bidirectional macro bench.)
         const INBOUND_CONCURRENCY_LIMIT: usize = 64;
+        // Group messages are handled in arrival order (`group_lane`); everything else
+        // concurrently. The turn is taken here, as the reader yields the packet, not in the
+        // handler, whose first poll may come after a later packet's.
+        let group_lane = crate::proto::group_lane::GroupLane::default();
+        let group_lane = &group_lane;
         let res = reader
-            .try_for_each_concurrent(Some(INBOUND_CONCURRENCY_LIMIT), |mut packet| async move {
-                log::trace!(
-                    "RECV Raw packet (header only | is_server: {is_server}): {:?} | Len: {}",
-                    &packet.as_bytes()[..HDP_HEADER_BYTE_LEN.min(packet.len())],
-                    packet.len()
-                );
-                if !header_obfuscator
-                    .on_packet_received(&mut packet)
-                    .map_err(|err| std::io::Error::other(err.into_string()))?
-                {
-                    return Ok(());
+            .try_for_each_concurrent(Some(INBOUND_CONCURRENCY_LIMIT), |mut packet| {
+                let deobfuscated = header_obfuscator.on_packet_received(&mut packet);
+                let turn = (matches!(deobfuscated, Ok(true))
+                    && crate::proto::group_lane::is_group_broadcast(&packet[..]))
+                .then(|| group_lane.take());
+                async move {
+                    log::trace!(
+                        "RECV Raw packet (header only | is_server: {is_server}): {:?} | Len: {}",
+                        &packet.as_bytes()[..HDP_HEADER_BYTE_LEN.min(packet.len())],
+                        packet.len()
+                    );
+                    if !deobfuscated.map_err(|err| std::io::Error::other(err.into_string()))? {
+                        return Ok(());
+                    }
+                    meter.received(&packet);
+
+                    let session_cid: Option<u64> = session_cid.get();
+                    let result = packet_processor::raw_primary_packet::process_raw_packet(
+                        session_cid,
+                        this_main,
+                        *remote_peer,
+                        *local_primary_port,
+                        packet,
+                        turn,
+                    )
+                    .await;
+
+                    // (Formerly slept 100ms here on a terminating result to mask a teardown↔reconnect
+                    // race: a peer's reconnect SYN could reach the server before the old session left its
+                    // `sessions` map, and the manager rejected it as "already connected". That is now fixed
+                    // properly at the source — the disconnect responder transitions to `Disconnecting`
+                    // before replying FINAL (see disconnect_packet.rs), so the reconnect deterministically
+                    // takes the event-driven wait-for-clean-drop path. No sleep needed.)
+                    evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid).await
                 }
-                meter.received(&packet);
-
-                let session_cid: Option<u64> = session_cid.get();
-                let result = packet_processor::raw_primary_packet::process_raw_packet(
-                    session_cid,
-                    this_main,
-                    *remote_peer,
-                    *local_primary_port,
-                    packet,
-                )
-                .await;
-
-                // (Formerly slept 100ms here on a terminating result to mask a teardown↔reconnect
-                // race: a peer's reconnect SYN could reach the server before the old session left its
-                // `sessions` map, and the manager rejected it as "already connected". That is now fixed
-                // properly at the source — the disconnect responder transitions to `Disconnecting`
-                // before replying FINAL (see disconnect_packet.rs), so the reconnect deterministically
-                // takes the event-driven wait-for-clean-drop path. No sleep needed.)
-                evaluate_result(result, primary_stream, kernel_tx, this_main, session_cid).await
             })
             .map_err(|err| handle_session_terminating_error(this_main, err, is_server, peer));
         let res = citadel_io::tokio::select! {
@@ -2396,7 +2407,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                     SessionRequest::Group(Group {
                                         broadcast: GroupBroadcast::Message { key, .. },
                                         ..
-                                    }) => inner_state!(this.state_container).report_group_message_not_delivered(key),
+                                    }) => inner_state!(this.state_container).report_group_message_not_delivered(key, citadel_types::proto::NotRelayed::SessionEnded),
                                     SessionRequest::Group(_) => {}
                                 }
                             }

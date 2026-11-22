@@ -9,7 +9,9 @@ use crate::commit::{Commit, Proposal};
 use crate::crypto::{self, Secret, SecretMap};
 use crate::keys::KeyPackage;
 use crate::path::{apply_update_path, generate_update_path, HpkeCiphertext};
+use crate::replay::OpenedFrames;
 use crate::schedule::EpochSecrets;
+use crate::signing::{leaf_signature_keys, verify_frame, LeafSigningKey};
 use crate::tree::math::{direct_path, leaf_to_node, LeafIndex, NodeIndex};
 use crate::tree::node::LeafNode;
 use crate::tree::ratchet_tree::RatchetTree;
@@ -23,6 +25,14 @@ use zeroize::Zeroize;
 /// secrets are dropped, so a later compromise of this state exposes at most this many epochs.
 pub const MAX_READABLE_PAST_EPOCHS: usize = 8;
 
+/// An application message, opened.
+#[derive(Debug, PartialEq, Eq)]
+pub struct OpenedMessage {
+    /// The cid of the leaf that sealed and signed it.
+    pub sender_cid: u64,
+    pub plaintext: Vec<u8>,
+}
+
 /// One member's view of the group.
 #[derive(Clone)]
 pub struct GroupState {
@@ -31,20 +41,28 @@ pub struct GroupState {
     /// This member's leaf index.
     pub own_leaf: LeafIndex,
     /// Path secrets this member holds: its leaf node + the nodes on its own direct path it has learned.
-    own_secrets: SecretMap,
+    pub(crate) own_secrets: SecretMap,
     /// The current epoch counter.
     pub epoch: u64,
     /// The current epoch's derived secrets.
-    secrets: EpochSecrets,
+    pub(crate) secrets: EpochSecrets,
     /// Confirmed transcript hash (chains commits; binds the epoch secret to the exact history).
-    transcript_hash: [u8; 32],
+    pub(crate) transcript_hash: [u8; 32],
     /// This member's outgoing message counter within the current epoch (reset each epoch).
-    send_generation: u32,
-    /// `(epoch, encryption_secret)` of the earlier epochs still readable: those left by Add-only
-    /// commits since the last commit that removed a member or re-keyed without a membership change.
-    /// A member cannot know a Commit is in flight to it, so it seals at the epoch it holds; every
-    /// sender of such an epoch is still a member, so reading it admits no one the group has not.
-    readable_past_epochs: Vec<(u64, Secret)>,
+    pub(crate) send_generation: u32,
+    /// `(epoch, encryption_secret)` of the earlier epochs still readable: those left by membership
+    /// commits (adds, removals and leaf replacements) since the last commit that only re-keyed. A member cannot know a
+    /// Commit is in flight to it, so it seals at the epoch it holds. A frame of such an epoch is
+    /// opened only when its signature verifies under a leaf of the current tree, so a member that
+    /// was removed, or a leaf that was replaced, is never read from it.
+    pub(crate) readable_past_epochs: Vec<(u64, Secret)>,
+    /// This member's leaf signing key (see [`crate::signing`]).
+    pub(crate) signing_key: LeafSigningKey,
+    /// The frames this member has opened, so none is opened twice.
+    pub(crate) opened: OpenedFrames,
+    /// This state's incarnation (see [`AppCiphertext::incarnation`]): 0 for a state made here,
+    /// drawn afresh by [`Self::import`].
+    pub(crate) incarnation: u64,
 }
 
 impl GroupState {
@@ -69,6 +87,9 @@ impl GroupState {
             transcript_hash,
             send_generation: 0,
             readable_past_epochs: Vec::new(),
+            signing_key: leaf_signature_keys(&own_leaf_secret).1,
+            opened: OpenedFrames::default(),
+            incarnation: 0,
         }
     }
 
@@ -88,15 +109,32 @@ impl GroupState {
     /// Re-key this member's direct path with a fresh leaf secret (no membership change), advancing the
     /// epoch. Returns the `Commit` to broadcast.
     pub fn commit_update(&mut self, fresh_leaf_secret: Secret) -> Result<Commit, Error> {
+        self.commit_own_path(fresh_leaf_secret, Vec::new())
+    }
+
+    /// Replace this member's own leaf, its KEM and signing keys, with ones from a fresh leaf secret,
+    /// advancing the epoch. The epoch it leaves stays readable for the other members (an `Update`
+    /// proposal), so what they sealed before applying it is not lost. Returns the `Commit` to
+    /// broadcast.
+    pub fn replace_own_leaf(&mut self, fresh_leaf_secret: Secret) -> Result<Commit, Error> {
+        let update = Proposal::Update {
+            leaf_index: self.own_leaf,
+        };
+        self.commit_own_path(fresh_leaf_secret, vec![update])
+    }
+
+    fn commit_own_path(
+        &mut self,
+        fresh_leaf_secret: Secret,
+        proposals: Vec<Proposal>,
+    ) -> Result<Commit, Error> {
         let mut tree = self.tree.clone();
-        let (path, root_secret, own_secrets) =
+        let (path, root_secret, own_secrets, signing_key) =
             generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
         self.tree = tree;
         self.own_secrets = own_secrets;
-        let commit = Commit {
-            proposals: Vec::new(),
-            path,
-        };
+        self.signing_key = signing_key;
+        let commit = Commit { proposals, path };
         self.advance_epoch(&root_secret, &commit);
         Ok(commit)
     }
@@ -133,7 +171,7 @@ impl GroupState {
         // Capture the previous epoch's init secret BEFORE advancing — the joiner needs it for the schedule.
         let prev_init = self.secrets.init_secret;
 
-        let (path, root_secret, own_secrets) =
+        let (path, root_secret, own_secrets, signing_key) =
             generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
 
         // The joiner ratchets up from the lowest node where its path meets the committer's re-keyed path.
@@ -161,6 +199,7 @@ impl GroupState {
         let commit = Commit { proposals, path };
         self.tree = tree;
         self.own_secrets = own_secrets;
+        self.signing_key = signing_key;
         self.advance_epoch(&root_secret, &commit);
 
         let welcome = Welcome {
@@ -185,10 +224,11 @@ impl GroupState {
     ) -> Result<Commit, Error> {
         let mut tree = self.tree.clone();
         tree.remove_leaf(leaf_index)?;
-        let (path, root_secret, own_secrets) =
+        let (path, root_secret, own_secrets, signing_key) =
             generate_update_path(&mut tree, self.own_leaf, fresh_leaf_secret)?;
         self.tree = tree;
         self.own_secrets = own_secrets;
+        self.signing_key = signing_key;
         let commit = Commit {
             proposals: vec![Proposal::Remove { leaf_index }],
             path,
@@ -211,6 +251,12 @@ impl GroupState {
                     tree.add_leaf_at(*leaf_index, leaf.clone())?
                 }
                 Proposal::Remove { leaf_index } => tree.remove_leaf(*leaf_index)?,
+                Proposal::Update { leaf_index } if *leaf_index == commit.path.leaf_index => {}
+                Proposal::Update { .. } => {
+                    return Err(Error::generic(
+                        "treekem: an Update replaces only the committer's own leaf",
+                    ))
+                }
             }
         }
         let (root_secret, learned) = apply_update_path(&mut tree, &commit.path, &self.own_secrets)?;
@@ -272,6 +318,9 @@ impl GroupState {
             transcript_hash: welcome.group_info.transcript_hash,
             send_generation: 0,
             readable_past_epochs: Vec::new(),
+            signing_key: leaf_signature_keys(&own_leaf_secret).1,
+            opened: OpenedFrames::default(),
+            incarnation: 0,
         })
     }
 
@@ -281,40 +330,106 @@ impl GroupState {
         self.send_generation = self.send_generation.wrapping_add(1);
         crate::application::seal(
             &self.secrets.encryption_secret,
+            &self.signing_key,
             self.epoch,
             self.own_leaf,
+            self.incarnation,
             generation,
             plaintext,
         )
     }
 
-    /// Decrypt an application message from the current epoch or a still-readable past one (see
-    /// `readable_past_epochs`). Any other epoch is an error.
-    pub fn decrypt_message(&self, message: &AppCiphertext) -> Result<Vec<u8>, Error> {
-        if message.epoch == self.epoch {
-            return crate::application::open(&self.secrets.encryption_secret, message);
+    /// Open an application message from the current epoch or a still-readable past one (see
+    /// `readable_past_epochs`), once: its signature must verify under the leaf it names, and a
+    /// message already opened is refused. Any other epoch is an error.
+    pub fn decrypt_message(&mut self, message: &AppCiphertext) -> Result<OpenedMessage, Error> {
+        let secret = if message.epoch == self.epoch {
+            self.secrets.encryption_secret
+        } else {
+            self.readable_past_epochs
+                .iter()
+                .find(|(epoch, _)| *epoch == message.epoch)
+                .map(|(_, secret)| *secret)
+                .ok_or_else(|| {
+                    Error::generic(format!(
+                        "treekem: application message epoch {} is not readable at epoch {}",
+                        message.epoch, self.epoch
+                    ))
+                })?
+        };
+        let sender_cid =
+            self.verify_sender(message.frame(), &message.ciphertext, &message.signature)?;
+        let plaintext = crate::application::open(&secret, message)?;
+        self.opened.mark(message.frame());
+        Ok(OpenedMessage {
+            sender_cid,
+            plaintext,
+        })
+    }
+
+    /// Sign `body`, already encrypted by the caller, as this member's next frame: an
+    /// [`AppCiphertext`] whose ciphertext is `body`. Opened with [`Self::open_signed_frame`].
+    pub fn sign_frame(&mut self, body: Vec<u8>) -> Result<AppCiphertext, Error> {
+        let generation = self.send_generation;
+        self.send_generation = self.send_generation.wrapping_add(1);
+        let frame = crate::signing::FrameId {
+            epoch: self.epoch,
+            sender: self.own_leaf,
+            incarnation: self.incarnation,
+            generation,
+        };
+        let signature = crate::signing::sign_frame(&self.signing_key, frame, &body)?;
+        Ok(AppCiphertext {
+            epoch: self.epoch,
+            sender: self.own_leaf,
+            incarnation: self.incarnation,
+            generation,
+            ciphertext: body,
+            signature,
+        })
+    }
+
+    /// The sender's cid and the body of a frame made by [`Self::sign_frame`], once: its signature
+    /// must verify under the leaf it names, at an epoch this member can read.
+    pub fn open_signed_frame(&mut self, frame: AppCiphertext) -> Result<(u64, Vec<u8>), Error> {
+        if frame.epoch != self.epoch
+            && !self
+                .readable_past_epochs
+                .iter()
+                .any(|(e, _)| *e == frame.epoch)
+        {
+            return Err(Error::generic("treekem: the frame's epoch is not readable"));
         }
-        let (_, secret) = self
-            .readable_past_epochs
-            .iter()
-            .find(|(epoch, _)| *epoch == message.epoch)
-            .ok_or_else(|| {
-                Error::generic(format!(
-                    "treekem: application message epoch {} is not readable at epoch {}",
-                    message.epoch, self.epoch
-                ))
-            })?;
-        crate::application::open(secret, message)
+        let cid = self.verify_sender(frame.frame(), &frame.ciphertext, &frame.signature)?;
+        self.opened.mark(frame.frame());
+        Ok((cid, frame.ciphertext))
+    }
+
+    /// The cid of the leaf a frame names, once its signature verifies under that leaf and the frame
+    /// has not been opened before.
+    pub(crate) fn verify_sender(
+        &self,
+        frame: crate::signing::FrameId,
+        body: &[u8],
+        signature: &[u8],
+    ) -> Result<u64, Error> {
+        let leaf = match self.tree.get(leaf_to_node(frame.sender))? {
+            crate::tree::node::Node::Leaf(leaf) => leaf,
+            _ => return Err(Error::generic("treekem: the frame names no member")),
+        };
+        verify_frame(&leaf.sig_public, frame, body, signature)?;
+        if !self.opened.is_fresh(frame) {
+            return Err(Error::generic("treekem: the frame was already opened"));
+        }
+        Ok(leaf.cid)
     }
 
     /// Roll the transcript + key schedule forward into the next epoch from a new root secret.
     fn advance_epoch(&mut self, root_secret: &Secret, commit: &Commit) {
-        let adds_only = !commit.proposals.is_empty()
-            && commit
-                .proposals
-                .iter()
-                .all(|proposal| matches!(proposal, Proposal::Add { .. }));
-        if adds_only {
+        // A pure re-key (no proposals) retires the epoch it leaves; a membership change or a leaf
+        // replacement keeps it readable for the members still in the tree.
+        let membership_change = !commit.proposals.is_empty();
+        if membership_change {
             if self.readable_past_epochs.len() == MAX_READABLE_PAST_EPOCHS {
                 self.readable_past_epochs.remove(0).1.zeroize();
             }
@@ -323,6 +438,9 @@ impl GroupState {
         } else {
             self.forget_past_epochs();
         }
+        let readable: Vec<u64> = self.readable_past_epochs.iter().map(|(e, _)| *e).collect();
+        self.opened
+            .retain_epochs(|epoch| epoch == self.epoch || readable.contains(&epoch));
         self.transcript_hash = next_transcript(&self.transcript_hash, commit);
         let prev_init = self.secrets.init_secret;
         self.secrets = EpochSecrets::derive(root_secret, &prev_init, &self.transcript_hash);
@@ -359,17 +477,9 @@ fn next_transcript(prev: &[u8; 32], commit: &Commit) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::node_keypair_from_path_secret;
 
     fn member_leaf(cid: u64, secret: &Secret) -> LeafNode {
-        let (kem_public, _sk) = node_keypair_from_path_secret(secret).unwrap();
-        LeafNode {
-            cid,
-            kem_public,
-            sig_public: vec![],
-            leaf_index: 0,
-            signature: vec![],
-        }
+        KeyPackage::generate(cid, secret).unwrap().leaf
     }
 
     /// Build `n` members sharing one public tree, each holding its own leaf secret, all at the same
@@ -515,7 +625,7 @@ mod tests {
             "the stale leaf's removal travels in the same commit as the add"
         );
         c.process_commit(&commit_b2).unwrap();
-        let b2 = GroupState::join_from_welcome(&welcome_b2, b2_secret).unwrap();
+        let mut b2 = GroupState::join_from_welcome(&welcome_b2, b2_secret).unwrap();
 
         assert_eq!(a.epoch, 3);
         assert_eq!(c.epoch, 3);
@@ -532,8 +642,14 @@ mod tests {
         );
 
         let ct = a.encrypt_message(b"after the rejoin").unwrap();
-        assert_eq!(b2.decrypt_message(&ct).unwrap(), b"after the rejoin");
-        assert_eq!(c.decrypt_message(&ct).unwrap(), b"after the rejoin");
+        assert_eq!(
+            b2.decrypt_message(&ct).unwrap().plaintext,
+            b"after the rejoin"
+        );
+        assert_eq!(
+            c.decrypt_message(&ct).unwrap().plaintext,
+            b"after the rejoin"
+        );
         assert!(
             b_lost.process_commit(&commit_b2).is_err()
                 || b_lost.encryption_secret() != a.encryption_secret(),
@@ -586,9 +702,10 @@ mod tests {
         }
     }
 
-    /// removed member held that epoch's secret, so nothing sealed under it may be read afterwards.
+    /// The epoch before a join stays readable to the members, never to the joiner; a removal keeps
+    /// readable what the remaining members sealed, never what the removed member did.
     #[test]
-    fn a_pre_add_epoch_stays_readable_until_a_removal() {
+    fn earlier_epochs_stay_readable_only_for_members_still_in_the_tree() {
         let a_secret = [11u8; 32];
         let mut a = GroupState::create(member_leaf(1, &a_secret), a_secret);
         let b_secret = [22u8; 32];
@@ -602,8 +719,11 @@ mod tests {
         let (commit_c, welcome_c) = a
             .add_member(&KeyPackage::generate(3, &c_secret).unwrap(), [0xA2; 32])
             .unwrap();
-        let c = GroupState::join_from_welcome(&welcome_c, c_secret).unwrap();
-        assert_eq!(a.decrypt_message(&before_add).unwrap(), b"before C joined");
+        let mut c = GroupState::join_from_welcome(&welcome_c, c_secret).unwrap();
+        assert_eq!(
+            a.decrypt_message(&before_add).unwrap().plaintext,
+            b"before C joined"
+        );
         assert!(
             c.decrypt_message(&before_add).is_err(),
             "a joiner cannot read an epoch before its own"
@@ -611,12 +731,15 @@ mod tests {
 
         b.process_commit(&commit_c).unwrap();
         let before_removal = b.encrypt_message(b"before C was removed").unwrap();
-        let commit_r = a.remove_member(c.own_leaf, [0xA3; 32]).unwrap();
-        b.process_commit(&commit_r).unwrap();
-        assert!(a.decrypt_message(&before_add).is_err());
+        let from_c = c.encrypt_message(b"sent by C").unwrap();
+        let _ = a.remove_member(c.own_leaf, [0xA3; 32]).unwrap();
+        assert_eq!(
+            a.decrypt_message(&before_removal).unwrap().plaintext,
+            b"before C was removed"
+        );
         assert!(
-            a.decrypt_message(&before_removal).is_err(),
-            "an epoch the removed member held must not stay readable"
+            a.decrypt_message(&from_c).is_err(),
+            "the removed member was read at an epoch it held"
         );
     }
 
@@ -632,8 +755,8 @@ mod tests {
         // Member 1 sends; everyone (incl. the sender) decrypts to the same plaintext.
         let plaintext = b"fire mission: grid 1234 5678, danger close";
         let ct = members[1].encrypt_message(plaintext).unwrap();
-        for (i, m) in members.iter().enumerate() {
-            let got = m.decrypt_message(&ct).unwrap();
+        for (i, m) in members.iter_mut().enumerate() {
+            let got = m.decrypt_message(&ct).unwrap().plaintext;
             assert_eq!(got, plaintext, "member {i} must decrypt the group message");
         }
 
@@ -641,12 +764,12 @@ mod tests {
         let ct_b = members[1].encrypt_message(b"second message").unwrap();
         assert_ne!(ct.generation, ct_b.generation);
         assert_eq!(
-            members[2].decrypt_message(&ct_b).unwrap(),
+            members[2].decrypt_message(&ct_b).unwrap().plaintext,
             b"second message"
         );
 
         // The relay (no epoch secret) cannot decrypt: a state with a different epoch secret fails.
-        let outsider = make_group(4);
+        let mut outsider = make_group(4);
         assert!(
             outsider[0].decrypt_message(&ct).is_err(),
             "a party without this epoch's secret cannot decrypt (server is blind)",

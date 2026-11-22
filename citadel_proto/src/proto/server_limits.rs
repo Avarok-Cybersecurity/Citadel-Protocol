@@ -3,6 +3,7 @@
 //! (`NodeBuilder::with_server_limits`) or not at all.
 
 use crate::proto::outbound_total::OutboundTotal;
+pub use crate::proto::peer::group_mail::GroupMailLimits;
 use citadel_io::{error, ErrorCode, NetworkError};
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
@@ -68,6 +69,8 @@ pub fn admit_provisional(
 #[derive(Clone)]
 pub(crate) struct ServerLoad {
     pub(crate) limits: ServerLimits,
+    /// What the server holds for a group member that is away.
+    pub(crate) group_mail: GroupMailLimits,
     legacy_hashes: Arc<AtomicUsize>,
     outbound_total: Arc<OutboundTotal>,
 }
@@ -82,10 +85,11 @@ impl Drop for LegacyHashTurn {
 }
 
 impl ServerLoad {
-    pub(crate) fn new(limits: ServerLimits) -> Self {
+    pub(crate) fn new(limits: ServerLimits, group_mail: GroupMailLimits) -> Self {
         let outbound_total = Arc::new(OutboundTotal::new(limits.outbound_queued_total.get()));
         Self {
             limits,
+            group_mail,
             legacy_hashes: Arc::new(AtomicUsize::new(0)),
             outbound_total,
         }

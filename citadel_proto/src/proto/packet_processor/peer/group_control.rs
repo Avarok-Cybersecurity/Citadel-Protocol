@@ -1,15 +1,35 @@
 //! A group's control messages: its Commits and hierarchy assignments.
 //!
-//! Only a group's owner makes them (`MessageGroupKey::cid` is the owner's CID). A server relays
-//! one only from the owner it authenticated, and a member that cannot apply one keeps the state
-//! it had and its session: the message is a single group's affair, not the connection's.
+//! Only a group's owner makes them: its creator, until ownership passes (see `group_succession`).
+//! A server relays one only from the session it authenticated as the group's recorded owner, and
+//! a member that cannot apply one keeps the state it had and its session: the message is a single
+//! group's affair, not the connection's.
 
+use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::peer::group_cgka::GroupCgkaState;
+use crate::proto::session::CitadelSession;
+use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::MessageGroupKey;
 
-/// Server: whether a control message for `key` from the authenticated `sender` is relayed.
-pub(crate) fn relays_control_from(sender: u64, key: MessageGroupKey) -> bool {
-    sender == key.cid
+/// Server: whether a control message from the authenticated `sender` is relayed, for a group
+/// whose recorded owner is `owner` (`None`: no such group here).
+pub(crate) fn relays_control_from(sender: u64, owner: Option<u64>) -> bool {
+    owner == Some(sender)
+}
+
+/// Server: whether `session_cid` is `key`'s recorded owner, the only member that may add, kick
+/// or end. A request from anyone else is answered as failed.
+pub(crate) async fn permits_control<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    session_cid: u64,
+    key: MessageGroupKey,
+) -> bool {
+    let owner = session.hypernode_peer_layer.group_owner(key).await;
+    let permitted = owner == Some(session_cid);
+    if !permitted {
+        log::warn!(target: "citadel", "Refusing a control request for {key:?} from {session_cid}: the group's owner is {owner:?}");
+    }
+    permitted
 }
 
 /// Member: applies the owner's Commit for `epoch`, if this member holds the group.
@@ -57,9 +77,13 @@ mod tests {
     }
 
     #[test]
-    fn a_server_relays_control_messages_only_from_the_groups_owner() {
-        assert!(relays_control_from(OWNER, KEY));
-        assert!(!relays_control_from(MEMBER, KEY));
+    fn a_server_relays_control_messages_only_from_the_groups_recorded_owner() {
+        assert!(relays_control_from(OWNER, Some(OWNER)));
+        assert!(!relays_control_from(MEMBER, Some(OWNER)));
+        // Once ownership has passed to MEMBER, the creator's control messages are not relayed.
+        assert!(relays_control_from(MEMBER, Some(MEMBER)));
+        assert!(!relays_control_from(KEY.cid, Some(MEMBER)));
+        assert!(!relays_control_from(OWNER, None));
     }
 
     #[test]
@@ -69,7 +93,7 @@ mod tests {
             apply_commit(Some(&mut member), KEY, b"not a commit", epoch);
         }
         let wire = owner.encrypt_message(b"still in step").unwrap();
-        assert_eq!(member.decrypt_message(&wire).unwrap(), b"still in step");
+        assert_eq!(member.decrypt_message(&wire).unwrap().1, b"still in step");
     }
 
     #[test]
@@ -78,7 +102,7 @@ mod tests {
         apply_hierarchy_assignment(Some(&mut member), KEY, b"not an assignment");
         assert!(member.is_flat());
         let wire = owner.encrypt_message(b"still flat").unwrap();
-        assert_eq!(member.decrypt_message(&wire).unwrap(), b"still flat");
+        assert_eq!(member.decrypt_message(&wire).unwrap().1, b"still flat");
     }
 
     #[test]

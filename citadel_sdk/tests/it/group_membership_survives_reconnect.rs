@@ -12,7 +12,8 @@
 //! A, B: register → connect → mutual peer register
 //! A: create group inviting B → B accepts → B's channel opens
 //! A sends "before" → B receives it
-//! B: disconnect → connect (same account, fresh session) → drop the dead channel
+//! B: drops its channel (a dropped handle is not a leave) → disconnect → connect (same
+//!   account, fresh session)
 //! A sends "after-N" until B receives one; B must, within a timeout,
 //!   without calling anything group-related after reconnecting
 //! ```
@@ -86,16 +87,13 @@ mod tests {
                     );
                     received_before.wait().await;
 
-                    // The channel is NOT dropped first: dropping a live channel is an
-                    // explicit LeaveRoom. A member losing its session keeps its channel
-                    // until it notices, as the agent does.
+                    // Dropping the channel, as a crash or a closed tab does, is not leaving:
+                    // only `leave()` takes the member out of the group.
+                    drop(first_channel);
                     let cid = conn.cid;
                     conn.disconnect().await?;
                     let conn = connect(&remote, &me).await?;
                     assert_eq!(conn.cid, cid, "CID is permanent per account");
-                    // Discarding the dead session's channel after reconnecting must not
-                    // take the member out of the group from its new session.
-                    drop(first_channel);
                     reconnected.wait().await;
 
                     // Nothing group-related is called from here on: the member must be

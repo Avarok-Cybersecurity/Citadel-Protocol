@@ -1010,30 +1010,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                             security_level,
                         );
                     }
-                    let departure = peer_layer
-                        .on_owner_departure(
-                            session_cid,
-                            incarnation,
-                            time_tracker.get_global_time_ns(),
-                        )
+                    let dissolved = peer_layer
+                        .on_owner_departure(session_cid, incarnation)
                         .await;
                     group_notifier
                         .notify_groups_dissolved(
-                            departure.dissolved,
+                            dissolved,
                             time_tracker.get_global_time_ns(),
                             security_level,
                         )
                         .await;
-                    if let Some(token) = departure.held {
-                        group_notifier
-                            .expire_ownerless_groups_after(
-                                session_cid,
-                                token,
-                                crate::proto::peer::group_retention::OWNERLESS_GROUP_GRACE,
-                                security_level,
-                            )
-                            .await;
-                    }
                     peer_layer.retire(session_cid, incarnation);
                     Ok::<_, NetworkError>(())
                 };
@@ -1695,7 +1681,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             for peer_cid in group.concurrent_peers.keys() {
                 if *peer_cid != cid_host {
                     if let Err(err) = this.send_signal_to_peer_direct(*peer_cid, |peer_ratchet| {
-                        let signal = GroupBroadcast::Disconnected { key };
+                        let signal = GroupBroadcast::Disconnected {
+                            key,
+                            reason: citadel_types::proto::GroupEndReason::ClosedByOwner,
+                        };
                         super::packet_crafter::peer_cmd::craft_group_message_packet(
                             peer_ratchet,
                             &signal,
@@ -1733,7 +1722,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
         let mut to_broadcast_dc = vec![];
         let mut to_broadcast_left = vec![];
-        let dc_signal = GroupBroadcast::Disconnected { key };
+        let dc_signal = GroupBroadcast::Disconnected {
+            key,
+            reason: citadel_types::proto::GroupEndReason::Removed,
+        };
 
         let left_signal = match peer_layer.remove_peers_from_message_group(key, peers).await {
             Ok((peers_removed, peers_remaining)) => {
@@ -1810,61 +1802,20 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         Ok(true)
     }
 
-    /// Server start-up: loads the persisted group registry before any client can connect, tells
-    /// the members of groups that are not held (command hierarchies) that they are gone, and arms
-    /// the expiry of every held owner's groups.
+    /// Server start-up: loads the persisted group registry before any client can connect, and
+    /// tells the members of the groups it does not restore (command hierarchies) that they are gone.
     pub async fn restore_message_groups(&self) -> Result<(), NetworkError> {
         let (peer_layer, time_tracker) = {
             let this = inner!(self);
             (this.hypernode_peer_layer.clone(), this.time_tracker)
         };
-        let restored = peer_layer
-            .restore_persisted_groups(time_tracker.get_global_time_ns())
-            .await?;
+        let dissolved = peer_layer.restore_persisted_groups().await?;
         // No session exists yet, so there is no negotiated level to inherit. Standard is what a
         // departing session without security settings falls back to (see the shutdown path).
         let security_level = SecurityLevel::Standard;
-        self.notify_groups_dissolved(
-            restored.dissolved,
-            time_tracker.get_global_time_ns(),
-            security_level,
-        )
-        .await;
-        for hold in restored.held {
-            let this = self.clone();
-            spawn!(async move {
-                this.expire_ownerless_groups_after(
-                    hold.owner,
-                    hold.token,
-                    hold.expires_in,
-                    security_level,
-                )
-                .await
-            });
-        }
-        Ok(())
-    }
-
-    /// After `after`, dissolves `owner`'s held groups unless it reconnected since the departure
-    /// that issued `token`, and tells their members.
-    pub(crate) async fn expire_ownerless_groups_after(
-        &self,
-        owner: u64,
-        token: u64,
-        after: Duration,
-        security_level: SecurityLevel,
-    ) {
-        citadel_io::time::sleep(after).await;
-        let (peer_layer, time_tracker) = {
-            let this = inner!(self);
-            (this.hypernode_peer_layer.clone(), this.time_tracker)
-        };
-        let expired = peer_layer.expire_ownerless_groups(owner, token).await;
-        if !expired.is_empty() {
-            log::warn!(target: "citadel", "Owner {owner} did not reconnect within the grace period; dissolving {} group(s)", expired.len());
-        }
-        self.notify_groups_dissolved(expired, time_tracker.get_global_time_ns(), security_level)
+        self.notify_groups_dissolved(dissolved, time_tracker.get_global_time_ns(), security_level)
             .await;
+        Ok(())
     }
 
     /// Tells each member of each dissolved group that the group is gone (`Disconnected`), so no
@@ -1886,7 +1837,10 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                     // An offline member is told when it next connects; at a server start every
                     // member is offline, and without the mailbox none of them would ever know.
                     true,
-                    GroupBroadcast::Disconnected { key },
+                    GroupBroadcast::Disconnected {
+                        key,
+                        reason: citadel_types::proto::GroupEndReason::HierarchyOwnerGone,
+                    },
                     security_level,
                 )
                 .await
@@ -2216,31 +2170,50 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         mail_if_offline: bool,
         signal: GroupBroadcast,
         security_level: SecurityLevel,
-    ) -> Result<GroupDelivery, String> {
+    ) -> Result<GroupFanOut, String> {
         let mut peers_failed = Vec::new();
         let mut peers_okay = Vec::new();
         let mut to_mail = Vec::new();
+        let mut offline = Vec::new();
+        // A group's own traffic goes live only to members back in the group; it is held for the
+        // rest. The lock orders this fan-out against a member's replay (`group_resume`).
+        let backlogged = match &signal {
+            GroupBroadcast::Message { key, .. } | GroupBroadcast::Commit { key, .. } => Some(*key),
+            _ => None,
+        };
+        let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
+        let (_mail_guard, resumed) = match backlogged {
+            Some(key) => (
+                Some(peer_layer.group_mail_lock.clone().lock_owned().await),
+                Some(peer_layer.resumed_members(key).await),
+            ),
+            None => (None, None),
+        };
 
         let pers = {
             let this = inner!(self);
             for (peer, is_registered) in peers_and_statuses {
+                let away = resumed.as_ref().is_some_and(|back| !back.contains(&peer));
                 if is_registered {
-                    if this
-                        .send_signal_to_peer_direct(peer, |peer_ratchet| {
-                            super::packet_crafter::peer_cmd::craft_group_message_packet(
-                                peer_ratchet,
-                                &signal,
-                                ticket,
-                                C2S_IDENTITY_CID,
-                                timestamp,
-                                security_level,
-                            )
-                        })
-                        .is_err()
+                    if away
+                        || this
+                            .send_signal_to_peer_direct(peer, |peer_ratchet| {
+                                super::packet_crafter::peer_cmd::craft_group_message_packet(
+                                    peer_ratchet,
+                                    &signal,
+                                    ticket,
+                                    C2S_IDENTITY_CID,
+                                    timestamp,
+                                    security_level,
+                                )
+                            })
+                            .is_err()
                     {
                         // on error, try adding to mailbox
                         if mail_if_offline {
                             to_mail.push(peer);
+                        } else {
+                            offline.push(peer);
                         }
                     } else {
                         // okay
@@ -2251,26 +2224,51 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 }
             }
 
-            this.account_manager.get_persistence_handler().clone()
-        };
-
-        // TODO: optimize this into a single operation
-        for peer in &to_mail {
-            CitadelNodePeerLayer::try_add_mailbox(
-                &pers,
-                *peer,
-                PeerSignal::BroadcastConnected {
-                    session_cid: *peer,
-                    group_broadcast: signal.clone(),
-                },
+            (
+                this.account_manager.get_persistence_handler().clone(),
+                this.server_load.as_ref().map(|load| load.group_mail),
+                this.time_tracker.get_global_time_ns(),
             )
-            .await
-            .map_err(|err| err.into_string())?;
+        };
+        let (pers, group_mail, now_ns) = pers;
+
+        // A group's own traffic waits in the member's backlog for that group, bounded and replayed
+        // in order once the member is back in the group; anything else waits in its mailbox.
+        let mut mailed = Vec::with_capacity(to_mail.len());
+        let mut backlog_full = Vec::new();
+        for peer in to_mail {
+            if let Some(key) = backlogged {
+                let limits = group_mail.ok_or("only a server holds group mail")?;
+                let max_age = limits.max_age_for(peer_layer.group_retention(key).await);
+                let holding = super::peer::group_mail::hold(
+                    &pers, peer, key, &signal, &limits, max_age, now_ns,
+                )
+                .await
+                .map_err(|err| err.into_string())?;
+                match holding {
+                    super::peer::group_mail::Holding::Held => mailed.push(peer),
+                    super::peer::group_mail::Holding::BacklogFull => backlog_full.push(peer),
+                }
+            } else {
+                CitadelNodePeerLayer::try_add_mailbox(
+                    &pers,
+                    peer,
+                    PeerSignal::BroadcastConnected {
+                        session_cid: peer,
+                        group_broadcast: signal.clone(),
+                    },
+                )
+                .await
+                .map_err(|err| err.into_string())?;
+                mailed.push(peer);
+            }
         }
 
-        Ok(GroupDelivery {
+        Ok(GroupFanOut {
             direct: peers_okay,
-            mailed: to_mail,
+            mailed,
+            offline,
+            backlog_full,
             failed: peers_failed,
         })
     }
@@ -2284,7 +2282,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             .collect()
     }
 
-    /// Tells the owner of `settled.key` that its Commit for `settled.epoch` has settled.
+    /// Tells `settled.owner`, the owner that made it, that its Commit for `settled.epoch` has settled.
     pub fn notify_commit_settled(
         &self,
         settled: Settled,
@@ -2292,9 +2290,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         timestamp: i64,
         security_level: SecurityLevel,
     ) {
-        let Settled { key, epoch } = settled;
+        let Settled { key, epoch, owner } = settled;
         let signal = GroupBroadcast::CommitSettled { key, epoch };
-        if let Err(err) = self.route_packet_to(key.cid, |ratchet| {
+        if let Err(err) = self.route_packet_to(owner, |ratchet| {
             super::packet_crafter::peer_cmd::craft_group_message_packet(
                 ratchet,
                 &signal,
@@ -2373,10 +2371,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 }
 
 /// Where a group signal went: to a connected session, to the mailbox of a registered peer that
-/// had none, or nowhere (not registered with the sender).
-pub struct GroupDelivery {
+/// had none, to nobody because the peer is offline and nothing is mailed, or nowhere (not
+/// registered with the sender).
+pub struct GroupFanOut {
     pub direct: Vec<u64>,
     pub mailed: Vec<u64>,
+    pub offline: Vec<u64>,
+    /// Members whose backlog for the group is at its cap: the signal was not held for them.
+    pub backlog_full: Vec<u64>,
     pub failed: Vec<u64>,
 }
 

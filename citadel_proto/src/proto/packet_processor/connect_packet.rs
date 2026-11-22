@@ -610,18 +610,18 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
         .get()
         .ok_or_else(|| error!(ErrorCode::StateImplicatedCidNotLoaded))?;
     let peer_layer = &session.hypernode_peer_layer;
-    // Groups this cid owns that were held while it was away: the owner re-founds each one first,
-    // and the members are prompted once it has (see `RestoreOwnership`).
-    let owned = peer_layer
-        .list_message_groups_for(cid)
-        .await
-        .unwrap_or_default();
+    // Groups this cid owns now (created, or succeeded to while it was away): the owner resumes or
+    // re-founds each one first, and the members are prompted once it has (see `RestoreOwnership`).
+    let owned = peer_layer.list_message_groups_for(cid).await;
     for key in owned {
+        let Some(tree) = peer_layer.group_tree(key).await else {
+            continue;
+        };
         log::info!(target: "citadel", "Asking {cid} to restore its ownership of {key:?} after (re)connecting");
         let ticket = Ticket::default();
         let packet = packet_crafter::peer_cmd::craft_group_message_packet(
             ratchet,
-            &GroupBroadcast::RestoreOwnership { key },
+            &GroupBroadcast::RestoreOwnership { key, tree },
             ticket,
             C2S_IDENTITY_CID,
             session.time_tracker.get_global_time_ns(),
@@ -637,11 +637,14 @@ async fn prompt_member_to_restore_groups<R: Ratchet, T: PlatformOps>(
     }
     let groups = peer_layer.list_message_groups_with_member(cid).await;
     for key in groups {
+        let Some((tree, owner)) = peer_layer.group_tree_and_owner(key).await else {
+            continue;
+        };
         log::info!(target: "citadel", "Asking {cid} to restore its membership of {key:?} after (re)connecting");
         let ticket = Ticket::default();
         let packet = packet_crafter::peer_cmd::craft_group_message_packet(
             ratchet,
-            &GroupBroadcast::RestoreMembership { key },
+            &GroupBroadcast::RestoreMembership { key, tree, owner },
             ticket,
             C2S_IDENTITY_CID,
             session.time_tracker.get_global_time_ns(),
