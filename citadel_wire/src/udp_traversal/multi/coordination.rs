@@ -19,6 +19,9 @@
 //! - A `WinnerCanEnd` that the reader consumed still releases the winner.
 //! - A loser that could not deliver `WinnerCanEnd` still succeeds: it holds the
 //!   commanded socket, and the winner only leaves after committing its own.
+//! - Neither side abandons the attempt on its own timer once it has spoken:
+//!   the winner commits before `Winner`, the loser before `WinnerCanEnd`
+//!   (`attempt_commit`).
 //! - Receiving `AllFailed` records that the remote failed. It is not echoed:
 //!   the echo claimed a local failure that had not happened, and ended the
 //!   remote's reader before it could take this side's `Winner`.

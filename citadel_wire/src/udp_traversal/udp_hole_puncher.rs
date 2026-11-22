@@ -33,6 +33,7 @@
 use crate::nat_identification::{NatType, IDENTIFY_TIMEOUT};
 use crate::stun_servers::StunServers;
 use crate::udp_traversal::abort_on_drop::AbortOnDrop;
+use crate::udp_traversal::attempt_commit::{until_committed, AttemptCommit};
 use crate::udp_traversal::hole_punch_config::HolePunchConfig;
 use crate::udp_traversal::hole_punched_socket::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::HolePunchConfigContainer;
@@ -148,18 +149,20 @@ async fn driver(
         loop {
             log::trace!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} starting (timeout: {timeout:?})");
             let lane = attempts.enter(attempt).await?;
+            let commit = AttemptCommit::new();
             let task = run_attempt(
                 &attempts,
                 lane,
                 attempt,
+                commit.clone(),
                 conn.node_type(),
                 conn.wire_revision(),
                 encrypted_config_container.clone(),
                 local_nat_type,
                 stun_servers,
             );
-            let next = match citadel_io::time::timeout(timeout, task).await {
-                Ok(AttemptOutcome::Punched(socket)) => {
+            let next = match until_committed(timeout, &commit, task).await {
+                Some(AttemptOutcome::Punched(socket)) => {
                     log::trace!(target: "citadel", "[driver] Attempt {attempt} succeeded!");
                     let report = PunchReport {
                         attempt,
@@ -169,15 +172,15 @@ async fn driver(
                     };
                     return Ok(Punched { socket, report });
                 }
-                Ok(AttemptOutcome::Failed(err)) => {
+                Some(AttemptOutcome::Failed(err)) => {
                     log::warn!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} failed with error: {err:#}");
                     attempt + 1
                 }
-                Ok(AttemptOutcome::PeerMovedOn(peer)) => {
+                Some(AttemptOutcome::PeerMovedOn(peer)) => {
                     log::warn!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} abandoned by the peer, which is on attempt {peer}");
                     peer
                 }
-                Err(_) => {
+                None => {
                     log::warn!(target: "citadel", "[driver] Attempt {attempt}/{MAX_RETRIES} timed-out after {timeout:?}");
                     attempt + 1
                 }
@@ -234,6 +237,7 @@ async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
     attempts: &AttemptCoordinator<S>,
     lane: AttemptLane<S>,
     attempt: usize,
+    commit: AttemptCommit,
     node_type: RelativeNodeType,
     wire: WireRevision,
     encrypted_config_container: HolePunchConfigContainer,
@@ -252,6 +256,7 @@ async fn run_attempt<S: ReliableOrderedStreamToTarget + 'static>(
             encrypted_config_container,
             local_nat_type,
             stun_servers,
+            commit,
         )
         .await
     };
@@ -270,6 +275,7 @@ async fn driver_inner(
     encrypted_config_container: HolePunchConfigContainer,
     local_nat_type: &NatType,
     stun_servers: &StunServers,
+    commit: AttemptCommit,
 ) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     log::trace!(target: "citadel", "[driver] Starting hole puncher ...");
 
@@ -368,6 +374,7 @@ async fn driver_inner(
         encrypted_config_container,
         hole_punch_config,
         conn,
+        commit,
     ) {
         Ok(hp) => {
             log::trace!(target: "citadel", "[driver] Step 5a: DualStackUdpHolePuncher created successfully");

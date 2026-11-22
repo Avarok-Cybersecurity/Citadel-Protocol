@@ -59,6 +59,8 @@ use uuid::Uuid;
 
 pub mod abort_on_drop;
 #[cfg(not(target_family = "wasm"))]
+pub mod attempt_commit;
+#[cfg(not(target_family = "wasm"))]
 mod candidate_bounds;
 pub mod hole_punch_config;
 pub mod hole_punched_socket;
