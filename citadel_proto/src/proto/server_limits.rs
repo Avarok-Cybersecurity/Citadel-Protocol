@@ -26,8 +26,6 @@ pub struct ServerLimits {
     /// The most bytes all peer-facing streams may hold queued together. A send that would pass
     /// it ends the stream holding the most.
     pub outbound_queued_total: NonZeroUsize,
-    /// What the server holds for a group member that is away (see [`GroupMailLimits`]).
-    pub group_mail: GroupMailLimits,
 }
 
 /// Whether a server takes a legacy registration: one from a client below the post-quantum
@@ -71,6 +69,8 @@ pub fn admit_provisional(
 #[derive(Clone)]
 pub(crate) struct ServerLoad {
     pub(crate) limits: ServerLimits,
+    /// What the server holds for a group member that is away.
+    pub(crate) group_mail: GroupMailLimits,
     legacy_hashes: Arc<AtomicUsize>,
     outbound_total: Arc<OutboundTotal>,
 }
@@ -85,10 +85,11 @@ impl Drop for LegacyHashTurn {
 }
 
 impl ServerLoad {
-    pub(crate) fn new(limits: ServerLimits) -> Self {
+    pub(crate) fn new(limits: ServerLimits, group_mail: GroupMailLimits) -> Self {
         let outbound_total = Arc::new(OutboundTotal::new(limits.outbound_queued_total.get()));
         Self {
             limits,
+            group_mail,
             legacy_hashes: Arc::new(AtomicUsize::new(0)),
             outbound_total,
         }

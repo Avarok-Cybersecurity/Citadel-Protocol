@@ -425,6 +425,8 @@ pub struct ServerOnlySessionInitSettings {
     /// `None` only on a node built without them, such as the server role of a serverless pair,
     /// which takes its one connection.
     pub limits: Option<crate::proto::server_limits::ServerLimits>,
+    /// What the server holds for a group member that is away.
+    pub group_mail: crate::proto::server_limits::GroupMailLimits,
 }
 
 /// TURN server configuration for NAT traversal relay.

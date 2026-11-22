@@ -22,7 +22,7 @@ async fn take_backlog<R: Ratchet, T: PlatformOps>(
     let limits = session
         .session_manager
         .server_load()
-        .map(|load| load.limits.group_mail)
+        .map(|load| load.group_mail)
         .ok_or_else(|| NetworkError::msg("only a server holds group mail"))?;
     let retention = session.hypernode_peer_layer.group_retention(key).await;
     let pers = session.account_manager.get_persistence_handler();

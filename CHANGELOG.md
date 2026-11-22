@@ -22,11 +22,15 @@
     not reach, with the reason (`NotDelivered::{Offline, BacklogFull, Unreachable}`);
   - `NotRelayed` says why it reached no one.
 - **Bounded group backlogs.**
-  - `ServerLimits::group_mail: GroupMailLimits { max_age, max_messages, max_bytes }` is required
-    configuration.
+  - `NodeBuilder::with_group_mail_limits(GroupMailLimits { max_age, max_messages, max_bytes })`
+    sets what a server holds per away member and group. Without it a server holds
+    `GroupMailLimits::default()`: 7 days, 1000 messages, 16 MiB.
   - `MessageGroupOptions::retention` asks for less than `max_age`, never more.
   - A message past a member's cap is not held for that member, and the sender's `GroupDelivery`
     says so. Group control is always held.
+- **Group traffic is handled in the order it arrived.** A session's group broadcasts are handled
+  one after another, on the server and on every member, so one sender's messages reach every
+  member in the order it sent them.
 - **Group messages are signed by their sender.** Each leaf carries an ML-DSA-65 key derived from
   its leaf secret, and every application message and hierarchy frame is signed under it.
   - A member delivers a message only when its signer is the sender the server relays, and opens
@@ -139,8 +143,8 @@
 
 - **Groups (protocol 0.12.5; older nodes are refused by name).**
   - **Delivery reports.** `MessageResponse { success }` is now `MessageResponse { key, delivery }`.
-  - **Group configuration.** `ServerLimits::group_mail` is required. `MessageGroupOptions` gains
-    `retention`.
+  - **Group configuration.** `NodeBuilder::with_group_mail_limits` (optional, defaulting to
+    `GroupMailLimits::default()`). `MessageGroupOptions` gains `retention`.
   - **Message API.**
     - `GroupState::decrypt_message` returns an `OpenedMessage { sender_cid, plaintext }`;
       `GroupCgkaState::decrypt_message` returns `(sender, plaintext)`.

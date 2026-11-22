@@ -28,8 +28,8 @@ use uuid::Uuid;
 /// The byte map a member's group backlogs are held in.
 pub const GROUP_MAILBOX_MAP: &str = "group_mailbox";
 
-/// The most a server holds for one member of one group while it is away. Required server
-/// configuration (`ServerLimits::group_mail`): there are no defaults.
+/// The most a server holds for one member of one group while it is away. A server is built with
+/// `NodeBuilder::with_group_mail_limits`, or with [`GroupMailLimits::default`] without it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GroupMailLimits {
     /// The longest a broadcast is held. A group may ask for less (`MessageGroupOptions::retention`).
@@ -38,6 +38,18 @@ pub struct GroupMailLimits {
     pub max_messages: NonZeroUsize,
     /// The most bytes held per member and group.
     pub max_bytes: NonZeroUsize,
+}
+
+impl Default for GroupMailLimits {
+    /// A week, a thousand messages and 16 MiB per member and group.
+    fn default() -> Self {
+        const WEEK: Duration = Duration::from_secs(7 * 24 * 3600);
+        Self {
+            max_age: WEEK,
+            max_messages: NonZeroUsize::new(1_000).expect("positive"),
+            max_bytes: NonZeroUsize::new(16 * 1024 * 1024).expect("positive"),
+        }
+    }
 }
 
 impl GroupMailLimits {

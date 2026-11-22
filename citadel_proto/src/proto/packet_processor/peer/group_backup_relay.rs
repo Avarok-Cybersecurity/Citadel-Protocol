@@ -29,7 +29,7 @@ pub(crate) async fn keep<R: Ratchet, T: PlatformOps>(
     let cap = session
         .session_manager
         .server_load()
-        .map(|load| load.limits.group_mail.max_bytes.get())
+        .map(|load| load.group_mail.max_bytes.get())
         .ok_or_else(|| NetworkError::msg("only a server keeps group states"))?;
     if sealed.len() > cap {
         log::warn!(target: "citadel", "Not keeping a state of {key:?} for {member}: {} bytes is over the {cap}-byte cap", sealed.len());

@@ -117,12 +117,17 @@ pub fn localhost_server_limits() -> ServerLimits {
         },
         outbound_queued_per_stream: nonzero(QUEUED_PER_STREAM),
         outbound_queued_total: nonzero(QUEUED_TOTAL),
-        // Room for every test's offline traffic; the bounds themselves are tested with their own.
-        group_mail: GroupMailLimits {
-            max_age: std::time::Duration::from_secs(3600),
-            max_messages: nonzero(10_000),
-            max_bytes: nonzero(QUEUED_PER_STREAM),
-        },
+    }
+}
+
+/// What servers under test hold for an away group member: room for every test's offline
+/// traffic; the bounds themselves are tested with their own.
+pub fn localhost_group_mail_limits() -> GroupMailLimits {
+    let nonzero = |n: usize| std::num::NonZeroUsize::new(n).expect("a positive test limit");
+    GroupMailLimits {
+        max_age: std::time::Duration::from_secs(3600),
+        max_messages: nonzero(10_000),
+        max_bytes: nonzero(256 * 1024 * 1024),
     }
 }
 
@@ -237,6 +242,7 @@ mod native {
             .with_max_security_level(crate::test_common::localhost_max_security_level())
             .with_path_policy(localhost_path_policy())
             .with_server_limits(localhost_server_limits())
+            .with_group_mail_limits(localhost_group_mail_limits())
             .with_underlying_protocol(ServerMode::OrderedReliable(
                 NativeOrderedReliableConfig::from_tokio_listener(tcp_listener).unwrap(),
             ));

@@ -2,7 +2,9 @@
 //! without them, and a peer node with them. There are no default limits.
 
 use super::NodeBuilder;
-use crate::prelude::{NodeType, PlatformOps, Ratchet, ServerLimits, ServerOnlySessionInitSettings};
+use crate::prelude::{
+    GroupMailLimits, NodeType, PlatformOps, Ratchet, ServerLimits, ServerOnlySessionInitSettings,
+};
 use citadel_io::ErrorCode;
 
 impl<R: Ratchet, T: PlatformOps> NodeBuilder<R, T> {
@@ -13,16 +15,27 @@ impl<R: Ratchet, T: PlatformOps> NodeBuilder<R, T> {
         self.server_limits = Some(limits);
         self
     }
+
+    /// The most this server holds for one member of one group while it is away (see
+    /// [`GroupMailLimits`]). Without this call a server holds [`GroupMailLimits::default`];
+    /// refused on a peer.
+    pub fn with_group_mail_limits(&mut self, limits: GroupMailLimits) -> &mut Self {
+        self.group_mail_limits = Some(limits);
+        self
+    }
 }
 
 pub(super) fn check_server_limits(
     node_type: Option<&NodeType>,
     limits: Option<&ServerLimits>,
+    group_mail_limits: bool,
 ) -> Result<(), citadel_io::NetworkError> {
     let is_server = matches!(node_type, Some(NodeType::Server(_)));
-    match (is_server, limits) {
-        (true, None) => Err(citadel_io::error!(ErrorCode::NodeServerLimitsMissing)),
-        (false, Some(_)) => Err(citadel_io::error!(ErrorCode::NodeServerLimitsNotServer)),
+    match (is_server, limits.is_some() || group_mail_limits) {
+        (true, _) if limits.is_none() => {
+            Err(citadel_io::error!(ErrorCode::NodeServerLimitsMissing))
+        }
+        (false, true) => Err(citadel_io::error!(ErrorCode::NodeServerLimitsNotServer)),
         _ => Ok(()),
     }
 }
@@ -31,11 +44,13 @@ pub(super) fn check_server_limits(
 pub(super) fn with_limits(
     settings: Option<ServerOnlySessionInitSettings>,
     limits: Option<ServerLimits>,
+    group_mail: Option<GroupMailLimits>,
 ) -> Option<ServerOnlySessionInitSettings> {
     match limits {
         Some(limits) => {
             let mut settings = settings.unwrap_or_default();
             settings.limits = Some(limits);
+            settings.group_mail = group_mail.unwrap_or_default();
             Some(settings)
         }
         None => settings,
@@ -92,5 +107,39 @@ mod tests {
             Some(ErrorCode::NodeServerLimitsNotServer)
         );
         assert_eq!(build_error(NodeType::Peer, false), None);
+    }
+
+    #[test]
+    fn group_mail_limits_reach_the_server_and_default_without_the_call() {
+        use super::with_limits;
+        use crate::prelude::GroupMailLimits;
+        let custom = GroupMailLimits {
+            max_age: std::time::Duration::from_secs(60),
+            max_messages: std::num::NonZeroUsize::new(3).unwrap(),
+            max_bytes: std::num::NonZeroUsize::new(4096).unwrap(),
+        };
+        let given = with_limits(None, Some(localhost_server_limits()), Some(custom));
+        assert_eq!(given.unwrap().group_mail, custom);
+        let defaulted = with_limits(None, Some(localhost_server_limits()), None);
+        assert_eq!(defaulted.unwrap().group_mail, GroupMailLimits::default());
+    }
+
+    #[test]
+    fn group_mail_limits_on_a_peer_are_refused() {
+        let mut builder = DefaultNodeBuilder::default();
+        let _ = builder
+            .with_node_type(NodeType::Peer)
+            .with_link_manager(crate::prelude::LinkManagerMode::Legacy)
+            .with_max_security_level(crate::test_common::localhost_max_security_level())
+            .with_stun_servers(LOCALHOST_STUN_SERVERS)
+            .with_group_mail_limits(crate::prelude::GroupMailLimits::default());
+        let Err(err) = builder.build(EmptyKernel::default()) else {
+            panic!("a peer with group mail limits was built");
+        };
+        let code = err
+            .downcast_ref::<citadel_io::NetworkError>()
+            .expect("a typed error")
+            .code();
+        assert_eq!(code, ErrorCode::NodeServerLimitsNotServer);
     }
 }

@@ -30,9 +30,9 @@ mod tests {
         citadel_logging::setup_log();
         citadel_sdk::test_common::TestBarrier::setup(2);
         let (server, server_addr, server_remote) = probed_server_with(|builder| {
-            let mut limits = citadel_sdk::test_common::localhost_server_limits();
-            limits.group_mail.max_messages = std::num::NonZeroUsize::new(CAP).unwrap();
-            let _ = builder.with_server_limits(limits);
+            let mut limits = citadel_sdk::test_common::localhost_group_mail_limits();
+            limits.max_messages = std::num::NonZeroUsize::new(CAP).unwrap();
+            let _ = builder.with_group_mail_limits(limits);
         });
         let owner_name = format!("gbo_{}", &Uuid::new_v4().to_string()[..8]);
         let member_name = format!("gbm_{}", &Uuid::new_v4().to_string()[..8]);

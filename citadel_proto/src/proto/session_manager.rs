@@ -2217,7 +2217,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 
             (
                 this.account_manager.get_persistence_handler().clone(),
-                this.server_load.as_ref().map(|load| load.limits.group_mail),
+                this.server_load.as_ref().map(|load| load.group_mail),
                 this.time_tracker.get_global_time_ns(),
             )
         };

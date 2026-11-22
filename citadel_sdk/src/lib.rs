@@ -130,9 +130,7 @@
 //! #     let n = |n: usize| std::num::NonZeroUsize::new(n).unwrap();
 //! #     ServerLimits { provisional_per_ip: n(32), provisional_total: n(1024),
 //! #         legacy_registration: LegacyRegistration::Accepted { concurrent_hashes: n(4) },
-//! #         outbound_queued_per_stream: n(256 << 20), outbound_queued_total: n(1 << 30),
-//! #         group_mail: GroupMailLimits { max_age: std::time::Duration::from_secs(604_800),
-//! #             max_messages: n(1_000), max_bytes: n(16 << 20) } }
+//! #         outbound_queued_per_stream: n(256 << 20), outbound_queued_total: n(1 << 30) }
 //! # }
 //!
 //! // this server will listen on 127.0.0.1:25021. STUN servers are required configuration for
@@ -213,9 +211,7 @@
 //! #     let n = |n: usize| std::num::NonZeroUsize::new(n).unwrap();
 //! #     ServerLimits { provisional_per_ip: n(32), provisional_total: n(1024),
 //! #         legacy_registration: LegacyRegistration::Accepted { concurrent_hashes: n(4) },
-//! #         outbound_queued_per_stream: n(256 << 20), outbound_queued_total: n(1 << 30),
-//! #         group_mail: GroupMailLimits { max_age: std::time::Duration::from_secs(604_800),
-//! #             max_messages: n(1_000), max_bytes: n(16 << 20) } }
+//! #         outbound_queued_per_stream: n(256 << 20), outbound_queued_total: n(1 << 30) }
 //! # }
 //!
 //! // this server will listen on 127.0.0.1:25021, and will use the built-in defaults with a kernel

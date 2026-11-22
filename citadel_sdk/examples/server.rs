@@ -88,10 +88,5 @@ fn lab_limits() -> ServerLimits {
         },
         outbound_queued_per_stream: nonzero(256 * 1024 * 1024),
         outbound_queued_total: nonzero(1024 * 1024 * 1024),
-        group_mail: GroupMailLimits {
-            max_age: std::time::Duration::from_secs(7 * 24 * 3600),
-            max_messages: nonzero(1_000),
-            max_bytes: nonzero(16 * 1024 * 1024),
-        },
     }
 }
