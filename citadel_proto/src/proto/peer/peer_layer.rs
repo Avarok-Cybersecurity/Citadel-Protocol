@@ -72,6 +72,8 @@ pub struct CitadelNodePeerLayerInner<R: Ratchet> {
     /// Groups by their creator's cid (`MessageGroupKey::cid`), which is the group's id and stays
     /// so after ownership passes; the current owner is `MessageGroup::owner`.
     pub(crate) message_groups: HashMap<u64, HashMap<u128, MessageGroup>>,
+    /// Where each group's durable row is (see `group_persistence`).
+    pub(crate) group_rows: HashMap<MessageGroupKey, crate::proto::peer::group_persistence::Row>,
     /// Sessions waiting for a group that does not exist yet (see `group_watch`).
     pub(crate) group_watches: HashMap<u64, HashMap<MessageGroupKey, Vec<Ticket>>>,
     /// Waits for members to apply each group's latest Commit (see `group_commit_gate`).
@@ -211,6 +213,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             simultaneous_ticket_mappings: Default::default(),
             persistence_handler,
             message_groups: HashMap::new(),
+            group_rows: HashMap::new(),
             group_watches: HashMap::new(),
             commit_gates: Default::default(),
         };

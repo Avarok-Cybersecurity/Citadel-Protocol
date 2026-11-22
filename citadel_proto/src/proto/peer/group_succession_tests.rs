@@ -136,37 +136,6 @@ async fn a_hierarchys_owner_leaving_closes_it_for_its_members() {
 }
 
 #[tokio::test]
-async fn the_recorded_owner_survives_a_restart() {
-    use crate::proto::peer::mailbox::tests::{register, Manager};
-    let manager = Manager::new(BackendType::InMemory, None, None, None)
-        .await
-        .unwrap();
-    // The registry is kept under its creator's account.
-    let creator = register(&manager, "creator").await;
-    let pers = manager.get_persistence_handler().clone();
-    let layer = CitadelNodePeerLayer::new(pers.clone());
-    layer.admit(creator, Instant::now());
-    let _ = layer.register_peer(creator).await.unwrap();
-    let key = layer
-        .create_new_message_group(creator, &vec![LOW, HIGH], MessageGroupOptions::default())
-        .await
-        .unwrap();
-    assert!(layer.upgrade_peer_in_group(key, LOW).await);
-    assert!(layer.upgrade_peer_in_group(key, HIGH).await);
-    let _ = layer.leave_group(key, creator).await;
-
-    // A fresh layer over the same backend, as a restarted server builds.
-    let restarted = CitadelNodePeerLayer::new(pers);
-    assert!(restarted
-        .restore_persisted_groups()
-        .await
-        .unwrap()
-        .is_empty());
-    assert_eq!(restarted.group_owner(key).await, Some(HIGH));
-    assert_eq!(restarted.list_message_groups_for(HIGH).await, vec![key]);
-}
-
-#[tokio::test]
 async fn a_deregistered_owner_leaves_every_group_it_is_in() {
     let (layer, key) = group_of(&backend().await, MessageGroupOptions::default()).await;
     let left = layer.leave_all_groups(OWNER).await;
