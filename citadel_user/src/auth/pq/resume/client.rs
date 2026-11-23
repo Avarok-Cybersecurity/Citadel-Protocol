@@ -36,12 +36,21 @@ impl DeviceKey {
     }
 }
 
+/// `server` less `local`, both Unix milliseconds.
+fn ahead(server: u64, local: u64) -> i64 {
+    let diff = i128::from(server) - i128::from(local);
+    i64::try_from(diff).unwrap_or(if diff > 0 { i64::MAX } else { i64::MIN })
+}
+
 /// What a device keeps to sign in again: the server's grant and the key it names. Never printed
 /// beyond its expiry.
 #[derive(Clone)]
 pub struct ResumeCredential {
     grant: Box<ResumeGrant>,
     device: DeviceKey,
+    /// The server's clock less this device's, in milliseconds, when the grant arrived: the
+    /// grant's times are the server's, and this device's clock may be wrong.
+    server_ahead_ms: i64,
 }
 
 impl std::fmt::Debug for ResumeCredential {
@@ -53,11 +62,14 @@ impl std::fmt::Debug for ResumeCredential {
 impl ResumeCredential {
     /// Keeps `grant` if it is the one this device asked for: its account, its key, a lifetime no
     /// longer than `request` asked. The MAC is the server's to check, not the client's.
+    /// `now_local` is this device's clock as the grant arrives (Unix milliseconds): the grant was
+    /// issued a moment ago by the server's, so the difference is how far apart the two run.
     pub fn accept(
         grant: ResumeGrant,
         device: DeviceKey,
         cid: u64,
         request: &ResumeRequest,
+        now_local: u64,
     ) -> Result<Self, AccountError> {
         let body = &grant.body;
         let lifetime_ms = body.valid_until_utc.checked_sub(body.issued_at_utc);
@@ -69,6 +81,7 @@ impl ResumeCredential {
             && lifetime_ms.is_some_and(|ms| ms > 0 && ms <= asked_ms);
         match ours {
             true => Ok(Self {
+                server_ahead_ms: ahead(body.issued_at_utc, now_local),
                 grant: Box::new(grant),
                 device,
             }),
@@ -89,6 +102,7 @@ impl ResumeCredential {
             true => Ok(Self {
                 grant: Box::new(grant),
                 device: self.device.clone(),
+                server_ahead_ms: self.server_ahead_ms,
             }),
             false => Err(error!(ErrorCode::PqSignInMalformed, "a re-issued grant")),
         }
@@ -108,14 +122,26 @@ impl ResumeCredential {
         self.grant.body.cid
     }
 
-    /// Whether the credential is past its expiry at `now_utc` (Unix milliseconds).
-    pub fn expired_at(&self, now_utc: u64) -> bool {
-        now_utc >= self.valid_until_utc()
+    /// The moment of expiry by this device's own clock (Unix milliseconds): `valid_until_utc`
+    /// moved by how far this device's clock ran from the server's when the grant arrived. What
+    /// a timer on this device waits for.
+    pub fn expires_at_local(&self) -> u64 {
+        let local = i128::from(self.valid_until_utc()) - i128::from(self.server_ahead_ms);
+        u64::try_from(local.max(0)).unwrap_or(u64::MAX)
+    }
+
+    /// Whether the credential is past its expiry when this device's clock reads `now_local`
+    /// (Unix milliseconds). A device whose clock is wrong is not told early or late for it.
+    pub fn expired_at(&self, now_local: u64) -> bool {
+        now_local >= self.expires_at_local()
     }
 
     /// What a resume sends, refused here when the credential has already expired.
-    pub fn present(&self, now_utc: u64) -> Result<(PresentedResume, FactorKeypair), AccountError> {
-        if self.expired_at(now_utc) {
+    pub fn present(
+        &self,
+        now_local: u64,
+    ) -> Result<(PresentedResume, FactorKeypair), AccountError> {
+        if self.expired_at(now_local) {
             return Err(error!(ErrorCode::ResumeCredentialExpired));
         }
         let keypair = self.device.keypair()?;

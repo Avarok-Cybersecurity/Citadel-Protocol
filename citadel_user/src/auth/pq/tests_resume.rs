@@ -30,12 +30,12 @@ pub(crate) fn issued(record: &PqAuthRecord, lifetime_s: u64) -> ResumeCredential
     let device = DeviceKey::generate();
     let request = device.request(lifetime_s).unwrap();
     let grant = issue_grant(&resuming(DAY), CID, record, &request, NOW).unwrap();
-    ResumeCredential::accept(grant, device, CID, &request).unwrap()
+    ResumeCredential::accept(grant, device, CID, &request, NOW).unwrap()
 }
 
 /// What `credential` presents, built without the client's own expiry check.
 pub(crate) fn presented(credential: &ResumeCredential) -> PresentedResume {
-    credential.present(credential.issued_at_utc()).unwrap().0
+    credential.present(0).unwrap().0
 }
 
 pub(crate) fn start_with(presented: PresentedResume) -> LoginStart {
@@ -138,6 +138,29 @@ async fn the_client_does_not_send_an_expired_credential() {
     );
 }
 
+/// Control: compare the device's clock with `valid_until_utc` as it stands.
+#[tokio::test]
+async fn a_device_whose_clock_is_wrong_expires_its_credential_when_the_server_does() {
+    let record = register("pw").await;
+    let device = DeviceKey::generate();
+    let request = device.request(HOUR_S).unwrap();
+    let grant = issue_grant(&resuming(DAY), CID, &record, &request, NOW).unwrap();
+    // Two hours fast, then two hours slow: either way an hour is an hour.
+    for local in [NOW + 2 * HOUR_MS, NOW - 2 * HOUR_MS] {
+        let held = ResumeCredential::accept(grant, device.clone(), CID, &request, local).unwrap();
+        assert_eq!(
+            held.valid_until_utc(),
+            NOW + HOUR_MS,
+            "the server's time is kept"
+        );
+        assert_eq!(held.expires_at_local(), local + HOUR_MS);
+        assert!(!held.expired_at(local));
+        assert!(!held.expired_at(local + HOUR_MS - 1));
+        assert!(held.expired_at(local + HOUR_MS));
+        assert!(ClientLogin::start_resume("alice", &held, local + HOUR_MS - 1).is_ok());
+    }
+}
+
 /// Control: leave a field out of `PqAuthRecord::resume_binding`.
 #[tokio::test]
 async fn a_change_to_the_accounts_sign_in_revokes_every_grant_before_it() {
@@ -208,7 +231,7 @@ async fn the_client_keeps_only_the_grant_it_asked_for() {
     let request = device.request(HOUR_S).unwrap();
     let grant = issue_grant(&resuming(DAY), CID, &record, &request, NOW).unwrap();
     let accept = |grant, device: &DeviceKey, cid| {
-        ResumeCredential::accept(grant, device.clone(), cid, &request).is_ok()
+        ResumeCredential::accept(grant, device.clone(), cid, &request, NOW).is_ok()
     };
     assert!(accept(grant, &device, CID));
     assert!(!accept(grant, &device, CID + 1), "another account's");

@@ -48,7 +48,7 @@ impl ClientResume {
         grant: Option<ResumeGrant>,
     ) -> Option<ResumeCredential> {
         let (device, request) = self.asked.take()?;
-        match ResumeCredential::accept(grant?, device, cid, &request) {
+        match ResumeCredential::accept(grant?, device, cid, &request, now_ms()) {
             Ok(credential) => Some(credential),
             Err(err) => {
                 log::warn!(target: "citadel", "Discarding a resume grant that was not asked for: {err}");
