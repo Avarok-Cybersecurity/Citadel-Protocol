@@ -12,6 +12,7 @@ use citadel_types::auth::{FactorId, FactorKind, SignInCredential, SignInPolicy};
 use serde::{Deserialize, Serialize};
 
 mod recovery;
+mod resume_binding;
 
 pub use recovery::is_recovery;
 

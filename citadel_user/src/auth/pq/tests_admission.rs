@@ -59,6 +59,7 @@ fn bad_login() -> LoginStart {
         recovery: None,
         admission: None,
         resume: None,
+        resume_credential: None,
     }
 }
 

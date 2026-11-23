@@ -91,6 +91,7 @@ fn a_commit_in_the_0_12_2_layout_is_refused() {
                 ek: ek(),
             }),
             password_ek: None,
+            resume: None,
         },
     };
     let read = ManagementCommit::deserialize_from_vector(&bytes(&current)).unwrap();
@@ -136,6 +137,7 @@ fn a_ceremony_without_its_password_change_is_refused() {
         let current = CommitCeremony {
             new_key: None,
             password_ek,
+            resume: None,
         };
         let read = CommitCeremony::deserialize_from_vector(&bytes(&current)).unwrap();
         assert_eq!(read, current);

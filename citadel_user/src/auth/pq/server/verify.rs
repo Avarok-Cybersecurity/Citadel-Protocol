@@ -35,8 +35,13 @@ impl PendingLogin {
             kinds.push(*kind);
             secrets.push(k);
         }
+        let by_factors = matches!(self.expected.rule, Rule::Policy(_));
+        // A device's resume key is no factor of the account: the record has nothing to mark.
+        let recorded = !matches!(self.expected.rule, Rule::Resume);
         let scope = match self.expected.rule {
             Rule::Policy(policy) if policy::satisfied(policy, &kinds) => SessionScope::Full,
+            // Its one secret is the device key's, so tags that all verify are that key's.
+            Rule::Resume => SessionScope::Full,
             Rule::Recovery if matches!(kinds[..], [kind] if is_recovery(kind)) => {
                 SessionScope::Recovery
             }
@@ -48,7 +53,8 @@ impl PendingLogin {
         Ok(VerifiedLogin {
             scope,
             session_key: proof::session_key(&secrets, &self.transcript),
-            used,
+            used: used.into_iter().filter(|_| recorded).collect(),
+            by_factors,
         })
     }
 }

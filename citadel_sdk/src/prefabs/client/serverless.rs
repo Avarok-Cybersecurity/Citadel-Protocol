@@ -90,6 +90,8 @@ impl<R: Ratchet> NetKernel<R> for ServerlessKernel<R> {
                 cid: connect_success.cid,
                 session_security_settings: connect_success.session_security_settings,
                 path_policy: connect_success.path_policy,
+                resume: None,
+                resume_max_lifetime_s: None,
             });
 
             // Keep the kernel alive until the caller drops BrowserConnection.
@@ -113,6 +115,8 @@ impl<R: Ratchet> NetKernel<R> for ServerlessKernel<R> {
             udp_rx_opt: udp_channel_rx,
             session_security_settings,
             path_policy,
+            resume: _,
+            resume_max_lifetime_s: _,
         }) = message
         {
             let client_server_remote = ClientServerRemote::new(
@@ -131,6 +135,8 @@ impl<R: Ratchet> NetKernel<R> for ServerlessKernel<R> {
                 cid,
                 session_security_settings,
                 path_policy,
+                resume: None,
+                resume_max_lifetime_s: None,
             });
         } else {
             log::trace!(target: "citadel", "[ServerlessKernel] Unhandled event: {message:?}");

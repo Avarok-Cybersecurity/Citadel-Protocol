@@ -28,6 +28,16 @@ use citadel_user::auth::pq::client::ClientManagement;
 use citadel_user::auth::pq::messages::{ManagementDone, ManagementMessage, ServerOutcome};
 use futures::StreamExt;
 
+/// A change a session made to its own account's sign-in, and what became of the resume
+/// credential its device held.
+pub struct SignInChanged {
+    pub outcome: SignInManagementOutcome,
+    /// The credential re-bound to the account as it now stands, expiring when it always did.
+    /// `None` when the server did not re-issue it: the one held is then of no further use if the
+    /// change was to the password, the policy or the set of keys.
+    pub resume: Option<ResumeCredential>,
+}
+
 #[async_trait]
 pub trait SignInManagementExt {
     /// Runs one change. `step_up` holds the factors the account's policy asks for (and, for
@@ -47,6 +57,18 @@ pub trait SignInManagementExt {
         new_password: P,
         step_up: SignInFactors,
     ) -> Result<(), NetworkError>;
+
+    /// As [`Self::manage_sign_in`] (or [`Self::set_password`], with `new_password`), from a
+    /// device holding a resume credential: `step_up.resume` goes with the change, and the server
+    /// hands back the same credential bound to the account as the change leaves it. Without
+    /// this, a change to the password, the policy or the keys ends the device's own credential
+    /// along with every other.
+    async fn change_sign_in(
+        &self,
+        op: SignInManagementOp,
+        new_password: Option<SecBuffer>,
+        step_up: SignInFactors,
+    ) -> Result<SignInChanged, NetworkError>;
 }
 
 #[async_trait]
@@ -56,7 +78,19 @@ impl<R: Ratchet> SignInManagementExt for CitadelClientServerConnection<R> {
         op: SignInManagementOp,
         step_up: SignInFactors,
     ) -> Result<SignInManagementOutcome, NetworkError> {
-        run(self, op, step_up, None).await
+        Ok(run(self, op, step_up, None).await?.outcome)
+    }
+
+    async fn change_sign_in(
+        &self,
+        op: SignInManagementOp,
+        new_password: Option<SecBuffer>,
+        step_up: SignInFactors,
+    ) -> Result<SignInChanged, NetworkError> {
+        let password = new_password
+            .as_ref()
+            .map(ProposedCredentials::registration_password);
+        run(self, op, step_up, password).await
     }
 
     async fn set_password<P: Into<SecBuffer> + Send>(
@@ -66,7 +100,7 @@ impl<R: Ratchet> SignInManagementExt for CitadelClientServerConnection<R> {
     ) -> Result<(), NetworkError> {
         let password = ProposedCredentials::registration_password(&new_password.into());
         let op = SignInManagementOp::SetPassword;
-        match run(self, op, step_up, Some(password)).await? {
+        match run(self, op, step_up, Some(password)).await?.outcome {
             SignInManagementOutcome::PasswordSet => Ok(()),
             _ => Err(error!(
                 ErrorCode::PqSignInMalformed,
@@ -81,7 +115,7 @@ async fn run<R: Ratchet>(
     op: SignInManagementOp,
     step_up: SignInFactors,
     new_password: Option<SecBuffer>,
-) -> Result<SignInManagementOutcome, NetworkError> {
+) -> Result<SignInChanged, NetworkError> {
     let cid = conn.cid;
     let remote = &conn.remote;
     let username = remote
@@ -95,6 +129,11 @@ async fn run<R: Ratchet>(
         step_up.password.as_ref(),
         new_password.as_ref(),
     )?;
+    let held = step_up.resume.as_ref();
+    let client = match held {
+        Some(credential) => client.keeping(credential.present(citadel_user::misc::now_ms())?.0),
+        None => client,
+    };
     let challenge = match exchange(remote, cid, ManagementMessage::Begin(begin)).await? {
         ManagementMessage::Challenge(challenge) => challenge,
         other => return Err(unexpected(other)),
@@ -121,11 +160,18 @@ async fn run<R: Ratchet>(
         }
         other => other,
     };
-    let outcome = match done {
-        ManagementMessage::Done(ManagementDone::Done(outcome)) => outcome,
+    let (outcome, grant) = match done {
+        ManagementMessage::Done(ManagementDone::Done(outcome)) => (outcome, None),
+        ManagementMessage::Done(ManagementDone::Reissued { outcome, grant }) => {
+            (outcome, Some(grant))
+        }
         other => return Err(unexpected(other)),
     };
-    Ok(match outcome {
+    let resume = match (held, grant) {
+        (Some(held), Some(grant)) => Some(held.reissued(grant)?),
+        _ => None,
+    };
+    let outcome = match outcome {
         ServerOutcome::Credentials {
             policy,
             credentials,
@@ -142,7 +188,8 @@ async fn run<R: Ratchet>(
             Some(seed) => SignInManagementOutcome::RecoveryPhrase(seed.words()),
             None => return Err(error!(ErrorCode::PqSignInMalformed, "a phrase's outcome")),
         },
-    })
+    };
+    Ok(SignInChanged { outcome, resume })
 }
 
 fn unexpected(message: ManagementMessage) -> NetworkError {

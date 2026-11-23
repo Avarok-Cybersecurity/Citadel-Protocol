@@ -10,6 +10,7 @@ use crate::auth::pq::oprf::{self, OprfClientState};
 use crate::auth::pq::phrase::RecoveryPhrase;
 use crate::auth::pq::proof::{factor_tag, session_key, TranscriptHash, AUTH_LABEL};
 use crate::auth::pq::random_32;
+use crate::auth::pq::resume::ResumeCredential;
 use crate::auth::pq::seed::{security_key_seed, PrfOutput};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
@@ -39,9 +40,24 @@ pub enum ClientProof {
 pub struct ClientLogin {
     password: Option<(Zeroizing<[u8; 32]>, OprfClientState)>,
     recovery: Option<FactorKeypair>,
+    resume: Option<FactorKeypair>,
 }
 
 impl ClientLogin {
+    /// A sign-in with a resume credential in place of the account's factors. Refused here, with
+    /// nothing sent, when the credential has expired by `now_utc` (Unix milliseconds).
+    pub fn start_resume(
+        username: &str,
+        credential: &ResumeCredential,
+        now_utc: u64,
+    ) -> Result<(LoginStart, Self), AccountError> {
+        let (presented, keypair) = credential.present(now_utc)?;
+        let (mut start, mut client) = Self::start(username, None, None)?;
+        start.resume_credential = Some(presented);
+        client.resume = Some(keypair);
+        Ok((start, client))
+    }
+
     pub fn start(
         username: &str,
         password: Option<&SecBuffer>,
@@ -68,8 +84,17 @@ impl ClientLogin {
             // Set by the sign-in that sends this; a step-up inside a session needs neither.
             admission: None,
             resume: None,
+            resume_credential: None,
         };
-        Ok((start, Self { password, recovery }))
+        let resume = None;
+        Ok((
+            start,
+            Self {
+                password,
+                recovery,
+                resume,
+            },
+        ))
     }
 
     /// Whether answering `challenge` needs a security key, and what to ask it for.
@@ -135,6 +160,7 @@ impl ClientLogin {
                     .filter(|(id, _)| c.credential_id.as_ref() == Some(id))
                     .map(|(_, kp)| kp),
                 FactorKind::RecoveryPhrase => self.recovery.as_ref(),
+                FactorKind::ResumeKey => self.resume.as_ref(),
                 FactorKind::RetiredRecoveryCode(retired) => match retired {},
             };
             if let Some(keypair) = keypair {

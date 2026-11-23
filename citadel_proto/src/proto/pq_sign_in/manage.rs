@@ -9,8 +9,9 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_types::auth::SessionScope;
 use citadel_user::auth::pq::messages::{ManagementDone, ManagementMessage};
+use citadel_user::auth::pq::resume::PresentedResume;
 use citadel_user::auth::pq::server::{
-    begin_management, Change, CommitStep, PendingEnrol, PendingManagement,
+    begin_management, reissue_grant, Change, CommitStep, PendingEnrol, PendingManagement,
 };
 use citadel_user::auth::pq::throttle::Attempt;
 use citadel_user::misc::now_ms;
@@ -18,7 +19,8 @@ use citadel_user::misc::now_ms;
 /// Where a session's management exchange is.
 pub(crate) enum ServerManagement {
     Pending(Box<PendingManagement>),
-    Enrolling(PendingEnrol),
+    /// With the resume credential the commit carried, for when the key has proven itself.
+    Enrolling(PendingEnrol, Option<Box<PresentedResume>>),
 }
 
 fn out_of_order() -> NetworkError {
@@ -92,13 +94,14 @@ async fn handle<R: Ratchet, T: PlatformOps>(
         }
         ManagementMessage::Commit(commit) => match take(session) {
             Some(ServerManagement::Pending(pending)) => {
+                let held = commit.ceremony.resume.clone().map(Box::new);
                 match step_up_outcome(session, cid, pending.commit(&commit)).await? {
-                    CommitStep::Ready(change) => apply(session, cid, change).await,
+                    CommitStep::Ready(change) => apply(session, cid, change, held).await,
                     CommitStep::Enrol(challenge, enrolling) => {
                         inner_mut_state!(session.state_container)
                             .connect_state
                             .pq
-                            .manage = Some(ServerManagement::Enrolling(enrolling));
+                            .manage = Some(ServerManagement::Enrolling(enrolling, held));
                         Ok(ManagementMessage::EnrolChallenge(challenge))
                     }
                 }
@@ -106,8 +109,8 @@ async fn handle<R: Ratchet, T: PlatformOps>(
             _ => Err(out_of_order()),
         },
         ManagementMessage::EnrolProof(proof) => match take(session) {
-            Some(ServerManagement::Enrolling(enrolling)) => {
-                apply(session, cid, enrolling.finish(&proof)?).await
+            Some(ServerManagement::Enrolling(enrolling, held)) => {
+                apply(session, cid, enrolling.finish(&proof)?, held).await
             }
             _ => Err(out_of_order()),
         },
@@ -143,11 +146,30 @@ async fn apply<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cid: u64,
     change: Change,
+    held: Option<Box<PresentedResume>>,
 ) -> Result<ManagementMessage, NetworkError> {
-    let outcome = session
-        .account_manager
-        .update_pq_record(cid, |record| change.apply(record, now_ms()))
+    let account_manager = &session.account_manager;
+    let settings = account_manager.pq_settings();
+    let full = inner_state!(session.state_container).connect_state.pq.scope == SessionScope::Full;
+    let (outcome, grant) = account_manager
+        .update_pq_record(cid, |record| {
+            let before = record.clone();
+            let now = now_ms();
+            let outcome = change.apply(record, now)?;
+            // A full session that changed its own account's sign-in keeps the resume credential
+            // its device holds, bound to the account as it now stands and expiring when it did.
+            let grant = match (settings, &held) {
+                (Some(settings), Some(held)) if full => {
+                    reissue_grant(settings, cid, &before, record, held, now)
+                }
+                _ => None,
+            };
+            Ok((outcome, grant))
+        })
         .await?;
     log::info!(target: "citadel", "Account {cid} changed its sign-in factors: {outcome:?}");
-    Ok(ManagementMessage::Done(ManagementDone::Done(outcome)))
+    Ok(ManagementMessage::Done(match grant {
+        Some(grant) => ManagementDone::Reissued { outcome, grant },
+        None => ManagementDone::Done(outcome),
+    }))
 }

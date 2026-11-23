@@ -27,6 +27,7 @@ pub mod phrase;
 pub mod policy;
 pub mod proof;
 pub mod record;
+pub mod resume;
 pub mod seed;
 pub mod server;
 pub mod throttle;
@@ -55,6 +56,12 @@ mod tests_recovery_lane;
 mod tests_recovery_manage;
 #[cfg(test)]
 mod tests_recovery_register;
+#[cfg(test)]
+mod tests_resume;
+#[cfg(test)]
+mod tests_resume_forgery;
+#[cfg(test)]
+mod tests_resume_reissue;
 #[cfg(test)]
 mod tests_retired_codes;
 #[cfg(test)]

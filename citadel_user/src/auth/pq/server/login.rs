@@ -7,6 +7,7 @@ use crate::auth::pq::messages::{
 use crate::auth::pq::proof::TranscriptHash;
 use crate::auth::pq::random_32;
 use crate::auth::pq::record::PqAuthRecord;
+use crate::auth::pq::resume::RESUME_FACTOR_ID;
 use crate::auth::pq::{oprf, policy};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
@@ -38,10 +39,19 @@ pub struct Expected {
 pub(super) enum Rule {
     Policy(SignInPolicy),
     Recovery,
+    /// A resume credential's device key, alone (see `server::resume`).
+    Resume,
     Decoy,
 }
 
 impl Expected {
+    pub(super) fn resume(secret: SharedSecret) -> Self {
+        Self {
+            secrets: vec![(RESUME_FACTOR_ID, FactorKind::ResumeKey, secret)],
+            rule: Rule::Resume,
+        }
+    }
+
     /// Fixes the transcript the tags must be bound to.
     pub fn bind(self, transcript: TranscriptHash) -> PendingLogin {
         PendingLogin {
@@ -64,6 +74,9 @@ pub struct VerifiedLogin {
     pub used: Vec<FactorId>,
     /// Mixed into the session's pre-shared keys on both sides.
     pub session_key: Zeroizing<[u8; 32]>,
+    /// Whether the account's own factors proved it. A resumed sign-in did not, and is given no
+    /// new resume credential.
+    pub by_factors: bool,
 }
 
 struct Target<'a> {

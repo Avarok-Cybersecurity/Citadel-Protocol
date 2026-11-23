@@ -308,7 +308,7 @@ pub mod prelude {
     pub use crate::remote_ext::user_ids::*;
     pub use crate::remote_ext::*;
     pub use crate::responses;
-    pub use crate::sign_in::SignInManagementExt;
+    pub use crate::sign_in::{SignInChanged, SignInManagementExt};
     #[cfg(feature = "security-key")]
     pub use citadel_proto::auth::SecurityKey;
     #[cfg(all(feature = "security-key", not(target_family = "wasm")))]
@@ -327,6 +327,7 @@ pub mod prelude {
         challenge_of, AdmissionChallenge, AdmissionProvider,
     };
     pub use citadel_user::auth::pq::phrase::{RecoveryPhrase, RecoverySeed};
+    pub use citadel_user::auth::pq::resume::{ResumeCredential, ResumePolicy};
     pub use citadel_user::auth::pq::throttle::ThrottlePolicy;
 }
 
@@ -349,6 +350,7 @@ pub mod responses;
 
 /// Managing a post-quantum account's sign-in factors
 pub mod recover;
+mod resume;
 mod server_probe;
 pub mod sign_in;
 #[doc(hidden)]

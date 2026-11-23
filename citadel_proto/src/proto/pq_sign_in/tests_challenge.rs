@@ -76,6 +76,8 @@ fn the_connect_failure_carries_the_challenge_and_reads_in_both_directions() {
         resume_token: None,
         admission_challenge: Some(challenge()),
         path_policy: None,
+        resume_grant: None,
+        code: None,
     };
     let bytes = new.serialize_to_vector().unwrap();
     let here = DoConnectFinalStatusPacket::deserialize_from_vector(&bytes).unwrap();

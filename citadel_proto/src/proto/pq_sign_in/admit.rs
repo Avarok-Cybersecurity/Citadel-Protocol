@@ -21,6 +21,8 @@ pub(crate) struct Admission {
     pub scope: SessionScope,
     /// From a post-quantum login: joins the session's pre-shared keys on both sides.
     pub session_key: Option<Zeroizing<[u8; 32]>>,
+    /// The resume credential grant this sign-in asked for and earned (see `pq_sign_in::resume`).
+    pub resume_grant: Option<citadel_user::auth::pq::resume::ResumeGrant>,
 }
 
 impl Admission {
@@ -28,6 +30,7 @@ impl Admission {
         Self {
             scope: SessionScope::Full,
             session_key: None,
+            resume_grant: None,
         }
     }
 }
@@ -75,9 +78,12 @@ pub(crate) async fn validate_stage0<R: Ratchet, T: PlatformOps>(
                 .record_pq_sign_in(cid, &verified.used)
                 .await
                 .map_err(|_| failed())?;
+            let asked = stage0.resume_request.as_ref();
+            let resume_grant = super::resume::grant(session, cnac, &verified, asked);
             Admission {
                 scope: verified.scope,
                 session_key: Some(verified.session_key),
+                resume_grant,
             }
         }
         (Some(ServerPending::Legacy(upgrade)), proof) => {

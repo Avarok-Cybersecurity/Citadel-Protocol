@@ -64,6 +64,9 @@ pub(super) fn ceremony(settings: Option<&PqAuthServerSettings>) -> ChallengeCere
         rp_id: settings
             .and_then(PqAuthServerSettings::security_key_rp_id)
             .map(str::to_owned),
+        resume_max_lifetime_s: settings
+            .and_then(PqAuthServerSettings::resume)
+            .map(|policy| policy.max_lifetime_s()),
     }
 }
 

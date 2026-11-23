@@ -82,6 +82,7 @@ fn stage0_carries_the_token_and_the_encoding_before_it_is_refused() {
         uses_filesystem: true,
         resume_token: Some(issued),
         pq_proof: None,
+        resume_request: None,
     };
     let read =
         DoConnectStage0Packet::deserialize_from_vector(&current.serialize_to_vector().unwrap())
@@ -128,6 +129,8 @@ fn success_carries_the_token_and_the_encoding_before_it_is_refused() {
         resume_token: Some(issued),
         admission_challenge: None,
         path_policy: None,
+        resume_grant: None,
+        code: None,
     };
     let bytes = current.serialize_to_vector().unwrap();
     let round_trip = DoConnectFinalStatusPacket::deserialize_from_vector(&bytes).unwrap();

@@ -70,7 +70,10 @@ fn server_cost(c: &mut Criterion) {
                     build_login_challenge(&settings, account, &start).unwrap();
                 let sent = AuthChallenge {
                     challenge: challenge.clone(),
-                    ceremony: ChallengeCeremony { rp_id: None },
+                    ceremony: ChallengeCeremony {
+                        rp_id: None,
+                        resume_max_lifetime_s: None,
+                    },
                 };
                 let transcript = login_transcript(1, &start, &sent);
                 let proof = runtime

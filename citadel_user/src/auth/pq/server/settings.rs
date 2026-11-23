@@ -1,5 +1,6 @@
 use crate::auth::pq::oprf::OprfSeed;
 use crate::auth::pq::record::KsfParams;
+use crate::auth::pq::resume::ResumePolicy;
 use crate::auth::pq::throttle::{Attempt, Decision, SignInThrottle, ThrottlePolicy};
 use crate::misc::AccountError;
 use citadel_io::{error, ErrorCode};
@@ -13,6 +14,7 @@ pub struct PqAuthServerSettings {
     oprf_seed: OprfSeed,
     ksf: KsfParams,
     security_key_rp_id: Option<String>,
+    resume: Option<ResumePolicy>,
     /// Shared by every clone, so every session of a server counts against the same keys.
     throttle: Arc<Mutex<SignInThrottle>>,
 }
@@ -36,6 +38,7 @@ impl PqAuthServerSettings {
             oprf_seed,
             ksf,
             security_key_rp_id: None,
+            resume: None,
             throttle: Arc::new(Mutex::new(SignInThrottle::new(throttle)?)),
         })
     }
@@ -57,6 +60,18 @@ impl PqAuthServerSettings {
         }
         self.security_key_rp_id = Some(rp_id);
         Ok(self)
+    }
+
+    /// Lets a full sign-in leave its device a resume credential, living no longer than `policy`
+    /// allows (see `auth::pq::resume`). Without it this server issues and honours none.
+    pub fn with_resume(mut self, policy: ResumePolicy) -> Self {
+        self.resume = Some(policy);
+        self
+    }
+
+    /// `None` when this server issues no resume credentials.
+    pub fn resume(&self) -> Option<ResumePolicy> {
+        self.resume
     }
 
     pub fn oprf_seed(&self) -> &OprfSeed {

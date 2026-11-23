@@ -4,6 +4,37 @@
 
 ### Added
 
+- **Resume credentials: signing in again without the account's factors.**
+  - **Asking.** A full sign-in asks for one with `SignInFactors::with_resume_lifetime`; the
+    connection carries it (`CitadelClientServerConnection::resume`) with the moment it expires
+    (`ResumeCredential::valid_until_utc`, Unix milliseconds, UTC). `SignInFactors::resume` signs
+    in with it: no password and no security-key touch.
+  - **What it is.** The device draws an ML-KEM-1024 key; the server answers with a grant, an
+    HMAC-SHA3-256 over the account, the grant's times, a hash of the account's sign-in state and
+    the device key's fingerprint, under a key derived from the tenant's OPRF seed. To resume, the
+    server checks the grant against itself and the account's record, then challenges the device
+    key as it challenges any factor. It stores nothing for a grant and keeps no list of them.
+  - **The server's limit.** `PqAuthServerSettings::with_resume(ResumePolicy::new(max))`. There is
+    no default: a server without a policy issues and honours none. The challenge tells the client
+    the maximum, the client asks for no more, and the server grants no more whatever is asked. A
+    maximum lowered later shortens the grants already issued.
+  - **Refusals, by name.** `ErrorCode::ResumeCredentialExpired` past the expiry (the client
+    refuses its own expired credential before anything is sent; the server refuses one
+    regardless). `ErrorCode::ResumeCredentialRevoked` once the account's password, policy or set
+    of keys has changed. A forged or altered grant, or one without its device key, is an ordinary
+    `PqSignInFailed`.
+  - **Never renewed.** A sign-in with a credential is given no new one, and a recovery session is
+    given none.
+  - **A session's own change.** `SignInManagementExt::change_sign_in` sends the device's
+    credential with the change and gets it back bound to the account as the change leaves it,
+    expiring when it always did.
+  - `FactorKind::ResumeKey` is exported by `@avarok/citadel-protocol-types` (0.15.2).
+- **A refused connect is named by its code.** A connect FAILURE carries its `ErrorCode`, and
+  `NodeResult::into_result` rebuilds the error under it, as a refused registration already was;
+  `ConnectFail::error_code` holds it. A wrong password is `PqSignInFailed`, not a `Generic` error
+  whose text says so.
+- **Protocol 0.12.6.** Sign-in messages and connect STAGE0 changed layout, so a node takes part
+  only with nodes at 0.12.6 or later.
 - **Group state that outlives the session, and the account's device.**
   - **Local state.** A client keeps each ordinary group's TreeKEM state in its account store
     (`peer::group_state_store`). A returning session resumes it (`ResumeMembership`,

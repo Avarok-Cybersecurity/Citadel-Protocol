@@ -7,6 +7,7 @@ use crate::error::NetworkError;
 use crate::prelude::Ticket;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::node_result::ConnectFail;
+use crate::proto::packet_crafter::do_connect::FinalStatusDetail;
 use crate::proto::packet_processor::includes::*;
 use bytes::BytesMut;
 use citadel_crypt::ratchets::Ratchet;
@@ -25,6 +26,10 @@ pub(crate) fn failure<R: Ratchet, T: PlatformOps>(
     ticket: Ticket,
 ) -> BytesMut {
     let admission_challenge = challenge_of(&err).cloned();
+    let detail = FinalStatusDetail {
+        resume_grant: None,
+        code: Some(err.code_u16()),
+    };
     packet_crafter::do_connect::craft_final_status_packet(
         ratchet,
         false,
@@ -39,6 +44,7 @@ pub(crate) fn failure<R: Ratchet, T: PlatformOps>(
         None,
         admission_challenge,
         None,
+        detail,
     )
 }
 
@@ -46,9 +52,11 @@ pub(crate) fn failure<R: Ratchet, T: PlatformOps>(
 pub(crate) fn fail_login<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     cid: u64,
-    error_message: String,
+    err: NetworkError,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    log::error!(target: "citadel", "Post-quantum sign-in could not complete: {error_message}");
+    log::error!(target: "citadel", "Post-quantum sign-in could not complete: {err}");
+    let error_code = Some(err.code_u16());
+    let error_message = err.into_string();
     inner_mut_state!(session.state_container)
         .connect_state
         .on_fail();
@@ -60,6 +68,7 @@ pub(crate) fn fail_login<R: Ratchet, T: PlatformOps>(
         cid_opt: Some(cid),
         error_message,
         admission_challenge: None,
+        error_code,
     })?;
     Ok(PrimaryProcessorResult::EndSession(
         "Post-quantum sign-in could not complete",

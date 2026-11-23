@@ -4,6 +4,7 @@ use super::register::RegReply;
 use super::transcript_bytes;
 use crate::auth::pq::kem::{EncapsulationKey, KemCiphertext};
 use crate::auth::pq::proof::Tag;
+use crate::auth::pq::resume::{PresentedResume, ResumeGrant};
 use citadel_types::auth::{FactorId, RecoveryCodesRetired, SignInCredential, SignInPolicy};
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +68,9 @@ pub struct CommitCeremony {
     pub new_key: Option<NewSecurityKey>,
     /// `SetPassword`: the new password factor's key.
     pub password_ek: Option<EncapsulationKey>,
+    /// The resume credential this session's device holds, for the server to bind to the account
+    /// as the change leaves it (see `auth::pq::resume`).
+    pub resume: Option<PresentedResume>,
 }
 
 impl ManagementCommit {
@@ -105,6 +109,11 @@ pub struct EnrolProof {
 pub enum ManagementDone {
     Done(ServerOutcome),
     Refused(String),
+    /// Done, and the session's resume credential re-bound to the account as it now stands.
+    Reissued {
+        outcome: ServerOutcome,
+        grant: ResumeGrant,
+    },
 }
 
 /// What the server did. (A new recovery phrase itself never reaches it.)

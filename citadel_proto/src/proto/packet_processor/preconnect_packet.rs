@@ -206,6 +206,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     session.fail_connect(ConnectFail {
                         ticket: session.kernel_ticket.get(),
                         cid_opt: Some(header.session_cid.get()),
+                        error_code: Some(err.code_u16()),
                         error_message: err.into_string(),
                         admission_challenge: None,
                     })?;
@@ -541,6 +542,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                             cid_opt: Some(cnac.get_cid()),
                             error_message: "Preconnect stage failed".to_string(),
                             admission_challenge: None,
+                            error_code: None,
                         })?;
                         Ok(PrimaryProcessorResult::EndSession(
                             "Failure packet received",
@@ -599,6 +601,7 @@ pub async fn process_preconnect<R: Ratchet, T: PlatformOps>(
                     cid_opt: Some(header.session_cid.get()),
                     error_message: message,
                     admission_challenge: None,
+                    error_code: None,
                 })?;
                 Ok(PrimaryProcessorResult::EndSession(
                     "Preconnect signalled to halt",
@@ -641,7 +644,7 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
         Err(err) => {
             std::mem::drop(state_container);
             let cid = ratchet.get_cid();
-            return crate::proto::pq_sign_in::refusal::fail_login(session, cid, err.into_string());
+            return crate::proto::pq_sign_in::refusal::fail_login(session, cid, err);
         }
     };
     if let Some(auth_start) = begun {
@@ -662,6 +665,7 @@ fn begin_connect_process<R: Ratchet, T: PlatformOps>(
         session.account_manager.get_backend_type(),
         ticket,
         resume_token,
+        None,
         None,
     )?;
     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::STAGE1;

@@ -31,6 +31,8 @@ pub mod media;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod pq;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod pq_restart;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod recovery;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod server_restart;

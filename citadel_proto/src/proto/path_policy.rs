@@ -35,6 +35,8 @@ mod tests {
             resume_token: None,
             admission_challenge: None,
             path_policy: Some(policy()),
+            resume_grant: None,
+            code: None,
         };
         let bytes = current.serialize_to_vector().unwrap();
         let read = DoConnectFinalStatusPacket::deserialize_from_vector(&bytes).unwrap();

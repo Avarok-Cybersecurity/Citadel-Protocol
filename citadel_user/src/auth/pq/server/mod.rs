@@ -7,6 +7,7 @@ mod enrol;
 mod login;
 mod manage;
 mod register;
+mod resume;
 mod settings;
 mod verify;
 
@@ -20,4 +21,7 @@ pub use manage::{
     MAX_LABEL_CHARS,
 };
 pub use register::{registration_reply, PendingRegistration};
+#[cfg(test)]
+pub(crate) use resume::issue_grant;
+pub use resume::{build_resume_challenge, grant_after, reissue_grant};
 pub use settings::PqAuthServerSettings;

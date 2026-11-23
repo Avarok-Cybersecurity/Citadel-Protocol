@@ -20,6 +20,7 @@ use citadel_user::auth::pq::login_transcript;
 use citadel_user::auth::pq::messages::{LoginProof, LoginStart};
 use citadel_user::auth::pq::throttle::Attempt;
 use citadel_user::client_account::ClientNetworkAccount;
+use citadel_user::misc::now_ms;
 
 fn kind(aux: u8) -> Kind {
     Kind {
@@ -49,7 +50,14 @@ pub(crate) fn begin<R: Ratchet>(
         .map(|creds| creds.username().to_string())
         .ok_or_else(|| NetworkError::msg("Proposed credentials not loaded at AUTH_START"))?;
     let recovery = offered.recovery_phrase.as_ref();
-    let (mut start, client) = ClientLogin::start(&username, offered.password.as_ref(), recovery)?;
+    let (mut start, client) = match &offered.resume {
+        Some(credential) => ClientLogin::start_resume(&username, credential, now_ms())?,
+        None => ClientLogin::start(&username, offered.password.as_ref(), recovery)?,
+    };
+    state.connect_state.pq.resume.wanted_s = match offered.resume {
+        Some(_) => None,
+        None => offered.resume_lifetime_s,
+    };
     start.admission = offered.admission.clone();
     start.resume = resume.map(ResumeToken::to_bytes);
     if recovery.is_some() {
@@ -103,12 +111,16 @@ pub(crate) async fn on_auth_start<R: Ratchet, T: PlatformOps>(
                 .connect_state
                 .pq
                 .attempt = Some(attempt);
-            let ctx = super::admission::sign_in(session, cnac.get_cid(), &start).await;
-            let policy = super::admission::policy(session);
-            admission::then(policy.as_ref(), ctx, || {
-                super::challenge::issue(session, cnac, ratchet.get_cid(), &start)
-            })
-            .await
+            if start.resume_credential.is_some() {
+                super::resume::issue(session, cnac, ratchet.get_cid(), &start)
+            } else {
+                let ctx = super::admission::sign_in(session, cnac.get_cid(), &start).await;
+                let policy = super::admission::policy(session);
+                admission::then(policy.as_ref(), ctx, || {
+                    super::challenge::issue(session, cnac, ratchet.get_cid(), &start)
+                })
+                .await
+            }
         }
         Err(err) => Err(err),
     };
@@ -167,15 +179,16 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
     let cid = ratchet.get_cid();
     let sent = match super::challenge::read(payload) {
         Ok(sent) => sent,
-        Err(err) => return fail_login(session, cid, err.into_string()),
+        Err(err) => return fail_login(session, cid, err),
     };
     let transcript = login_transcript(cid, &start, &sent);
     let request =
         ClientLogin::security_key_request(&sent.challenge, RelyingParty::of_sign_in(&sent));
+    let sent_ceremony = sent.ceremony.clone();
     let challenge = sent.challenge;
     let request = match request {
         Ok(request) => request,
-        Err(err) => return fail_login(session, cid, err.into_string()),
+        Err(err) => return fail_login(session, cid, err),
     };
     let key = match request {
         Some(request) => match security_key {
@@ -183,7 +196,7 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
                 super::presence::open(session);
                 match security_key.ask(SecurityKeyPurpose::SignIn, request).await {
                     Ok(answer) => Some(answer),
-                    Err(err) => return fail_login(session, cid, err.into_string()),
+                    Err(err) => return fail_login(session, cid, err),
                 }
             }
             // No key to offer: prove what the client has, and let the policy decide.
@@ -194,9 +207,18 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
     let (proof, session_key) = match client.respond(&challenge, &transcript, key).await {
         Ok(ClientProof::Factors { proof, session_key }) => (Some(proof), Some(session_key)),
         Ok(ClientProof::Legacy { upgrade }) => (upgrade.map(LoginProof::Upgrade), None),
-        Err(err) => return fail_login(session, cid, err.into_string()),
+        Err(err) => return fail_login(session, cid, err),
     };
     let resume_token = session.session_manager.resume_token(cid);
+    let resume_request = {
+        let mut state = inner_mut_state!(session.state_container);
+        let resume = &mut state.connect_state.pq.resume;
+        resume.max_lifetime_s = sent_ceremony.resume_max_lifetime_s;
+        match resume.ask() {
+            Ok(request) => request,
+            Err(err) => return fail_login(session, cid, err),
+        }
+    };
     let stage0 = packet_crafter::do_connect::craft_stage0_packet(
         ratchet,
         credentials,
@@ -206,6 +228,7 @@ pub(crate) async fn on_auth_challenge<R: Ratchet, T: PlatformOps>(
         ticket,
         resume_token,
         proof,
+        resume_request,
     )?;
     let mut state = inner_mut_state!(session.state_container);
     state.connect_state.pq.session_key = session_key;

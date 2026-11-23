@@ -476,6 +476,8 @@ pub(crate) mod do_connect {
         pub resume_token: Option<ResumeToken>,
         /// The answer to a post-quantum `AUTH_CHALLENGE` (see `proto::pq_sign_in`).
         pub pq_proof: Option<citadel_user::auth::pq::messages::LoginProof>,
+        /// A full sign-in's request for a resume credential (see `auth::pq::resume`).
+        pub resume_request: Option<citadel_user::auth::pq::resume::ResumeRequest>,
     }
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
@@ -489,6 +491,7 @@ pub(crate) mod do_connect {
         ticket: Ticket,
         resume_token: Option<ResumeToken>,
         pq_proof: Option<citadel_user::auth::pq::messages::LoginProof>,
+        resume_request: Option<citadel_user::auth::pq::resume::ResumeRequest>,
     ) -> Result<BytesMut, NetworkError> {
         let header = HdpHeader {
             protocol_version: (*crate::constants::PROTOCOL_VERSION).into(),
@@ -513,6 +516,7 @@ pub(crate) mod do_connect {
             uses_filesystem,
             resume_token,
             pq_proof,
+            resume_request,
         };
 
         let mut packet =
@@ -544,6 +548,22 @@ pub(crate) mod do_connect {
         #[serde(deserialize_with = "ok_or_default")]
         #[serde(default)]
         pub path_policy: Option<citadel_types::proto::PathPolicy>,
+        /// A SUCCESS's resume credential grant, when the sign-in asked for one and earned it.
+        #[serde(deserialize_with = "ok_or_default")]
+        #[serde(default)]
+        pub resume_grant: Option<citadel_user::auth::pq::resume::ResumeGrant>,
+        /// A FAILURE's stable error code (`ErrorCode`), so the client reads which refusal it is
+        /// from the code and not from `message`.
+        #[serde(deserialize_with = "ok_or_default")]
+        #[serde(default)]
+        pub code: Option<u16>,
+    }
+
+    /// What a final status says beyond its message: a SUCCESS's grant, a FAILURE's code.
+    #[derive(Default)]
+    pub(crate) struct FinalStatusDetail {
+        pub resume_grant: Option<citadel_user::auth::pq::resume::ResumeGrant>,
+        pub code: Option<u16>,
     }
 
     pub(crate) use citadel_user::wire_compat::ok_or_default;
@@ -563,6 +583,7 @@ pub(crate) mod do_connect {
         resume_token: Option<ResumeToken>,
         admission_challenge: Option<AdmissionChallenge>,
         path_policy: Option<citadel_types::proto::PathPolicy>,
+        detail: FinalStatusDetail,
     ) -> BytesMut {
         let payload = DoConnectFinalStatusPacket {
             mailbox,
@@ -572,6 +593,8 @@ pub(crate) mod do_connect {
             resume_token,
             admission_challenge,
             path_policy,
+            resume_grant: detail.resume_grant,
+            code: detail.code,
         };
 
         let cmd_aux = if success {

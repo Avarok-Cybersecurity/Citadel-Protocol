@@ -174,6 +174,7 @@ async fn a_step_up_is_bound_to_its_change_and_to_the_key_being_added() {
     let no_key = key_binding(&CommitCeremony {
         password_ek: None,
         new_key: None,
+        resume: None,
     });
     let base = management_transcript(CID, &begin, &challenge, &no_key);
     assert_ne!(
@@ -190,6 +191,7 @@ async fn a_step_up_is_bound_to_its_change_and_to_the_key_being_added() {
         key_binding(&CommitCeremony {
             password_ek: None,
             new_key,
+            resume: None,
         })
     };
     let with_key = management_transcript(CID, &begin, &challenge, &binding(CRED));

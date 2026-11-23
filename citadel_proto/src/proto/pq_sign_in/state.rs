@@ -9,6 +9,7 @@ use citadel_user::auth::pq::admission::AdmissionToken;
 use citadel_user::auth::pq::client::{ClientLogin, ClientRegistration};
 use citadel_user::auth::pq::messages::LoginStart;
 use citadel_user::auth::pq::phrase::RecoveryPhrase;
+use citadel_user::auth::pq::resume::ResumeCredential;
 use citadel_user::auth::pq::server::{PendingLogin, PendingRegistration};
 use citadel_user::auth::pq::throttle::Attempt;
 use zeroize::Zeroizing;
@@ -19,6 +20,8 @@ pub(crate) struct OfferedFactors {
     pub security_key: Option<SecurityKeyPrf>,
     pub recovery_phrase: Option<RecoveryPhrase>,
     pub admission: Option<AdmissionToken>,
+    pub resume: Option<ResumeCredential>,
+    pub resume_lifetime_s: Option<u64>,
 }
 
 /// Kept in the connect state.
@@ -41,6 +44,9 @@ pub(crate) struct PqConnectState {
     /// Server: what the sign-in in flight counts as against the throttle, from `AUTH_START`
     /// until its proof is checked.
     pub attempt: Option<Attempt>,
+    /// Client: the resume credential this sign-in asks for or was told it may ask for (see
+    /// `pq_sign_in::resume`).
+    pub resume: super::resume::ClientResume,
 }
 
 impl Default for PqConnectState {
@@ -54,6 +60,7 @@ impl Default for PqConnectState {
             session_key: None,
             server: None,
             attempt: None,
+            resume: Default::default(),
         }
     }
 }
