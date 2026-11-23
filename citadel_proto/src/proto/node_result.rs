@@ -467,6 +467,31 @@ fn refused(message: String, challenge: Option<AdmissionChallenge>) -> NetworkErr
     if message.starts_with(crate::proto::session_manager::SESSION_ALREADY_CONNECTED) {
         return citadel_io::error!(citadel_io::ErrorCode::RemoteServerHoldsSession, message);
     }
+    // A server refusing this node's protocol version halts the SYN with the refusal's text
+    // alone, in every version: read back by its own template, so a caller matches the code.
+    let version = citadel_io::ErrorCode::ProtocolVersionUnsupported;
+    let halted = NetworkError::from_wire(version as u16, message.clone());
+    if halted.code() == version {
+        return halted;
+    }
     citadel_user::auth::pq::admission::refusal_from_message(&message, challenge)
         .unwrap_or_else(|| NetworkError::generic(message))
+}
+
+#[cfg(test)]
+mod refused_tests {
+    use super::*;
+    use crate::proto::version_gate::check_peer_protocol_version;
+    use citadel_io::ErrorCode;
+
+    /// Control: drop the template read in `refused`, and the refusal is a `Generic` error.
+    #[test]
+    fn a_servers_version_refusal_is_named_by_its_code_from_its_text_alone() {
+        let halt = check_peer_protocol_version(0).unwrap_err().into_string();
+        let read = refused(halt.clone(), None);
+        assert_eq!(read.code(), ErrorCode::ProtocolVersionUnsupported);
+        assert_eq!(read.into_string(), halt, "the text is kept");
+        let other = refused("Preconnect stage failed".into(), None);
+        assert_eq!(other.code(), ErrorCode::Generic);
+    }
 }
