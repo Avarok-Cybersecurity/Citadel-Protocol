@@ -15,10 +15,10 @@
 mod hierarchy;
 pub mod join_queue;
 mod new_leaf;
-mod stored;
-mod succession;
 #[cfg(test)]
 mod own_replay_tests;
+mod stored;
+mod succession;
 
 use crate::error::NetworkError;
 use citadel_io::{error, ErrorCode};

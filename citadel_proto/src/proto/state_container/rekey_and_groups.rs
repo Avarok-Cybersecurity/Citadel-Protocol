@@ -236,6 +236,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             | GroupBroadcast::RequestJoin { .. }
             | GroupBroadcast::ListGroupsFor { .. }
             | GroupBroadcast::AwaitGroup { .. }
+            | GroupBroadcast::EnableReplay { .. }
             | GroupBroadcast::LeaveRoom { .. } => {
                 packet_crafter::peer_cmd::craft_group_message_packet(
                     &ratchet,

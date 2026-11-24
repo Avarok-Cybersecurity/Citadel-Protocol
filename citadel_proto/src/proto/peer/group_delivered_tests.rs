@@ -62,7 +62,10 @@ fn a_fetch_that_brings_nothing_is_not_repeated() {
     let _ = arrive(&mut delivered, 3);
     assert_eq!(delivered.fetched(5, KEY, false), None);
     assert!(
-        matches!(arrive(&mut delivered, 4), Arrival::Fetch { after: 0, until: 2 }),
+        matches!(
+            arrive(&mut delivered, 4),
+            Arrival::Fetch { after: 0, until: 2 }
+        ),
         "a later arrival asks again"
     );
     assert_eq!(delivered.fetched(5, KEY, true), Some((0, 2)));
@@ -105,6 +108,10 @@ fn a_member_holding_through_a_position_is_not_given_it_again() {
         .map(|(_, p)| p.seq)
         .collect();
     assert_eq!(freed, vec![3]);
-    assert!(delivered.holds_through(5, KEY, 6).iter().map(|(_, p)| p.seq).eq([7]));
+    assert!(delivered
+        .holds_through(5, KEY, 6)
+        .iter()
+        .map(|(_, p)| p.seq)
+        .eq([7]));
     assert!(matches!(arrive(&mut delivered, 7), Arrival::Nothing));
 }

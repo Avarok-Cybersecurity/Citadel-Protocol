@@ -13,8 +13,8 @@ use crate::error::NetworkError;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use citadel_crypt::ratchets::Ratchet;
 use citadel_types::proto::{
-    GroupLogLimits, GroupOrderInfo, GroupPosition, GroupReplayRefusal, MessageGroupKey,
-    MessageGroupOptions,
+    GroupLogLimits, GroupMessageRefusal, GroupOrderInfo, GroupPosition, GroupReplayRefusal,
+    MessageGroupKey, MessageGroupOptions,
 };
 use citadel_user::backend::PersistenceHandler;
 use citadel_user::serialization::SyncIO;
@@ -119,6 +119,28 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         Ok(book.has_replay(key))
     }
 
+    /// The refusal of a `bytes`-long message to `key` when the group keeps a log and the message
+    /// is larger than the log takes (`GroupLogLimits::max_message_bytes`).
+    pub(crate) async fn group_log_refuses(
+        &self,
+        book: &mut GroupOrderBook,
+        key: MessageGroupKey,
+        bytes: usize,
+    ) -> Result<Option<GroupMessageRefusal>, NetworkError> {
+        let _ = self.load_group_order(book, key).await?;
+        let cap = loaded(book, key)?
+            .replay
+            .as_ref()
+            .and_then(|log| log.limits)
+            .map(|limits| limits.max_message_bytes);
+        Ok(cap
+            .filter(|max| bytes as u64 > u64::from(*max))
+            .map(|max_bytes| GroupMessageRefusal::TooLarge {
+                bytes: bytes as u64,
+                max_bytes,
+            }))
+    }
+
     /// `key`'s order as a member is told it; `joined` for a joiner, whose first position is the
     /// next one.
     pub(crate) async fn group_order_info(
@@ -167,7 +189,10 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             .filter(|info| info.since == since)
             .ok_or_else(|| NetworkError::msg("replay was turned on without a log"))?;
         let event = GroupBroadcast::ReplayEnabled { key, order: info };
-        match self.position_group_broadcast(book, key, event, now_ns).await? {
+        match self
+            .position_group_broadcast(book, key, event, now_ns)
+            .await?
+        {
             Positioned::New { frame, position } => Ok(Ok((frame, position))),
             Positioned::Retry { .. } => Err(NetworkError::msg("an event is never a retry")),
         }
@@ -191,7 +216,10 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             Range::Seqs(seqs) => seqs,
         };
         let mut frames = Vec::with_capacity(seqs.len());
-        for (seq, entry) in seqs.iter().zip(read(&pers, order.holder, key, &seqs).await?) {
+        for (seq, entry) in seqs
+            .iter()
+            .zip(read(&pers, order.holder, key, &seqs).await?)
+        {
             let frame = GroupBroadcast::deserialize_from_vector(&entry.frame)
                 .map_err(|err| NetworkError::msg(format!("a stored broadcast: {err}")))?;
             frames.push(GroupBroadcast::Ordered {
@@ -206,3 +234,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         Ok(LogRead::Frames { frames, info })
     }
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "group_replay_tests.rs"]
+mod tests;

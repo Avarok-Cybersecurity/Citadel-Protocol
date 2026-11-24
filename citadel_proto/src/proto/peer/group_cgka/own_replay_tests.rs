@@ -19,7 +19,10 @@ fn a_member_opens_its_own_message_once() {
     let (mut owner, mut member) = flat_pair();
     for (who, state) in [(2, &mut member), (1, &mut owner)] {
         let wire = state.encrypt_message(b"mine").unwrap();
-        assert_eq!(state.decrypt_message(&wire).unwrap(), (who, b"mine".to_vec()));
+        assert_eq!(
+            state.decrypt_message(&wire).unwrap(),
+            (who, b"mine".to_vec())
+        );
         assert!(state.decrypt_message(&wire).is_err(), "opened twice");
     }
 }
@@ -28,7 +31,10 @@ fn a_member_opens_its_own_message_once() {
 fn a_member_opens_its_own_message_from_its_stored_state() {
     let (_owner, mut member) = flat_pair();
     let wire = member.encrypt_message(b"before the restart").unwrap();
-    let stored = member.export().unwrap().expect("a member's state is exported");
+    let stored = member
+        .export()
+        .unwrap()
+        .expect("a member's state is exported");
     let mut restored = GroupCgkaState::import(&stored).unwrap();
     assert_eq!(
         restored.decrypt_message(&wire).unwrap(),
@@ -50,5 +56,8 @@ fn a_member_of_a_command_hierarchy_opens_its_own_message() {
     member.join(&welcome).unwrap();
     member.apply_hierarchy_assignment(&assign.unwrap()).unwrap();
     let wire = member.encrypt_message(b"own sitrep").unwrap();
-    assert_eq!(member.decrypt_message(&wire).unwrap(), (2, b"own sitrep".to_vec()));
+    assert_eq!(
+        member.decrypt_message(&wire).unwrap(),
+        (2, b"own sitrep".to_vec())
+    );
 }

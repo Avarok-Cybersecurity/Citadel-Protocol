@@ -170,4 +170,4 @@ async fn newest_stored<R: Ratchet>(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "group_position_tests.rs"]
-mod tests;
+pub(crate) mod tests;

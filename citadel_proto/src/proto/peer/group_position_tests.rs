@@ -8,17 +8,22 @@ use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::{GroupMessageId, MessageGroupOptions};
 use citadel_user::backend::BackendType;
 
-type Layer = CitadelNodePeerLayer<StackedRatchet>;
+pub(crate) type Layer = CitadelNodePeerLayer<StackedRatchet>;
 
-struct Group {
-    manager: Manager,
-    layer: Layer,
-    key: MessageGroupKey,
-    creator: u64,
-    member: u64,
+pub(crate) struct Group {
+    pub manager: Manager,
+    pub layer: Layer,
+    pub key: MessageGroupKey,
+    pub creator: u64,
+    pub member: u64,
 }
 
 async fn group() -> Group {
+    group_with(MessageGroupOptions::default()).await
+}
+
+/// A group of a creator and one member, created with `options`.
+pub(crate) async fn group_with(options: MessageGroupOptions) -> Group {
     let manager = Manager::new(BackendType::InMemory, None, None, None)
         .await
         .unwrap();
@@ -28,7 +33,7 @@ async fn group() -> Group {
     layer.admit(creator, Instant::now());
     let _ = layer.register_peer(creator).await.unwrap();
     let key = layer
-        .create_new_message_group(creator, &vec![member], MessageGroupOptions::default())
+        .create_new_message_group(creator, &vec![member], options)
         .await
         .unwrap();
     assert!(layer.upgrade_peer_in_group(key, member).await);
@@ -41,7 +46,7 @@ async fn group() -> Group {
     }
 }
 
-fn message(key: MessageGroupKey, sender: u64, id: GroupMessageId) -> GroupBroadcast {
+pub(crate) fn message(key: MessageGroupKey, sender: u64, id: GroupMessageId) -> GroupBroadcast {
     GroupBroadcast::Message {
         sender,
         key,
@@ -52,7 +57,7 @@ fn message(key: MessageGroupKey, sender: u64, id: GroupMessageId) -> GroupBroadc
 
 /// Positions a message from `sender` under `id` on `layer`, with a fresh book standing for
 /// whatever `book` holds.
-async fn position(
+pub(crate) async fn position(
     layer: &Layer,
     book: &mut GroupOrderBook,
     key: MessageGroupKey,
@@ -65,7 +70,7 @@ async fn position(
         .unwrap()
 }
 
-fn seq(positioned: &Positioned) -> u64 {
+pub(crate) fn seq(positioned: &Positioned) -> u64 {
     match positioned {
         Positioned::New { position, .. } | Positioned::Retry { position } => position.seq,
     }

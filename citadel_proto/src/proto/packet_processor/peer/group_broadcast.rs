@@ -1000,7 +1000,12 @@ async fn process_arrival<R: Ratchet, T: PlatformOps>(
             }
             inner_mut_state!(session.state_container).record_group_order(key, order);
             let event = GroupBroadcast::ReplayEnabled { key, order };
-            forward_signal(session, ticket, Some(key), group_ordered::event_at(key, position, event))
+            forward_signal(
+                session,
+                ticket,
+                Some(key),
+                group_ordered::event_at(key, position, event),
+            )
         }
 
         answer @ (GroupBroadcast::ReplayRefused { .. }

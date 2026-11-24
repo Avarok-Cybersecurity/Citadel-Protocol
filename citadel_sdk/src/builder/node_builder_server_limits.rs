@@ -3,7 +3,8 @@
 
 use super::NodeBuilder;
 use crate::prelude::{
-    GroupLogLimits, GroupMailLimits, NodeType, PlatformOps, Ratchet, ServerLimits, ServerOnlySessionInitSettings,
+    GroupLogLimits, GroupMailLimits, NodeType, PlatformOps, Ratchet, ServerLimits,
+    ServerOnlySessionInitSettings,
 };
 use citadel_io::ErrorCode;
 

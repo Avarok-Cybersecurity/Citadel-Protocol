@@ -86,7 +86,9 @@ pub(super) async fn fetch<R: Ratchet, T: PlatformOps>(
         .is_some_and(|(_, members)| members.contains(&member));
     let read = if is_member {
         let mut book = peer_layer.group_order.clone().lock_owned().await;
-        peer_layer.read_group_log(&mut book, key, after, until).await?
+        peer_layer
+            .read_group_log(&mut book, key, after, until)
+            .await?
     } else {
         LogRead::NoReplay
     };
@@ -178,10 +180,13 @@ pub(crate) async fn resume<R: Ratchet, T: PlatformOps>(
             if !peer_layer.mark_resumed(key, member).await {
                 return Ok(true);
             }
-            let (owner, members) = peer_layer
-                .group_owner_and_members(key)
-                .await
-                .ok_or_else(|| NetworkError::msg(format!("{key:?} ended while {member} resumed it")))?;
+            let (owner, members) =
+                peer_layer
+                    .group_owner_and_members(key)
+                    .await
+                    .ok_or_else(|| {
+                        NetworkError::msg(format!("{key:?} ended while {member} resumed it"))
+                    })?;
             send(&GroupBroadcast::Resumed {
                 key,
                 owner,

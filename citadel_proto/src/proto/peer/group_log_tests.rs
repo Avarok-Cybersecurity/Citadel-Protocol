@@ -48,7 +48,9 @@ async fn position(pers: &Pers, book: &mut GroupOrderBook, holder: u64, frame: &[
                 id,
                 frame: frame.to_vec(),
             };
-            append(pers, holder, KEY, position.seq, &entry).await.unwrap();
+            append(pers, holder, KEY, position.seq, &entry)
+                .await
+                .unwrap();
         }
     }
     book.commit(KEY, &next, id, frame.len(), 0);
@@ -59,7 +61,10 @@ async fn the_count_continues_after_a_restart_on(backend: BackendType) {
     let (pers, owner) = pers(backend).await;
     let mut book = GroupOrderBook::default();
     let _ = position(&pers, &mut book, owner, b"before replay").await;
-    let since = book.order_mut(KEY, owner).enable_replay(limits(100)).unwrap();
+    let since = book
+        .order_mut(KEY, owner)
+        .enable_replay(limits(100))
+        .unwrap();
     write_meta(&pers, KEY, &book.groups[&KEY]).await.unwrap();
     let mut last = 0;
     for n in 0..4u8 {
@@ -71,7 +76,11 @@ async fn the_count_continues_after_a_restart_on(backend: BackendType) {
     let log = reloaded.replay.as_ref().unwrap();
     assert_eq!(log.since, since);
     assert_eq!(log.chain, book.groups[&KEY].replay.as_ref().unwrap().chain);
-    assert_eq!(reloaded.ids.len(), 4, "the message ids are rebuilt from the log");
+    assert_eq!(
+        reloaded.ids.len(),
+        4,
+        "the message ids are rebuilt from the log"
+    );
     let mut book = GroupOrderBook::default();
     let _ = book.groups.insert(KEY, reloaded);
     assert_eq!(position(&pers, &mut book, owner, b"after").await, last + 1);

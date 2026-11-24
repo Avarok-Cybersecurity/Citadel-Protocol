@@ -117,7 +117,9 @@ fn positioned<R: Ratchet, T: PlatformOps>(
         return Ok(vec![(*frame, Some(position))]);
     }
     let starts_log = matches!(*frame, GroupBroadcast::ReplayEnabled { .. });
-    match delivered(session, |d| d.arrive(member, key, position, *frame, starts_log)) {
+    match delivered(session, |d| {
+        d.arrive(member, key, position, *frame, starts_log)
+    }) {
         Arrival::Deliver(frames) => Ok(frames
             .into_iter()
             .map(|f| advanced(session, key, f))

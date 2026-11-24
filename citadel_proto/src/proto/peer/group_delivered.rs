@@ -109,7 +109,11 @@ impl GroupDelivered {
                 return Arrival::Nothing;
             }
             held.fetching = true;
-            let until = held.frames.keys().next().map_or(position.seq, |seq| seq - 1);
+            let until = held
+                .frames
+                .keys()
+                .next()
+                .map_or(position.seq, |seq| seq - 1);
             return Arrival::Fetch { after: last, until };
         }
         let _ = held.frames.insert(position.seq, (frame, position));

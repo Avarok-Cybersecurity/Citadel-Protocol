@@ -112,3 +112,39 @@ impl GroupCgkaState {
 
 /// How many opened messages go unrecorded at most before the state is written again.
 pub(crate) const OPENS_PER_WRITE: u64 = 16;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn member() -> GroupCgkaState {
+        let mut owner = GroupCgkaState::new_owner(1, GroupHierarchyMode::Flat).unwrap();
+        let (mut member, kp) = GroupCgkaState::new_joiner(2, GroupHierarchyMode::Flat).unwrap();
+        let (welcome, _, _, _) = owner.add_member(&kp).unwrap();
+        member.join(&welcome).unwrap();
+        member
+    }
+
+    #[test]
+    fn a_members_cursor_is_kept_with_its_state() {
+        let mut state = member();
+        state.cursor = 7;
+        let bytes = state.export().unwrap().unwrap();
+        assert_eq!(GroupCgkaState::import(&bytes).unwrap().cursor, 7);
+    }
+
+    #[test]
+    fn a_state_written_before_the_cursor_reads_back_at_none() {
+        let state = member();
+        let old = StoredWithoutCursor {
+            tree: state.tree,
+            is_owner: false,
+            needs_new_leaf: false,
+            own_leaf_secret: state.own_leaf_secret,
+            group: state.group.as_ref().unwrap().export().unwrap().to_vec(),
+        };
+        let bytes = old.serialize_to_vector().unwrap();
+        let read = GroupCgkaState::import(&bytes).unwrap();
+        assert_eq!((read.cursor, read.tree), (0, state.tree));
+    }
+}

@@ -70,11 +70,23 @@ fn account_key<R: Ratchet, T: PlatformOps>(
     state.revfs_keys.as_ref()?.revfs_key(cid)
 }
 
-fn resume_signal(key: MessageGroupKey, as_owner: bool) -> GroupBroadcast {
+/// The resume for `key`, from the last position of its log this member holds: the furthest of
+/// what this node delivered while it ran and the cursor kept with the state (`cursor`).
+fn resume_signal<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    cid: u64,
+    key: MessageGroupKey,
+    as_owner: bool,
+    cursor: u64,
+) -> GroupBroadcast {
+    let mut delivered = session.hypernode_peer_layer.group_delivered.lock();
+    let held = delivered.last(cid, key).max(cursor);
+    let _ = delivered.holds_through(cid, key, held);
+    let after = (held > 0).then_some(held);
     if as_owner {
-        GroupBroadcast::ResumeOwnership { key, after: None }
+        GroupBroadcast::ResumeOwnership { key, after }
     } else {
-        GroupBroadcast::ResumeMembership { key, after: None }
+        GroupBroadcast::ResumeMembership { key, after }
     }
 }
 
@@ -119,8 +131,9 @@ pub(super) async fn restore<R: Ratchet, T: PlatformOps>(
     let stored = group_state_store::load(pers, cid, key).await?;
     if let Some(cgka) = stored.filter(|cgka| resumable(cgka, tree, as_owner)) {
         log::info!(target: "citadel", "Resuming {key:?} from the state this node kept");
+        let cursor = cgka.cursor;
         install(session, key, cgka, owner)?;
-        return reply.send(resume_signal(key, as_owner));
+        return reply.send(resume_signal(session, cid, key, as_owner, cursor));
     }
     if account_key(session, cid).is_some() {
         return reply.send(GroupBroadcast::FetchState { key });
@@ -149,8 +162,9 @@ pub(super) fn kept<R: Ratchet, T: PlatformOps>(
     match opened.filter(|cgka| resumable(cgka, tree, as_owner)) {
         Some(cgka) => {
             log::info!(target: "citadel", "Resuming {key:?} from the state the server keeps for this account");
+            let cursor = cgka.cursor;
             install(session, key, cgka.restored_from_backup(), owner)?;
-            reply.send(resume_signal(key, as_owner))
+            reply.send(resume_signal(session, cid, key, as_owner, cursor))
         }
         None => start_over(session, reply, key, tree, as_owner),
     }

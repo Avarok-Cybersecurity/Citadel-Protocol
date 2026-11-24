@@ -2276,6 +2276,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let pers = {
             let this = inner!(self);
             for (peer, is_registered) in peers_and_statuses {
+                #[cfg(feature = "localhost-testing")]
+                if crate::test_hooks::skips_group_frame(peer, &signal) {
+                    peers_okay.push(peer);
+                    continue;
+                }
                 let away = resumed.as_ref().is_some_and(|back| !back.contains(&peer));
                 if is_registered {
                     if away

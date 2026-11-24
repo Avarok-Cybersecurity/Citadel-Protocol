@@ -57,7 +57,9 @@ use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
-use citadel_types::proto::{GroupMessageId, GroupOrderInfo, GroupPosition, MessageGroupKey};
+use citadel_types::proto::{
+    GroupLogLimits, GroupMessageId, GroupOrderInfo, GroupPosition, MessageGroupKey,
+};
 use futures::Stream;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -228,6 +230,19 @@ impl GroupChannelSendHalf {
     /// a group without replay.
     pub fn order(&self) -> Option<GroupOrderInfo> {
         self.order.get()
+    }
+
+    /// Owner only: asks the server to keep this group's broadcasts in one log from the next
+    /// position on, within `limits` (held to the server's own). Every member is then told, at
+    /// that position, by a positioned `GroupBroadcast::ReplayEnabled`; a refusal comes back to
+    /// this channel as `GroupBroadcast::ReplayRefused`.
+    pub async fn enable_replay(&self, limits: GroupLogLimits) -> Result<(), NetworkError> {
+        self.permission_gate()?;
+        self.send_group_command(GroupBroadcast::EnableReplay {
+            key: self.key,
+            limits,
+        })
+        .await
     }
 
     /// Kicks a peer from the group. User must be owner
