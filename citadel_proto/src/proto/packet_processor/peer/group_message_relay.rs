@@ -67,7 +67,10 @@ pub(crate) async fn relay<R: Ratchet, T: PlatformOps>(
 /// order lock still held (the guard), to be written to the sender before it is released.
 enum Relay {
     Refused(GroupBroadcast),
-    Answered(GroupBroadcast, Option<citadel_io::tokio::sync::OwnedMutexGuard<GroupOrderBook>>),
+    Answered(
+        GroupBroadcast,
+        Option<citadel_io::tokio::sync::OwnedMutexGuard<GroupOrderBook>>,
+    ),
 }
 
 async fn fan_out<R: Ratchet, T: PlatformOps>(
@@ -159,6 +162,8 @@ async fn fan_out<R: Ratchet, T: PlatformOps>(
     };
     #[cfg(feature = "localhost-testing")]
     crate::test_hooks::group_message_relayed(key, session_cid, delivery.is_complete());
+    #[cfg(feature = "localhost-testing")]
+    crate::test_hooks::before_group_answer(session_cid).await;
     Relay::Answered(response(Some(position), delivery), Some(book))
 }
 

@@ -29,6 +29,7 @@ static HOLDS: OnceLock<Mutex<HashMap<u64, Hold>>> = OnceLock::new();
 static GATE_OBSERVERS: OnceLock<Mutex<Vec<mpsc::UnboundedSender<CommitGateOpened>>>> =
     OnceLock::new();
 static SLOW_RELAYS: OnceLock<Mutex<HashMap<u64, SlowRelay>>> = OnceLock::new();
+static SLOW_ANSWERS: OnceLock<Mutex<HashMap<u64, std::time::Duration>>> = OnceLock::new();
 static RELAY_OBSERVERS: OnceLock<Mutex<Vec<mpsc::UnboundedSender<GroupMessageRelayed>>>> =
     OnceLock::new();
 
@@ -194,6 +195,32 @@ pub(crate) async fn before_group_relay(sender: u64) {
             (slow.seen % slow.every == 1 % slow.every).then_some(slow.by)
         })
     };
+    if let Some(delay) = delay {
+        citadel_io::time::sleep(delay).await;
+    }
+}
+
+/// Makes the server take `by` longer over its answer to each group message `sender` sends, after
+/// the message is fanned out and before the answer is written, until the returned guard drops.
+pub fn slow_group_answers_to(sender: u64, by: std::time::Duration) -> SlowAnswers {
+    let _ = lock(&SLOW_ANSWERS, HashMap::new).insert(sender, by);
+    SlowAnswers { sender }
+}
+
+/// A slowdown placed by [`slow_group_answers_to`]. Dropping it ends the slowdown.
+pub struct SlowAnswers {
+    sender: u64,
+}
+
+impl Drop for SlowAnswers {
+    fn drop(&mut self) {
+        let _ = lock(&SLOW_ANSWERS, HashMap::new).remove(&self.sender);
+    }
+}
+
+/// Called by the server once it has fanned out a group message from `sender`, before it answers.
+pub(crate) async fn before_group_answer(sender: u64) {
+    let delay = lock(&SLOW_ANSWERS, HashMap::new).get(&sender).copied();
     if let Some(delay) = delay {
         citadel_io::time::sleep(delay).await;
     }
