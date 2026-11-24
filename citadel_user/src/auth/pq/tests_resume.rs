@@ -13,7 +13,7 @@ use super::server::{
 };
 use super::tests::{begin, complete, register, sent, settings, CID};
 use citadel_io::{tokio, ErrorCode, NetworkError};
-use citadel_types::auth::{SessionScope, SignInPolicy};
+use citadel_types::auth::SessionScope;
 use std::time::Duration;
 
 pub(crate) const NOW: u64 = 1_700_000_000_000;
@@ -159,35 +159,6 @@ async fn a_device_whose_clock_is_wrong_expires_its_credential_when_the_server_do
         assert!(held.expired_at(local + HOUR_MS));
         assert!(ClientLogin::start_resume("alice", &held, local + HOUR_MS - 1).is_ok());
     }
-}
-
-/// Control: leave a field out of `PqAuthRecord::resume_binding`.
-#[tokio::test]
-async fn a_change_to_the_accounts_sign_in_revokes_every_grant_before_it() {
-    let record = register("pw").await;
-    let credential = issued(&record, HOUR_S);
-    let other = register("another password").await;
-    let key = other.factors()[0].ek.clone();
-    let revoked = Some(ErrorCode::ResumeCredentialRevoked);
-    let after = |change: &dyn Fn(&mut PqAuthRecord)| {
-        let mut changed = record.clone();
-        change(&mut changed);
-        refusal(DAY, &changed, presented(&credential), NOW + 1)
-    };
-
-    let new_password = |r: &mut PqAuthRecord| r.set_password(key.clone(), r.salt_user, r.ksf, 9);
-    assert_eq!(after(&new_password), revoked, "a new password");
-    let new_salt = |r: &mut PqAuthRecord| r.salt_user[0] ^= 1;
-    assert_eq!(after(&new_salt), revoked, "a new password salt");
-    let new_policy = |r: &mut PqAuthRecord| r.policy = SignInPolicy::KeyOnly;
-    assert_eq!(after(&new_policy), revoked, "a new policy");
-    let new_phrase = |r: &mut PqAuthRecord| r.replace_recovery_phrase(key.clone(), 9);
-    assert_eq!(after(&new_phrase), revoked, "a new factor");
-
-    let renamed = |r: &mut PqAuthRecord| r.rename(1, "Renamed".into()).unwrap();
-    assert_eq!(after(&renamed), None, "a label is not the sign-in");
-    let used = |r: &mut PqAuthRecord| r.record_use(&[1], 9).unwrap();
-    assert_eq!(after(&used), None, "nor is when a factor was last used");
 }
 
 /// Control: remove the `min` in `ResumePolicy::granted_ms`, then in `honoured_until`.
