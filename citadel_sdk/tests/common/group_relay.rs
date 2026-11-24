@@ -59,11 +59,13 @@ pub async fn mailed_group_messages(
         .expect("the server's group backlog is readable");
     backlog
         .values()
-        .filter(|bytes| {
-            matches!(
-                GroupBroadcast::deserialize_from_vector(bytes),
-                Ok(GroupBroadcast::Message { key: mailed, .. }) if mailed == key
-            )
+        .filter_map(|bytes| GroupBroadcast::deserialize_from_vector(bytes).ok())
+        .filter(|held| {
+            let message = match held {
+                GroupBroadcast::Ordered { frame, .. } => frame.as_ref(),
+                other => other,
+            };
+            matches!(message, GroupBroadcast::Message { key: mailed, .. } if *mailed == key)
         })
         .count()
 }

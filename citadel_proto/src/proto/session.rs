@@ -2395,9 +2395,13 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                     res = stopper_rx.recv() => {
                         if res.is_ok() {
                             // Closed first, so nothing lands after the drain and goes unanswered:
-                            // a later send fails, and its channel reports it undelivered.
+                            // a later send fails, and its channel reports it undelivered. A send
+                            // that took its place before the close may still be writing, so the
+                            // drain waits for it: only `None` means the queue is empty for good.
                             rx_session_requests.close();
-                            while let Ok(request) = rx_session_requests.try_recv() {
+                            #[cfg(feature = "localhost-testing")]
+                            crate::test_hooks::session_draining(this.session_cid.get());
+                            while let Some(request) = rx_session_requests.recv().await {
                                 match request {
                                     SessionRequest::SendMessage(rm) => {
                                         if let Some((ticket, payload)) = extract_ticket_and_payload(&rm) {
