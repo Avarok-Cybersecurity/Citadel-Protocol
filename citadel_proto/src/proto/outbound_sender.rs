@@ -79,6 +79,21 @@ pub fn channel<T>(len: usize) -> (Sender<T>, Receiver<T>) {
     citadel_io::tokio::sync::mpsc::channel(len)
 }
 
+/// The next item still to come out of `rx`, which its owner has closed; `None` once nothing more
+/// can. A send that took its place before the close may still be writing, and reading the queue
+/// empty then does not mean it is drained: the item is waited for.
+pub(crate) async fn next_after_close<T>(rx: &mut Receiver<T>) -> Option<T> {
+    match rx.try_recv() {
+        Ok(item) => Some(item),
+        Err(citadel_io::tokio::sync::mpsc::error::TryRecvError::Disconnected) => None,
+        Err(citadel_io::tokio::sync::mpsc::error::TryRecvError::Empty) => {
+            #[cfg(feature = "localhost-testing")]
+            crate::test_hooks::drain_waits_for_a_send();
+            rx.recv().await
+        }
+    }
+}
+
 /// Queues `item` from a synchronous context (such as `Drop`) without losing it to backpressure.
 ///
 /// A full queue only means its consumer is behind, so the item is handed to a task that waits for

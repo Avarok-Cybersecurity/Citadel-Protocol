@@ -1,6 +1,6 @@
 //! Test-only hooks into a session's outbound queue (see `test_hooks`): a group send held after
 //! it has its place in the queue and before it writes, and the moment a session that is
-//! shutting down starts to drain what is queued.
+//! shutting down reads its queue empty with such a send still writing.
 
 use super::lock;
 use citadel_io::tokio::sync::{mpsc, watch};
@@ -13,7 +13,7 @@ struct SendHoldState {
 }
 
 static SEND_HOLDS: OnceLock<Mutex<HashMap<u64, SendHoldState>>> = OnceLock::new();
-static DRAIN_OBSERVERS: OnceLock<Mutex<Vec<mpsc::UnboundedSender<Option<u64>>>>> = OnceLock::new();
+static DRAIN_OBSERVERS: OnceLock<Mutex<Vec<mpsc::UnboundedSender<()>>>> = OnceLock::new();
 
 /// Holds the next group send of `session_cid` once it has its place in the session's queue
 /// and before it writes there, until the returned handle is released or dropped.
@@ -69,15 +69,15 @@ pub(crate) async fn group_send_reserved(session_cid: u64) {
     let _ = released.wait_for(|released| *released).await;
 }
 
-/// The cid of every session of this process that starts to drain its queue on shutdown, from
-/// now on.
-pub fn observe_session_drains() -> mpsc::UnboundedReceiver<Option<u64>> {
+/// Each time, from now on, a session of this process shutting down reads its closed queue empty
+/// while a send that took its place is still writing.
+pub fn observe_drain_waits() -> mpsc::UnboundedReceiver<()> {
     let (tx, rx) = mpsc::unbounded_channel();
     lock(&DRAIN_OBSERVERS, Vec::new).push(tx);
     rx
 }
 
-/// Called by a session of `session_cid` as it starts to drain its queue on shutdown.
-pub(crate) fn session_draining(session_cid: Option<u64>) {
-    lock(&DRAIN_OBSERVERS, Vec::new).retain(|tx| tx.send(session_cid).is_ok());
+/// Called by a closed queue's drain that reads it empty with a send still writing.
+pub(crate) fn drain_waits_for_a_send() {
+    lock(&DRAIN_OBSERVERS, Vec::new).retain(|tx| tx.send(()).is_ok());
 }
