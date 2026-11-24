@@ -10,6 +10,10 @@
 
 use citadel_io::tokio::sync::{mpsc, watch};
 use citadel_types::proto::MessageGroupKey;
+
+#[path = "test_hooks_send.rs"]
+mod send;
+pub use send::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 

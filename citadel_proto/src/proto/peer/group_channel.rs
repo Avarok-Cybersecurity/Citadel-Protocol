@@ -318,13 +318,18 @@ impl GroupChannelSendHalf {
     }
 
     async fn send_group_command(&self, broadcast: GroupBroadcast) -> Result<(), NetworkError> {
-        self.tx
-            .send(SessionRequest::Group(Group {
-                ticket: self.ticket,
-                broadcast,
-            }))
+        let place = self
+            .tx
+            .reserve()
             .await
-            .map_err(|err| NetworkError::msg(err.to_string()))
+            .map_err(|err| NetworkError::msg(err.to_string()))?;
+        #[cfg(feature = "localhost-testing")]
+        crate::test_hooks::group_send_reserved(self.session_cid).await;
+        place.send(SessionRequest::Group(Group {
+            ticket: self.ticket,
+            broadcast,
+        }));
+        Ok(())
     }
 
     fn permission_gate(&self) -> Result<(), NetworkError> {
