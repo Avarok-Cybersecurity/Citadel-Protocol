@@ -191,7 +191,7 @@ mod tests {
                 ),
             };
             match msg {
-                GroupBroadcastPayload::Message { payload, sender } => {
+                GroupBroadcastPayload::Message { payload, sender, .. } => {
                     let cur_idx = counter.entry(sender).or_insert(0usize);
                     log::trace!(target: "citadel", "**~ Received message {cur_idx} for {sender}~**");
                     let msg = MessageTransfer::receive(payload);

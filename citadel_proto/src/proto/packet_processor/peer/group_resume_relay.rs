@@ -13,12 +13,13 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_types::crypto::SecurityLevel;
 use citadel_types::proto::MessageGroupKey;
 
-/// `member`'s backlog for `key`, removed: what it was held while away, oldest first.
-async fn take_backlog<R: Ratchet, T: PlatformOps>(
+/// `member`'s backlog for `key`, read but kept: what was held while it was away, in the group's
+/// order.
+async fn held_backlog<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     member: u64,
     key: MessageGroupKey,
-) -> Result<Vec<GroupBroadcast>, NetworkError> {
+) -> Result<group_mail::Held, NetworkError> {
     let limits = session
         .session_manager
         .server_load()
@@ -27,7 +28,18 @@ async fn take_backlog<R: Ratchet, T: PlatformOps>(
     let retention = session.hypernode_peer_layer.group_retention(key).await;
     let pers = session.account_manager.get_persistence_handler();
     let now_ns = session.time_tracker.get_global_time_ns();
-    group_mail::take(pers, member, key, limits.max_age_for(retention), now_ns).await
+    group_mail::held(pers, member, key, limits.max_age_for(retention), now_ns).await
+}
+
+/// Removes `member`'s backlog for `key` unsent.
+async fn drop_backlog<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    member: u64,
+    key: MessageGroupKey,
+) -> Result<(), NetworkError> {
+    let held = held_backlog(session, member, key).await?;
+    let pers = session.account_manager.get_persistence_handler();
+    group_mail::forget(pers, member, key, &held.sub_keys).await
 }
 
 /// Server, on `ResumeMembership`/`ResumeOwnership` from `member`'s own session: replay its
@@ -41,18 +53,18 @@ pub(crate) async fn resume<R: Ratchet, T: PlatformOps>(
     security_level: SecurityLevel,
 ) -> Result<(), NetworkError> {
     let peer_layer = &session.hypernode_peer_layer;
-    let _ordered = peer_layer.group_mail_lock.clone().lock_owned().await;
+    let _ordered = peer_layer.group_order.clone().lock_owned().await;
     if !peer_layer.mark_resumed(key, member).await {
         log::warn!(target: "citadel", "Not resuming {key:?} for {member}: not a member");
         return Ok(());
     }
-    let backlog = take_backlog(session, member, key).await?;
-    log::info!(target: "citadel", "Resuming {key:?} for {member}: replaying {} held broadcast(s)", backlog.len());
+    let backlog = held_backlog(session, member, key).await?;
+    log::info!(target: "citadel", "Resuming {key:?} for {member}: replaying {} held broadcast(s)", backlog.signals.len());
     let timestamp = session.time_tracker.get_global_time_ns();
-    for signal in backlog {
+    for signal in &backlog.signals {
         let packet = packet_crafter::peer_cmd::craft_group_message_packet(
             sess_ratchet,
-            &signal,
+            signal,
             ticket,
             C2S_IDENTITY_CID,
             timestamp,
@@ -60,6 +72,10 @@ pub(crate) async fn resume<R: Ratchet, T: PlatformOps>(
         )?;
         session.send_to_primary_stream(Some(ticket), packet)?;
     }
+    // Handed to the member's stream: only now is it removed. A replay cut short leaves it held,
+    // and the member's node delivers a position it already has at most once (`group_delivered`).
+    let pers = session.account_manager.get_persistence_handler();
+    group_mail::forget(pers, member, key, &backlog.sub_keys).await?;
     let (owner, members) = peer_layer
         .group_owner_and_members(key)
         .await
@@ -70,6 +86,7 @@ pub(crate) async fn resume<R: Ratchet, T: PlatformOps>(
             key,
             owner,
             members,
+            order: None,
         },
         ticket,
         C2S_IDENTITY_CID,
@@ -89,7 +106,7 @@ pub(crate) async fn welcomed<R: Ratchet, T: PlatformOps>(
     if !session.hypernode_peer_layer.mark_resumed(key, joiner).await {
         return;
     }
-    if let Err(err) = take_backlog(session, joiner, key).await {
+    if let Err(err) = drop_backlog(session, joiner, key).await {
         log::warn!(target: "citadel", "Unable to drop the backlog of {key:?} for {joiner}: {err}");
     }
 }
@@ -104,12 +121,12 @@ pub(crate) async fn refounded<R: Ratchet, T: PlatformOps>(
     security_level: SecurityLevel,
 ) {
     let peer_layer = &session.hypernode_peer_layer;
-    let _ordered = peer_layer.group_mail_lock.clone().lock_owned().await;
+    let _ordered = peer_layer.group_order.clone().lock_owned().await;
     let Some((tree, owner, members)) = peer_layer.refound_tree(key).await else {
         return;
     };
     for member in &members {
-        if let Err(err) = take_backlog(session, *member, key).await {
+        if let Err(err) = drop_backlog(session, *member, key).await {
             log::warn!(target: "citadel", "Unable to drop the backlog of {key:?} for {member}: {err}");
         }
     }

@@ -47,6 +47,7 @@ mod tests {
                     let command = GroupBroadcast::Message {
                         sender: CLAIMED,
                         key: channel.key(),
+                        id: GroupMessageId::random(),
                         message: SecBuffer::from(b"claimed".to_vec()),
                     };
                     let _ = remote
@@ -72,7 +73,7 @@ mod tests {
                     let sender = tokio::time::timeout(REJOIN_DEADLINE, async {
                         loop {
                             match channel.recv().await {
-                                Some(GroupBroadcastPayload::Message { payload, sender })
+                                Some(GroupBroadcastPayload::Message { payload, sender, .. })
                                     if payload.as_ref() == b"claimed" =>
                                 {
                                     return sender

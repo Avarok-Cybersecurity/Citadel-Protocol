@@ -120,8 +120,8 @@ impl<R: Ratchet> StateContainerInner<R> {
             // A message has a sender waiting on its outcome: tell it, rather than let a send that
             // returned `Ok` vanish. Other commands from an ended session (e.g. the `LeaveRoom` a
             // dropped channel sends) must not reach the server, and nobody awaits them.
-            if let GroupBroadcast::Message { key, .. } = command {
-                self.report_group_message_not_delivered(*key, NotRelayed::SessionEnded);
+            if let GroupBroadcast::Message { key, id, .. } = command {
+                self.report_group_message_not_delivered(*key, *id, NotRelayed::SessionEnded);
             }
             return Ok(());
         }
@@ -177,16 +177,18 @@ impl<R: Ratchet> StateContainerInner<R> {
             GroupBroadcast::Message {
                 sender,
                 key,
+                id,
                 message,
             } => {
                 let Some(cgka) = self.group_cgka.get_mut(key) else {
-                    self.report_group_message_not_delivered(*key, NotRelayed::NoGroupKey);
+                    self.report_group_message_not_delivered(*key, *id, NotRelayed::NoGroupKey);
                     return Err(error!(ErrorCode::ProtoGroupCgkaNoState));
                 };
                 let ciphertext = cgka.encrypt_message(message.as_ref())?;
                 Some(GroupBroadcast::Message {
                     sender: *sender,
                     key: *key,
+                    id: *id,
                     message: citadel_types::crypto::SecBuffer::from(ciphertext),
                 })
             }
@@ -308,12 +310,15 @@ impl<R: Ratchet> StateContainerInner<R> {
     pub(crate) fn report_group_message_not_delivered(
         &self,
         key: MessageGroupKey,
+        id: citadel_types::proto::GroupMessageId,
         reason: NotRelayed,
     ) {
         log::warn!(target: "citadel", "A group message for {key:?} was not sent ({reason:?}); reporting it to the sender");
         if let Some(tx) = self.group_channels.get(&key) {
             let refusal = GroupBroadcast::MessageResponse {
                 key,
+                id,
+                position: None,
                 delivery: GroupDelivery::NotRelayed(reason),
             };
             if let Err(err) = tx.unbounded_send(refusal.into()) {

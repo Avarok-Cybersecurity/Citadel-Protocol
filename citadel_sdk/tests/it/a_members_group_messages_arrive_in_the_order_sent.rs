@@ -49,7 +49,7 @@ mod tests {
                     .await?;
                     while (read.lock().unwrap().len() as u64) < SENT {
                         match channel.recv().await {
-                            Some(GroupBroadcastPayload::Message { payload, sender })
+                            Some(GroupBroadcastPayload::Message { payload, sender, .. })
                                 if sender == member_cid.load(Ordering::SeqCst) =>
                             {
                                 let text = String::from_utf8_lossy(payload.as_ref()).to_string();

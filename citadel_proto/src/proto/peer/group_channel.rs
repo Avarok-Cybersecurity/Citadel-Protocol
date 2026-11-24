@@ -56,7 +56,7 @@ use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
-use citadel_types::proto::MessageGroupKey;
+use citadel_types::proto::{GroupMessageId, GroupPosition, MessageGroupKey};
 use futures::Stream;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -129,7 +129,16 @@ impl GroupChannel {
 
 #[derive(Debug)]
 pub enum GroupBroadcastPayload {
-    Message { payload: SecBuffer, sender: u64 },
+    /// A member's message, opened, at its position in the group's order. A member receives
+    /// each position at most once while this process runs; across its own restarts it may
+    /// receive one again, so a consumer that keeps state must be idempotent by `position.seq`.
+    Message {
+        payload: SecBuffer,
+        sender: u64,
+        /// The sender's id for it (see [`GroupChannelSendHalf::send_message_with_id`]).
+        id: GroupMessageId,
+        position: GroupPosition,
+    },
     Event { payload: GroupBroadcast },
 }
 
@@ -156,12 +165,27 @@ impl Debug for GroupChannelSendHalf {
 }
 
 impl GroupChannelSendHalf {
-    /// Broadcasts a message to the group
+    /// Broadcasts a message to the group under a new id. The server's answer
+    /// (`GroupBroadcast::MessageResponse`) gives its position.
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
+        self.send_message_with_id(message, GroupMessageId::random())
+            .await
+    }
+
+    /// Broadcasts a message to the group under `id`. Sent again under the same `id` (after a
+    /// lost answer, say), it is not relayed twice: the server answers with the position it gave
+    /// the first time and `NotRelayed::AlreadyRelayed`. The server remembers an id within its
+    /// recent window and its current run.
+    pub async fn send_message_with_id(
+        &self,
+        message: SecBuffer,
+        id: GroupMessageId,
+    ) -> Result<(), NetworkError> {
         let sent = self
             .send_group_command(GroupBroadcast::Message {
                 sender: self.session_cid,
                 key: self.key,
+                id,
                 message,
             })
             .await;
@@ -171,6 +195,8 @@ impl GroupChannelSendHalf {
             // a message it cannot deliver.
             let refusal = GroupBroadcast::MessageResponse {
                 key: self.key,
+                id,
+                position: None,
                 delivery: citadel_types::proto::GroupDelivery::NotRelayed(
                     citadel_types::proto::NotRelayed::SessionEnded,
                 ),

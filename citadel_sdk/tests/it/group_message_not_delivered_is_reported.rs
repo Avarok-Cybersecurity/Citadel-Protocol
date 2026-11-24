@@ -59,7 +59,7 @@ mod tests {
                         loop {
                             match channel.recv().await {
                                 Some(GroupBroadcastPayload::Event {
-                                    payload: GroupBroadcast::MessageResponse { key: k, delivery },
+                                    payload: GroupBroadcast::MessageResponse { key: k, delivery, .. },
                                 }) if k == key => return Some(delivery),
                                 Some(other) => {
                                     log::info!(target: "citadel", "while waiting for the refusal: {other:?}")

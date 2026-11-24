@@ -60,6 +60,7 @@ impl<R: Ratchet> Crafter<'_, R> {
             // Set by the server, which records the tree and the owner.
             tree: 0,
             owner: 0,
+            order: None,
             payload: held.welcome,
         };
         packets.push(self.packet(&welcome, held.ticket)?);

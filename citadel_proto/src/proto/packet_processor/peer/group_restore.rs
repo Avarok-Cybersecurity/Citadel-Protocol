@@ -64,9 +64,9 @@ fn account_key<R: Ratchet, T: PlatformOps>(
 
 fn resume_signal(key: MessageGroupKey, as_owner: bool) -> GroupBroadcast {
     if as_owner {
-        GroupBroadcast::ResumeOwnership { key }
+        GroupBroadcast::ResumeOwnership { key, after: None }
     } else {
-        GroupBroadcast::ResumeMembership { key }
+        GroupBroadcast::ResumeMembership { key, after: None }
     }
 }
 

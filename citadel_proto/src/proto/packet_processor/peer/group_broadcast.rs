@@ -32,7 +32,7 @@
 
 use super::super::includes::*;
 use super::{
-    group_backup_relay, group_commit_ack, group_commit_relay, group_control, group_message_relay,
+    group_backup_relay, group_commit_ack, group_commit_relay, group_control, group_message_relay, group_ordered,
     group_restore, group_resume_relay, group_resumed, group_succession_relay,
 };
 use crate::error::NetworkError;
@@ -48,8 +48,9 @@ use citadel_crypt::ratchets::Ratchet;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
 use citadel_types::proto::{
-    GroupDelivery, GroupEndReason, GroupHierarchyMode, GroupMemberAlterMode, GroupMessageRefusal,
-    GroupStateSource, MemberState, MessageGroupKey, MessageGroupOptions,
+    GroupDelivery, GroupEndReason, GroupHierarchyMode, GroupLogLimits, GroupMemberAlterMode,
+    GroupMessageId, GroupMessageRefusal, GroupOrderBroken, GroupOrderInfo, GroupPosition,
+    GroupReplayRefusal, GroupStateSource, MemberState, MessageGroupKey, MessageGroupOptions,
 };
 use citadel_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
@@ -112,6 +113,9 @@ pub enum GroupBroadcast {
         sender: u64,
         /// Group key
         key: MessageGroupKey,
+        /// The sender's id for it: a message sent again under the same id is given the same
+        /// position and relayed once
+        id: GroupMessageId,
         /// Message payload
         message: SecBuffer,
     },
@@ -119,8 +123,84 @@ pub enum GroupBroadcast {
     MessageResponse {
         /// Group key
         key: MessageGroupKey,
+        /// The id of the message answered
+        id: GroupMessageId,
+        /// Where the message stands in the group's order; `None` when it was not relayed
+        position: Option<GroupPosition>,
         /// Which members received it, have it held for them, or will not receive it
         delivery: GroupDelivery,
+    },
+    /// Server → member: a broadcast at its position in the group's order (a message, a Commit,
+    /// and, in a replay group, a membership or ownership change or replay turned on). To the
+    /// application, a positioned event of a replay group.
+    Ordered {
+        /// Group key
+        key: MessageGroupKey,
+        /// Where it stands
+        position: GroupPosition,
+        /// The broadcast
+        frame: Box<GroupBroadcast>,
+    },
+    /// Owner → server: keep this group's broadcasts in one ordered log from the next position
+    /// on, within `limits` (see [`GroupLogLimits`]).
+    EnableReplay {
+        /// Group key
+        key: MessageGroupKey,
+        /// The limits asked for; the server holds them to its own
+        limits: GroupLogLimits,
+    },
+    /// Positioned (inside [`Self::Ordered`]): the group keeps a log from this position on.
+    ReplayEnabled {
+        /// Group key
+        key: MessageGroupKey,
+        /// Where the log starts and the limits that apply
+        order: GroupOrderInfo,
+    },
+    /// Server → owner: replay was not turned on.
+    ReplayRefused {
+        /// Group key
+        key: MessageGroupKey,
+        /// Why
+        refusal: GroupReplayRefusal,
+    },
+    /// Member → server: send the positions `(after, until]` of a replay group's log.
+    FetchRange {
+        /// Group key
+        key: MessageGroupKey,
+        /// The last position the member holds
+        after: u64,
+        /// The last position wanted
+        until: u64,
+    },
+    /// Server → member: the positions asked for, in order (each an [`Self::Ordered`]), at most
+    /// a server's page of them; `head` is the log's last position when they were read.
+    Range {
+        /// Group key
+        key: MessageGroupKey,
+        /// The log's last position
+        head: u64,
+        /// The positioned broadcasts
+        frames: Vec<GroupBroadcast>,
+    },
+    /// Server → member: positions it asked for, or is being replayed, are older than the log
+    /// keeps; the log starts at `earliest`.
+    Trimmed {
+        /// Group key
+        key: MessageGroupKey,
+        /// The first position the log holds
+        earliest: u64,
+        /// The group's order
+        order: GroupOrderInfo,
+    },
+    /// To the application, never on the wire: the replay group's channel delivers nothing past
+    /// `last` until the member resumes the group.
+    OrderBroken {
+        /// Group key
+        key: MessageGroupKey,
+        /// The last position delivered
+        last: u64,
+        /// Why
+        reason: GroupOrderBroken,
     },
     /// A joiner publishes its post-quantum TreeKEM `KeyPackage` to the group owner so the owner can
     /// Add it to the ratchet tree. `payload` is an opaque serialized `citadel_treekem::KeyPackage` —
@@ -144,6 +224,8 @@ pub enum GroupBroadcast {
         tree: u64,
         /// The group's owner, as the server records it (the server sets it)
         owner: u64,
+        /// For a replay group, its order and the joiner's first position (the server sets it)
+        order: Option<GroupOrderInfo>,
         /// Opaque serialized `citadel_treekem::Welcome`
         payload: Vec<u8>,
     },
@@ -308,11 +390,15 @@ pub enum GroupBroadcast {
     ResumeMembership {
         /// Group key
         key: MessageGroupKey,
+        /// The last position of the group's log this member holds; `None` when it holds none
+        after: Option<u64>,
     },
     /// Owner → server: as [`Self::ResumeMembership`], for the owner, which kept its tree.
     ResumeOwnership {
         /// Group key
         key: MessageGroupKey,
+        /// As in [`Self::ResumeMembership`]
+        after: Option<u64>,
     },
     /// Server → member, after replaying what it held for the member: the group is live from here.
     Resumed {
@@ -323,6 +409,8 @@ pub enum GroupBroadcast {
         /// The group's members, as the server records them. A member made the owner while it was
         /// away takes over from these: it removes every leaf of a cid not among them.
         members: Vec<u64>,
+        /// For a replay group, its order, the head being what was replayed through
+        order: Option<GroupOrderInfo>,
     },
     /// Member → server: keep this sealed state of the member's for the group, in place of the
     /// last (see `peer::group_backup`). The server cannot open it.
@@ -503,6 +591,10 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
         security_level,
     };
     log::trace!(target: "citadel", "[GROUP:{}] message: {:?}", session.is_server.if_true("server").if_false("client"), signal);
+    let Some((signal, position)) = group_ordered::unwrap_ordered(session, session_cid, signal)
+    else {
+        return Ok(PrimaryProcessorResult::Void);
+    };
     match signal {
         GroupBroadcast::Create {
             initial_invitees: initial_peers,
@@ -751,6 +843,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
         GroupBroadcast::Message {
             sender: username,
             key,
+            id,
             message,
         } => {
             if session.is_server {
@@ -758,21 +851,13 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                 let inbound = group_message_relay::InboundGroupMessage {
                     session_cid,
                     key,
+                    id,
                     message,
                     ticket,
                     timestamp,
                     security_level,
                 };
-                let resp = group_message_relay::relay(session, inbound).await;
-                let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-                    sess_ratchet,
-                    &resp,
-                    ticket,
-                    C2S_IDENTITY_CID,
-                    timestamp,
-                    security_level,
-                )?;
-                Ok(PrimaryProcessorResult::ReplyToSender(packet))
+                group_message_relay::relay(session, sess_ratchet, inbound).await
             } else {
                 // Client: decrypt the E2E CGKA ciphertext to plaintext before handing it to the app. In
                 // a CommandHierarchy group a non-permitted reader (a sibling/subordinate of the sender)
@@ -802,6 +887,12 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                         None => Err(NO_GROUP_KEY_YET.to_string()),
                     }
                 };
+                // A server positions every message it relays; one without a position was not
+                // relayed by a server of this release.
+                let plaintext = match position {
+                    Some(_) => plaintext,
+                    None => Err("it carries no position in the group's order".to_string()),
+                };
                 // This session cannot read the message, and a silent drop here is invisible at both
                 // ends. Tell the application.
                 let plaintext = match plaintext {
@@ -820,25 +911,57 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                         );
                     }
                 };
+                let Some(position) = position else {
+                    return Ok(PrimaryProcessorResult::Void);
+                };
+                let opened = GroupBroadcast::Message {
+                    sender: username,
+                    key,
+                    id,
+                    message: SecBuffer::from(plaintext),
+                };
                 forward_signal(
                     session,
                     ticket,
                     Some(key),
-                    GroupBroadcast::Message {
-                        sender: username,
-                        key,
-                        message: SecBuffer::from(plaintext),
-                    },
+                    group_ordered::opened(key, position, opened),
                 )
             }
         }
 
-        GroupBroadcast::MessageResponse { key, delivery } => forward_signal(
+        GroupBroadcast::MessageResponse {
+            key,
+            id,
+            position,
+            delivery,
+        } => forward_signal(
             session,
             ticket,
             Some(key),
-            GroupBroadcast::MessageResponse { key, delivery },
+            GroupBroadcast::MessageResponse {
+                key,
+                id,
+                position,
+                delivery,
+            },
         ),
+
+        GroupBroadcast::Ordered { key, .. } => {
+            log::warn!(target: "citadel", "Ignoring a broadcast for {key:?} positioned twice");
+            Ok(PrimaryProcessorResult::Void)
+        }
+
+        GroupBroadcast::EnableReplay { key, .. } | GroupBroadcast::FetchRange { key, .. } => {
+            group_ordered::refuse_replay(session, reply, key)
+        }
+
+        answer @ (GroupBroadcast::ReplayEnabled { .. }
+        | GroupBroadcast::ReplayRefused { .. }
+        | GroupBroadcast::Range { .. }
+        | GroupBroadcast::Trimmed { .. }
+        | GroupBroadcast::OrderBroken { .. }) => {
+            group_ordered::replay_answer(session, ticket, answer)
+        }
 
         GroupBroadcast::MessageRefused { key, refusal } => {
             if session.is_server {
@@ -1265,6 +1388,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             joiner_cid,
             tree: _claimed,
             owner: claimed_owner,
+            order: _,
             payload,
         } => {
             if session.is_server {
@@ -1282,7 +1406,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                 }
                 let _ordered = session
                     .hypernode_peer_layer
-                    .group_mail_lock
+                    .group_order
                     .clone()
                     .lock_owned()
                     .await;
@@ -1301,6 +1425,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                                 joiner_cid,
                                 tree,
                                 owner,
+                                order: None,
                                 payload,
                             },
                             ticket,
@@ -1447,7 +1572,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             group_restore::restore(session, reply, key, tree, owner).await
         }
 
-        GroupBroadcast::ResumeMembership { key } | GroupBroadcast::ResumeOwnership { key } => {
+        GroupBroadcast::ResumeMembership { key, .. } | GroupBroadcast::ResumeOwnership { key, .. } => {
             if !session.is_server {
                 log::warn!(target: "citadel", "Ignoring a resume for {key:?}: only a server acts on it");
                 return Ok(PrimaryProcessorResult::Void);
@@ -1483,6 +1608,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             key,
             owner,
             members,
+            order: _,
         } => {
             if session.is_server {
                 return Ok(PrimaryProcessorResult::Void);
@@ -1725,14 +1851,7 @@ pub(super) fn cgka_owner_refound<R: Ratchet, T: PlatformOps>(
 impl From<GroupBroadcast> for GroupBroadcastPayload {
     /// Convert GroupBroadcast to GroupBroadcastPayload
     fn from(broadcast: GroupBroadcast) -> Self {
-        match broadcast {
-            GroupBroadcast::Message {
-                sender,
-                key: _key,
-                message: payload,
-            } => GroupBroadcastPayload::Message { payload, sender },
-            evt => GroupBroadcastPayload::Event { payload: evt },
-        }
+        group_ordered::to_payload(broadcast)
     }
 }
 
@@ -1754,16 +1873,7 @@ pub(super) fn forward_signal<R: Ratchet, T: PlatformOps>(
                     Ok(()) => return Ok(PrimaryProcessorResult::Void),
                     Err(unsent) => {
                         let _ = state.group_channels.remove(&key);
-                        match unsent.0 {
-                            GroupBroadcastPayload::Event { payload } => payload,
-                            GroupBroadcastPayload::Message { payload, sender } => {
-                                GroupBroadcast::Message {
-                                    sender,
-                                    key,
-                                    message: payload,
-                                }
-                            }
-                        }
+                        group_ordered::from_payload(key, unsent.0)
                     }
                 },
                 None => broadcast,

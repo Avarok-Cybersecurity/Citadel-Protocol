@@ -68,6 +68,14 @@ pub mod group_backup;
 /// Server-side caps on a group's message size and rate
 pub(crate) mod group_limits;
 pub mod group_mail;
+/// Where a group's order is stored.
+pub(crate) mod group_log;
+/// The order of each group's broadcasts (decisions only).
+pub mod group_sequencer;
+/// Positioning a group broadcast on the server, with its order stored first.
+pub(crate) mod group_position;
+/// Each group position reaching a member's application at most once per process run.
+pub mod group_delivered;
 /// Whom the server relays a group broadcast to, and whether a message is within its caps
 pub mod group_relay;
 pub mod group_resume;

@@ -91,7 +91,7 @@ mod tests {
                     // Read until A is streaming at the settled epoch, then add B mid-stream.
                     let mut read = 0usize;
                     while read < READ_BEFORE_INVITE {
-                        if let Some(GroupBroadcastPayload::Message { payload, sender }) =
+                        if let Some(GroupBroadcastPayload::Message { payload, sender, .. }) =
                             channel.recv().await
                         {
                             if sender == a_cid {

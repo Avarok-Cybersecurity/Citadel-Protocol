@@ -120,7 +120,7 @@ mod tests {
 
                     loop {
                         match channel.recv().await {
-                            Some(GroupBroadcastPayload::Message { payload, sender })
+                            Some(GroupBroadcastPayload::Message { payload, sender, .. })
                                 if sender == a_cid =>
                             {
                                 let text = String::from_utf8_lossy(payload.as_ref()).to_string();

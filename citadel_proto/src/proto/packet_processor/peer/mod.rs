@@ -38,6 +38,7 @@ pub(crate) mod group_commit_ack;
 mod group_commit_relay;
 mod group_control;
 mod group_message_relay;
+mod group_ordered;
 mod group_restore;
 mod group_resume_relay;
 mod group_resumed;
