@@ -83,6 +83,7 @@ mod a_refused_login_can_be_retried_at_once;
 mod a_registration_above_the_servers_maximum_is_refused;
 mod a_replaced_udp_channel_spares_its_successor;
 mod a_second_dial_keeps_the_live_udp_offer;
+mod a_server_chooses_whether_transient_accounts_are_allowed;
 mod a_server_holds_few_connections_before_sign_in;
 mod a_session_releases_what_it_held;
 mod a_slow_server_does_not_hold_up_other_connects;

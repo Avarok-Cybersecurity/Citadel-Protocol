@@ -1,7 +1,7 @@
 //! Credential Proposal and Validation
 //!
 //! This module handles the creation, validation, and processing of user credentials
-//! in the Citadel Protocol, supporting both password-based and passwordless authentication.
+//! in the Citadel Protocol, supporting both password-based accounts and transient ones.
 //!
 //! # Features
 //!
@@ -9,7 +9,7 @@
 //!   - Password hashing with Argon2id
 //!   - Username sanitization
 //!   - Full name handling
-//!   - Passwordless mode support
+//!   - Transient accounts (no password, never persisted)
 //!
 //! * **Security Features**
 //!   - Secure password transformation
@@ -67,7 +67,7 @@ pub enum ProposedCredentials {
         clientside_only_registration_settings: Option<ArgonSettings>,
     },
 
-    /// Denotes that credentials will not be used (passwordless)
+    /// A transient account: no credentials are used, and the server never persists it
     Disabled { username: String },
 }
 
@@ -229,7 +229,7 @@ impl ProposedCredentials {
         }
     }
 
-    /// Returns true if passwordless
+    /// Returns true for a transient account (no password)
     pub fn is_passwordless(&self) -> bool {
         matches!(self, Self::Disabled { .. })
     }

@@ -277,7 +277,7 @@ mod tests {
         // not deterministic, and this assertion pretended otherwise until CI on
         // ubuntu said so:
         //
-        //   "Transient connections are not allowed on this node"
+        //   "This server does not allow transient accounts"
         //       the server's own reason, carried by the FAILURE packet that the
         //       final-reply flush got onto the wire before the teardown.
         //   "The connection ended before the handshake completed"
@@ -295,7 +295,7 @@ mod tests {
         // the caller parking forever.
         let message = err.into_string();
         assert!(
-            message.contains("Transient connections are not allowed")
+            message.contains("This server does not allow transient accounts")
                 || message.contains("The connection ended before the handshake completed"),
             "neither the server's reason nor the handshake backstop reached the caller: {message}",
         );

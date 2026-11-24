@@ -8,7 +8,7 @@ This module manages the state of user registration processes in the Citadel Prot
 - **Cryptographic Setup**: Manages ratchet construction
 - **Timing Control**: Monitors registration packet timing
 - **Failure Handling**: Manages registration failures
-- **Passwordless Support**: Handles passwordless registration
+- **Transient accounts**: Handles registration of a transient account (no password, never persisted)
 
 ## Core Components
 - `RegisterState`: Main structure for registration state

@@ -1,5 +1,6 @@
 //! The legacy check against each kind of account: an upgraded account refuses it, and a
-//! password-protected one is never satisfied by passwordless credentials.
+//! password-protected one is never satisfied by transient (passwordless) credentials, and a server
+//! that disallows transient accounts stores none.
 
 use super::*;
 use crate::auth::pq::tests::register;
@@ -67,4 +68,21 @@ async fn passwordless_credentials_never_open_a_password_account() {
         "a passwordless login opened a password account"
     );
     cnac.validate_credentials(creds).await.unwrap();
+}
+
+#[citadel_io::tokio::test]
+async fn a_server_that_disallows_transient_accounts_stores_none() {
+    let disallowing = ServerMiscSettings {
+        allow_transient_connections: false,
+        ..Default::default()
+    };
+    let refused = ProposedCredentials::transient("visitor")
+        .derive_server_container(&ArgonSettings::default(), &disallowing)
+        .await;
+    assert!(matches!(refused, Err(err) if err.code == ErrorCode::PasswordlessUnsupported));
+    let stored = ProposedCredentials::transient("visitor")
+        .derive_server_container(&ArgonSettings::default(), &ServerMiscSettings::default())
+        .await
+        .unwrap();
+    assert!(stored.is_transient());
 }
