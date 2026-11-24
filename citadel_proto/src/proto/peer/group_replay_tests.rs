@@ -1,5 +1,6 @@
 use super::*;
 use crate::proto::peer::group_position::tests::{group_with, position, Group};
+use crate::proto::peer::peer_layer::CitadelNodePeerLayer;
 use citadel_io::tokio;
 use citadel_types::proto::{GroupMessageId, MessageGroupOptions};
 use std::time::Duration;
@@ -98,6 +99,42 @@ async fn replay_turned_on_later_starts_at_the_next_position_with_the_event() {
     );
     let read = g.layer.read_group_log(&mut book, g.key, 0, u64::MAX).await;
     assert_eq!(frames_of(read.unwrap()), vec![at.seq, next.seq]);
+}
+
+#[tokio::test]
+async fn replay_turned_on_later_numbers_without_gaps_across_a_restart() {
+    let g = group_with(MessageGroupOptions::default()).await;
+    let mut book = GroupOrderBook::default();
+    let _ = send(&g, &mut book).await;
+    let (_, at) = g
+        .layer
+        .enable_group_replay(
+            &mut book,
+            g.key,
+            g.creator,
+            limits(10),
+            Some(limits(1000)),
+            0,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let restarted = CitadelNodePeerLayer::new(g.manager.get_persistence_handler().clone());
+    let _ = restarted.restore_persisted_groups().await.unwrap();
+    let mut book = GroupOrderBook::default();
+    let next = match position(
+        &restarted,
+        &mut book,
+        g.key,
+        g.member,
+        GroupMessageId::random(),
+    )
+    .await
+    {
+        Positioned::New { position, .. } => position.seq,
+        Positioned::Retry { .. } => panic!("a fresh id was a retry"),
+    };
+    assert_eq!(next, at.seq + 1, "a gap after replay started at {}", at.seq);
 }
 
 #[test]
