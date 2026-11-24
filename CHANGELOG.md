@@ -4,6 +4,33 @@
 
 ### Added
 
+- **A group's broadcasts have one order.** The server positions every message and Commit of a
+  group, under the lock its fan-out and member replays already take, so every member sees the
+  same positions in the same order.
+  - **Where a message stands.** `GroupBroadcastPayload::Message` carries `position`
+    (`GroupPosition { seq, chain }`) and the sender's `id` (`GroupMessageId`). The sender's answer,
+    `GroupBroadcast::MessageResponse`, carries both too, and reaches the sender before any
+    broadcast positioned after its message.
+  - **Numbers.** They start at 1 for a group, increase, and never repeat, across server restarts
+    as well: they are reserved in blocks under the group's owner before they are given, so they
+    may skip after a restart. `chain` is `None` until replay arrives.
+  - **Sending again.** `GroupChannelSendHalf::send_message_with_id` sends under an id of the
+    caller's. A message sent again under its id is not relayed twice: the answer is
+    `NotRelayed::AlreadyRelayed`, with the position the first copy was given. `send_message`
+    draws a new id each time.
+  - **At most once.** A member's node hands each position of a group to the application at most
+    once while the process runs. A consumer that keeps state across its own restarts must be
+    idempotent by `position.seq`.
+  - **Held messages.** What a server holds for an away member comes back in the group's order,
+    whatever its clock did, and is removed only once it is handed to the member's stream.
+  - **Replay, on the wire.** `GroupBroadcast` carries the replay requests and answers
+    (`EnableReplay`, `ReplayEnabled`, `ReplayRefused`, `FetchRange`, `Range`, `Trimmed`,
+    `OrderBroken`), `MessageGroupOptions::replay`, and `order` on `Welcome` and `Resumed`. This
+    release answers every replay request `GroupReplayRefusal::NotApplicable`.
+  - `GroupPosition`, `GroupMessageId`, `GroupLogLimits`, `GroupReplayRefusal`, `GroupOrderInfo`
+    and `GroupOrderBroken` are exported by `@avarok/citadel-protocol-types` (0.15.3), with
+    `NotRelayed::AlreadyRelayed` and `NotRelayed::NotPositioned`.
+
 - **Resume credentials: signing in again without the account's factors.**
   - **Asking.** A full sign-in asks for one with `SignInFactors::with_resume_lifetime`; the
     connection carries it (`CitadelClientServerConnection::resume`) with the moment it expires
@@ -193,6 +220,11 @@
   `KsfParams::FLOOR` reads the same constants.
 
 ### Breaking
+
+- **Protocol 0.12.7.** Group messages and Commits reach members inside `GroupBroadcast::Ordered`;
+  `GroupBroadcast::Message` and `MessageResponse` gained fields, and `MessageGroupOptions` gained
+  `replay`. Messages held for an away member by an earlier release are not delivered: they were
+  kept by the time they were held, and a group's order replaces that.
 
 - **Groups (protocol 0.12.5; older nodes are refused by name).**
   - **Delivery reports.** `MessageResponse { success }` is now `MessageResponse { key, delivery }`.
