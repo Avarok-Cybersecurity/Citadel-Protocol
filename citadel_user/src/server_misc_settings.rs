@@ -5,7 +5,7 @@
 //!
 //! # Features
 //!
-//! * Passwordless authentication control
+//! * Whether transient accounts are allowed
 //! * Credential requirement specifications
 //! * Default settings configuration
 //!
@@ -25,13 +25,14 @@
 //!
 //! // Or use default settings
 //! let default_settings = ServerMiscSettings::default();
-//! assert!(default_settings.allow_transient_connections); // Passwordless auth is enabled by default
+//! assert!(default_settings.allow_transient_connections); // transient accounts are allowed by default
 //! ```
 //!
 //! # Important Notes
 //!
-//! * Enabling passwordless authentication (`allow_transient_connections`) should be done with caution
-//!   and only in trusted environments
+//! * A transient account is a session with its own CID that the server never persists and that
+//!   has no password. `allow_transient_connections` decides whether this server gives them out;
+//!   a server built with `citadel_sdk`'s `NodeBuilder` says it with `with_transient_accounts`
 //! * Credential requirements are enforced even when creating new accounts
 //! * Default settings prioritize ease of use over security - modify as needed for production
 //!
@@ -49,7 +50,10 @@ use std::sync::Arc;
 /// Miscellaneous settings for a node serving connections
 #[derive(Clone)]
 pub struct ServerMiscSettings {
-    /// If enabled, allows inbound connections to use no credentials when logging-in
+    /// Whether a client may open a transient account here: a session with its own CID that this
+    /// server never persists and that has no password. When `false`, such a request is refused
+    /// with `ErrorCode::PasswordlessUnsupported` and every session belongs to a stored account.
+    /// Allowed by default (see [`Default`]).
     pub allow_transient_connections: bool,
     /// Enforces specific requirements on credentials
     pub credential_requirements: CredentialRequirements,
@@ -64,6 +68,11 @@ pub struct ServerMiscSettings {
 }
 
 impl Default for ServerMiscSettings {
+    /// Transient accounts are allowed. That default is a deliberate product decision approved by
+    /// the project owner (2026-11-24), not an implicit fallback: a transient account still has an
+    /// identity (its CID) for as long as it is connected, and allowing it keeps existing servers
+    /// and clients working as before. A server turns it off with `allow_transient_connections:
+    /// false` (or `NodeBuilder::with_transient_accounts(false)`).
     fn default() -> Self {
         Self {
             allow_transient_connections: true,

@@ -61,6 +61,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     #[cfg(feature = "google-services")]
     services: Option<ServicesConfig>,
     server_misc_settings: Option<ServerMiscSettings>,
+    transient_accounts: Option<bool>,
     client_tls_config: Option<T::ClientConfig>,
     kernel_executor_settings: Option<KernelExecutorSettings>,
     stun_servers: Option<Vec<String>>,
@@ -96,6 +97,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             #[cfg(feature = "google-services")]
             services: None,
             server_misc_settings: None,
+            transient_accounts: None,
             client_tls_config: None,
             kernel_executor_settings: None,
             stun_servers: None,
@@ -180,7 +182,8 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         let server_services_cfg = self.services.take();
         #[cfg(not(feature = "google-services"))]
         let server_services_cfg = None;
-        let server_misc_settings = self.server_misc_settings.take();
+        let server_misc_settings =
+            with_transient_accounts(self.server_misc_settings.take(), self.transient_accounts)?;
         let client_config = self.client_tls_config.take();
         let kernel_executor_settings = self.kernel_executor_settings.take().unwrap_or_default();
         let stun_servers = StunServers::required(self.stun_servers.take())?;
@@ -330,7 +333,9 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         self
     }
 
-    /// Attaches miscellaneous server settings (e.g., transient mode, credential requirements)
+    /// Attaches miscellaneous server settings (e.g., credential requirements, post-quantum
+    /// sign-in). Whether transient accounts are allowed is better said with
+    /// [`Self::with_transient_accounts`]; see there for how the two combine.
     pub fn with_server_misc_settings(&mut self, misc_settings: ServerMiscSettings) -> &mut Self {
         self.server_misc_settings = Some(misc_settings);
         self
@@ -463,6 +468,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
 
     fn check(&self) -> anyhow::Result<()> {
         check_path_policy(self.hypernode_type.as_ref(), self.path_policy.as_ref())?;
+        check_transient_accounts(self.hypernode_type.as_ref(), self.transient_accounts)?;
         check_server_limits(
             self.hypernode_type.as_ref(),
             self.server_limits.as_ref(),
@@ -663,7 +669,10 @@ mod kex_identity;
 mod level_cap;
 #[path = "node_builder_revfs.rs"]
 mod revfs;
+#[path = "node_builder_transient.rs"]
+mod transient;
 use level_cap::required_max_security_level;
+use transient::{check_transient_accounts, with_transient_accounts};
 #[path = "node_builder_link_mode.rs"]
 mod link_mode;
 use link_mode::required_link_mode;

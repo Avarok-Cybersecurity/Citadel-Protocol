@@ -1,12 +1,13 @@
 //! Authentication Request Types for Citadel Protocol
 //!
 //! This module defines the authentication request types and structures used for establishing
-//! connections in the Citadel Protocol. It supports both credential-based and passwordless
-//! authentication methods.
+//! connections in the Citadel Protocol. It supports both credential-based authentication and
+//! transient accounts.
 //!
 //! # Features
 //! - **Credential Authentication**: Username/password-based authentication
-//! - **Passwordless Authentication**: Device-based transient connections
+//! - **Transient accounts**: a session with its own CID that the server never persists and that
+//!   has no password (a server may disallow them: `NodeBuilder::with_transient_accounts`)
 //! - **Secure Credential Handling**: Uses SecBuffer for password protection
 //! - **User Identification**: Supports both CID and username-based identification
 //! - **Server Address Management**: Handles server connection information
@@ -25,7 +26,7 @@
 //!     SecBuffer::from("password")
 //! );
 //!
-//! // Passwordless authentication
+//! // A transient account
 //! let server_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
 //! let uuid = Uuid::new_v4();
 //! let transient_auth = AuthenticationRequest::transient(uuid, server_addr);
@@ -35,7 +36,7 @@
 //! - Passwords are always handled using SecBuffer for secure memory management
 //! - Transient connections use device-specific cryptographic bundles
 //! - CID extraction is only available for credential-based authentication
-//! - Server addresses are required for passwordless authentication
+//! - Server addresses are required for a transient account
 //!
 //! # Related Components
 //! - `citadel_types::crypto::SecBuffer`: Secure credential storage
@@ -77,7 +78,9 @@ pub enum AuthenticationRequest {
         #[serde(skip)]
         factors: SignInFactors,
     },
-    /// No credentials/one-time connection
+    /// A transient account: a session with its own CID that the server never persists and that
+    /// has no password. A server that disallows them refuses with
+    /// `ErrorCode::PasswordlessUnsupported`.
     Passwordless {
         username: String,
         server_addr: SocketAddr,
@@ -93,7 +96,8 @@ impl AuthenticationRequest {
         }
     }
 
-    /// No credentials will be used for login, only a one-time device-dependent cryptographic bundle
+    /// A transient account (see [`Self::Passwordless`]): no credentials, only a one-time
+    /// device-dependent cryptographic bundle. `uuid` is the identifier the client proposes.
     pub fn transient(uuid: Uuid, server_addr: SocketAddr) -> Self {
         Self::Passwordless {
             username: uuid.to_string(),

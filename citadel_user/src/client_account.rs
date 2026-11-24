@@ -8,7 +8,7 @@
 //!
 //! * **Connection Modes**
 //!   - Personal mode with full authentication and encryption
-//!   - Impersonal mode for temporary or anonymous connections
+//!   - Transient accounts: a session with its own CID that is never persisted and has no password
 //!
 //! * **Security**
 //!   - Secure credential storage and validation
@@ -569,7 +569,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         self.inner.cid
     }
 
-    /// Returns true if passwordless
+    /// Returns true for a transient account: its own CID, never persisted, no password
     pub fn is_transient(&self) -> bool {
         self.inner.is_transient
     }

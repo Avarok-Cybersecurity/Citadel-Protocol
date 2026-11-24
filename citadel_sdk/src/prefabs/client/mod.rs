@@ -146,9 +146,11 @@ impl<R: Ratchet, T: ToSocketAddrs> ServerConnectionSettingsBuilder<R, T> {
         }
     }
 
-    /// Creates a new connection to a central server that does not persist client metadata and account information
-    /// after the connection is dropped to the server. This is ideal for applications that do not require
-    /// persistence.
+    /// Creates a new connection to a central server as a transient account: a session with its own
+    /// CID that the server does not persist after the connection is dropped, and that has no
+    /// password. This is ideal for applications that do not require persistence. A server built
+    /// with `NodeBuilder::with_transient_accounts(false)` refuses it with
+    /// `ErrorCode::PasswordlessUnsupported`.
     ///
     /// Every constructor takes `cert_verification`: what this connection demands of the server's
     /// certificate. There is no default.
