@@ -7,7 +7,7 @@ use super::tests::register;
 use citadel_io::{tokio, ErrorCode};
 use citadel_types::auth::{FactorKind, SignInPolicy};
 
-fn key(n: u8) -> NewFactor {
+pub(crate) fn key(n: u8) -> NewFactor {
     let ek = FactorKeypair::derive(&FactorSeed::new([n; SEED_LEN]))
         .unwrap()
         .encapsulation_key()

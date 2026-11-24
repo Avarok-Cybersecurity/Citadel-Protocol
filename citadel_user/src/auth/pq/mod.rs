@@ -63,6 +63,8 @@ mod tests_resume_forgery;
 #[cfg(test)]
 mod tests_resume_reissue;
 #[cfg(test)]
+mod tests_resume_revocation;
+#[cfg(test)]
 mod tests_retired_codes;
 #[cfg(test)]
 mod tests_throttle;
