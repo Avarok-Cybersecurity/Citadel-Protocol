@@ -88,6 +88,7 @@ fn a_groups_creation_carries_its_relay_options() {
         ephemeral: true,
         limits: Some(limits(64, 4)),
         retention: None,
+        replay: None,
     };
     let with = create(options).serialize_to_vector().unwrap();
     match PeerSignal::deserialize_from_vector(&with).unwrap() {
@@ -128,6 +129,7 @@ fn a_creation_with_invalid_caps_is_refused() {
         bool,
         Option<(u32, u32)>,
         Option<std::time::Duration>,
+        Option<citadel_types::proto::GroupLogLimits>,
     );
     #[derive(serde::Serialize, serde::Deserialize)]
     enum BroadcastWithRawCaps {
@@ -140,7 +142,7 @@ fn a_creation_with_invalid_caps_is_refused() {
         let (group_type, id, hierarchy) = options_without_relay_fields();
         BroadcastWithRawCaps::Create {
             initial_invitees: vec![2],
-            options: (group_type, id, hierarchy, false, Some(caps), None),
+            options: (group_type, id, hierarchy, false, Some(caps), None, None),
         }
         .serialize_to_vector()
         .unwrap()
