@@ -192,8 +192,8 @@ pub enum GroupBroadcast {
         /// The group's order
         order: GroupOrderInfo,
     },
-    /// To the application, never on the wire: the replay group's channel delivers nothing past
-    /// `last` until the member resumes the group.
+    /// To the application, never on the wire: positions after `last` this member cannot have
+    /// (see `GroupOrderBroken`). Delivery goes on, in order, after them.
     OrderBroken {
         /// Group key
         key: MessageGroupKey,

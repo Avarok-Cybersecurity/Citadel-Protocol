@@ -211,6 +211,11 @@
 
 ### Fixed
 
+- **A group message sent as its session ends is reported.** The session's shutdown drain read
+  its closed queue empty while a send that had its place was still writing; that send returned
+  `Ok` and its message went nowhere. The drain now waits for it, and the sender receives
+  `MessageResponse { NotRelayed(SessionEnded) }` as for any message its ended session could not
+  carry.
 - **Account layer** (`citadel_user`):
   - Registering two accounts as peers on the server takes one account lock at a time, so two
     registrations of the same pair in opposite orders always finish; registering an account as

@@ -147,18 +147,21 @@ pub struct GroupOrderInfo {
     pub limits: GroupLogLimits,
 }
 
-/// Why a replay group's channel stopped delivering in order. Nothing past `last` is delivered
-/// until the member resumes the group again.
+/// Why a replay group's channel cannot hand on some positions after `last`. They are lost to
+/// this member; what follows them is still delivered, in order.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "typescript", derive(TS))]
 #[cfg_attr(feature = "typescript", ts(export))]
 pub enum GroupOrderBroken {
-    /// The positions after `last` are older than the log keeps; the log starts at `earliest`.
+    /// The positions after `last` are older than the log keeps; delivery goes on from
+    /// `earliest`, where the log starts.
     Trimmed {
         #[cfg_attr(feature = "typescript", ts(type = "bigint"))]
         earliest: u64,
     },
-    /// More broadcasts arrived past a gap than this member holds while it fetches the gap.
+    /// More broadcasts arrived past a gap than this member holds while it fetches the gap. Not
+    /// sent by this release: a member holding the most it can drops what arrives beyond it and
+    /// fetches that in its turn.
     BufferFull,
 }
 
