@@ -275,6 +275,10 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                         Some(issued_resume_token),
                                         None,
                                         session.path_policy.clone(),
+                                        packet_crafter::do_connect::FinalStatusDetail {
+                                            resume_grant: admission.resume_grant,
+                                            code: None,
+                                        },
                                     );
 
                                 session.session_cid.set(Some(cid));
@@ -294,6 +298,8 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                     udp_rx_opt: udp_channel_rx,
                                     session_security_settings,
                                     path_policy: session.path_policy.clone(),
+                                    resume: None,
+                                    resume_max_lifetime_s: None,
                                 });
                                 // Store the signal (post-await), using a short-lived lock
                                 inner_mut_state!(session.state_container)
@@ -374,6 +380,7 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                         cid_opt: Some(cid),
                         error_message: message,
                         admission_challenge: payload.admission_challenge,
+                        error_code: payload.code,
                     })?;
                     Ok(PrimaryProcessorResult::EndSession(
                         "Failed connecting. Try again",
@@ -465,6 +472,14 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 .session_manager
                                 .on_connect_success_resume_token(cid, payload.resume_token);
 
+                            let (resume, resume_max_lifetime_s) = {
+                                let mut state = inner_mut_state!(session.state_container);
+                                let resume = &mut state.connect_state.pq.resume;
+                                (
+                                    resume.granted(cid, payload.resume_grant),
+                                    resume.max_lifetime_s,
+                                )
+                            };
                             let post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;
                             let cxn_type =
@@ -498,6 +513,8 @@ pub async fn process_connect<R: Ratchet, T: PlatformOps>(
                                 udp_rx_opt: udp_channel_rx,
                                 session_security_settings,
                                 path_policy: payload.path_policy,
+                                resume,
+                                resume_max_lifetime_s,
                             }))?;
                             // A recovery session leaves the account's local peer list alone: the
                             // server sends it none.

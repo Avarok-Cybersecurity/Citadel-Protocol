@@ -21,6 +21,7 @@ pub(crate) mod recover;
 pub(crate) mod refusal;
 pub(crate) mod register;
 pub(crate) mod restrict;
+pub(crate) mod resume;
 pub mod security_key;
 pub(crate) mod state;
 pub(crate) mod throttle;
@@ -55,6 +56,8 @@ pub(crate) fn store_offered<R: Ratchet>(
                 security_key: None,
                 recovery_phrase: None,
                 admission: None,
+                resume: None,
+                resume_lifetime_s: None,
             });
         }
         HdpSessionInitMode::Connect(AuthenticationRequest::SignIn { factors, .. }) => {
@@ -63,6 +66,8 @@ pub(crate) fn store_offered<R: Ratchet>(
                 security_key: factors.security_key.clone(),
                 recovery_phrase: factors.recovery_phrase.clone(),
                 admission: factors.admission.clone().map(AdmissionToken::new),
+                resume: factors.resume.clone(),
+                resume_lifetime_s: factors.resume_lifetime_s,
             });
         }
         HdpSessionInitMode::Register(_, _, _, password, admission, recovery_domain) => {

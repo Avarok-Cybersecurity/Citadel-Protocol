@@ -147,6 +147,8 @@ mod p2p_path_rearm;
 mod path_policy_at_connect;
 mod pq_recovery;
 mod pq_recovery_manage;
+mod pq_resume_credential;
+mod pq_resume_refusals;
 mod pq_sign_in;
 mod pq_sign_in_admission;
 mod pq_sign_in_admission_after_end;

@@ -100,6 +100,8 @@ where
                 udp_rx_opt: udp_channel_rx,
                 session_security_settings,
                 path_policy,
+                resume: _,
+                resume_max_lifetime_s: _,
             }) => {
                 let client_server_remote = ClientServerRemote::new(
                     conn_type,
@@ -116,6 +118,8 @@ where
                     cid,
                     session_security_settings,
                     path_policy,
+                    resume: None,
+                    resume_max_lifetime_s: None,
                 })
                 .await
             }

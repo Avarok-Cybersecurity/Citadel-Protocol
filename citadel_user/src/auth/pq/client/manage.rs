@@ -11,6 +11,7 @@ use crate::auth::pq::messages::{
 };
 use crate::auth::pq::phrase::RecoverySeed;
 use crate::auth::pq::proof::{factor_tag, TranscriptHash, TranscriptPurpose, ENROL_LABEL};
+use crate::auth::pq::resume::PresentedResume;
 use crate::auth::pq::seed::security_key_seed;
 use crate::auth::pq::{management_transcript, random_32};
 use crate::misc::AccountError;
@@ -23,6 +24,7 @@ pub struct ClientManagement {
     login: ClientLogin,
     begin: ManagementBegin,
     new: NewCredentials,
+    resume: Option<PresentedResume>,
 }
 
 impl ClientManagement {
@@ -41,7 +43,21 @@ impl ClientManagement {
             step_up,
             recovery_eks,
         };
-        Ok((begin.clone(), Self { login, begin, new }))
+        let resume = None;
+        let client = Self {
+            login,
+            begin,
+            new,
+            resume,
+        };
+        Ok((client.begin.clone(), client))
+    }
+
+    /// Sends the resume credential this device holds with the commit, so the server re-binds it
+    /// to the account as the change leaves it.
+    pub fn keeping(mut self, held: PresentedResume) -> Self {
+        self.resume = Some(held);
+        self
     }
 
     /// The touch the step-up needs, if the account's policy includes a key.
@@ -118,6 +134,7 @@ impl ClientManagement {
                     ek: keypair.encapsulation_key().clone(),
                 }),
             password_ek,
+            resume: self.resume,
         };
         let transcript =
             management_transcript(cid, &self.begin, challenge, &key_binding(&ceremony));

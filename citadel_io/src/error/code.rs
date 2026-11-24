@@ -1183,6 +1183,12 @@ pub enum ErrorCode {
     /// words for the user.
     #[form = "{}"]
     PqSignInSecurityKey = 353,
+    /// A resume credential was presented, or was about to be, past its expiry.
+    #[form = "The resume credential has expired"]
+    ResumeCredentialExpired = 354,
+    /// A resume credential was issued before the account's sign-in last changed.
+    #[form = "The resume credential no longer matches this account's sign-in"]
+    ResumeCredentialRevoked = 355,
 
     // --- citadel_proto: connection supervision (liveness probe, path re-arm) ---
     /// A server probe's session ended before the probe was answered or timed out.

@@ -81,6 +81,7 @@ async fn a_challenging_policy_is_still_asked_before_the_oprf() {
         recovery: None,
         admission: None,
         resume: None,
+        resume_credential: None,
     };
     let ctx = AdmissionContext {
         username: "alice".into(),

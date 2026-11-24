@@ -69,6 +69,9 @@ pub enum FactorKind {
     /// The account's recovery phrase: 24 words for a 32-byte seed, bound to one server and one
     /// username. Reusable; an account has at most one.
     RecoveryPhrase,
+    /// A device's resume key: proven in place of the account's factors by a device holding a
+    /// resume credential. Never enrolled: the server keeps no record of one.
+    ResumeKey,
 }
 
 /// One enrolled factor, as `ListCredentials` reports it.

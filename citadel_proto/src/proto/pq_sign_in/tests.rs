@@ -76,6 +76,7 @@ fn an_older_clients_stage0_does_not_read_and_a_current_one_does() {
         uses_filesystem: false,
         resume_token: None,
         pq_proof: Some(proof()),
+        resume_request: None,
     };
     let bytes = new.serialize_to_vector().unwrap();
     let here = DoConnectStage0Packet::deserialize_from_vector(&bytes).unwrap();

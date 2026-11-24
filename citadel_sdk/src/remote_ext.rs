@@ -186,6 +186,14 @@ pub struct CitadelClientServerConnection<R: Ratchet> {
     /// order, for which traffic. `None` when the server sent none, or one that failed
     /// validation.
     pub path_policy: Option<PathPolicy>,
+    /// The resume credential this sign-in was granted: what a later
+    /// `SignInFactors::resume` signs in with, until it expires or the account's sign-in changes.
+    /// `None` when none was asked for (`SignInFactors::with_resume_lifetime`), the server issues
+    /// none, or this sign-in was itself a resume.
+    pub resume: Option<ResumeCredential>,
+    /// The longest a resume credential may live on this server, in seconds; `None` when the
+    /// server issues none.
+    pub resume_max_lifetime_s: Option<u64>,
 }
 
 impl<R: Ratchet> CitadelClientServerConnection<R> {
@@ -494,6 +502,7 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
         server_password: Option<PreSharedKey>,
         cert_verification: CertVerification,
     ) -> Result<CitadelClientServerConnection<R>, NetworkError> {
+        crate::resume::refuse_expired(&auth, citadel_user::misc::now_ms())?;
         let connect_request = NodeRequest::ConnectToHypernode(ConnectToHypernode {
             auth_request: auth,
             connect_mode,
@@ -531,6 +540,8 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 udp_rx_opt: udp_channel_rx,
                 session_security_settings,
                 path_policy,
+                resume,
+                resume_max_lifetime_s,
             }) => Ok(CitadelClientServerConnection {
                 remote: ClientServerRemote::new(
                     v_conn_type,
@@ -545,6 +556,8 @@ pub trait ProtocolRemoteExt<R: Ratchet>: Remote<R> {
                 cid,
                 session_security_settings,
                 path_policy,
+                resume,
+                resume_max_lifetime_s,
             }),
             NodeResult::ConnectFail(ConnectFail {
                 error_message: err, ..

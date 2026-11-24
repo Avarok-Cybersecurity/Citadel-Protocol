@@ -3,6 +3,7 @@ use crate::auth::pq::admission::AdmissionToken;
 use crate::auth::pq::kem::KemCiphertext;
 use crate::auth::pq::proof::Tag;
 use crate::auth::pq::record::KsfParams;
+use crate::auth::pq::resume::PresentedResume;
 use citadel_types::auth::{FactorId, FactorKind};
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +23,8 @@ pub struct LoginStart {
     /// The resume token of the session the server may still hold for this client: a reconnect
     /// it recognises is not asked for admission. Checked against the held session only.
     pub resume: Option<[u8; 32]>,
+    /// A resume credential, offered in place of the account's factors (see `auth::pq::resume`).
+    pub resume_credential: Option<PresentedResume>,
 }
 
 /// S→C: the server's challenge. For an unknown username the server answers with decoys derived
@@ -66,6 +69,9 @@ pub struct ChallengeCeremony {
     /// The WebAuthn relying party ID the server's security keys are scoped to. `None` when the
     /// server has not enabled security keys.
     pub rp_id: Option<String>,
+    /// The longest a resume credential may live on this server, in seconds: what a client asks
+    /// for no more than. `None` when the server issues none.
+    pub resume_max_lifetime_s: Option<u64>,
 }
 
 /// One encapsulation to one of the account's factors.

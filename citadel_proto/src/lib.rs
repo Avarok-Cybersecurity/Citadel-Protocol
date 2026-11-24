@@ -639,6 +639,9 @@ pub mod prelude {
     pub use crate::proto::session_ledger::SessionFootprint;
     pub use crate::proto::state_container::VirtualTargetType;
     pub use crate::proto::traffic::{ByteCount, NodeTrafficSnapshot, PathBytesSnapshot};
+    /// The oldest protocol version this build takes part with: a node on an older one is refused
+    /// by name (`ErrorCode::ProtocolVersionUnsupported`) and must be updated.
+    pub use crate::proto::version_gate::OLDEST_PEER_PROTOCOL_VERSION;
     pub use citadel_io::ServerMode;
     pub use citadel_link::{Backoff, FlapPolicy, HealPolicy, LinkPolicy, PolicyError};
     pub use citadel_link::{CloseReason, ShutdownReason};

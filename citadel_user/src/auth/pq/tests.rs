@@ -43,6 +43,7 @@ pub(crate) fn sent(challenge: &LoginChallenge) -> AuthChallenge {
         challenge: challenge.clone(),
         ceremony: ChallengeCeremony {
             rp_id: Some(RP_ID.into()),
+            resume_max_lifetime_s: None,
         },
     }
 }

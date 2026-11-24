@@ -56,6 +56,7 @@ use citadel_types::crypto::SecBuffer;
 use citadel_types::user::UserIdentifier;
 pub use citadel_user::auth::pq::client::{SecurityKeyCeremony, SecurityKeyRequest};
 use citadel_user::auth::pq::phrase::RecoveryPhrase;
+use citadel_user::auth::pq::resume::ResumeCredential;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
@@ -136,9 +137,28 @@ pub struct SignInFactors {
     /// The admission token (a Turnstile response) for a server that asks fresh sign-ins for one.
     /// Sent only inside the post-quantum channel, and never printed.
     pub admission: Option<String>,
+    /// A resume credential from an earlier sign-in, offered in place of every factor above. One
+    /// past its expiry is refused before anything is sent, as `ResumeCredentialExpired`.
+    pub resume: Option<ResumeCredential>,
+    /// Asks a full sign-in for a resume credential living this many seconds. The server grants
+    /// no more than its own maximum; `None` asks for none.
+    pub resume_lifetime_s: Option<u64>,
 }
 
 impl SignInFactors {
+    /// Signs in again with `credential`, and nothing else.
+    pub fn resume(credential: ResumeCredential) -> Self {
+        Self {
+            resume: Some(credential),
+            ..Default::default()
+        }
+    }
+
+    pub fn with_resume_lifetime(mut self, lifetime: std::time::Duration) -> Self {
+        self.resume_lifetime_s = Some(lifetime.as_secs());
+        self
+    }
+
     pub fn password<T: Into<SecBuffer>>(password: T) -> Self {
         Self {
             password: Some(password.into()),
@@ -175,6 +195,8 @@ impl std::fmt::Debug for SignInFactors {
                 &self.recovery_phrase.as_ref().map(|_| "***"),
             )
             .field("admission", &self.admission.as_ref().map(|_| "***"))
+            .field("resume", &self.resume)
+            .field("resume_lifetime_s", &self.resume_lifetime_s)
             .finish()
     }
 }

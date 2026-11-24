@@ -96,6 +96,13 @@ pub struct ConnectSuccess<R: Ratchet> {
     /// The server's path policy: on a client, as the server sent it (`None` when it sent none, or
     /// one that failed validation); on the server, its own.
     pub path_policy: Option<citadel_types::proto::PathPolicy>,
+    /// On a client: the resume credential this sign-in was granted (see
+    /// `citadel_user::auth::pq::resume`). `None` when it asked for none, the server issues none,
+    /// or the sign-in was itself a resume, whose credential stays as it was.
+    pub resume: Option<citadel_user::auth::pq::resume::ResumeCredential>,
+    /// On a client: the longest a resume credential may live on this server, in seconds; `None`
+    /// when the server issues none.
+    pub resume_max_lifetime_s: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -105,6 +112,9 @@ pub struct ConnectFail {
     pub error_message: String,
     /// As [`RegisterFailure::admission_challenge`].
     pub admission_challenge: Option<AdmissionChallenge>,
+    /// The refusal's stable error code (`ErrorCode`), when the refusing side named one: what a
+    /// caller matches on, in place of `error_message`.
+    pub error_code: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -289,7 +299,18 @@ impl<R: Ratchet> NodeResult<R> {
                 cid_opt: _,
                 error_message: err,
                 admission_challenge,
-            }) => Err(refused(err, admission_challenge)),
+                error_code,
+            }) => Err(
+                // As a registration's: the code the refusing side sent, unless it names nothing
+                // more than the text does.
+                match error_code
+                    .map(|code| NetworkError::from_wire(code, err.clone()))
+                    .filter(|wired| wired.code() != citadel_io::ErrorCode::Generic)
+                {
+                    Some(wired) if admission_challenge.is_none() => wired,
+                    _ => refused(err, admission_challenge),
+                },
+            ),
             NodeResult::RegisterFailure(RegisterFailure {
                 ticket: _,
                 error_message: err,
@@ -446,6 +467,31 @@ fn refused(message: String, challenge: Option<AdmissionChallenge>) -> NetworkErr
     if message.starts_with(crate::proto::session_manager::SESSION_ALREADY_CONNECTED) {
         return citadel_io::error!(citadel_io::ErrorCode::RemoteServerHoldsSession, message);
     }
+    // A server refusing this node's protocol version halts the SYN with the refusal's text
+    // alone, in every version: read back by its own template, so a caller matches the code.
+    let version = citadel_io::ErrorCode::ProtocolVersionUnsupported;
+    let halted = NetworkError::from_wire(version as u16, message.clone());
+    if halted.code() == version {
+        return halted;
+    }
     citadel_user::auth::pq::admission::refusal_from_message(&message, challenge)
         .unwrap_or_else(|| NetworkError::generic(message))
+}
+
+#[cfg(test)]
+mod refused_tests {
+    use super::*;
+    use crate::proto::version_gate::check_peer_protocol_version;
+    use citadel_io::ErrorCode;
+
+    /// Control: drop the template read in `refused`, and the refusal is a `Generic` error.
+    #[test]
+    fn a_servers_version_refusal_is_named_by_its_code_from_its_text_alone() {
+        let halt = check_peer_protocol_version(0).unwrap_err().into_string();
+        let read = refused(halt.clone(), None);
+        assert_eq!(read.code(), ErrorCode::ProtocolVersionUnsupported);
+        assert_eq!(read.into_string(), halt, "the text is kept");
+        let other = refused("Preconnect stage failed".into(), None);
+        assert_eq!(other.code(), ErrorCode::Generic);
+    }
 }
