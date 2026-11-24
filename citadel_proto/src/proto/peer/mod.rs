@@ -52,6 +52,8 @@ pub mod group_succession;
 
 /// The owner a client's group channel acts under.
 pub mod group_owner;
+/// A replay group's order, as its server last described it to this member.
+pub mod group_order_view;
 
 /// Server-side rendezvous for a member waiting on a group its owner has not created yet.
 pub mod group_watch;
@@ -69,8 +71,14 @@ pub mod group_backup;
 pub mod group_delivered;
 /// Server-side caps on a group's message size and rate
 pub(crate) mod group_limits;
+/// A replay group's log kept within its limits, and ranges read from it (decisions only).
+pub(crate) mod group_log_plan;
 /// Where a group's order is stored.
 pub(crate) mod group_log;
+/// Reading, trimming and moving a replay group's log.
+pub(crate) mod group_log_ops;
+/// A replay group's log at the server: started, turned on, described and read.
+pub(crate) mod group_replay;
 pub mod group_mail;
 /// Positioning a group broadcast on the server, with its order stored first.
 pub(crate) mod group_position;

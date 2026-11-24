@@ -1,12 +1,8 @@
-//! A member's side of a group's order: a positioned broadcast ([`GroupBroadcast::Ordered`]) is
-//! taken apart before it is processed, handed on at most once per position (`group_delivered`),
-//! and a message reaches the application with its position.
-//!
-//! Also the answers to the replay requests, which this release refuses (`NotApplicable`): a
-//! group keeps no log yet.
+//! A member's side of a group's order, once a broadcast has arrived in order (`group_arrivals`):
+//! a message reaches the application with its position, and so does a positioned event of a
+//! replay group; the answers to replay requests are handed on.
 
 use super::group_broadcast::{forward_signal, GroupBroadcast};
-use super::group_restore::Reply;
 use crate::error::NetworkError;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::PrimaryProcessorResult;
@@ -14,38 +10,7 @@ use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;
 use citadel_crypt::ratchets::Ratchet;
-use citadel_types::proto::{GroupPosition, GroupReplayRefusal, MessageGroupKey};
-
-/// A broadcast to process, and its position when it came positioned. `None` when there is
-/// nothing to process: a position this node delivered already, or one sent to the wrong side.
-pub(super) fn unwrap_ordered<R: Ratchet, T: PlatformOps>(
-    session: &CitadelSession<R, T>,
-    session_cid: u64,
-    signal: GroupBroadcast,
-) -> Option<(GroupBroadcast, Option<GroupPosition>)> {
-    let GroupBroadcast::Ordered {
-        key,
-        position,
-        frame,
-    } = signal
-    else {
-        return Some((signal, None));
-    };
-    if session.is_server || matches!(*frame, GroupBroadcast::Ordered { .. }) {
-        log::warn!(target: "citadel", "Ignoring a positioned broadcast for {key:?}: only a server positions, and only once");
-        return None;
-    }
-    let first_time = session
-        .hypernode_peer_layer
-        .group_delivered
-        .lock()
-        .first_time(session_cid, key, position.seq);
-    if !first_time {
-        log::trace!(target: "citadel", "Dropping position {} of {key:?}: delivered already", position.seq);
-        return None;
-    }
-    Some((*frame, Some(position)))
-}
+use citadel_types::proto::{GroupPosition, MessageGroupKey};
 
 /// What the application receives for an opened message.
 pub(super) fn opened(
@@ -113,40 +78,34 @@ pub(super) fn from_payload(key: MessageGroupKey, payload: GroupBroadcastPayload)
     }
 }
 
-/// Server: a replay request (`EnableReplay`, `FetchRange`) for `key`, refused.
-pub(super) fn refuse_replay<R: Ratchet, T: PlatformOps>(
-    session: &CitadelSession<R, T>,
-    reply: Reply<'_, R>,
+/// What the application receives for `event`: positioned when it came positioned (a membership
+/// or ownership change, or replay turned on, in a replay group).
+pub(super) fn event_at(
     key: MessageGroupKey,
-) -> Result<PrimaryProcessorResult, NetworkError> {
-    if !session.is_server {
-        log::warn!(target: "citadel", "Ignoring a replay request for {key:?}: only a server answers one");
-        return Ok(PrimaryProcessorResult::Void);
+    position: Option<GroupPosition>,
+    event: GroupBroadcast,
+) -> GroupBroadcast {
+    match position {
+        Some(position) => opened(key, position, event),
+        None => event,
     }
-    reply.send(GroupBroadcast::ReplayRefused {
-        key,
-        refusal: GroupReplayRefusal::NotApplicable,
-    })
 }
 
-/// Member: a replay answer (`ReplayRefused`, `Trimmed`) for the application; a server ignores
-/// one, and nothing sends `Range` or `OrderBroken` to this release.
+/// Member: a replay answer (`ReplayRefused`, `Trimmed`, `OrderBroken`) for the application; a
+/// server ignores one.
 pub(super) fn replay_answer<R: Ratchet, T: PlatformOps>(
     session: &CitadelSession<R, T>,
     ticket: Ticket,
     answer: GroupBroadcast,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
-    let (key, for_application) = match &answer {
-        GroupBroadcast::ReplayRefused { key, .. } | GroupBroadcast::Trimmed { key, .. } => {
-            (*key, true)
-        }
-        GroupBroadcast::ReplayEnabled { key, .. }
-        | GroupBroadcast::Range { key, .. }
-        | GroupBroadcast::OrderBroken { key, .. } => (*key, false),
+    let key = match &answer {
+        GroupBroadcast::ReplayRefused { key, .. }
+        | GroupBroadcast::Trimmed { key, .. }
+        | GroupBroadcast::OrderBroken { key, .. } => *key,
         _ => return Ok(PrimaryProcessorResult::Void),
     };
-    if session.is_server || !for_application {
-        log::warn!(target: "citadel", "Ignoring a replay answer for {key:?} this node does not take");
+    if session.is_server {
+        log::warn!(target: "citadel", "Ignoring a replay answer for {key:?}: only a member takes one");
         return Ok(PrimaryProcessorResult::Void);
     }
     forward_signal(session, ticket, Some(key), answer)

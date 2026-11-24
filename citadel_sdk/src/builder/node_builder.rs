@@ -70,6 +70,7 @@ pub struct NodeBuilder<R: Ratchet = StackedRatchet, T: PlatformOps = DefaultTran
     path_policy: Option<PathPolicy>,
     server_limits: Option<ServerLimits>,
     group_mail_limits: Option<citadel_proto::prelude::GroupMailLimits>,
+    group_log_limits: Option<citadel_proto::prelude::GroupLogLimits>,
     max_security_level: Option<citadel_types::crypto::MaxSecurityLevel>,
     revfs_keys: Option<citadel_proto::prelude::RevfsKeys>,
     p2p_kex_identity: Option<citadel_proto::prelude::P2pKexIdentities>,
@@ -106,6 +107,7 @@ impl<R: Ratchet, T: PlatformOps> Default for NodeBuilder<R, T> {
             path_policy: None,
             server_limits: None,
             group_mail_limits: None,
+            group_log_limits: None,
             max_security_level: None,
             revfs_keys: None,
             p2p_kex_identity: None,
@@ -194,6 +196,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
                 self.local_only_server_settings.take(),
                 self.server_limits.take(),
                 self.group_mail_limits.take(),
+                self.group_log_limits.take(),
             ),
             self.path_policy.take(),
         );
@@ -472,7 +475,7 @@ impl<R: Ratchet + ContextRequirements, T: PlatformOps> NodeBuilder<R, T> {
         check_server_limits(
             self.hypernode_type.as_ref(),
             self.server_limits.as_ref(),
-            self.group_mail_limits.is_some(),
+            self.group_mail_limits.is_some() || self.group_log_limits.is_some(),
         )?;
         if self.injected_listener.is_some()
             && !matches!(self.hypernode_type, Some(NodeType::Server(_)))

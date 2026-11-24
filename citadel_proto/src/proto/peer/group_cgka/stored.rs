@@ -17,6 +17,32 @@ struct Stored {
     needs_new_leaf: bool,
     own_leaf_secret: [u8; 32],
     group: Vec<u8>,
+    cursor: u64,
+}
+
+/// A state as a release before the member's cursor wrote it: read as one at cursor 0.
+#[derive(Serialize, Deserialize, Zeroize)]
+struct StoredWithoutCursor {
+    tree: u64,
+    is_owner: bool,
+    needs_new_leaf: bool,
+    own_leaf_secret: [u8; 32],
+    group: Vec<u8>,
+}
+
+impl From<StoredWithoutCursor> for Stored {
+    fn from(mut old: StoredWithoutCursor) -> Self {
+        let stored = Self {
+            tree: old.tree,
+            is_owner: old.is_owner,
+            needs_new_leaf: old.needs_new_leaf,
+            own_leaf_secret: old.own_leaf_secret,
+            group: std::mem::take(&mut old.group),
+            cursor: 0,
+        };
+        old.zeroize();
+        stored
+    }
 }
 
 impl GroupCgkaState {
@@ -32,6 +58,7 @@ impl GroupCgkaState {
             needs_new_leaf: self.needs_new_leaf,
             own_leaf_secret: self.own_leaf_secret,
             group: group.export()?.to_vec(),
+            cursor: self.cursor,
         };
         let bytes = stored
             .serialize_to_vector()
@@ -43,8 +70,9 @@ impl GroupCgkaState {
     /// A state written by [`Self::export`]. It sends under a fresh incarnation, so nothing it sent
     /// before it was written is ever sealed again under the same key.
     pub fn import(bytes: &[u8]) -> Result<Self, NetworkError> {
-        let mut stored =
-            Stored::deserialize_from_vector(bytes).map_err(|_| ser_err("stored_group_state"))?;
+        let mut stored = Stored::deserialize_from_vector(bytes)
+            .or_else(|_| StoredWithoutCursor::deserialize_from_vector(bytes).map(Stored::from))
+            .map_err(|_| ser_err("stored_group_state"))?;
         let mut incarnation = [0u8; 8];
         incarnation.copy_from_slice(&fresh_secret()[..8]);
         let incarnation = u64::from_be_bytes(incarnation).max(1);
@@ -61,6 +89,7 @@ impl GroupCgkaState {
             saved: None,
             opens: 0,
             needs_new_leaf: stored.needs_new_leaf,
+            cursor: stored.cursor,
         });
         stored.zeroize();
         state

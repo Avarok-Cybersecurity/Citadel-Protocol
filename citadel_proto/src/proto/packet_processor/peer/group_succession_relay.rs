@@ -135,12 +135,13 @@ fn left_group(key: MessageGroupKey, leaver: u64) -> GroupBroadcast {
     }
 }
 
-/// What an `OwnershipTransferred` says.
+/// What an `OwnershipTransferred` says, and its position in a replay group.
 pub(crate) struct Transfer {
     pub key: MessageGroupKey,
     pub owner: u64,
     pub previous: u64,
     pub tree: u64,
+    pub position: Option<citadel_types::proto::GroupPosition>,
 }
 
 /// What this member does about a transfer, decided under the state lock.
@@ -166,6 +167,7 @@ pub(crate) fn ownership_transferred<R: Ratchet, T: PlatformOps>(
         owner,
         previous,
         tree,
+        position,
     } = transfer;
     let session_cid = session
         .session_cid
@@ -242,15 +244,16 @@ pub(crate) fn ownership_transferred<R: Ratchet, T: PlatformOps>(
             )?;
         }
     }
+    let event = GroupBroadcast::OwnershipTransferred {
+        key,
+        owner,
+        previous,
+        tree,
+    };
     forward_signal(
         session,
         ticket,
         Some(key),
-        GroupBroadcast::OwnershipTransferred {
-            key,
-            owner,
-            previous,
-            tree,
-        },
+        super::group_ordered::event_at(key, position, event),
     )
 }

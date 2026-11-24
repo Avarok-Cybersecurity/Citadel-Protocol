@@ -58,24 +58,8 @@ pub(crate) async fn resume<R: Ratchet, T: PlatformOps>(
         log::warn!(target: "citadel", "Not resuming {key:?} for {member}: not a member");
         return Ok(());
     }
-    let backlog = held_backlog(session, member, key).await?;
-    log::info!(target: "citadel", "Resuming {key:?} for {member}: replaying {} held broadcast(s)", backlog.signals.len());
+    send_backlog(session, sess_ratchet, member, key, ticket, security_level).await?;
     let timestamp = session.time_tracker.get_global_time_ns();
-    for signal in &backlog.signals {
-        let packet = packet_crafter::peer_cmd::craft_group_message_packet(
-            sess_ratchet,
-            signal,
-            ticket,
-            C2S_IDENTITY_CID,
-            timestamp,
-            security_level,
-        )?;
-        session.send_to_primary_stream(Some(ticket), packet)?;
-    }
-    // Handed to the member's stream: only now is it removed. A replay cut short leaves it held,
-    // and the member's node delivers a position it already has at most once (`group_delivered`).
-    let pers = session.account_manager.get_persistence_handler();
-    group_mail::forget(pers, member, key, &backlog.sub_keys).await?;
     let (owner, members) = peer_layer
         .group_owner_and_members(key)
         .await
@@ -94,6 +78,35 @@ pub(crate) async fn resume<R: Ratchet, T: PlatformOps>(
         security_level,
     )?;
     session.send_to_primary_stream(Some(ticket), resumed)
+}
+
+/// Server: sends `member` its backlog for `key` on this session, in the group's order, and
+/// removes it once handed to the stream. A replay cut short leaves it held, and the member's
+/// node delivers a position it already has at most once (`group_delivered`).
+pub(super) async fn send_backlog<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    sess_ratchet: &R,
+    member: u64,
+    key: MessageGroupKey,
+    ticket: Ticket,
+    security_level: SecurityLevel,
+) -> Result<(), NetworkError> {
+    let backlog = held_backlog(session, member, key).await?;
+    log::info!(target: "citadel", "Resuming {key:?} for {member}: replaying {} held broadcast(s)", backlog.signals.len());
+    let timestamp = session.time_tracker.get_global_time_ns();
+    for signal in &backlog.signals {
+        let packet = packet_crafter::peer_cmd::craft_group_message_packet(
+            sess_ratchet,
+            signal,
+            ticket,
+            C2S_IDENTITY_CID,
+            timestamp,
+            security_level,
+        )?;
+        session.send_to_primary_stream(Some(ticket), packet)?;
+    }
+    let pers = session.account_manager.get_persistence_handler();
+    group_mail::forget(pers, member, key, &backlog.sub_keys).await
 }
 
 /// Server, once a Welcome for `joiner` is relayed: the joiner is in the group from here on, and

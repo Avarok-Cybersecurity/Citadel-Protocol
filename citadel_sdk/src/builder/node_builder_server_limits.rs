@@ -3,7 +3,7 @@
 
 use super::NodeBuilder;
 use crate::prelude::{
-    GroupMailLimits, NodeType, PlatformOps, Ratchet, ServerLimits, ServerOnlySessionInitSettings,
+    GroupLogLimits, GroupMailLimits, NodeType, PlatformOps, Ratchet, ServerLimits, ServerOnlySessionInitSettings,
 };
 use citadel_io::ErrorCode;
 
@@ -21,6 +21,14 @@ impl<R: Ratchet, T: PlatformOps> NodeBuilder<R, T> {
     /// refused on a peer.
     pub fn with_group_mail_limits(&mut self, limits: GroupMailLimits) -> &mut Self {
         self.group_mail_limits = Some(limits);
+        self
+    }
+
+    /// The most this server keeps of one replay group's log (see [`GroupLogLimits`]); a group
+    /// asks for less, never more. Without this call the server keeps no log, and refuses a group
+    /// replay (`GroupReplayRefusal::NotKept`); refused on a peer.
+    pub fn with_group_log_limits(&mut self, limits: GroupLogLimits) -> &mut Self {
+        self.group_log_limits = Some(limits);
         self
     }
 }
@@ -45,12 +53,14 @@ pub(super) fn with_limits(
     settings: Option<ServerOnlySessionInitSettings>,
     limits: Option<ServerLimits>,
     group_mail: Option<GroupMailLimits>,
+    group_log: Option<GroupLogLimits>,
 ) -> Option<ServerOnlySessionInitSettings> {
     match limits {
         Some(limits) => {
             let mut settings = settings.unwrap_or_default();
             settings.limits = Some(limits);
             settings.group_mail = group_mail.unwrap_or_default();
+            settings.group_log = group_log;
             Some(settings)
         }
         None => settings,
@@ -118,9 +128,9 @@ mod tests {
             max_messages: std::num::NonZeroUsize::new(3).unwrap(),
             max_bytes: std::num::NonZeroUsize::new(4096).unwrap(),
         };
-        let given = with_limits(None, Some(localhost_server_limits()), Some(custom));
+        let given = with_limits(None, Some(localhost_server_limits()), Some(custom), None);
         assert_eq!(given.unwrap().group_mail, custom);
-        let defaulted = with_limits(None, Some(localhost_server_limits()), None);
+        let defaulted = with_limits(None, Some(localhost_server_limits()), None, None);
         assert_eq!(defaulted.unwrap().group_mail, GroupMailLimits::default());
     }
 

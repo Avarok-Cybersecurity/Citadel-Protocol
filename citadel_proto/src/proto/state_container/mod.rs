@@ -150,6 +150,7 @@ mod channels;
 mod completed_groups;
 mod early_hole_punch;
 mod group_hierarchy_outbound;
+mod group_orders;
 mod group_owners;
 mod group_state_saving;
 pub(crate) mod inbound_group_bounds;
@@ -242,6 +243,9 @@ pub struct StateContainerInner<R: Ratchet> {
     /// The owner each open group channel acts under (see `group_owners`). Keyed identically to
     /// [`Self::group_channels`].
     pub(super) group_owners: HashMap<MessageGroupKey, crate::proto::peer::group_owner::GroupOwner>,
+    /// The order of each replay group (see `group_orders`).
+    pub(super) group_orders:
+        HashMap<MessageGroupKey, crate::proto::peer::group_order_view::GroupOrderView>,
     /// Where this client's group states are written as they change (see `group_state_saving`).
     group_state_writer: Option<
         citadel_io::tokio::sync::mpsc::UnboundedSender<
@@ -645,6 +649,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             group_channels: Default::default(),
             group_cgka: Default::default(),
             group_owners: Default::default(),
+            group_orders: Default::default(),
             group_state_writer: None,
             group_backups_due: Default::default(),
             udp_mode,

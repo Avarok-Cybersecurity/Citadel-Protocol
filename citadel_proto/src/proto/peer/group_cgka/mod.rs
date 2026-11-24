@@ -61,6 +61,9 @@ pub struct GroupCgkaState {
     opens: u64,
     /// Whether another device of this account may hold this leaf (see `new_leaf`).
     needs_new_leaf: bool,
+    /// The last position of the group's log this member was handed (`0`: none), kept with the
+    /// state so a member back from a restart is replayed from about where it was.
+    pub(crate) cursor: u64,
 }
 
 /// A fresh, cryptographically-random 32-byte secret (for leaf re-keys giving post-compromise security).
@@ -106,6 +109,7 @@ impl GroupCgkaState {
             saved: None,
             opens: 0,
             needs_new_leaf: false,
+            cursor: 0,
         })
     }
 
@@ -133,6 +137,7 @@ impl GroupCgkaState {
                 saved: None,
                 opens: 0,
                 needs_new_leaf: false,
+                cursor: 0,
             },
             payload,
         ))

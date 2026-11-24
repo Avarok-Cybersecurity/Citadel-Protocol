@@ -30,6 +30,14 @@ pub(super) struct Reply<'a, R: Ratchet> {
     pub security_level: SecurityLevel,
 }
 
+impl<R: Ratchet> Clone for Reply<'_, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<R: Ratchet> Copy for Reply<'_, R> {}
+
 impl<R: Ratchet> Reply<'_, R> {
     pub fn send(&self, signal: GroupBroadcast) -> Result<PrimaryProcessorResult, NetworkError> {
         let packet = packet_crafter::peer_cmd::craft_group_message_packet(
