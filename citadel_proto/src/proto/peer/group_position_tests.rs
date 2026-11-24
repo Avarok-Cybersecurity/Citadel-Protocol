@@ -139,7 +139,7 @@ async fn positions_never_repeat_after_a_restart() {
 }
 
 #[tokio::test]
-async fn positions_never_repeat_after_the_owner_changes_and_the_server_restarts() {
+async fn positions_never_repeat_after_the_owner_changes_and_the_creators_account_goes() {
     let g = group().await;
     let mut book = GroupOrderBook::default();
     let _ = position(
@@ -160,6 +160,8 @@ async fn positions_never_repeat_after_the_owner_changes_and_the_server_restarts(
         GroupMessageId::random(),
     )
     .await);
+    // The creator's account, and whatever was stored under it, is gone.
+    g.manager.delete_client_by_cid(g.creator).await.unwrap();
     let restarted = CitadelNodePeerLayer::new(g.manager.get_persistence_handler().clone());
     let _ = restarted.restore_persisted_groups().await.unwrap();
     let mut book = GroupOrderBook::default();
