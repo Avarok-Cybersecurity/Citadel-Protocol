@@ -4,6 +4,21 @@
 
 ### Added
 
+- **A server chooses whether transient accounts are allowed.** A transient account is a session
+  with its own CID that the server never persists and that has no password
+  (`AuthenticationRequest::transient`, `ServerConnectionSettingsBuilder::transient`).
+  - `NodeBuilder::with_transient_accounts(bool)` says it on the builder. Without the call they
+    are allowed, as before: a deliberate default, approved for the product, not a fallback.
+  - The option sets the one field the protocol reads, `ServerMiscSettings::allow_transient_connections`.
+    With `with_server_misc_settings` as well, `false` wins whatever the settings hold, and `true`
+    against settings that say `false` fails the build with `ErrorCode::NodeTransientAccountsConflict`.
+    A peer given the option fails the build with `ErrorCode::NodeTransientAccountsNotServer`.
+  - **A refusal is named.** A server that disallows them now answers a transient request with
+    `ErrorCode::PasswordlessUnsupported` (code 123) in its registration FAILURE, so
+    `NodeResult::into_result` (and every `connect`) returns that code instead of a `Generic` error
+    whose text says so. The message is now "This server does not allow transient accounts". No
+    protocol change: every peer the version gate admits reads coded refusals.
+  - Docs say "transient account" where they said "passwordless" or "anonymous".
 - **Resume credentials: signing in again without the account's factors.**
   - **Asking.** A full sign-in asks for one with `SignInFactors::with_resume_lifetime`; the
     connection carries it (`CitadelClientServerConnection::resume`) with the moment it expires

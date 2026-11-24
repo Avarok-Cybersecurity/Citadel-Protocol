@@ -417,8 +417,12 @@ pub enum ErrorCode {
     /// Argon hashing returned an unexpected (non-success) status (status).
     #[form = "Unable to hash input password: {}"]
     ArgonHashUnexpected = 122,
-    /// The node was asked for a passwordless connection it does not support.
-    #[form = "This node does not support passwordless connections"]
+    /// A client asked for a transient account (a session with its own CID that the server never
+    /// persists and that has no password) on a server that does not allow them
+    /// (`NodeBuilder::with_transient_accounts(false)`). The server sends this code with its
+    /// refusal, so the client can tell it from any other failure. The name predates the term
+    /// "transient" and is kept so existing matches keep compiling.
+    #[form = "This server does not allow transient accounts"]
     PasswordlessUnsupported = 123,
     /// A password hash could not be produced.
     #[form = "Unable to hash password"]
@@ -1401,4 +1405,13 @@ pub enum ErrorCode {
     /// is reported verified (peer cid, why).
     #[form = "Peer {}'s identity key could not be pinned: {}; nothing was built"]
     P2pKexPinNotSaved = 663,
+
+    // --- citadel_sdk: whether a server allows transient accounts ---
+    /// `NodeBuilder::with_transient_accounts` was called on a node that is not a server.
+    #[form = "Whether transient accounts are allowed is a server setting; this node is not a server"]
+    NodeTransientAccountsNotServer = 664,
+    /// `NodeBuilder::with_transient_accounts(true)` was given with server misc settings whose
+    /// `allow_transient_connections` is `false`.
+    #[form = "with_transient_accounts(true) contradicts the server misc settings, which disallow transient accounts; say it once, with with_transient_accounts"]
+    NodeTransientAccountsConflict = 665,
 }

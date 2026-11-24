@@ -1,13 +1,13 @@
 //! Authentication Mode Management
 //!
 //! This module provides authentication mode handling for Citadel Network Accounts (CNACs),
-//! supporting both password-based and passwordless authentication methods.
+//! supporting both password-based accounts and transient ones (no password, never persisted).
 //!
 //! # Features
 //!
 //! * **Authentication Modes**
 //!   - Argon2id password-based authentication
-//!   - Passwordless authentication
+//!   - Transient accounts
 //!   - Username management
 //!   - Full name handling
 //!
@@ -20,7 +20,7 @@
 //!
 //! * All authentication modes require unique usernames
 //! * Argon2id is used for secure password hashing
-//! * Passwordless mode still maintains user identity
+//! * A transient account still has an identity: its own CID, for the life of the session
 //! * Authentication data is serializable for storage
 //! * Mode can be determined at runtime
 //!

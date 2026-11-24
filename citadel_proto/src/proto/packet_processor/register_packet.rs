@@ -8,7 +8,7 @@
 //!
 //! - Multi-stage registration handshake
 //! - Secure key exchange
-//! - Passwordless registration support
+//! - Transient account support (refused by name on a server that disallows them)
 //! - Session state management
 //! - Cryptographic parameter negotiation
 //! - Registration failure handling
@@ -16,7 +16,7 @@
 //! # Important Notes
 //!
 //! - Requires specific session states (NeedsRegister, SocketJustOpened, NeedsConnect)
-//! - Supports both password-based and passwordless registration
+//! - Supports both password-based registration and transient accounts
 //! - Implements post-quantum cryptography
 //! - Manages registration state transitions
 //! - Validates registration parameters
@@ -102,24 +102,27 @@ pub async fn process_register<R: Ratchet, T: PlatformOps>(
                                 "registration protocol version refused",
                             ));
                         }
-                        // Check server config for transient mode
+                        // A server that allows no transient accounts refuses one by its code, so
+                        // the client can tell this refusal from any other. Every peer past the
+                        // version gate above reads the coded form.
                         if transient_mode_requested
                             && !session
                                 .account_manager
                                 .get_misc_settings()
                                 .allow_transient_connections
                         {
-                            const REASON: &str =
-                                "Transient connections are not allowed on this node";
                             let err = packet_crafter::do_register::craft_failure(
                                 algorithm,
                                 timestamp,
-                                REASON,
+                                pq_sign_in::refusal::register_failure(error!(
+                                    ErrorCode::PasswordlessUnsupported
+                                )),
                                 header.session_cid.get(),
                                 ticket,
                             );
                             return Ok(PrimaryProcessorResult::EndSessionAndReplyToSender(
-                                err, REASON,
+                                err,
+                                "transient accounts are not allowed on this server",
                             ));
                         }
 
