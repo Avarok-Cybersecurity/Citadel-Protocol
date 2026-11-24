@@ -6,10 +6,10 @@
 //! group keeps no log yet.
 
 use super::group_broadcast::{forward_signal, GroupBroadcast};
+use super::group_restore::Reply;
 use crate::error::NetworkError;
 use crate::proto::misc::platform_ops::PlatformOps;
 use crate::proto::packet_processor::PrimaryProcessorResult;
-use super::group_restore::Reply;
 use crate::proto::peer::group_channel::GroupBroadcastPayload;
 use crate::proto::remote::Ticket;
 use crate::proto::session::CitadelSession;

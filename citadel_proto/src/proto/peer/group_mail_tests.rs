@@ -130,9 +130,18 @@ async fn a_backlog_comes_back_in_the_groups_order_whatever_the_clock_did() {
     for (n, at) in held_at.iter().enumerate() {
         let seq = n as u64 + 1;
         let signal = message(n as u8);
-        let _ = hold(&pers, member, KEY, seq, &signal, &caps, max_age, at * SECOND_NS)
-            .await
-            .unwrap();
+        let _ = hold(
+            &pers,
+            member,
+            KEY,
+            seq,
+            &signal,
+            &caps,
+            max_age,
+            at * SECOND_NS,
+        )
+        .await
+        .unwrap();
     }
     let back = take(&pers, member, KEY, max_age, 10 * SECOND_NS).await;
     assert_eq!(
@@ -155,5 +164,9 @@ async fn a_backlog_is_kept_until_it_is_forgotten() {
     let again = held(&pers, member, KEY, max_age, 0).await.unwrap();
     assert_eq!(bodies(&first.signals), bodies(&again.signals));
     forget(&pers, member, KEY, &first.sub_keys).await.unwrap();
-    assert!(held(&pers, member, KEY, max_age, 0).await.unwrap().signals.is_empty());
+    assert!(held(&pers, member, KEY, max_age, 0)
+        .await
+        .unwrap()
+        .signals
+        .is_empty());
 }

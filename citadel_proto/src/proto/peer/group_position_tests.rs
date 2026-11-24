@@ -76,7 +76,8 @@ async fn a_message_is_positioned_inside_an_ordered_frame() {
     let g = group().await;
     let mut book = GroupOrderBook::default();
     let id = GroupMessageId::random();
-    let Positioned::New { frame, position } = position(&g.layer, &mut book, g.key, g.member, id).await
+    let Positioned::New { frame, position } =
+        position(&g.layer, &mut book, g.key, g.member, id).await
     else {
         panic!("a fresh id is a new position");
     };
@@ -94,7 +95,14 @@ async fn a_message_sent_again_under_its_id_keeps_its_position() {
     let mut book = GroupOrderBook::default();
     let id = GroupMessageId::random();
     let first = position(&g.layer, &mut book, g.key, g.member, id).await;
-    let _ = position(&g.layer, &mut book, g.key, g.creator, GroupMessageId::random()).await;
+    let _ = position(
+        &g.layer,
+        &mut book,
+        g.key,
+        g.creator,
+        GroupMessageId::random(),
+    )
+    .await;
     let again = position(&g.layer, &mut book, g.key, g.member, id).await;
     assert!(matches!(again, Positioned::Retry { .. }));
     assert_eq!(seq(&again), seq(&first));
@@ -106,13 +114,27 @@ async fn positions_never_repeat_after_a_restart() {
     let mut book = GroupOrderBook::default();
     let mut last = 0;
     for _ in 0..3 {
-        last = seq(&position(&g.layer, &mut book, g.key, g.member, GroupMessageId::random()).await);
+        last = seq(&position(
+            &g.layer,
+            &mut book,
+            g.key,
+            g.member,
+            GroupMessageId::random(),
+        )
+        .await);
     }
     // A restarted server's book is empty, and reads the order back from the store.
     let restarted = CitadelNodePeerLayer::new(g.manager.get_persistence_handler().clone());
     let _ = restarted.restore_persisted_groups().await.unwrap();
     let mut book = GroupOrderBook::default();
-    let next = seq(&position(&restarted, &mut book, g.key, g.member, GroupMessageId::random()).await);
+    let next = seq(&position(
+        &restarted,
+        &mut book,
+        g.key,
+        g.member,
+        GroupMessageId::random(),
+    )
+    .await);
     assert!(next > last, "{next} repeats or goes back from {last}");
 }
 
@@ -120,13 +142,34 @@ async fn positions_never_repeat_after_a_restart() {
 async fn positions_never_repeat_after_the_owner_changes_and_the_server_restarts() {
     let g = group().await;
     let mut book = GroupOrderBook::default();
-    let _ = position(&g.layer, &mut book, g.key, g.member, GroupMessageId::random()).await;
+    let _ = position(
+        &g.layer,
+        &mut book,
+        g.key,
+        g.member,
+        GroupMessageId::random(),
+    )
+    .await;
     // The creator leaves; the member owns the group, and its order is written under it.
     let _ = g.layer.leave_group(g.key, g.creator).await;
-    let last = seq(&position(&g.layer, &mut book, g.key, g.member, GroupMessageId::random()).await);
+    let last = seq(&position(
+        &g.layer,
+        &mut book,
+        g.key,
+        g.member,
+        GroupMessageId::random(),
+    )
+    .await);
     let restarted = CitadelNodePeerLayer::new(g.manager.get_persistence_handler().clone());
     let _ = restarted.restore_persisted_groups().await.unwrap();
     let mut book = GroupOrderBook::default();
-    let next = seq(&position(&restarted, &mut book, g.key, g.member, GroupMessageId::random()).await);
+    let next = seq(&position(
+        &restarted,
+        &mut book,
+        g.key,
+        g.member,
+        GroupMessageId::random(),
+    )
+    .await);
     assert!(next > last, "{next} repeats or goes back from {last}");
 }

@@ -73,11 +73,9 @@ mod tests {
                     let sender = tokio::time::timeout(REJOIN_DEADLINE, async {
                         loop {
                             match channel.recv().await {
-                                Some(GroupBroadcastPayload::Message { payload, sender, .. })
-                                    if payload.as_ref() == b"claimed" =>
-                                {
-                                    return sender
-                                }
+                                Some(GroupBroadcastPayload::Message {
+                                    payload, sender, ..
+                                }) if payload.as_ref() == b"claimed" => return sender,
                                 Some(_) => continue,
                                 None => panic!("the member's group channel closed"),
                             }

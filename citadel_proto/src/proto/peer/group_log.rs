@@ -145,7 +145,9 @@ pub(crate) async fn load<R: Ratchet>(
         .map_err(|err| io_error("read a log", err))?
         .into_iter()
         .map(|(sub, bytes)| {
-            let seq = sub.parse::<u64>().map_err(|err| io_error("read a log", err))?;
+            let seq = sub
+                .parse::<u64>()
+                .map_err(|err| io_error("read a log", err))?;
             let entry = StoredEntry::deserialize_from_vector(&bytes)
                 .map_err(|err| io_error("decode an entry", err))?;
             Ok((seq, entry))
@@ -165,7 +167,9 @@ pub(crate) async fn load<R: Ratchet>(
     for (seq, entry) in stored {
         if let Some(id) = entry.id {
             let chain = Some(entry.chain);
-            let _ = order.ids.insert(id, citadel_types::proto::GroupPosition { seq, chain });
+            let _ = order
+                .ids
+                .insert(id, citadel_types::proto::GroupPosition { seq, chain });
         }
         log.chain = entry.chain;
         order.head = order.head.max(seq);

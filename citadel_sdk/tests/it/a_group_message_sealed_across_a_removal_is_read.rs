@@ -120,9 +120,9 @@ mod tests {
 
                     loop {
                         match channel.recv().await {
-                            Some(GroupBroadcastPayload::Message { payload, sender, .. })
-                                if sender == a_cid =>
-                            {
+                            Some(GroupBroadcastPayload::Message {
+                                payload, sender, ..
+                            }) if sender == a_cid => {
                                 let text = String::from_utf8_lossy(payload.as_ref()).to_string();
                                 let done = text == "a-new";
                                 shared.owner_saw.lock().unwrap().push(text);

@@ -42,7 +42,10 @@ mod tests {
         assert!(delivered.first_time(5, KEY, 3), "numbers may skip");
         assert!(!delivered.first_time(5, KEY, 3));
         assert!(!delivered.first_time(5, KEY, 2), "and never go back");
-        assert!(delivered.first_time(6, KEY, 1), "another member's count is its own");
+        assert!(
+            delivered.first_time(6, KEY, 1),
+            "another member's count is its own"
+        );
         let other = MessageGroupKey { cid: 1, mgid: 3 };
         assert!(delivered.first_time(5, other, 1), "as is another group's");
     }

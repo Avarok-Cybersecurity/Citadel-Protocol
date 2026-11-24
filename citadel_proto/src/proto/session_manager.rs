@@ -2174,7 +2174,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     ) -> Result<GroupFanOut, String> {
         let Some(key) = super::peer::group_position::positioned_group(&signal) else {
             return self
-                .deliver_positioned(None, timestamp, ticket, peers_and_statuses, mail_if_offline, signal, security_level)
+                .deliver_positioned(
+                    None,
+                    timestamp,
+                    ticket,
+                    peers_and_statuses,
+                    mail_if_offline,
+                    signal,
+                    security_level,
+                )
                 .await;
         };
         let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
@@ -2186,8 +2194,16 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
             .map_err(|err| err.into_string())?;
         match positioned {
             super::peer::group_position::Positioned::New { frame, position } => {
-                self.deliver_positioned(Some((key, position)), timestamp, ticket, peers_and_statuses, mail_if_offline, frame, security_level)
-                    .await
+                self.deliver_positioned(
+                    Some((key, position)),
+                    timestamp,
+                    ticket,
+                    peers_and_statuses,
+                    mail_if_offline,
+                    frame,
+                    security_level,
+                )
+                .await
             }
             // Only a message has an id to be retried under, and messages are relayed by
             // `group_message_relay`, which answers a retry itself.
@@ -2277,7 +2293,14 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
                 let limits = group_mail.ok_or("only a server holds group mail")?;
                 let max_age = limits.max_age_for(peer_layer.group_retention(key).await);
                 let holding = super::peer::group_mail::hold(
-                    &pers, peer, key, position.seq, &signal, &limits, max_age, now_ns,
+                    &pers,
+                    peer,
+                    key,
+                    position.seq,
+                    &signal,
+                    &limits,
+                    max_age,
+                    now_ns,
                 )
                 .await
                 .map_err(|err| err.into_string())?;

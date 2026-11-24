@@ -42,7 +42,15 @@ fn a_retried_message_keeps_its_position() {
     let first = send(&mut book, id);
     let _ = send(&mut book, None);
     let again = book.next(key(), OWNER, id, &digest(b"frame"));
-    assert_eq!(again, Next::Retry { position: match first { Next::New { position, .. } => position, _ => unreachable!() } });
+    assert_eq!(
+        again,
+        Next::Retry {
+            position: match first {
+                Next::New { position, .. } => position,
+                _ => unreachable!(),
+            }
+        }
+    );
     // Another sender's message with the same id is its own message.
     let other = send(&mut book, Some((3, GroupMessageId([9; 16]))));
     assert_eq!(seq(&other), 3);
@@ -52,14 +60,28 @@ fn a_retried_message_keeps_its_position() {
 fn a_group_without_replay_reserves_its_numbers_in_blocks() {
     let mut book = GroupOrderBook::default();
     let first = book.next(key(), OWNER, None, &digest(b"f"));
-    assert!(matches!(first, Next::New { persist: Persist::Reserve(RESERVE_BLOCK), .. }));
+    assert!(matches!(
+        first,
+        Next::New {
+            persist: Persist::Reserve(RESERVE_BLOCK),
+            ..
+        }
+    ));
     book.commit(key(), &first, None, 1, 0);
     for _ in 1..RESERVE_BLOCK {
         let next = send(&mut book, None);
-        assert!(matches!(next, Next::New { persist: Persist::Nothing, .. }));
+        assert!(matches!(
+            next,
+            Next::New {
+                persist: Persist::Nothing,
+                ..
+            }
+        ));
     }
     let past = book.next(key(), OWNER, None, &digest(b"f"));
-    assert!(matches!(past, Next::New { persist: Persist::Reserve(r), .. } if r == 2 * RESERVE_BLOCK));
+    assert!(
+        matches!(past, Next::New { persist: Persist::Reserve(r), .. } if r == 2 * RESERVE_BLOCK)
+    );
 }
 
 #[test]

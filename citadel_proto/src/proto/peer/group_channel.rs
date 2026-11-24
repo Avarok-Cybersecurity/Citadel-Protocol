@@ -139,7 +139,9 @@ pub enum GroupBroadcastPayload {
         id: GroupMessageId,
         position: GroupPosition,
     },
-    Event { payload: GroupBroadcast },
+    Event {
+        payload: GroupBroadcast,
+    },
 }
 
 #[derive(Clone)]

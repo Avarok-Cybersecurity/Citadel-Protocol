@@ -60,7 +60,11 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             .map_err(|err| NetworkError::msg(format!("unable to encode a broadcast: {err}")))?;
         let next = book.next(key, owner, id, &digest(&bytes));
         let position = match &next {
-            Next::Retry { position } => return Ok(Positioned::Retry { position: *position }),
+            Next::Retry { position } => {
+                return Ok(Positioned::Retry {
+                    position: *position,
+                })
+            }
             Next::New { position, persist } => {
                 match persist {
                     Persist::Nothing => {}

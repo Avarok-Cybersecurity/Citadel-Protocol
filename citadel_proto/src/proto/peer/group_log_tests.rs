@@ -37,7 +37,9 @@ async fn position(pers: &Pers, book: &mut GroupOrderBook, holder: u64, frame: &[
                 id,
                 frame: frame.to_vec(),
             };
-            append(pers, holder, KEY, position.seq, &entry).await.unwrap();
+            append(pers, holder, KEY, position.seq, &entry)
+                .await
+                .unwrap();
         }
     }
     book.commit(KEY, &next, id, frame.len(), 0);

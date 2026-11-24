@@ -32,8 +32,8 @@
 
 use super::super::includes::*;
 use super::{
-    group_backup_relay, group_commit_ack, group_commit_relay, group_control, group_message_relay, group_ordered,
-    group_restore, group_resume_relay, group_resumed, group_succession_relay,
+    group_backup_relay, group_commit_ack, group_commit_relay, group_control, group_message_relay,
+    group_ordered, group_restore, group_resume_relay, group_resumed, group_succession_relay,
 };
 use crate::error::NetworkError;
 use crate::functional::*;
@@ -1572,7 +1572,8 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             group_restore::restore(session, reply, key, tree, owner).await
         }
 
-        GroupBroadcast::ResumeMembership { key, .. } | GroupBroadcast::ResumeOwnership { key, .. } => {
+        GroupBroadcast::ResumeMembership { key, .. }
+        | GroupBroadcast::ResumeOwnership { key, .. } => {
             if !session.is_server {
                 log::warn!(target: "citadel", "Ignoring a resume for {key:?}: only a server acts on it");
                 return Ok(PrimaryProcessorResult::Void);
