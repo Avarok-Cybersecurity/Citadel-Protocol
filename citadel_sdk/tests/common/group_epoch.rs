@@ -150,7 +150,9 @@ pub async fn read_until_final(
             return;
         }
         match tokio::time::timeout(IDLE_BOUND, channel.recv()).await {
-            Ok(Some(GroupBroadcastPayload::Message { payload, sender })) if sender == a_cid => {
+            Ok(Some(GroupBroadcastPayload::Message {
+                payload, sender, ..
+            })) if sender == a_cid => {
                 if let Some(idx) = parse_idx(payload.as_ref()) {
                     reader.record(idx);
                 }

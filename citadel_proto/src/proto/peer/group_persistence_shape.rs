@@ -47,6 +47,7 @@ impl From<PersistedGroup> for StoredGroup {
             ephemeral,
             limits,
             retention,
+            replay: _,
         } = group.options;
         Self {
             options: StoredOptions {
@@ -77,6 +78,8 @@ impl From<StoredGroup> for PersistedGroup {
                 ephemeral: row.relay.ephemeral,
                 limits: row.relay.limits,
                 retention: row.relay.retention,
+                // A group's replay state is its log's (`group_log`), never the row's.
+                replay: None,
             },
             members: row.members,
             pending: row.pending,
@@ -109,6 +112,7 @@ mod tests {
                 ephemeral,
                 limits,
                 retention: Some(std::time::Duration::from_secs(7)),
+                replay: None,
             },
             members: vec![1, 2],
             pending: vec![3],

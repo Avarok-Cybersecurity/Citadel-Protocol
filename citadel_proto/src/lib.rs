@@ -688,7 +688,8 @@ pub mod prelude {
     pub use citadel_types::proto::UdpMode;
     pub use citadel_types::proto::VirtualObjectMetadata;
     pub use citadel_types::proto::{
-        GroupDelivery, GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal,
+        GroupDelivery, GroupLogLimits, GroupMessageId, GroupMessageLimits, GroupMessageLimitsError,
+        GroupMessageRefusal, GroupOrderBroken, GroupOrderInfo, GroupPosition, GroupReplayRefusal,
         NotDelivered, NotRelayed,
     };
     pub use citadel_types::user::UserIdentifier;

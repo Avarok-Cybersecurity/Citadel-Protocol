@@ -50,18 +50,23 @@ let (send_half, recv_half) = group_channel.split();
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::proto::peer::group_order_view::GroupOrderView;
 use crate::proto::peer::group_owner::GroupOwner;
+use crate::proto::peer::group_send_window::{Credit, SendWindow};
 use crate::proto::remote::Ticket;
 use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
-use citadel_types::proto::MessageGroupKey;
+use citadel_types::proto::{
+    GroupLogLimits, GroupMessageId, GroupOrderInfo, GroupPosition, MessageGroupKey,
+};
 use futures::Stream;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::ops::Deref;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 #[derive(Debug)]
@@ -78,13 +83,20 @@ impl Deref for GroupChannel {
     }
 }
 
+/// How a channel reaches its session: the session's request queue and its group send window.
+pub(crate) struct ToSession {
+    pub(crate) tx: Sender<SessionRequest>,
+    pub(crate) window: Arc<SendWindow>,
+}
+
 impl GroupChannel {
-    pub fn new(
-        tx: Sender<SessionRequest>,
+    pub(crate) fn new(
+        ToSession { tx, window }: ToSession,
         key: MessageGroupKey,
         ticket: Ticket,
         session_cid: u64,
         owner: GroupOwner,
+        order: GroupOrderView,
         recv: UnboundedReceiver<GroupBroadcastPayload>,
     ) -> Self {
         let (undelivered_tx, undelivered) = citadel_io::tokio::sync::mpsc::unbounded_channel();
@@ -95,7 +107,9 @@ impl GroupChannel {
                 key,
                 session_cid,
                 owner,
+                order,
                 undelivered: undelivered_tx,
+                window,
             },
 
             recv_half: GroupChannelRecvHalf {
@@ -129,8 +143,19 @@ impl GroupChannel {
 
 #[derive(Debug)]
 pub enum GroupBroadcastPayload {
-    Message { payload: SecBuffer, sender: u64 },
-    Event { payload: GroupBroadcast },
+    /// A member's message, opened, at its position in the group's order. A member receives
+    /// each position at most once while this process runs; across its own restarts it may
+    /// receive one again, so a consumer that keeps state must be idempotent by `position.seq`.
+    Message {
+        payload: SecBuffer,
+        sender: u64,
+        /// The sender's id for it (see [`GroupChannelSendHalf::send_message_with_id`]).
+        id: GroupMessageId,
+        position: GroupPosition,
+    },
+    Event {
+        payload: GroupBroadcast,
+    },
 }
 
 #[derive(Clone)]
@@ -141,8 +166,12 @@ pub struct GroupChannelSendHalf {
     session_cid: u64,
     /// The group's owner, as the server last reported it.
     owner: GroupOwner,
+    /// A replay group's order, as the server last described it.
+    order: GroupOrderView,
     /// Where a message is reported undelivered once the session that carried it has ended.
     undelivered: citadel_io::tokio::sync::mpsc::UnboundedSender<GroupBroadcastPayload>,
+    /// The session's group messages written and not yet answered.
+    window: Arc<SendWindow>,
 }
 
 impl Debug for GroupChannelSendHalf {
@@ -156,35 +185,85 @@ impl Debug for GroupChannelSendHalf {
 }
 
 impl GroupChannelSendHalf {
-    /// Broadcasts a message to the group
+    /// Broadcasts a message to the group under a new id. The server's answer
+    /// (`GroupBroadcast::MessageResponse`) gives its position.
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
-        let sent = self
-            .send_group_command(GroupBroadcast::Message {
-                sender: self.session_cid,
-                key: self.key,
-                message,
-            })
-            .await;
+        self.send_message_with_id(message, GroupMessageId::random())
+            .await
+    }
+
+    /// Broadcasts a message to the group under `id`. Sent again under the same `id` (after a
+    /// lost answer, say), it is not relayed twice: the server answers with the position it gave
+    /// the first time and `NotRelayed::AlreadyRelayed`. The server remembers an id within its
+    /// recent window and its current run.
+    ///
+    /// It waits while the session has a full window of group messages unanswered by the server
+    /// (`GROUP_SEND_WINDOW`), and goes once an answer frees a place.
+    pub async fn send_message_with_id(
+        &self,
+        message: SecBuffer,
+        id: GroupMessageId,
+    ) -> Result<(), NetworkError> {
+        let Ok(credit) = self.window.place(self.session_cid).await else {
+            self.report_session_ended(id);
+            return Ok(());
+        };
+        let message = GroupBroadcast::Message {
+            sender: self.session_cid,
+            key: self.key,
+            id,
+            message,
+        };
+        let sent = self.send_group_request(message, Some(credit)).await;
         if sent.is_err() && self.tx.is_closed() {
-            // The session has ended and released everything it held, so nothing will answer
-            // the message: it is reported undelivered on this channel, as a live session reports
-            // a message it cannot deliver.
-            let refusal = GroupBroadcast::MessageResponse {
-                key: self.key,
-                delivery: citadel_types::proto::GroupDelivery::NotRelayed(
-                    citadel_types::proto::NotRelayed::SessionEnded,
-                ),
-            };
-            let _ = self.undelivered.send(refusal.into());
+            self.report_session_ended(id);
             return Ok(());
         }
         sent
+    }
+
+    /// The session has ended and released everything it held, so nothing will answer a message:
+    /// it is reported undelivered on this channel, as a live session reports one it cannot
+    /// deliver.
+    fn report_session_ended(&self, id: GroupMessageId) {
+        let refusal = GroupBroadcast::MessageResponse {
+            key: self.key,
+            id,
+            position: None,
+            delivery: citadel_types::proto::GroupDelivery::NotRelayed(
+                citadel_types::proto::NotRelayed::SessionEnded,
+            ),
+        };
+        let _ = self.undelivered.send(refusal.into());
     }
 
     /// The group's owner as the server last reported it: its creator until the owner leaves, then
     /// its successor. `None` once this channel has left the group.
     pub fn owner(&self) -> Option<u64> {
         self.owner.get()
+    }
+
+    /// A replay group's order as the server last described it: the position its log starts at,
+    /// the first position this member reads (`joined`, when it joined after the log started),
+    /// and the limits that apply, among them the largest message the group takes
+    /// (`limits.max_message_bytes`, which carries at least
+    /// [`MIN_REPLAY_BODY_BYTES`](citadel_types::proto::MIN_REPLAY_BODY_BYTES) of body). `None` for
+    /// a group without replay.
+    pub fn order(&self) -> Option<GroupOrderInfo> {
+        self.order.get()
+    }
+
+    /// Owner only: asks the server to keep this group's broadcasts in one log from the next
+    /// position on, within `limits` (held to the server's own). Every member is then told, at
+    /// that position, by a positioned `GroupBroadcast::ReplayEnabled`; a refusal comes back to
+    /// this channel as `GroupBroadcast::ReplayRefused`.
+    pub async fn enable_replay(&self, limits: GroupLogLimits) -> Result<(), NetworkError> {
+        self.permission_gate()?;
+        self.send_group_command(GroupBroadcast::EnableReplay {
+            key: self.key,
+            limits,
+        })
+        .await
     }
 
     /// Kicks a peer from the group. User must be owner
@@ -260,13 +339,30 @@ impl GroupChannelSendHalf {
     }
 
     async fn send_group_command(&self, broadcast: GroupBroadcast) -> Result<(), NetworkError> {
-        self.tx
-            .send(SessionRequest::Group(Group {
-                ticket: self.ticket,
-                broadcast,
-            }))
+        self.send_group_request(broadcast, None).await
+    }
+
+    /// Queues `broadcast` for the session. A message's place in the send window (`credit`) is
+    /// taken before this reserves room in the queue, so a sender waiting on the window never holds
+    /// a reservation others need.
+    async fn send_group_request(
+        &self,
+        broadcast: GroupBroadcast,
+        credit: Option<Credit>,
+    ) -> Result<(), NetworkError> {
+        let place = self
+            .tx
+            .reserve()
             .await
-            .map_err(|err| NetworkError::msg(err.to_string()))
+            .map_err(|err| NetworkError::msg(err.to_string()))?;
+        #[cfg(feature = "localhost-testing")]
+        crate::test_hooks::group_send_reserved(self.session_cid).await;
+        place.send(SessionRequest::Group(Group {
+            ticket: self.ticket,
+            broadcast,
+            credit,
+        }));
+        Ok(())
     }
 
     fn permission_gate(&self) -> Result<(), NetworkError> {

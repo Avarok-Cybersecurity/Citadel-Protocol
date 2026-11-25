@@ -3,4 +3,4 @@
 /**
  * Why a group message was not relayed to anyone.
  */
-export type NotRelayed = "SessionEnded" | "UnknownGroup" | "NoGroupKey";
+export type NotRelayed = "SessionEnded" | "UnknownGroup" | "NoGroupKey" | "AlreadyRelayed" | "NotPositioned";

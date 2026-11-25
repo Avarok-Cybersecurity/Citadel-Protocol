@@ -71,6 +71,8 @@ pub(crate) struct ServerLoad {
     pub(crate) limits: ServerLimits,
     /// What the server holds for a group member that is away.
     pub(crate) group_mail: GroupMailLimits,
+    /// The most a replay group's log may keep; `None` when this server keeps none.
+    pub(crate) group_log: Option<citadel_types::proto::GroupLogLimits>,
     legacy_hashes: Arc<AtomicUsize>,
     outbound_total: Arc<OutboundTotal>,
 }
@@ -85,11 +87,16 @@ impl Drop for LegacyHashTurn {
 }
 
 impl ServerLoad {
-    pub(crate) fn new(limits: ServerLimits, group_mail: GroupMailLimits) -> Self {
+    pub(crate) fn new(
+        limits: ServerLimits,
+        group_mail: GroupMailLimits,
+        group_log: Option<citadel_types::proto::GroupLogLimits>,
+    ) -> Self {
         let outbound_total = Arc::new(OutboundTotal::new(limits.outbound_queued_total.get()));
         Self {
             limits,
             group_mail,
+            group_log,
             legacy_hashes: Arc::new(AtomicUsize::new(0)),
             outbound_total,
         }

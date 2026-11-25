@@ -19,6 +19,8 @@ pub mod group_epoch;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod group_relay;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod group_replay;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod group_succession;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod half_open;

@@ -40,6 +40,7 @@ pub mod peer_layer;
 pub mod channel;
 
 pub mod group_channel;
+pub(crate) mod group_send_window;
 
 /// Client-side coordinator for the zero-trust post-quantum TreeKEM group CGKA.
 pub mod group_cgka;
@@ -50,6 +51,8 @@ pub mod group_retention;
 /// Who owns a group once its owner leaves, and when a group ends.
 pub mod group_succession;
 
+/// A replay group's order, as its server last described it to this member.
+pub mod group_order_view;
 /// The owner a client's group channel acts under.
 pub mod group_owner;
 
@@ -65,12 +68,26 @@ pub(crate) mod group_persistence_shape;
 
 /// What a server holds for a group member that is away.
 pub mod group_backup;
+/// Each group position reaching a member's application at most once per process run.
+pub mod group_delivered;
 /// Server-side caps on a group's message size and rate
 pub(crate) mod group_limits;
+/// Where a group's order is stored.
+pub(crate) mod group_log;
+/// Reading, trimming and moving a replay group's log.
+pub(crate) mod group_log_ops;
+/// A replay group's log kept within its limits, and ranges read from it (decisions only).
+pub(crate) mod group_log_plan;
 pub mod group_mail;
+/// Positioning a group broadcast on the server, with its order stored first.
+pub(crate) mod group_position;
 /// Whom the server relays a group broadcast to, and whether a message is within its caps
 pub mod group_relay;
+/// A replay group's log at the server: started, turned on, described and read.
+pub(crate) mod group_replay;
 pub mod group_resume;
+/// The order of each group's broadcasts (decisions only).
+pub mod group_sequencer;
 pub mod group_state_store;
 
 /// Loading the group registry at server start, and keeping its durable copy in step

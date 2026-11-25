@@ -50,6 +50,14 @@ fn export_types() -> Result<(), Box<dyn std::error::Error>> {
     GroupEndReason::export()?;
     GroupStateSource::export()?;
 
+    // Export a group's order
+    GroupPosition::export()?;
+    GroupMessageId::export()?;
+    GroupLogLimits::export()?;
+    GroupReplayRefusal::export()?;
+    GroupOrderInfo::export()?;
+    GroupOrderBroken::export()?;
+
     // Export connection types
     ClientConnectionType::export()?;
     PeerConnectionType::export()?;

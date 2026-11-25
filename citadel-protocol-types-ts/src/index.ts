@@ -33,6 +33,12 @@ export * from './NotRelayed';
 export * from './GroupMessageRefusal';
 export * from './GroupEndReason';
 export * from './GroupStateSource';
+export * from './GroupPosition';
+export * from './GroupMessageId';
+export * from './GroupLogLimits';
+export * from './GroupReplayRefusal';
+export * from './GroupOrderInfo';
+export * from './GroupOrderBroken';
 export * from './TransferType';
 
 // Crypto types
