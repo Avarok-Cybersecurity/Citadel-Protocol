@@ -17,9 +17,10 @@
 //! except that server->client it lets exactly ONE WAVE_ACK through and drops
 //! the rest. HdpHeader is plaintext on the wire (it is the AEAD's associated
 //! data), so `cmd_primary == GROUP_PACKET && cmd_aux == WAVE_ACK` is readable
-//! from the first two bytes of each length-delimited frame. One ack must pass:
-//! the expiry check parks a group as `Incomplete` until `has_begun`, which only
-//! the first WAVE_ACK sets. The session itself stays healthy (keep-alives run
+//! from the first two bytes of each length-delimited frame. One ack passes, so
+//! the loss starts with the group under way (its header answered, its first wave
+//! acknowledged) and the group is ended for its silence, not for an unanswered
+//! header. The session itself stays healthy (keep-alives run
 //! on a 15-minute interval), so no teardown rescues the handle.
 //!
 //! What is asserted is an ORDERING, not a latency: by the time the expiry's
@@ -29,13 +30,14 @@
 //! closure is queued before the kernel even sees the error. The test drains the
 //! handle without awaiting (`now_or_never`); a pending handle at that point is
 //! the defect. The wait for the expiry itself is the protocol's own
-//! GROUP_EXPIRE_TIME_MS (checked on the same period, so roughly two periods).
+//! GROUP_EXPIRE_TIME_MS, checked every `FILE_GROUP_CHECK_PERIOD`.
 
 #[cfg(all(test, feature = "localhost-testing"))]
 mod tests {
     use citadel_io::tokio;
     use citadel_io::tokio::io::{AsyncReadExt, AsyncWriteExt};
     use citadel_io::tokio::net::{TcpListener, TcpStream};
+    use citadel_io::ErrorCode;
     use citadel_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use citadel_sdk::prefabs::client::DefaultServerConnectionSettingsBuilder;
     use citadel_sdk::prelude::*;
@@ -51,7 +53,7 @@ mod tests {
     const GROUP_PACKET: u8 = 2;
     /// `packet_flags::cmd::aux::group::WAVE_ACK` (crate-private in citadel_proto).
     const WAVE_ACK: u8 = 3;
-    /// `has_begun` needs one ack; every later one is the "lost final ack".
+    /// One ack starts the group; every later one is the "lost final ack".
     const WAVE_ACKS_ALLOWED_THROUGH: usize = 1;
 
     /// Receives the object and keeps the session up afterwards: a server that
@@ -205,6 +207,9 @@ mod tests {
                                 // Failing before the expiry notice is also a correct outcome.
                                 break format!("handle failed first: {reason}");
                             }
+                            Some(ObjectTransferStatus::Failed(failure)) => {
+                                break format!("handle failed first: {failure}");
+                            }
                             Some(other) => before_expiry.push(other),
                             None => panic!("handle stream ended with no terminal status"),
                         },
@@ -245,14 +250,27 @@ mod tests {
             "the relay dropped no WAVE_ACK, so no loss was staged"
         );
         let failed = expiry.starts_with("handle failed first")
-            || after
-                .iter()
-                .any(|s| matches!(s, ObjectTransferStatus::Fail(_)));
+            || after.iter().any(|s| {
+                matches!(
+                    s,
+                    ObjectTransferStatus::Fail(_) | ObjectTransferStatus::Failed(_)
+                )
+            });
         assert!(
             failed,
             "the outbound group expired ({expiry}) but the sender's ObjectTransferHandle \
              holds no Fail (ready after expiry: {after:?}, stream ended: {ended}). \
              transfer_file() would wait forever on a session that stays up."
+        );
+        // Ended by code, not only by text.
+        let silent = ErrorCode::FileTransferStalled.as_u16();
+        let coded = expiry.contains(&format!("(code {silent})"))
+            || after.iter().any(
+                |s| matches!(s, ObjectTransferStatus::Failed(failure) if failure.code == silent),
+            );
+        assert!(
+            coded,
+            "the transfer failed ({expiry}; after: {after:?}) but not as FileTransferStalled"
         );
     }
 }
