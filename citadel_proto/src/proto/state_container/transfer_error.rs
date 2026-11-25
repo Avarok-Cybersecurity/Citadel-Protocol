@@ -50,6 +50,23 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
     }
 
+    /// Deliver a coded [`ObjectTransferStatus::Failed`] for `err` to the local
+    /// ObjectTransferHandle for `file_key` and drop it. Returns whether a handle was present.
+    pub(crate) fn fail_object_transfer_handle_with_error(
+        &self,
+        file_key: &FileKey,
+        err: &NetworkError,
+    ) -> bool {
+        match self.file_transfer_handles.remove(file_key) {
+            Some((_, tx)) => {
+                let failure = citadel_types::proto::TransferFailure::from(err);
+                let _ = tx.unbounded_send(ObjectTransferStatus::Failed(failure));
+                true
+            }
+            None => false,
+        }
+    }
+
     /// End every object transfer riding the P2P link to `peer_cid`, both
     /// directions, with `reason` -- called when that link is torn down.
     ///

@@ -38,6 +38,8 @@ pub mod pq_restart;
 pub mod recovery;
 #[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
 pub mod server_restart;
+#[cfg(all(not(target_family = "wasm"), feature = "localhost-testing"))]
+pub mod transfer;
 
 use citadel_io::tokio::sync::{Mutex, Semaphore};
 use citadel_sdk::async_trait;

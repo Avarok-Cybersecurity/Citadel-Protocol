@@ -21,6 +21,10 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 mod replay;
 pub use replay::*;
 
+#[path = "test_hooks_transfer.rs"]
+mod transfer;
+pub use transfer::*;
+
 #[path = "test_hooks_window.rs"]
 mod window;
 pub use window::*;

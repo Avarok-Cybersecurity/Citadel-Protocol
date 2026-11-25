@@ -112,6 +112,9 @@ mod tests {
                             ObjectTransferStatus::Fail(reason) => {
                                 panic!("the receiver failed the transfer: {reason}")
                             }
+                            ObjectTransferStatus::Failed(failure) => {
+                                panic!("the receiver failed the transfer: {failure}")
+                            }
                             _ => {}
                         }
                     }

@@ -168,6 +168,11 @@ impl ObjectTransferHandler {
                     ));
                 }
 
+                // Returned with its own code, so a caller can tell this failure from others.
+                ObjectTransferStatus::Failed(failure) => {
+                    return Err(failure.into_error());
+                }
+
                 _ => {}
             }
         }

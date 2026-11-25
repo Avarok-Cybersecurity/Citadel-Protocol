@@ -48,9 +48,9 @@ use netbeam::time_tracker::TimeTracker;
 
 use crate::auth::AuthenticationRequest;
 use crate::constants::{
-    FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN,
-    INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS,
-    LOGIN_EXPIRATION_TIME, REKEY_UPDATE_FREQUENCY_STANDARD,
+    FIREWALL_KEEP_ALIVE_UDP, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS,
+    KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME,
+    REKEY_UPDATE_FREQUENCY_STANDARD,
 };
 use crate::error::NetworkError;
 use crate::prelude::{GroupBroadcast, PeerEvent, PeerResponse};
@@ -101,6 +101,7 @@ use citadel_crypt::ratchets::ratchet_manager::RatchetMessage;
 use citadel_crypt::scramble::streaming_crypt_scrambler::{scramble_encrypt_source, ObjectSource};
 use citadel_io::time::{SystemTime, UNIX_EPOCH};
 use citadel_types::crypto::{HeaderObfuscatorSettings, PreSharedKey, SecBuffer, SecurityLevel};
+use citadel_types::proto::timing::FILE_GROUP_CHECK_PERIOD;
 use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::TransferType;
@@ -1988,10 +1989,6 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             // to, the GROUP HEADER ACK needs to return the group start idx. It is expected the adjacent node reserve enough groups
             // on its end to take into account
 
-            // send the FILE_HEADER
-            to_primary_stream
-                .unbounded_send(file_header)
-                .map_err(|_| error!(ErrorCode::SessionPrimaryStreamDisconnected))?;
             // create the outbound file container
             let kernel_tx = state_container.kernel_tx.clone();
             let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
@@ -2012,6 +2009,15 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             let _ = state_container
                 .outbound_files
                 .insert(file_key, outbound_file_transfer_container);
+            // The FILE_HEADER goes out once the record its answer looks up is registered. The
+            // answer needs the write lock held here, so this order is not what makes it safe
+            // today; it keeps the send after the registration should that lock ever narrow.
+            if to_primary_stream.unbounded_send(file_header).is_err() {
+                if let Some(mut transfer) = state_container.outbound_files.remove(&file_key) {
+                    transfer.halt();
+                }
+                return Err(error!(ErrorCode::SessionPrimaryStreamDisconnected));
+            }
             // spawn the task that takes GroupSenders from the threadpool cryptscrambler
             drop(state_container);
 
@@ -2054,7 +2060,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             let Some(sess) = CitadelSession::upgrade_weak(&weak_session) else {
                                 return;
                             };
-                            let (group_id, key) = {
+                            let (key, group_header) = {
                                 // construct the OutboundTransmitters
                                 if !sess.state.is_connected() {
                                     log::warn!(target: "citadel", "Since transmitting the file, the session ended");
@@ -2100,14 +2106,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                 // group_id is unique per session
                                 let group_id = transmitter.group_id;
 
-                                // We manually send the header. The tails get sent automatically
-                                log::trace!(target: "citadel", "Sending GROUP HEADER through primary stream for group {group_id}");
-                                if let Err(err) = sess.try_action(Some(ticket), || {
-                                    transmitter.transmit_group_header(virtual_target)
+                                // The header is crafted here and sent below, once the transmitter it
+                                // answers to is registered. The tails get sent automatically.
+                                let group_header = match sess.try_action(Some(ticket), || {
+                                    transmitter.generate_group_header(virtual_target)
                                 }) {
-                                    log::error!(target: "citadel", "Unable to send through primary stream: {err}");
-                                    return;
-                                }
+                                    Ok(group_header) => group_header,
+                                    Err(err) => {
+                                        log::error!(target: "citadel", "Unable to craft the header of group {group_id}: {err}");
+                                        return;
+                                    }
+                                };
                                 let group_byte_len = transmitter.get_total_plaintext_bytes();
 
                                 let outbound_container = OutboundTransmitterContainer::new(
@@ -2132,67 +2141,46 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                 // here. Also: DROP `sess`!
                                 std::mem::drop(state_container);
                                 //sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
-                                (group_id, key)
+                                (key, group_header)
                             };
 
-                            let kernel_tx2 = kernel_tx.clone();
-                            sess.queue_handle.insert_ordinary(target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
-                            // Read the expiry decision while only holding the DashMap `Ref`, then let
-                            // it drop before mutating other collections — the `Ref` holds a shard
-                            // read-borrow to end-of-scope (unlike the old `&V`, freed at last use).
-                            let expired = {
-                                let Some(transmitter) = state_container.outbound_transmitters.get(&key) else {
-                                    // it finished
-                                    return QueueWorkerResult::Complete;
-                                };
-                                // as long as a wave ACK has been received, proceed with the timeout check
-                                // (this group may be loaded, but the previous one isn't done)
-                                if !transmitter.has_begun {
-                                    // WAVE_ACK hasn't been received yet; try again later
-                                    return QueueWorkerResult::Incomplete;
-                                }
-                                transmitter
-                                    .burst_transmitter
-                                    .group_transmitter
-                                    .as_ref()
-                                    .expect("transmitter should exist")
-                                    .has_expired(GROUP_EXPIRE_TIME_MS)
-                            };
-
-                            if !expired {
-                                // it hasn't expired yet, and is still transmitting
-                                return QueueWorkerResult::Incomplete;
+                            // Sent only now that its transmitter is registered. The header's answer
+                            // is handled under the read lock, as the registration above is, so
+                            // nothing but this order makes the answer find its transmitter.
+                            log::trace!(target: "citadel", "Sending GROUP HEADER through primary stream for {key:?}");
+                            if let Err(err) = sess.try_action(Some(ticket), || {
+                                to_primary_stream
+                                    .unbounded_send(group_header)
+                                    .map_err(|err| {
+                                        error!(
+                                            ErrorCode::GroupHeaderTransmitFailed,
+                                            format!("{err:?}")
+                                        )
+                                    })
+                            }) {
+                                log::error!(target: "citadel", "Unable to send through primary stream: {err}");
+                                let _ = inner_state!(sess.state_container)
+                                    .outbound_transmitters
+                                    .remove(&key);
+                                return;
                             }
+                            #[cfg(feature = "localhost-testing")]
+                            crate::test_hooks::group_header_sent(key_cid).await;
 
-                            if !state_container.meta_expiry_state.expired() {
-                                log::trace!(target: "citadel", "Other outbound groups being processed; patiently awaiting group {group_id}");
-                                return QueueWorkerResult::Incomplete;
-                            }
-
-                            log::error!(target: "citadel", "Outbound group {group_id} has expired; dropping entire transfer");
-                            if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
-                                outbound_container.halt();
-                            } else {
-                                log::warn!(target: "citadel", "Attempted to remove {:?}, but was already absent from map", file_key);
-                            }
-                            state_container.drop_outbound_groups_of(&file_key);
-
-                            let reason = format!("Timeout on ticket {ticket}: outbound group {group_id} expired");
-                            if !state_container.fail_object_transfer_handle(&file_key, reason) {
-                                log::warn!(target: "citadel", "No ObjectTransferHandle to fail for {file_key:?}");
-                            }
-
-                            if kernel_tx2.unbounded_send(NodeResult::InternalServerError(InternalServerError {
-                                ticket_opt: Some(ticket),
-                                cid_opt: session_cid,
-                                message: format!("Timeout on ticket {ticket}"),
-                            })).is_err() {
-                                log::error!(target: "citadel", "[File] Unable to send kernel error signal. Ending session");
-                                QueueWorkerResult::EndSession
-                            } else {
-                                QueueWorkerResult::Complete
-                            }
-                        });
+                            // Fails the transfer, by code, once the group's header goes unanswered
+                            // or the group falls silent (see `outbound_group_expiry`).
+                            sess.queue_handle.insert_ordinary(
+                                target_cid,
+                                FILE_GROUP_CHECK_PERIOD,
+                                move |state_container| {
+                                    state_container.check_outbound_group(
+                                        key,
+                                        file_key,
+                                        ticket,
+                                        session_cid,
+                                    )
+                                },
+                            );
 
                             // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
                             // received a signal here

@@ -1414,4 +1414,12 @@ pub enum ErrorCode {
     /// `allow_transient_connections` is `false`.
     #[form = "with_transient_accounts(true) contradicts the server misc settings, which disallow transient accounts; say it once, with with_transient_accounts"]
     NodeTransientAccountsConflict = 665,
+
+    // --- citadel_proto: object transfers that stop being answered ---
+    /// A file transfer was ended because the other side stopped answering one of its groups
+    /// (group id): at the sender, a header unanswered within
+    /// `citadel_types::proto::timing::FILE_GROUP_HEADER_ACK_DEADLINE` or acks that stopped; at
+    /// the receiver, a group whose packets stopped. The handle that fails tells the two ends apart.
+    #[form = "The other side stopped answering group {} of this file transfer; the transfer was ended"]
+    FileTransferStalled = 666,
 }

@@ -19,6 +19,7 @@ export * from './VirtualConnectionType';
 export * from './ObjectId';
 export * from './ObjectTransferOrientation';
 export * from './ObjectTransferStatus';
+export * from './TransferFailure';
 export * from './SessionSecuritySettings';
 export * from './UdpMode';
 export * from './MemberState';

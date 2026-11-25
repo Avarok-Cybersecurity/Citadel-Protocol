@@ -166,16 +166,6 @@ impl<R: Ratchet> ObjectTransmitter<R> {
             .map_err(|err| error!(ErrorCode::GroupHeaderTransmitFailed, format!("{err:?}")))
     }
 
-    pub fn transmit_group_header(
-        &mut self,
-        virtual_target: VirtualTargetType,
-    ) -> Result<(), NetworkError> {
-        let header = self.generate_group_header(virtual_target)?;
-        self.to_primary_stream
-            .unbounded_send(header)
-            .map_err(|err| error!(ErrorCode::GroupHeaderTransmitFailed, format!("{err:?}")))
-    }
-
     /// Generates the group header for this set using the pre-allocated slab. Since the group header is always sent through the primary port,
     /// and the wave ports are what receive the packet stream, this should be ran BEFORE streaming self
     pub fn generate_group_header(
