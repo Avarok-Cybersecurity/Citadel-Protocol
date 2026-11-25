@@ -1243,7 +1243,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&session_cid) {
             inner_mut_state!(existing_session.1.state_container)
-                .process_outbound_broadcast_command(ticket, &command)
+                .process_outbound_broadcast_command(ticket, &command, None)
         } else {
             Err(error!(
                 ErrorCode::SessionManagerSessionNotFound,

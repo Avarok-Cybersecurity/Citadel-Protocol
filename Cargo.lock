@@ -898,6 +898,7 @@ dependencies = [
  "ml-dsa",
  "netbeam",
  "once_cell",
+ "proptest",
  "rand 0.8.8",
  "rstest",
  "serde",

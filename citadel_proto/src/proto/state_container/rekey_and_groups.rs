@@ -3,6 +3,7 @@
 use super::includes::*;
 use crate::proto::packet_processor::peer::group_commit_ack;
 use crate::proto::peer::group_relay;
+use crate::proto::peer::group_send_window::Credit;
 use citadel_io::{error, ErrorCode};
 use citadel_types::proto::{GroupDelivery, GroupHierarchyMode, NotRelayed};
 
@@ -103,8 +104,9 @@ impl<R: Ratchet> StateContainerInner<R> {
         &mut self,
         ticket: Ticket,
         command: &GroupBroadcast,
+        credit: Option<Credit>,
     ) -> Result<(), NetworkError> {
-        let result = self.process_outbound_group_command(ticket, command);
+        let result = self.process_outbound_group_command(ticket, command, credit);
         // A Create founds a state, a Kick commits; either is kept before the next command.
         self.save_changed_group_states();
         result
@@ -114,6 +116,7 @@ impl<R: Ratchet> StateContainerInner<R> {
         &mut self,
         ticket: Ticket,
         command: &GroupBroadcast,
+        credit: Option<Credit>,
     ) -> Result<(), NetworkError> {
         if !self.state.is_connected() {
             log::warn!(target: "citadel", "Unable to execute group command since session is not connected");
@@ -256,6 +259,14 @@ impl<R: Ratchet> StateContainerInner<R> {
             }
         };
 
+        // Every return above drops the credit unwritten, which frees its place.
+        if let Some(credit) = credit {
+            credit.written();
+        }
+        #[cfg(feature = "localhost-testing")]
+        if let GroupBroadcast::Message { sender, .. } = command {
+            crate::test_hooks::group_message_written(*sender);
+        }
         to_primary_stream
             .unbounded_send(packet)
             .map_err(|err| NetworkError::generic(err.to_string()))?;
@@ -371,8 +382,12 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         CitadelSession::spawn_message_sender_function(session.clone(), v_conn_type, to_session_rx);
 
+        let to_session = crate::proto::peer::group_channel::ToSession {
+            tx: to_session_tx,
+            window: session.group_send_window.clone(),
+        };
         Ok(GroupChannel::new(
-            to_session_tx,
+            to_session,
             key,
             ticket,
             session_cid,

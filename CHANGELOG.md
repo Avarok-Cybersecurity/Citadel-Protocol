@@ -245,6 +245,25 @@
   `Ok` and its message went nowhere. The drain now waits for it, and the sender receives
   `MessageResponse { NotRelayed(SessionEnded) }` as for any message its ended session could not
   carry.
+- **Groups: a member's sends are paced by the server's answers, so a join is not left waiting
+  behind them.**
+  - The server handles one session's group broadcasts in the order they arrived, and a
+    member's acknowledgement of a Commit comes after every message it sent before it. A joiner's
+    Welcome waits for that acknowledgement. Nothing limited how many messages a sender could
+    queue ahead of it, so a busy member could keep a joiner waiting longer the faster it sent.
+  - Now a session may have at most `GROUP_SEND_WINDOW` (32) group messages written to the server
+    and not yet answered. `GroupChannelSendHalf::send_message` and `send_message_with_id` wait
+    for a place beyond that, and an answer (`MessageResponse` or `MessageRefused`) frees one. A
+    message that is never written frees its place at once. When the session ends, a waiting send reports the message
+    undelivered (`NotRelayed::SessionEnded`), as before.
+  - **Behaviour change.** A session's group sends are limited to 32 per round trip to the server:
+    about 320 a second at 100 ms. A burst of more than 32 messages waits about one round trip
+    for each further 32. The window is per session, across all of its groups, and places go to
+    senders in the order they asked. A sender with many small operations should put several in
+    one message.
+  - The bound: a member's acknowledgement of a Commit is handled after at most 32 of its own
+    group messages, and the relayed Commit reaches the member after at most 32 answers.
+
 - **Account layer** (`citadel_user`):
   - Registering two accounts as peers on the server takes one account lock at a time, so two
     registrations of the same pair in opposite orders always finish; registering an account as
@@ -273,6 +292,8 @@
   `GroupBroadcast::Message` and `MessageResponse` gained fields, and `MessageGroupOptions` gained
   `replay`. Messages held for an away member by an earlier release are not delivered: they were
   kept by the time they were held, and a group's order replaces that.
+- **`GroupChannel::new` is crate-private.** Channels come only from the session that opens them,
+  which now hands each one the session's send window.
 
 - **Groups (protocol 0.12.5; older nodes are refused by name).**
   - **Delivery reports.** `MessageResponse { success }` is now `MessageResponse { key, delivery }`.
