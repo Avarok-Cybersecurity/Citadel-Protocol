@@ -13,6 +13,10 @@ use citadel_types::proto::MessageGroupKey;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
+#[path = "test_hooks_window.rs"]
+mod window;
+pub use window::*;
+
 struct Hold {
     arrived: watch::Sender<bool>,
     released: watch::Receiver<bool>,
@@ -156,6 +160,7 @@ pub(crate) fn group_message_relayed(key: MessageGroupKey, sender: u64, complete:
         complete,
     };
     lock(&RELAY_OBSERVERS, Vec::new).retain(|tx| tx.send(relayed.clone()).is_ok());
+    window::relayed(sender);
 }
 
 #[derive(Clone, Copy)]
@@ -187,6 +192,7 @@ impl Drop for SlowRelays {
 
 /// Called by the server before it relays a group message from `sender`.
 pub(crate) async fn before_group_relay(sender: u64) {
+    window::relay_held(sender).await;
     let delay = {
         let mut slow = lock(&SLOW_RELAYS, HashMap::new);
         slow.get_mut(&sender).and_then(|slow| {

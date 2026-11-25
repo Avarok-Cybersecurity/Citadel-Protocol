@@ -94,6 +94,8 @@ pub(super) async fn member_applied_commit<R: Ratchet, T: PlatformOps>(
     timestamp: i64,
     security_level: SecurityLevel,
 ) -> Result<PrimaryProcessorResult, NetworkError> {
+    #[cfg(feature = "localhost-testing")]
+    crate::test_hooks::commit_acknowledged(key, member, epoch);
     if let Some(settled) = session
         .hypernode_peer_layer
         .commit_applied(key, epoch, member)

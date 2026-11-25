@@ -51,6 +51,7 @@ use crate::error::NetworkError;
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::proto::peer::group_owner::GroupOwner;
+use crate::proto::peer::group_send_window::{Credit, SendWindow};
 use crate::proto::remote::Ticket;
 use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
@@ -62,6 +63,7 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::ops::Deref;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 #[derive(Debug)]
@@ -79,13 +81,14 @@ impl Deref for GroupChannel {
 }
 
 impl GroupChannel {
-    pub fn new(
+    pub(crate) fn new(
         tx: Sender<SessionRequest>,
         key: MessageGroupKey,
         ticket: Ticket,
         session_cid: u64,
         owner: GroupOwner,
         recv: UnboundedReceiver<GroupBroadcastPayload>,
+        window: Arc<SendWindow>,
     ) -> Self {
         let (undelivered_tx, undelivered) = citadel_io::tokio::sync::mpsc::unbounded_channel();
         Self {
@@ -96,6 +99,7 @@ impl GroupChannel {
                 session_cid,
                 owner,
                 undelivered: undelivered_tx,
+                window,
             },
 
             recv_half: GroupChannelRecvHalf {
@@ -143,6 +147,8 @@ pub struct GroupChannelSendHalf {
     owner: GroupOwner,
     /// Where a message is reported undelivered once the session that carried it has ended.
     undelivered: citadel_io::tokio::sync::mpsc::UnboundedSender<GroupBroadcastPayload>,
+    /// The session's group messages written and not yet answered.
+    window: Arc<SendWindow>,
 }
 
 impl Debug for GroupChannelSendHalf {
@@ -157,28 +163,38 @@ impl Debug for GroupChannelSendHalf {
 
 impl GroupChannelSendHalf {
     /// Broadcasts a message to the group
+    ///
+    /// It waits while the session has a full window of group messages unanswered by the server
+    /// (`GROUP_SEND_WINDOW`), and goes once an answer frees a place.
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
-        let sent = self
-            .send_group_command(GroupBroadcast::Message {
-                sender: self.session_cid,
-                key: self.key,
-                message,
-            })
-            .await;
+        let Ok(credit) = self.window.place(self.session_cid).await else {
+            self.report_session_ended();
+            return Ok(());
+        };
+        let message = GroupBroadcast::Message {
+            sender: self.session_cid,
+            key: self.key,
+            message,
+        };
+        let sent = self.send_group_request(message, Some(credit)).await;
         if sent.is_err() && self.tx.is_closed() {
-            // The session has ended and released everything it held, so nothing will answer
-            // the message: it is reported undelivered on this channel, as a live session reports
-            // a message it cannot deliver.
-            let refusal = GroupBroadcast::MessageResponse {
-                key: self.key,
-                delivery: citadel_types::proto::GroupDelivery::NotRelayed(
-                    citadel_types::proto::NotRelayed::SessionEnded,
-                ),
-            };
-            let _ = self.undelivered.send(refusal.into());
+            self.report_session_ended();
             return Ok(());
         }
         sent
+    }
+
+    /// The session has ended and released everything it held, so nothing will answer a message:
+    /// it is reported undelivered on this channel, as a live session reports one it cannot
+    /// deliver.
+    fn report_session_ended(&self) {
+        let refusal = GroupBroadcast::MessageResponse {
+            key: self.key,
+            delivery: citadel_types::proto::GroupDelivery::NotRelayed(
+                citadel_types::proto::NotRelayed::SessionEnded,
+            ),
+        };
+        let _ = self.undelivered.send(refusal.into());
     }
 
     /// The group's owner as the server last reported it: its creator until the owner leaves, then
@@ -260,10 +276,19 @@ impl GroupChannelSendHalf {
     }
 
     async fn send_group_command(&self, broadcast: GroupBroadcast) -> Result<(), NetworkError> {
+        self.send_group_request(broadcast, None).await
+    }
+
+    async fn send_group_request(
+        &self,
+        broadcast: GroupBroadcast,
+        credit: Option<Credit>,
+    ) -> Result<(), NetworkError> {
         self.tx
             .send(SessionRequest::Group(Group {
                 ticket: self.ticket,
                 broadcast,
+                credit,
             }))
             .await
             .map_err(|err| NetworkError::msg(err.to_string()))
