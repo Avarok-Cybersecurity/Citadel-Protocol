@@ -185,6 +185,26 @@
 
 ### Fixed
 
+- **A file transfer no longer stalls when its first answer comes back at once.** The sender sent
+  a group's header before registering the group, and both steps run under the same read lock,
+  so an answer read in between found nothing ("header ack ... does not map to a transmitter
+  container"), was dropped, and the transfer waited forever. The group is now registered before
+  its header is sent; the FILE_HEADER is sent after its record too.
+- **A transfer that stops being answered fails, by code, at both ends.**
+  - `ObjectTransferStatus::Failed(TransferFailure { code, message })` names a failure by its
+    `ErrorCode`; `ObjectTransferHandler::transfer_file` and `receive_file` return that code.
+    `Fail(String)` stays for the paths that still report text only.
+  - `ErrorCode::FileTransferStalled` (666): the other side stopped answering a group.
+  - The sender fails a group whose header goes unanswered for
+    `timing::FILE_GROUP_HEADER_ACK_DEADLINE` (15 s, counted while no earlier group of the session
+    is in flight), checked every `timing::FILE_GROUP_CHECK_PERIOD` (1 s), so it is reported within
+    `timing::FILE_GROUP_HEADER_UNANSWERED_FAILS_WITHIN` (16 s). Before, such a group was never
+    checked at all.
+  - An answered group that falls silent is held to the receiver's rule (silent for
+    `GROUP_EXPIRE_TIME_MS` on a silent session, or ten times that on any session). Before, a busy
+    session kept it forever.
+  - The receiver, reclaiming a silent group, fails its handle with the same code instead of
+    ending its stream with no verdict.
 - **Account layer** (`citadel_user`):
   - Registering two accounts as peers on the server takes one account lock at a time, so two
     registrations of the same pair in opposite orders always finish; registering an account as
