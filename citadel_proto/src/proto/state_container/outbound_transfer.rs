@@ -135,10 +135,28 @@ impl<R: Ratchet> StateContainerInner<R> {
         }
 
         let Some(mut outbound_container) = self.outbound_transmitters.get_mut(&key) else {
+            #[cfg(feature = "localhost-testing")]
+            crate::test_hooks::group_header_ack_read(
+                key.target_cid,
+                match self.completed_outbound_groups.orphan_ack(&key) {
+                    super::completed_groups::OrphanAck::GroupCompleted => {
+                        crate::test_hooks::HeaderAckFound::AfterItsGroupCompleted
+                    }
+                    super::completed_groups::OrphanAck::GroupUnknown => {
+                        crate::test_hooks::HeaderAckFound::NoTransmitter
+                    }
+                },
+            );
             self.completed_outbound_groups
                 .note_orphan_ack("header", &key);
             return true;
         };
+        #[cfg(feature = "localhost-testing")]
+        crate::test_hooks::group_header_ack_read(
+            key.target_cid,
+            crate::test_hooks::HeaderAckFound::ItsTransmitter,
+        );
+        outbound_container.header_answered = true;
         outbound_container.waves_in_current_window = next_window.unwrap_or(0..=0).count();
         // file-transfer, or TCP only mode since next_window is none. Use TCP
         outbound_container
@@ -170,8 +188,6 @@ impl<R: Ratchet> StateContainerInner<R> {
             // Re-borrow the DashMap `RefMut` as a plain `&mut` so the borrow checker can field-split
             // the container (a `RefMut` derefs as a whole, defeating disjoint-field access below).
             let transmitter_container = &mut *transmitter_container;
-            // we set has_begun here instead of the transmit_tcp, simply because we want the first wave to ACK
-            transmitter_container.has_begun = true;
             let transmitter = transmitter_container
                 .burst_transmitter
                 .group_transmitter

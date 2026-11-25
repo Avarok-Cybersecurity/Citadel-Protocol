@@ -13,6 +13,10 @@ use citadel_types::proto::MessageGroupKey;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
+#[path = "test_hooks_transfer.rs"]
+mod transfer;
+pub use transfer::*;
+
 struct Hold {
     arrived: watch::Sender<bool>,
     released: watch::Receiver<bool>,

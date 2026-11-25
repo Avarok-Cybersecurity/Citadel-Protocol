@@ -3,12 +3,14 @@
 //! A group a peer announced is held only while its own packets keep arriving. It is reclaimed,
 //! with the file transfer it belongs to, once it has been silent for [`GROUP_EXPIRE_TIME_MS`]
 //! while the session was silent too, or once it has been silent for
-//! [`INBOUND_GROUP_SILENCE_CEILING`] whatever else the session carried. No peer holds more than
+//! [`INBOUND_GROUP_SILENCE_CEILING`] whatever else the session carried; the receiver's handle then
+//! fails with `ErrorCode::FileTransferStalled`. No peer holds more than
 //! [`MAX_INBOUND_GROUPS_PER_PEER`] open at once.
 
 use super::includes::*;
 use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::proto::session_queue_handler::QueueWorkerResult;
+use citadel_io::{error, ErrorCode};
 use std::time::Duration;
 
 /// The most groups one peer may have open here at once. A file transfer keeps at most two of
@@ -64,7 +66,10 @@ impl<R: Ratchet> StateContainerInner<R> {
                 if self.inbound_files.remove(&file_key).is_some() {
                     log::warn!(target: "citadel", "File transfer expired");
                 }
-                let _ = self.file_transfer_handles.remove(&file_key);
+                // Failed, not just dropped: a dropped handle ends its stream with no verdict,
+                // and the application reading it cannot tell that from a lost notification.
+                let err = error!(ErrorCode::FileTransferStalled, key.group_id);
+                let _ = self.fail_object_transfer_handle_with_error(&file_key, &err);
             }
         }
         QueueWorkerResult::Complete

@@ -155,6 +155,7 @@ mod group_state_saving;
 pub(crate) mod inbound_group_bounds;
 mod inbound_transfer;
 mod monitoring;
+mod outbound_group_expiry;
 mod outbound_transfer;
 pub(crate) mod peer_keys;
 mod rekey_and_groups;
@@ -546,7 +547,11 @@ pub(crate) struct OutboundTransmitterContainer<R: Ratchet> {
     relative_group_id: u32,
     #[allow(dead_code)]
     ticket: Ticket,
-    pub has_begun: bool,
+    /// The receiver answered this group's header.
+    header_answered: bool,
+    /// Since when the header has waited for its answer while first in line to its peer
+    /// (see `outbound_group_expiry`).
+    header_clock_from: Instant,
 }
 
 impl<R: Ratchet> OutboundTransmitterContainer<R> {
@@ -559,10 +564,10 @@ impl<R: Ratchet> OutboundTransmitterContainer<R> {
         ticket: Ticket,
     ) -> Self {
         let transmission_start_time = Instant::now();
-        let has_begun = false;
 
         Self {
-            has_begun,
+            header_answered: false,
+            header_clock_from: transmission_start_time,
             relative_group_id,
             ticket,
             parent_object_total_groups,

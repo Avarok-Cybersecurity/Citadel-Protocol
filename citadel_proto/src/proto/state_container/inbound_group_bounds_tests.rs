@@ -5,6 +5,7 @@ use super::super::test_support::state_container;
 use super::*;
 use crate::proto::session_queue_handler::QueueWorkerResult;
 use citadel_io::tokio;
+use citadel_io::tokio::sync::mpsc::UnboundedReceiver;
 use zerocopy::{AsBytes, FromZeroes};
 
 const PEER_CID: u64 = 20;
@@ -142,4 +143,64 @@ fn reclaims_is_silence_with_a_silent_session_or_silence_past_the_ceiling() {
     assert!(!reclaims(true, false, false));
     assert!(reclaims(true, false, true));
     assert!(reclaims(true, true, false));
+}
+
+/// A file's group held as `on_group_header_received` holds it once the file was accepted, with
+/// the receiver's handle registered for that file.
+fn hold_file_group<R: Ratchet>(
+    inner: &StateContainerInner<R>,
+    object: ObjectId,
+) -> UnboundedReceiver<ObjectTransferStatus> {
+    let config = GroupReceiverConfig {
+        object_id: object,
+        ..one_packet_group(1)
+    };
+    let receiver = GroupReceiver::new(
+        config,
+        WaveBinding::Bound,
+        INDIVIDUAL_WAVE_TIMEOUT_MS,
+        GROUP_TIMEOUT_MS,
+    );
+    let group = GroupReceiverContainer::new(
+        object,
+        receiver,
+        VirtualTargetType::LocalGroupServer {
+            session_cid: PEER_CID,
+        },
+        SecurityLevel::Standard,
+        Ticket(1),
+    );
+    let _ = inner
+        .inbound_groups
+        .insert(GroupKey::new(PEER_CID, 1, object), group);
+    let (tx, rx) = unbounded();
+    let _ = inner.file_transfer_handles.insert(FileKey::new(object), tx);
+    rx
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_reclaimed_file_group_fails_the_receivers_handle_by_code() {
+    let container = state_container(true, 0).await;
+    let object = ObjectId::from(9u128);
+    let mut handle = hold_file_group(&inner_state!(container), object);
+    let key = GroupKey::new(PEER_CID, 1, object);
+
+    tokio::time::advance(GROUP_EXPIRE_TIME_MS).await;
+    assert!(matches!(
+        check(&container, key),
+        QueueWorkerResult::Incomplete
+    ));
+    assert!(handle.try_recv().is_err(), "nothing reported while held");
+
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    assert!(matches!(
+        check(&container, key),
+        QueueWorkerResult::Complete
+    ));
+    match handle.try_recv() {
+        Ok(ObjectTransferStatus::Failed(failure)) => {
+            assert_eq!(failure.code, ErrorCode::FileTransferStalled.as_u16())
+        }
+        other => panic!("the receiver's handle got {other:?}, not a coded failure"),
+    }
 }
