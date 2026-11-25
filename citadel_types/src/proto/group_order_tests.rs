@@ -59,3 +59,24 @@ fn a_groups_limits_are_held_to_the_servers() {
 fn message_ids_are_fresh() {
     assert_ne!(GroupMessageId::random(), GroupMessageId::random());
 }
+
+#[test]
+fn each_replay_refusal_names_its_reason() {
+    let said = |refusal: GroupReplayRefusal| refusal.to_string();
+    assert_eq!(
+        said(GroupReplayRefusal::TooSmall),
+        format!("the group's log limits cannot carry a {MIN_REPLAY_BODY_BYTES}-byte body")
+    );
+    assert_eq!(
+        said(GroupReplayRefusal::NotKept),
+        "this server keeps no group logs"
+    );
+    assert_eq!(
+        said(GroupReplayRefusal::NotTheOwner),
+        "only the group's owner turns replay on"
+    );
+    assert_eq!(
+        said(GroupReplayRefusal::NotApplicable),
+        "replay cannot be turned on for this group"
+    );
+}
