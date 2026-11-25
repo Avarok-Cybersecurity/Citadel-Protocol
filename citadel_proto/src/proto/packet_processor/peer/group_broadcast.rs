@@ -833,18 +833,27 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             }
         }
 
-        GroupBroadcast::MessageResponse { key, delivery } => forward_signal(
-            session,
-            ticket,
-            Some(key),
-            GroupBroadcast::MessageResponse { key, delivery },
-        ),
+        GroupBroadcast::MessageResponse { key, delivery } => {
+            if session.is_server {
+                log::warn!(target: "citadel", "Ignoring a MessageResponse for {key:?}: only a server sends one");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            // The server's answer to one of this session's messages frees its place.
+            let _ = session.group_send_window.answered();
+            forward_signal(
+                session,
+                ticket,
+                Some(key),
+                GroupBroadcast::MessageResponse { key, delivery },
+            )
+        }
 
         GroupBroadcast::MessageRefused { key, refusal } => {
             if session.is_server {
                 log::warn!(target: "citadel", "Ignoring a MessageRefused for {key:?}: only a server sends one");
                 return Ok(PrimaryProcessorResult::Void);
             }
+            let _ = session.group_send_window.answered();
             forward_signal(
                 session,
                 ticket,

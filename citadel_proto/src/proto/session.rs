@@ -321,6 +321,8 @@ pub struct CitadelSessionInner<R: Ratchet, T: PlatformOps> {
     pub(super) server_probes: crate::proto::server_probe::ServerProbes,
     /// Client side, over a WebSocket: asks the transport for a ping alongside each probe.
     pub(super) ws_pinger: DualRwLock<Option<crate::proto::misc::ws_ping::WsPinger>>,
+    /// Client side: this session's group messages written and not yet answered by the server.
+    pub(crate) group_send_window: std::sync::Arc<crate::proto::peer::group_send_window::SendWindow>,
 }
 
 /// allows each session worker to check the state of the session
@@ -617,6 +619,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
             server_probes: Default::default(),
             ws_pinger: DualRwLock::from(None),
             disconnect_tracker,
+            group_send_window: crate::proto::peer::group_send_window::SendWindow::new(
+                crate::proto::peer::group_send_window::GROUP_SEND_WINDOW,
+            ),
         };
 
         if let Some(client_only_settings) = session_init_params.client_only_settings {
@@ -2397,6 +2402,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             // Closed first, so nothing lands after the drain and goes unanswered:
                             // a later send fails, and its channel reports it undelivered.
                             rx_session_requests.close();
+                            // No answer will come now: a sender waiting for a place is refused.
+                            this.group_send_window.close();
                             while let Ok(request) = rx_session_requests.try_recv() {
                                 match request {
                                     SessionRequest::SendMessage(rm) => {
@@ -2442,11 +2449,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                         }
                                     }
 
-                                    SessionRequest::Group(Group { ticket, broadcast }) => {
+                                    SessionRequest::Group(Group { ticket, broadcast, credit }) => {
                                         // Write guard only here: the outbound group-`Message` path
                                         // advances the CGKA send generation (`&mut self`).
                                         let mut state_container = inner_mut_state!(this.state_container);
-                                        if let Err(err) = state_container.process_outbound_broadcast_command(ticket, &broadcast) {
+                                        if let Err(err) = state_container.process_outbound_broadcast_command(ticket, &broadcast, credit) {
                                             to_kernel_tx
                                                 .unbounded_send(NodeResult::InternalServerError(InternalServerError {
                                                     ticket_opt: Some(ticket),
@@ -3048,6 +3055,8 @@ pub struct UserMessage {
 pub struct Group {
     pub ticket: Ticket,
     pub broadcast: GroupBroadcast,
+    /// A message's place in the session's send window, returned if it is never written.
+    pub(crate) credit: Option<crate::proto::peer::group_send_window::Credit>,
 }
 
 #[derive(Debug)]

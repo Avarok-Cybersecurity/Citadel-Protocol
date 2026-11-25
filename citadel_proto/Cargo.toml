@@ -161,6 +161,7 @@ wasm-bindgen-futures = { workspace = true, optional = true }
 
 [dev-dependencies]
 citadel_logging = { workspace = true }
+proptest = { version = "1.5", default-features = false, features = ["std"] }
 tracing = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }

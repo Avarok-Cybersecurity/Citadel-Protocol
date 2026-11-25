@@ -40,6 +40,7 @@ pub mod peer_layer;
 pub mod channel;
 
 pub mod group_channel;
+pub(crate) mod group_send_window;
 
 /// Client-side coordinator for the zero-trust post-quantum TreeKEM group CGKA.
 pub mod group_cgka;
