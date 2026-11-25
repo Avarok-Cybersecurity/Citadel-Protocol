@@ -110,3 +110,7 @@ pub(super) fn replay_answer<R: Ratchet, T: PlatformOps>(
     }
     forward_signal(session, ticket, Some(key), answer)
 }
+
+#[cfg(test)]
+#[path = "group_ordered_tests.rs"]
+mod tests;
