@@ -23,6 +23,7 @@ mod path_policy_error;
 #[cfg(test)]
 mod path_policy_tests;
 pub mod timing;
+mod transfer_failure;
 pub use group_delivery::{GroupDelivery, NotDelivered, NotRelayed};
 pub use group_end::{GroupEndReason, GroupStateSource};
 pub use group_limits::{GroupMessageLimits, GroupMessageLimitsError, GroupMessageRefusal};
@@ -35,6 +36,7 @@ pub use path_policy::{
     PathClass, PathClasses, PathKind, PathPolicy, PathPolicyError, PathRule, MAX_ATTEMPT_TIMEOUT,
     MIN_ATTEMPT_TIMEOUT,
 };
+pub use transfer_failure::TransferFailure;
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "typescript", derive(TS))]
@@ -161,7 +163,11 @@ pub enum ObjectTransferStatus {
     ReceptionTick(usize, usize, f32),
     TransferComplete,
     ReceptionComplete,
+    /// A failure named by text only. Kept for the paths that still report one this way and for
+    /// readers of older producers; a failure with a code is [`Self::Failed`].
     Fail(String),
+    /// A failure named by its stable error code.
+    Failed(TransferFailure),
 }
 
 impl ObjectTransferStatus {
@@ -180,6 +186,7 @@ impl ObjectTransferStatus {
             ObjectTransferStatus::TransferComplete
                 | ObjectTransferStatus::ReceptionComplete
                 | ObjectTransferStatus::Fail(_)
+                | ObjectTransferStatus::Failed(_)
         )
     }
 }
@@ -213,6 +220,10 @@ impl std::fmt::Display for ObjectTransferStatus {
 
             ObjectTransferStatus::Fail(reason) => {
                 write!(f, "Failure. Reason: {reason}")
+            }
+
+            ObjectTransferStatus::Failed(failure) => {
+                write!(f, "Failure. Reason: {failure}")
             }
         }
     }
@@ -1029,6 +1040,12 @@ mod tests {
         assert!(ObjectTransferStatus::TransferComplete.is_finished_type());
         assert!(ObjectTransferStatus::ReceptionComplete.is_finished_type());
         assert!(ObjectTransferStatus::Fail("x".into()).is_finished_type());
+        let failed = ObjectTransferStatus::Failed(TransferFailure {
+            code: 1,
+            message: "x".into(),
+        });
+        assert!(failed.is_finished_type());
+        assert!(!failed.is_tick_type());
         assert!(!ObjectTransferStatus::TransferBeginning.is_finished_type());
         for s in [
             ObjectTransferStatus::TransferBeginning,
@@ -1037,6 +1054,10 @@ mod tests {
             ObjectTransferStatus::TransferComplete,
             ObjectTransferStatus::ReceptionComplete,
             ObjectTransferStatus::Fail("boom".into()),
+            ObjectTransferStatus::Failed(TransferFailure {
+                code: 1,
+                message: "boom".into(),
+            }),
         ] {
             assert!(!format!("{s}").is_empty());
         }

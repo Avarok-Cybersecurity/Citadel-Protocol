@@ -648,6 +648,9 @@ mod tests {
             if let ObjectTransferStatus::Fail(err) = &evt {
                 log::error!(target: "citadel", "File Transfer Failed: {err:?}");
                 break;
+            } else if let ObjectTransferStatus::Failed(failure) = &evt {
+                log::error!(target: "citadel", "File Transfer Failed: {failure}");
+                break;
             } else if let ObjectTransferStatus::TransferComplete = &evt {
                 break;
             } else if let ObjectTransferStatus::ReceptionComplete = &evt {

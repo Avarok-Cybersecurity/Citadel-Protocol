@@ -32,6 +32,7 @@ fn export_types() -> Result<(), Box<dyn std::error::Error>> {
     ObjectId::export()?;
     ObjectTransferOrientation::export()?;
     ObjectTransferStatus::export()?;
+    TransferFailure::export()?;
     SessionSecuritySettings::export()?;
     UdpMode::export()?;
     MemberState::export()?;
