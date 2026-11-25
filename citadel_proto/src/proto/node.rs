@@ -173,6 +173,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelNode<R, T> {
                 Some(crate::proto::server_limits::ServerLoad::new(
                     limits,
                     settings.group_mail,
+                    settings.group_log,
                 ))
             });
         let session_manager = CitadelSessionManager::new(

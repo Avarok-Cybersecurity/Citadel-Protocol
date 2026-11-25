@@ -17,6 +17,10 @@ pub use send::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
+#[path = "test_hooks_replay.rs"]
+mod replay;
+pub use replay::*;
+
 struct Hold {
     arrived: watch::Sender<bool>,
     released: watch::Receiver<bool>,

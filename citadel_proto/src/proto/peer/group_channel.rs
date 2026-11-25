@@ -50,13 +50,16 @@ let (send_half, recv_half) = group_channel.split();
 use crate::error::NetworkError;
 use crate::proto::outbound_sender::{Sender, UnboundedReceiver};
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::proto::peer::group_order_view::GroupOrderView;
 use crate::proto::peer::group_owner::GroupOwner;
 use crate::proto::remote::Ticket;
 use crate::proto::session::{Group, SessionRequest};
 use citadel_io::tokio_stream::StreamExt;
 use citadel_io::{error, ErrorCode};
 use citadel_types::crypto::SecBuffer;
-use citadel_types::proto::{GroupMessageId, GroupPosition, MessageGroupKey};
+use citadel_types::proto::{
+    GroupLogLimits, GroupMessageId, GroupOrderInfo, GroupPosition, MessageGroupKey,
+};
 use futures::Stream;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -85,6 +88,7 @@ impl GroupChannel {
         ticket: Ticket,
         session_cid: u64,
         owner: GroupOwner,
+        order: GroupOrderView,
         recv: UnboundedReceiver<GroupBroadcastPayload>,
     ) -> Self {
         let (undelivered_tx, undelivered) = citadel_io::tokio::sync::mpsc::unbounded_channel();
@@ -95,6 +99,7 @@ impl GroupChannel {
                 key,
                 session_cid,
                 owner,
+                order,
                 undelivered: undelivered_tx,
             },
 
@@ -152,6 +157,8 @@ pub struct GroupChannelSendHalf {
     session_cid: u64,
     /// The group's owner, as the server last reported it.
     owner: GroupOwner,
+    /// A replay group's order, as the server last described it.
+    order: GroupOrderView,
     /// Where a message is reported undelivered once the session that carried it has ended.
     undelivered: citadel_io::tokio::sync::mpsc::UnboundedSender<GroupBroadcastPayload>,
 }
@@ -213,6 +220,29 @@ impl GroupChannelSendHalf {
     /// its successor. `None` once this channel has left the group.
     pub fn owner(&self) -> Option<u64> {
         self.owner.get()
+    }
+
+    /// A replay group's order as the server last described it: the position its log starts at,
+    /// the first position this member reads (`joined`, when it joined after the log started),
+    /// and the limits that apply, among them the largest message the group takes
+    /// (`limits.max_message_bytes`, which carries at least
+    /// [`MIN_REPLAY_BODY_BYTES`](citadel_types::proto::MIN_REPLAY_BODY_BYTES) of body). `None` for
+    /// a group without replay.
+    pub fn order(&self) -> Option<GroupOrderInfo> {
+        self.order.get()
+    }
+
+    /// Owner only: asks the server to keep this group's broadcasts in one log from the next
+    /// position on, within `limits` (held to the server's own). Every member is then told, at
+    /// that position, by a positioned `GroupBroadcast::ReplayEnabled`; a refusal comes back to
+    /// this channel as `GroupBroadcast::ReplayRefused`.
+    pub async fn enable_replay(&self, limits: GroupLogLimits) -> Result<(), NetworkError> {
+        self.permission_gate()?;
+        self.send_group_command(GroupBroadcast::EnableReplay {
+            key: self.key,
+            limits,
+        })
+        .await
     }
 
     /// Kicks a peer from the group. User must be owner

@@ -122,6 +122,11 @@ impl GroupOrderBook {
         })
     }
 
+    /// Whether `key` keeps a log.
+    pub(crate) fn has_replay(&self, key: MessageGroupKey) -> bool {
+        self.groups.get(&key).is_some_and(|g| g.replay.is_some())
+    }
+
     /// The decision for the next broadcast to `key`, whose frame hashes to `digest`; `id` for a
     /// message (`(sender, id)`), `None` for control.
     pub(crate) fn next(

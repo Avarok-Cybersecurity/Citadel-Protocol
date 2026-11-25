@@ -236,6 +236,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             | GroupBroadcast::RequestJoin { .. }
             | GroupBroadcast::ListGroupsFor { .. }
             | GroupBroadcast::AwaitGroup { .. }
+            | GroupBroadcast::EnableReplay { .. }
             | GroupBroadcast::LeaveRoom { .. } => {
                 packet_crafter::peer_cmd::craft_group_message_packet(
                     &ratchet,
@@ -361,6 +362,7 @@ impl<R: Ratchet> StateContainerInner<R> {
 
         let _ = self.group_channels.insert(key, tx);
         let owner = self.open_group_owner(key, owner);
+        let order = self.group_order_view(key);
 
         let (to_session_tx, to_session_rx) =
             crate::proto::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
@@ -375,6 +377,7 @@ impl<R: Ratchet> StateContainerInner<R> {
             ticket,
             session_cid,
             owner,
+            order,
             rx,
         ))
     }

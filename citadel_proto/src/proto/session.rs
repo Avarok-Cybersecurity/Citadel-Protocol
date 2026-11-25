@@ -427,6 +427,9 @@ pub struct ServerOnlySessionInitSettings {
     pub limits: Option<crate::proto::server_limits::ServerLimits>,
     /// What the server holds for a group member that is away.
     pub group_mail: crate::proto::server_limits::GroupMailLimits,
+    /// The most a replay group's log may keep. `None`: this server keeps no group's log, and
+    /// answers a request for replay `GroupReplayRefusal::NotKept`.
+    pub group_log: Option<citadel_types::proto::GroupLogLimits>,
 }
 
 /// TURN server configuration for NAT traversal relay.

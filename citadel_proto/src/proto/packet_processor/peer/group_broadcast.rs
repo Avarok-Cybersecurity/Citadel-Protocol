@@ -32,8 +32,9 @@
 
 use super::super::includes::*;
 use super::{
-    group_backup_relay, group_commit_ack, group_commit_relay, group_control, group_message_relay,
-    group_ordered, group_restore, group_resume_relay, group_resumed, group_succession_relay,
+    group_arrivals, group_backup_relay, group_commit_ack, group_commit_relay, group_control,
+    group_message_relay, group_ordered, group_replay_relay, group_restore, group_resume_relay,
+    group_resumed, group_succession_relay,
 };
 use crate::error::NetworkError;
 use crate::functional::*;
@@ -579,11 +580,6 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
     let security_level = header.security_level.into();
     // since group broadcast packets never get proxied, the implicated cid is the local session cid
     let session_cid = header.session_cid.get();
-    let crafter = group_commit_ack::Crafter {
-        ratchet: sess_ratchet,
-        timestamp,
-        security_level,
-    };
     let reply = group_restore::Reply {
         sess_ratchet,
         ticket,
@@ -591,9 +587,35 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
         security_level,
     };
     log::trace!(target: "citadel", "[GROUP:{}] message: {:?}", session.is_server.if_true("server").if_false("client"), signal);
-    let Some((signal, position)) = group_ordered::unwrap_ordered(session, session_cid, signal)
-    else {
-        return Ok(PrimaryProcessorResult::Void);
+    let mut result = Ok(PrimaryProcessorResult::Void);
+    for (signal, position) in group_arrivals::arrivals(session, session_cid, signal, &reply)? {
+        if let PrimaryProcessorResult::ReplyToSender(packet) = result? {
+            session.send_to_primary_stream(Some(ticket), packet)?;
+        }
+        result = process_arrival(session, reply, session_cid, signal, position).await;
+    }
+    result
+}
+
+/// One broadcast, as [`group_ordered::arrivals`] hands it on, with its position in the group's
+/// order when it has one.
+async fn process_arrival<R: Ratchet, T: PlatformOps>(
+    session: &CitadelSession<R, T>,
+    reply: group_restore::Reply<'_, R>,
+    session_cid: u64,
+    signal: GroupBroadcast,
+    position: Option<GroupPosition>,
+) -> Result<PrimaryProcessorResult, NetworkError> {
+    let group_restore::Reply {
+        sess_ratchet,
+        ticket,
+        timestamp,
+        security_level,
+    } = reply;
+    let crafter = group_commit_ack::Crafter {
+        ratchet: sess_ratchet,
+        timestamp,
+        security_level,
     };
     match signal {
         GroupBroadcast::Create {
@@ -782,7 +804,11 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             session,
             ticket,
             Some(key),
-            GroupBroadcast::MemberStateChanged { key, state },
+            group_ordered::event_at(
+                key,
+                position,
+                GroupBroadcast::MemberStateChanged { key, state },
+            ),
         ),
 
         GroupBroadcast::End { key } => {
@@ -951,15 +977,46 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             Ok(PrimaryProcessorResult::Void)
         }
 
-        GroupBroadcast::EnableReplay { key, .. } | GroupBroadcast::FetchRange { key, .. } => {
-            group_ordered::refuse_replay(session, reply, key)
+        GroupBroadcast::EnableReplay { key, limits } => {
+            if !session.is_server {
+                log::warn!(target: "citadel", "Ignoring an EnableReplay for {key:?}: only a server acts on it");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            group_replay_relay::enable(session, reply, session_cid, key, limits).await
         }
 
-        answer @ (GroupBroadcast::ReplayEnabled { .. }
-        | GroupBroadcast::ReplayRefused { .. }
+        GroupBroadcast::FetchRange { key, after, until } => {
+            if !session.is_server {
+                log::warn!(target: "citadel", "Ignoring a FetchRange for {key:?}: only a server answers one");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            group_replay_relay::fetch(session, reply, session_cid, key, after, until).await
+        }
+
+        GroupBroadcast::ReplayEnabled { key, order } => {
+            if session.is_server || position.is_none() {
+                log::warn!(target: "citadel", "Ignoring a ReplayEnabled for {key:?} that was not positioned");
+                return Ok(PrimaryProcessorResult::Void);
+            }
+            inner_mut_state!(session.state_container).record_group_order(key, order);
+            let event = GroupBroadcast::ReplayEnabled { key, order };
+            forward_signal(
+                session,
+                ticket,
+                Some(key),
+                group_ordered::event_at(key, position, event),
+            )
+        }
+
+        answer @ (GroupBroadcast::ReplayRefused { .. }
         | GroupBroadcast::Range { .. }
         | GroupBroadcast::Trimmed { .. }
         | GroupBroadcast::OrderBroken { .. }) => {
+            if let GroupBroadcast::Trimmed { key, order, .. } = &answer {
+                if !session.is_server {
+                    inner_mut_state!(session.state_container).record_group_order(*key, *order);
+                }
+            }
             group_ordered::replay_answer(session, ticket, answer)
         }
 
@@ -1388,7 +1445,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             joiner_cid,
             tree: _claimed,
             owner: claimed_owner,
-            order: _,
+            order: told,
             payload,
         } => {
             if session.is_server {
@@ -1404,12 +1461,17 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                     log::warn!(target: "citadel", "Not relaying a Welcome for {key:?} from {session_cid}: only the group's owner welcomes");
                     return Ok(PrimaryProcessorResult::Void);
                 }
-                let _ordered = session
+                let mut book = session
                     .hypernode_peer_layer
                     .group_order
                     .clone()
                     .lock_owned()
                     .await;
+                // In a replay group the joiner reads from the next position on.
+                let order = session
+                    .hypernode_peer_layer
+                    .group_order_info(&mut book, key, true)
+                    .await?;
                 // Relay verbatim to the single joiner; the relay never inspects `payload`.
                 //
                 // A dropped Welcome is as terminal as a dropped KeyPackage: the
@@ -1425,7 +1487,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                                 joiner_cid,
                                 tree,
                                 owner,
-                                order: None,
+                                order,
                                 payload,
                             },
                             ticket,
@@ -1461,7 +1523,25 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                         return Ok(PrimaryProcessorResult::Void);
                     }
                     cgka.tree = _claimed;
+                    let joined_after = told.and_then(|order| order.joined).map(|j| j - 1);
+                    if let Some(through) = joined_after {
+                        cgka.cursor = through;
+                    }
                     state.record_group_owner(key, Some(claimed_owner));
+                    if let Some(order) = told {
+                        state.record_group_order(key, order);
+                    }
+                    if let Some(through) = joined_after {
+                        // Nothing before the joiner's first position is its to read.
+                        let freed = session
+                            .hypernode_peer_layer
+                            .group_delivered
+                            .lock()
+                            .holds_through(session_cid, key, through);
+                        if !freed.is_empty() {
+                            log::warn!(target: "citadel", "Dropping {} position(s) of {key:?} held before its Welcome", freed.len());
+                        }
+                    }
                     state.has_open_group_channel(key)
                 };
                 // A member rejoining a re-founded group keeps the channel its application already has.
@@ -1572,21 +1652,33 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             group_restore::restore(session, reply, key, tree, owner).await
         }
 
-        GroupBroadcast::ResumeMembership { key, .. }
-        | GroupBroadcast::ResumeOwnership { key, .. } => {
+        GroupBroadcast::ResumeMembership { key, after }
+        | GroupBroadcast::ResumeOwnership { key, after } => {
             if !session.is_server {
                 log::warn!(target: "citadel", "Ignoring a resume for {key:?}: only a server acts on it");
                 return Ok(PrimaryProcessorResult::Void);
             }
-            group_resume_relay::resume(
+            let replayed = group_replay_relay::resume(
                 session,
                 sess_ratchet,
                 session_cid,
                 key,
+                after,
                 ticket,
                 security_level,
             )
             .await?;
+            if !replayed {
+                group_resume_relay::resume(
+                    session,
+                    sess_ratchet,
+                    session_cid,
+                    key,
+                    ticket,
+                    security_level,
+                )
+                .await?;
+            }
             Ok(PrimaryProcessorResult::Void)
         }
 
@@ -1609,10 +1701,13 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
             key,
             owner,
             members,
-            order: _,
+            order,
         } => {
             if session.is_server {
                 return Ok(PrimaryProcessorResult::Void);
+            }
+            if let Some(order) = order {
+                inner_mut_state!(session.state_container).record_group_order(key, order);
             }
             group_resumed::resumed(session, reply, key, owner, &members)
         }
@@ -1694,6 +1789,7 @@ async fn process_signal<R: Ratchet, T: PlatformOps>(
                     owner,
                     previous,
                     tree,
+                    position,
                 },
                 ticket,
             )

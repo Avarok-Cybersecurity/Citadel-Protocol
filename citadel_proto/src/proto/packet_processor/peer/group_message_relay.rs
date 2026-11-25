@@ -112,6 +112,21 @@ async fn fan_out<R: Ratchet, T: PlatformOps>(
         }
     };
     let mut book = peer_layer.group_order.clone().lock_owned().await;
+    match peer_layer
+        .group_log_refuses(&mut book, key, message.len())
+        .await
+    {
+        Ok(None) => {}
+        Ok(Some(refusal)) => {
+            log::warn!(target: "citadel", "Refusing a group message from {session_cid} to {key:?}: {refusal}");
+            return Relay::Refused(GroupBroadcast::MessageRefused { key, refusal });
+        }
+        Err(err) => {
+            log::error!(target: "citadel", "Unable to read the order of {key:?}: {err}");
+            let unstored = GroupDelivery::NotRelayed(NotRelayed::NotPositioned);
+            return Relay::Answered(response(None, unstored), Some(book));
+        }
+    }
     let signal = GroupBroadcast::Message {
         sender: session_cid,
         key,

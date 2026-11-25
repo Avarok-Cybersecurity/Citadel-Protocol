@@ -3,6 +3,7 @@
 //! order lock held, so the positions a group's members see are the order its fan-out writes them.
 
 use super::group_log::{append, load, write_meta, StoredEntry};
+use super::group_log_ops::{relocate, trim};
 use super::group_sequencer::{digest, GroupOrder, GroupOrderBook, Next, Persist};
 use super::peer_layer::CitadelNodePeerLayer;
 use crate::error::NetworkError;
@@ -32,6 +33,17 @@ pub(crate) fn positioned_group(signal: &GroupBroadcast) -> Option<MessageGroupKe
     }
 }
 
+/// The group a change of its members or owner, or replay turned on, is positioned in, when the
+/// group keeps a log.
+pub(crate) fn positioned_event(signal: &GroupBroadcast) -> Option<MessageGroupKey> {
+    match signal {
+        GroupBroadcast::MemberStateChanged { key, .. }
+        | GroupBroadcast::OwnershipTransferred { key, .. }
+        | GroupBroadcast::ReplayEnabled { key, .. } => Some(*key),
+        _ => None,
+    }
+}
+
 impl<R: Ratchet> CitadelNodePeerLayer<R> {
     /// Positions `signal` in `key`. `book` is the content of [`Self::group_order`], locked by the
     /// caller until the positioned frame is written to every member's stream or backlog.
@@ -42,15 +54,7 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
         signal: GroupBroadcast,
         now_ns: i64,
     ) -> Result<Positioned, NetworkError> {
-        let (_, owner) = self
-            .group_tree_and_owner(key)
-            .await
-            .ok_or_else(|| NetworkError::msg(format!("{key:?} ended before it was positioned")))?;
-        let pers = { self.inner.read().await.persistence_handler.clone() };
-        if let std::collections::hash_map::Entry::Vacant(unseen) = book.groups.entry(key) {
-            let _ = unseen.insert(newest_stored(&pers, key).await?.unwrap_or_default());
-        }
-        held_by(book, key, owner);
+        let (owner, pers) = self.load_group_order(book, key).await?;
         let id = match &signal {
             GroupBroadcast::Message { sender, id, .. } => Some((*sender, *id)),
             _ => None,
@@ -87,6 +91,9 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             }
         };
         book.commit(key, &next, id, bytes.len(), now_ns);
+        if let Some(order) = book.groups.get_mut(&key).filter(|o| o.replay.is_some()) {
+            trim(&pers, key, order, now_ns).await?;
+        }
         Ok(Positioned::New {
             frame: GroupBroadcast::Ordered {
                 key,
@@ -98,16 +105,46 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
     }
 }
 
-/// Keeps `key`'s order under its current `owner`. When the owner changed, the next position
-/// reserves a new block, which writes the order under the new owner before it is given. (A
-/// replay group's log moves with its ownership instead; see `group_log`.)
-fn held_by(book: &mut GroupOrderBook, key: MessageGroupKey, owner: u64) {
-    if let Some(order) = book.groups.get_mut(&key) {
-        if order.holder != owner && order.replay.is_none() {
-            order.holder = owner;
-            order.reserved_through = order.head;
+impl<R: Ratchet> CitadelNodePeerLayer<R> {
+    /// `key`'s order in `book`, read back from the store the first time this run sees the group,
+    /// and kept under its current owner. Returns the owner and the store.
+    pub(crate) async fn load_group_order(
+        &self,
+        book: &mut GroupOrderBook,
+        key: MessageGroupKey,
+    ) -> Result<(u64, PersistenceHandler<R, R>), NetworkError> {
+        let (_, owner) = self
+            .group_tree_and_owner(key)
+            .await
+            .ok_or_else(|| NetworkError::msg(format!("{key:?} ended before it was positioned")))?;
+        let pers = { self.inner.read().await.persistence_handler.clone() };
+        if let std::collections::hash_map::Entry::Vacant(unseen) = book.groups.entry(key) {
+            let _ = unseen.insert(newest_stored(&pers, key).await?.unwrap_or_default());
         }
+        let order = super::group_replay::loaded(book, key)?;
+        if order.holder != owner {
+            held_by(&pers, key, order, owner).await?;
+        }
+        self.seed_replay(&pers, key, order).await?;
+        Ok((owner, pers))
     }
+}
+
+/// Keeps `order` under its group's current `owner`. Without replay, the next position reserves a
+/// new block, which writes the order under the new owner before it is given; a replay group's
+/// log and order are moved (`group_log_ops::relocate`).
+async fn held_by<R: Ratchet>(
+    pers: &PersistenceHandler<R, R>,
+    key: MessageGroupKey,
+    order: &mut GroupOrder,
+    owner: u64,
+) -> Result<(), NetworkError> {
+    if order.replay.is_some() && order.holder != 0 {
+        return relocate(pers, key, order, owner).await;
+    }
+    order.holder = owner;
+    order.reserved_through = order.head;
+    Ok(())
 }
 
 /// `key`'s order as stored under any account, the furthest one: an order is written under the
@@ -133,4 +170,4 @@ async fn newest_stored<R: Ratchet>(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 #[path = "group_position_tests.rs"]
-mod tests;
+pub(crate) mod tests;

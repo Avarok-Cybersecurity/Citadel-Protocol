@@ -42,6 +42,7 @@ fn a_server_that_refuses_legacy_registration_gives_no_turn() {
     let load = ServerLoad::new(
         limits(1, 1, LegacyRegistration::Refused),
         GroupMailLimits::default(),
+        None,
     );
     let code = load.legacy_hash_turn().err().unwrap().code;
     assert_eq!(code, ErrorCode::LegacyRegistrationRefused);
@@ -59,6 +60,7 @@ fn legacy_hashes_take_turns_up_to_the_limit() {
             },
         ),
         GroupMailLimits::default(),
+        None,
     );
     let first = load.legacy_hash_turn().unwrap();
     let _second = load.legacy_hash_turn().unwrap();

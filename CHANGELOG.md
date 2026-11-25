@@ -30,6 +30,35 @@
   - `GroupPosition`, `GroupMessageId`, `GroupLogLimits`, `GroupReplayRefusal`, `GroupOrderInfo`
     and `GroupOrderBroken` are exported by `@avarok/citadel-protocol-types` (0.15.3), with
     `NotRelayed::AlreadyRelayed` and `NotRelayed::NotPositioned`.
+- **A group can replay its order.** A group created with `MessageGroupOptions::replay`, or one
+  whose owner turns replay on later, keeps every positioned broadcast in one log on its server,
+  and a member that was away is replayed what it missed, in order, before anything live.
+  - **Server.** `NodeBuilder::with_group_log_limits(GroupLogLimits)` sets the most a server keeps
+    of one group's log. Without the call it keeps none, and refuses replay with
+    `GroupReplayRefusal::NotKept`. A group's own limits are held to the server's, and a group
+    whose limits cannot carry a `MIN_REPLAY_BODY_BYTES` (16 384-byte) body is refused
+    (`TooSmall`). In a replay group a message larger than `limits.max_message_bytes` is refused
+    with `GroupMessageRefusal::TooLarge`.
+  - **By cursor.** A returning member names the last position it holds; the server sends what
+    follows in turns of at most 256 positions, releasing the group's lock between turns, and
+    marks the member resumed only in the last turn, under the lock, so a broadcast positioned
+    between turns is read from the log by a later turn and nothing is missed or reordered. The
+    cursor is kept with the member's stored group state.
+  - **Gaps.** A member that receives a position past one it has not seen holds it (at most 256)
+    and fetches the gap (`FetchRange`); nothing is handed on out of order.
+  - **Trimmed.** Positions older than the log keeps are named: the member's channel receives
+    `OrderBroken { reason: Trimmed { earliest } }` and `Trimmed`, then the log from `earliest`.
+  - **Turned on later.** `GroupChannelSendHalf::enable_replay(limits)` (owner only) starts the log
+    at the next position with `ReplayEnabled`, which every member receives at that position;
+    numbering has no gaps from `GroupOrderInfo::since`.
+  - **Membership is positioned.** In a replay group, joins, leaves, kicks and ownership changes
+    are positioned like messages. A joiner's `Welcome` says where it joined
+    (`GroupOrderInfo::joined`); `GroupChannelSendHalf::order()` reads the group's order, its
+    limits included.
+  - **Chain head.** Every position of a replay group carries `chain`, and a fetch's answer carries
+    the log's head.
+  - At most once per process run, as before: a consumer that keeps state across its own
+    restarts must be idempotent by `position.seq`.
 - **A server chooses whether transient accounts are allowed.** A transient account is a session
   with its own CID that the server never persists and that has no password
   (`AuthenticationRequest::transient`, `ServerConnectionSettingsBuilder::transient`).

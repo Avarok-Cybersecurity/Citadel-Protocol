@@ -1620,6 +1620,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         options: MessageGroupOptions,
     ) -> Option<MessageGroupKey> {
         let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
+        let mut options = options;
+        if let Some(asked) = options.replay {
+            let server = self.server_load().and_then(|load| load.group_log);
+            match super::peer::group_replay::admitted_at_creation(&options, asked, server) {
+                Ok(limits) => options.replay = Some(limits),
+                Err(refusal) => {
+                    log::warn!(target: "citadel", "Not creating a group for {session_cid}: {refusal}");
+                    return None;
+                }
+            }
+        }
 
         let key = peer_layer
             .create_new_message_group(session_cid, &peers_to_notify, options)
@@ -2172,7 +2183,8 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         signal: GroupBroadcast,
         security_level: SecurityLevel,
     ) -> Result<GroupFanOut, String> {
-        let Some(key) = super::peer::group_position::positioned_group(&signal) else {
+        let event = super::peer::group_position::positioned_event(&signal);
+        let Some(key) = super::peer::group_position::positioned_group(&signal).or(event) else {
             return self
                 .deliver_positioned(
                     None,
@@ -2188,6 +2200,25 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
         let mut book = peer_layer.group_order.clone().lock_owned().await;
         let now_ns = { inner!(self).time_tracker.get_global_time_ns() };
+        // A change of members or owner takes a position only in a group that keeps a log.
+        if event.is_some()
+            && !peer_layer
+                .group_keeps_log(&mut book, key)
+                .await
+                .map_err(|err| err.into_string())?
+        {
+            return self
+                .deliver_positioned(
+                    None,
+                    timestamp,
+                    ticket,
+                    peers_and_statuses,
+                    mail_if_offline,
+                    signal,
+                    security_level,
+                )
+                .await;
+        }
         let positioned = peer_layer
             .position_group_broadcast(&mut book, key, signal, now_ns)
             .await
@@ -2245,6 +2276,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let pers = {
             let this = inner!(self);
             for (peer, is_registered) in peers_and_statuses {
+                #[cfg(feature = "localhost-testing")]
+                if crate::test_hooks::skips_group_frame(peer, &signal) {
+                    peers_okay.push(peer);
+                    continue;
+                }
                 let away = resumed.as_ref().is_some_and(|back| !back.contains(&peer));
                 if is_registered {
                     if away
@@ -2289,6 +2325,11 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let mut mailed = Vec::with_capacity(to_mail.len());
         let mut backlog_full = Vec::new();
         for peer in to_mail {
+            // A replay group's log holds it for every member that is away.
+            if positioned.is_some_and(|(_, position)| position.chain.is_some()) {
+                mailed.push(peer);
+                continue;
+            }
             if let Some((key, position)) = positioned {
                 let limits = group_mail.ok_or("only a server holds group mail")?;
                 let max_age = limits.max_age_for(peer_layer.group_retention(key).await);

@@ -20,8 +20,8 @@ use citadel_user::backend::PersistenceHandler;
 use citadel_user::serialization::SyncIO;
 use serde::{Deserialize, Serialize};
 
-const ORDERS: &str = "group_order";
-const NO_PEER: u64 = 0;
+pub(super) const ORDERS: &str = "group_order";
+pub(super) const NO_PEER: u64 = 0;
 
 /// A group's order as stored.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -48,19 +48,19 @@ pub(crate) struct StoredEntry {
     pub frame: Vec<u8>,
 }
 
-fn group_id(key: MessageGroupKey) -> String {
+pub(super) fn group_id(key: MessageGroupKey) -> String {
     format!("{:016x}-{:032x}", key.cid, key.mgid)
 }
 
-fn log_map(key: MessageGroupKey) -> String {
+pub(super) fn log_map(key: MessageGroupKey) -> String {
     format!("group_log/{}", group_id(key))
 }
 
-fn seq_key(seq: u64) -> String {
+pub(super) fn seq_key(seq: u64) -> String {
     format!("{seq:020}")
 }
 
-fn io_error(what: &str, err: impl std::fmt::Display) -> NetworkError {
+pub(super) fn io_error(what: &str, err: impl std::fmt::Display) -> NetworkError {
     NetworkError::msg(format!("group order: unable to {what}: {err}"))
 }
 
