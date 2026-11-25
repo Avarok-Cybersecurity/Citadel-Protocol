@@ -46,6 +46,11 @@ pub enum NotRelayed {
     UnknownGroup,
     /// This session holds no keys for the group yet.
     NoGroupKey,
+    /// The sender sent a message under this id already, and the server relayed it then; the
+    /// answer's position is the one it was given. It is not relayed again.
+    AlreadyRelayed,
+    /// The server could not store the message's position, so it relayed it to nobody.
+    NotPositioned,
 }
 
 impl GroupDelivery {

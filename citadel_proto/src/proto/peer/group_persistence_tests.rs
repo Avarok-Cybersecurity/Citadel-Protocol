@@ -11,6 +11,7 @@ fn group(hierarchy: GroupHierarchyMode) -> MessageGroup {
             ephemeral: false,
             limits: None,
             retention: None,
+            replay: None,
         },
         members: vec![1, 2],
         pending: vec![3],

@@ -133,9 +133,16 @@ pub struct CitadelNodePeerLayer<R: Ratchet> {
     /// The same state as `inner.inner`, reachable without the async lock, so a session is
     /// admitted here synchronously with the session manager's map.
     shared: Arc<citadel_io::RwLock<SharedInner>>,
-    /// Held while a group broadcast is mailed or sent, and while a member's backlog is replayed
-    /// (see `group_resume`), so nothing is held after a replay and nothing overtakes one.
-    pub(crate) group_mail_lock: Arc<citadel_io::tokio::sync::Mutex<()>>,
+    /// Held while a group broadcast is positioned, mailed or sent, and while a member's backlog
+    /// is replayed (see `group_resume`), so nothing is held after a replay and nothing overtakes
+    /// one. What it guards is the order of every group (`group_sequencer`): one broadcast is
+    /// positioned at a time, in the order members' streams are written. Taken before the
+    /// registry lock (`inner`), never while holding it.
+    pub(crate) group_order:
+        Arc<citadel_io::tokio::sync::Mutex<crate::proto::peer::group_sequencer::GroupOrderBook>>,
+    /// On a member's node: the positions of each group already handed to the application.
+    pub(crate) group_delivered:
+        Arc<citadel_io::Mutex<crate::proto::peer::group_delivered::GroupDelivered>>,
 }
 
 pub struct CitadelNodePeerLayerExecutor {
@@ -223,7 +230,8 @@ impl<R: Ratchet> CitadelNodePeerLayer<R> {
             inner,
             waker,
             shared,
-            group_mail_lock: Default::default(),
+            group_order: Default::default(),
+            group_delivered: Default::default(),
         }
     }
 

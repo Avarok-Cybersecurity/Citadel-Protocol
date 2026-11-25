@@ -729,7 +729,7 @@ mod tests {
                         // The owner is the hierarchy root: it reads the subordinate's DheEnvelope.
                         loop {
                             match channel.recv().await {
-                                Some(GroupBroadcastPayload::Message { payload, sender: _ }) => {
+                                Some(GroupBroadcastPayload::Message { payload, .. }) => {
                                     assert_eq!(payload.as_ref(), b"sitrep from subordinate");
                                     owner_read.store(true, Ordering::Relaxed);
                                     break;

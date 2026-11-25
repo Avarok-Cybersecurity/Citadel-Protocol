@@ -4,6 +4,61 @@
 
 ### Added
 
+- **A group's broadcasts have one order.** The server positions every message and Commit of a
+  group, under the lock its fan-out and member replays already take, so every member sees the
+  same positions in the same order.
+  - **Where a message stands.** `GroupBroadcastPayload::Message` carries `position`
+    (`GroupPosition { seq, chain }`) and the sender's `id` (`GroupMessageId`). The sender's answer,
+    `GroupBroadcast::MessageResponse`, carries both too, and reaches the sender before any
+    broadcast positioned after its message.
+  - **Numbers.** They start at 1 for a group, increase, and never repeat, across server restarts
+    as well: they are reserved in blocks under the group's owner before they are given, so they
+    may skip after a restart. `chain` is `None` until replay arrives.
+  - **Sending again.** `GroupChannelSendHalf::send_message_with_id` sends under an id of the
+    caller's. A message sent again under its id is not relayed twice: the answer is
+    `NotRelayed::AlreadyRelayed`, with the position the first copy was given. `send_message`
+    draws a new id each time.
+  - **At most once.** A member's node hands each position of a group to the application at most
+    once while the process runs. A consumer that keeps state across its own restarts must be
+    idempotent by `position.seq`.
+  - **Held messages.** What a server holds for an away member comes back in the group's order,
+    whatever its clock did, and is removed only once it is handed to the member's stream.
+  - **Replay, on the wire.** `GroupBroadcast` carries the replay requests and answers
+    (`EnableReplay`, `ReplayEnabled`, `ReplayRefused`, `FetchRange`, `Range`, `Trimmed`,
+    `OrderBroken`), `MessageGroupOptions::replay`, and `order` on `Welcome` and `Resumed`. This
+    release answers every replay request `GroupReplayRefusal::NotApplicable`.
+  - `GroupPosition`, `GroupMessageId`, `GroupLogLimits`, `GroupReplayRefusal`, `GroupOrderInfo`
+    and `GroupOrderBroken` are exported by `@avarok/citadel-protocol-types` (0.15.3), with
+    `NotRelayed::AlreadyRelayed` and `NotRelayed::NotPositioned`.
+- **A group can replay its order.** A group created with `MessageGroupOptions::replay`, or one
+  whose owner turns replay on later, keeps every positioned broadcast in one log on its server,
+  and a member that was away is replayed what it missed, in order, before anything live.
+  - **Server.** `NodeBuilder::with_group_log_limits(GroupLogLimits)` sets the most a server keeps
+    of one group's log. Without the call it keeps none, and refuses replay with
+    `GroupReplayRefusal::NotKept`. A group's own limits are held to the server's, and a group
+    whose limits cannot carry a `MIN_REPLAY_BODY_BYTES` (16 384-byte) body is refused
+    (`TooSmall`). In a replay group a message larger than `limits.max_message_bytes` is refused
+    with `GroupMessageRefusal::TooLarge`.
+  - **By cursor.** A returning member names the last position it holds; the server sends what
+    follows in turns of at most 256 positions, releasing the group's lock between turns, and
+    marks the member resumed only in the last turn, under the lock, so a broadcast positioned
+    between turns is read from the log by a later turn and nothing is missed or reordered. The
+    cursor is kept with the member's stored group state.
+  - **Gaps.** A member that receives a position past one it has not seen holds it (at most 256)
+    and fetches the gap (`FetchRange`); nothing is handed on out of order.
+  - **Trimmed.** Positions older than the log keeps are named: the member's channel receives
+    `OrderBroken { reason: Trimmed { earliest } }` and `Trimmed`, then the log from `earliest`.
+  - **Turned on later.** `GroupChannelSendHalf::enable_replay(limits)` (owner only) starts the log
+    at the next position with `ReplayEnabled`, which every member receives at that position;
+    numbering has no gaps from `GroupOrderInfo::since`.
+  - **Membership is positioned.** In a replay group, joins, leaves, kicks and ownership changes
+    are positioned like messages. A joiner's `Welcome` says where it joined
+    (`GroupOrderInfo::joined`); `GroupChannelSendHalf::order()` reads the group's order, its
+    limits included.
+  - **Chain head.** Every position of a replay group carries `chain`, and a fetch's answer carries
+    the log's head.
+  - At most once per process run, as before: a consumer that keeps state across its own
+    restarts must be idempotent by `position.seq`.
 - **A server chooses whether transient accounts are allowed.** A transient account is a session
   with its own CID that the server never persists and that has no password
   (`AuthenticationRequest::transient`, `ServerConnectionSettingsBuilder::transient`).
@@ -185,6 +240,11 @@
 
 ### Fixed
 
+- **A group message sent as its session ends is reported.** The session's shutdown drain read
+  its closed queue empty while a send that had its place was still writing; that send returned
+  `Ok` and its message went nowhere. The drain now waits for it, and the sender receives
+  `MessageResponse { NotRelayed(SessionEnded) }` as for any message its ended session could not
+  carry.
 - **Groups: a member's sends are paced by the server's answers, so a join is not left waiting
   behind them.**
   - The server handles one session's group broadcasts in the order they arrived, and a
@@ -192,9 +252,9 @@
     Welcome waits for that acknowledgement. Nothing limited how many messages a sender could
     queue ahead of it, so a busy member could keep a joiner waiting longer the faster it sent.
   - Now a session may have at most `GROUP_SEND_WINDOW` (32) group messages written to the server
-    and not yet answered. `GroupChannelSendHalf::send_message` waits for a place beyond that, and
-    an answer (`MessageResponse` or `MessageRefused`) frees one. A message that is never written
-    frees its place at once. When the session ends, a waiting send reports the message
+    and not yet answered. `GroupChannelSendHalf::send_message` and `send_message_with_id` wait
+    for a place beyond that, and an answer (`MessageResponse` or `MessageRefused`) frees one. A
+    message that is never written frees its place at once. When the session ends, a waiting send reports the message
     undelivered (`NotRelayed::SessionEnded`), as before.
   - **Behaviour change.** A session's group sends are limited to 32 per round trip to the server:
     about 320 a second at 100 ms. A burst of more than 32 messages waits about one round trip
@@ -228,6 +288,10 @@
 
 ### Breaking
 
+- **Protocol 0.12.7.** Group messages and Commits reach members inside `GroupBroadcast::Ordered`;
+  `GroupBroadcast::Message` and `MessageResponse` gained fields, and `MessageGroupOptions` gained
+  `replay`. Messages held for an away member by an earlier release are not delivered: they were
+  kept by the time they were held, and a group's order replaces that.
 - **`GroupChannel::new` is crate-private.** Channels come only from the session that opens them,
   which now hands each one the session's send window.
 

@@ -2,9 +2,10 @@
 //! long.
 //!
 //! Each member's backlog for one group is kept in its own byte map (member, group owner,
-//! [`GROUP_MAILBOX_MAP`]), one entry per broadcast under `<mgid>/<held at, ns>/<uuid>`, so it is
-//! read back in the order it was held. A backlog is bounded by the server's [`GroupMailLimits`]
-//! and the group's own retention:
+//! [`GROUP_MAILBOX_MAP`]), one entry per broadcast under `<mgid>/<seq>/<held at, ns>`, so it is
+//! read back in the group's order (`group_sequencer`), whatever the clock did. An entry of an
+//! earlier release (keyed by the time it was held) is not read, and is removed with the backlog.
+//! A backlog is bounded by the server's [`GroupMailLimits`] and the group's own retention:
 //!
 //! - an entry older than the group's maximum age is dropped, both when the backlog is next written
 //!   and when it is replayed;
@@ -13,7 +14,8 @@
 //! - group control (Commits, membership notices) is always held: a member that misses one can
 //!   never follow the group again. It counts toward the bytes others may use, and ages out alike.
 //!
-//! The decisions are pure ([`admit`], [`expired`]); [`hold`] and [`take`] do the I/O.
+//! The decisions are pure ([`admit`], [`expired`]); [`hold`], [`held`] and [`forget`] do the I/O.
+//! A backlog is removed only once it has been handed to the member's stream ([`forget`]).
 
 use crate::error::NetworkError;
 use crate::proto::packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -23,7 +25,6 @@ use citadel_user::backend::PersistenceHandler;
 use citadel_user::serialization::SyncIO;
 use std::num::NonZeroUsize;
 use std::time::Duration;
-use uuid::Uuid;
 
 /// The byte map a member's group backlogs are held in.
 pub const GROUP_MAILBOX_MAP: &str = "group_mailbox";
@@ -106,46 +107,63 @@ pub(crate) fn admit(
     }
 }
 
-fn sub_key(mgid: u128, held_at_ns: i64) -> String {
-    format!("{mgid}/{held_at_ns:020}/{}", Uuid::new_v4())
+fn sub_key(mgid: u128, seq: u64, held_at_ns: i64) -> String {
+    format!("{mgid}/{seq:020}/{held_at_ns}")
 }
 
+/// The time an entry of `mgid` was held, from its sub-key; `None` for another group's entry or
+/// one of an earlier release.
 fn held_at(sub_key: &str, mgid: u128) -> Option<i64> {
     let mut parts = sub_key.splitn(3, '/');
     (parts.next()?.parse::<u128>().ok()? == mgid).then_some(())?;
+    let _seq: u64 = parts.next()?.parse().ok()?;
     parts.next()?.parse().ok()
 }
 
-/// `member`'s backlog for `key`, oldest first.
+/// Whether a held frame is a message (positioned or not), which the caps count.
+fn is_message(signal: &GroupBroadcast) -> bool {
+    match signal {
+        GroupBroadcast::Message { .. } => true,
+        GroupBroadcast::Ordered { frame, .. } => matches!(**frame, GroupBroadcast::Message { .. }),
+        _ => false,
+    }
+}
+
+/// `member`'s backlog for `key`, in order, and the sub-keys of this group's entries no release
+/// reads any more.
 async fn backlog<R: Ratchet>(
     pers: &PersistenceHandler<R, R>,
     member: u64,
     key: MessageGroupKey,
-) -> Result<Vec<(HeldEntry, Vec<u8>)>, NetworkError> {
-    let mut entries: Vec<(HeldEntry, Vec<u8>)> = pers
+) -> Result<(Vec<(HeldEntry, Vec<u8>)>, Vec<String>), NetworkError> {
+    let prefix = format!("{}/", key.mgid);
+    let mut unread = Vec::new();
+    let mut entries: Vec<(HeldEntry, Vec<u8>)> = Vec::new();
+    for (sub_key, bytes) in pers
         .get_byte_map_values_by_key(member, key.cid, GROUP_MAILBOX_MAP)
         .await?
-        .into_iter()
-        .filter_map(|(sub_key, bytes)| {
-            let held_at_ns = held_at(&sub_key, key.mgid)?;
-            let is_message = matches!(
-                GroupBroadcast::deserialize_from_vector(&bytes),
-                Ok(GroupBroadcast::Message { .. })
-            );
-            let entry = HeldEntry {
-                sub_key,
-                held_at_ns,
-                bytes: bytes.len(),
-                is_message,
-            };
-            Some((entry, bytes))
-        })
-        .collect();
+    {
+        let decoded = GroupBroadcast::deserialize_from_vector(&bytes).ok();
+        match (held_at(&sub_key, key.mgid), decoded) {
+            (Some(held_at_ns), Some(signal)) => {
+                let entry = HeldEntry {
+                    sub_key,
+                    held_at_ns,
+                    bytes: bytes.len(),
+                    is_message: is_message(&signal),
+                };
+                entries.push((entry, bytes));
+            }
+            _ if sub_key.starts_with(&prefix) => unread.push(sub_key),
+            _ => {}
+        }
+    }
     entries.sort_by(|(a, _), (b, _)| a.sub_key.cmp(&b.sub_key));
-    Ok(entries)
+    Ok((entries, unread))
 }
 
-async fn drop_entries<R: Ratchet>(
+/// Removes the entries `sub_keys` of `member`'s backlog.
+pub(crate) async fn forget<R: Ratchet>(
     pers: &PersistenceHandler<R, R>,
     member: u64,
     key: MessageGroupKey,
@@ -159,23 +177,23 @@ async fn drop_entries<R: Ratchet>(
     Ok(())
 }
 
-/// Holds `signal` for `member` within the bounds, first dropping what has aged out.
+/// Holds `signal`, positioned at `seq`, for `member` within the bounds, first dropping what has
+/// aged out.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn hold<R: Ratchet>(
     pers: &PersistenceHandler<R, R>,
     member: u64,
     key: MessageGroupKey,
+    seq: u64,
     signal: &GroupBroadcast,
     limits: &GroupMailLimits,
     max_age: Duration,
     now_ns: i64,
 ) -> Result<Holding, NetworkError> {
-    let entries: Vec<HeldEntry> = backlog(pers, member, key)
-        .await?
-        .into_iter()
-        .map(|(entry, _)| entry)
-        .collect();
+    let (entries, _) = backlog(pers, member, key).await?;
+    let entries: Vec<HeldEntry> = entries.into_iter().map(|(entry, _)| entry).collect();
     let stale = expired(&entries, max_age, now_ns);
-    drop_entries(pers, member, key, &stale).await?;
+    forget(pers, member, key, &stale).await?;
     let live: Vec<HeldEntry> = entries
         .into_iter()
         .filter(|entry| !stale.contains(&entry.sub_key))
@@ -183,15 +201,14 @@ pub(crate) async fn hold<R: Ratchet>(
     let bytes = signal
         .serialize_to_vector()
         .map_err(|err| NetworkError::generic(err.into_string()))?;
-    let is_message = matches!(signal, GroupBroadcast::Message { .. });
-    let holding = admit(&live, bytes.len(), is_message, limits);
+    let holding = admit(&live, bytes.len(), is_message(signal), limits);
     if holding == Holding::Held {
         let _ = pers
             .store_byte_map_value(
                 member,
                 key.cid,
                 GROUP_MAILBOX_MAP,
-                &sub_key(key.mgid, now_ns),
+                &sub_key(key.mgid, seq, now_ns),
                 bytes,
             )
             .await?;
@@ -199,24 +216,31 @@ pub(crate) async fn hold<R: Ratchet>(
     Ok(holding)
 }
 
-/// Removes and returns `member`'s backlog for `key`, oldest first, without what has aged out.
-pub(crate) async fn take<R: Ratchet>(
+/// `member`'s backlog for `key`: what to send (in order, without what has aged out), and every
+/// sub-key to [`forget`] once it is sent.
+pub(crate) struct Held {
+    pub signals: Vec<GroupBroadcast>,
+    pub sub_keys: Vec<String>,
+}
+
+/// `member`'s backlog for `key`, read but not removed.
+pub(crate) async fn held<R: Ratchet>(
     pers: &PersistenceHandler<R, R>,
     member: u64,
     key: MessageGroupKey,
     max_age: Duration,
     now_ns: i64,
-) -> Result<Vec<GroupBroadcast>, NetworkError> {
-    let entries = backlog(pers, member, key).await?;
-    let all: Vec<String> = entries.iter().map(|(e, _)| e.sub_key.clone()).collect();
+) -> Result<Held, NetworkError> {
+    let (entries, mut sub_keys) = backlog(pers, member, key).await?;
     let held: Vec<HeldEntry> = entries.iter().map(|(e, _)| e.clone()).collect();
     let stale = expired(&held, max_age, now_ns);
-    drop_entries(pers, member, key, &all).await?;
-    Ok(entries
+    sub_keys.extend(held.into_iter().map(|e| e.sub_key));
+    let signals = entries
         .into_iter()
         .filter(|(entry, _)| !stale.contains(&entry.sub_key))
         .filter_map(|(_, bytes)| GroupBroadcast::deserialize_from_vector(&bytes).ok())
-        .collect())
+        .collect();
+    Ok(Held { signals, sub_keys })
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]

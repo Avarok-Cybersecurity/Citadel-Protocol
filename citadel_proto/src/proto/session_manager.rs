@@ -93,8 +93,8 @@ use citadel_types::proto::ConnectMode;
 use citadel_types::proto::SessionSecuritySettings;
 use citadel_types::proto::TransferType;
 use citadel_types::proto::{
-    ClientConnectionType, GroupMemberAlterMode, MemberState, MessageGroupKey, MessageGroupOptions,
-    UdpMode,
+    ClientConnectionType, GroupMemberAlterMode, GroupPosition, MemberState, MessageGroupKey,
+    MessageGroupOptions, UdpMode,
 };
 
 define_outer_struct_wrapper!(CitadelSessionManager, HdpSessionManagerInner, <R: Ratchet, T: PlatformOps>, <R, T>);
@@ -1620,6 +1620,17 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         options: MessageGroupOptions,
     ) -> Option<MessageGroupKey> {
         let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
+        let mut options = options;
+        if let Some(asked) = options.replay {
+            let server = self.server_load().and_then(|load| load.group_log);
+            match super::peer::group_replay::admitted_at_creation(&options, asked, server) {
+                Ok(limits) => options.replay = Some(limits),
+                Err(refusal) => {
+                    log::warn!(target: "citadel", "Not creating a group for {session_cid}: {refusal}");
+                    return None;
+                }
+            }
+        }
 
         let key = peer_layer
             .create_new_message_group(session_cid, &peers_to_notify, options)
@@ -2161,9 +2172,87 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
     }
 
     /// As [`Self::send_group_broadcast_signal_to`], telling apart the peers the signal reached
-    /// directly from those it was mailed to.
+    /// directly from those it was mailed to. A group's messages and Commits are positioned in
+    /// the group's order first (see `group_position`).
     pub async fn deliver_group_broadcast_signal_to(
         &self,
+        timestamp: i64,
+        ticket: Ticket,
+        peers_and_statuses: impl Iterator<Item = (u64, bool)>,
+        mail_if_offline: bool,
+        signal: GroupBroadcast,
+        security_level: SecurityLevel,
+    ) -> Result<GroupFanOut, String> {
+        let event = super::peer::group_position::positioned_event(&signal);
+        let Some(key) = super::peer::group_position::positioned_group(&signal).or(event) else {
+            return self
+                .deliver_positioned(
+                    None,
+                    timestamp,
+                    ticket,
+                    peers_and_statuses,
+                    mail_if_offline,
+                    signal,
+                    security_level,
+                )
+                .await;
+        };
+        let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
+        let mut book = peer_layer.group_order.clone().lock_owned().await;
+        let now_ns = { inner!(self).time_tracker.get_global_time_ns() };
+        // A change of members or owner takes a position only in a group that keeps a log.
+        if event.is_some()
+            && !peer_layer
+                .group_keeps_log(&mut book, key)
+                .await
+                .map_err(|err| err.into_string())?
+        {
+            return self
+                .deliver_positioned(
+                    None,
+                    timestamp,
+                    ticket,
+                    peers_and_statuses,
+                    mail_if_offline,
+                    signal,
+                    security_level,
+                )
+                .await;
+        }
+        let positioned = peer_layer
+            .position_group_broadcast(&mut book, key, signal, now_ns)
+            .await
+            .map_err(|err| err.into_string())?;
+        match positioned {
+            super::peer::group_position::Positioned::New { frame, position } => {
+                self.deliver_positioned(
+                    Some((key, position)),
+                    timestamp,
+                    ticket,
+                    peers_and_statuses,
+                    mail_if_offline,
+                    frame,
+                    security_level,
+                )
+                .await
+            }
+            // Only a message has an id to be retried under, and messages are relayed by
+            // `group_message_relay`, which answers a retry itself.
+            super::peer::group_position::Positioned::Retry { position } => Err(format!(
+                "{key:?}: a broadcast here was positioned already, at {}",
+                position.seq
+            )),
+        }
+    }
+
+    /// Fans `signal` out. For a group's own traffic, `positioned` is its group and position, and
+    /// the caller holds the group order lock (`CitadelNodePeerLayer::group_order`) until this
+    /// returns, which orders the fan-out against every other one and against a member's replay
+    /// (`group_resume`).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn deliver_positioned(
+        &self,
+        positioned: Option<(MessageGroupKey, GroupPosition)>,
         timestamp: i64,
         ticket: Ticket,
         peers_and_statuses: impl Iterator<Item = (u64, bool)>,
@@ -2176,23 +2265,22 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let mut to_mail = Vec::new();
         let mut offline = Vec::new();
         // A group's own traffic goes live only to members back in the group; it is held for the
-        // rest. The lock orders this fan-out against a member's replay (`group_resume`).
-        let backlogged = match &signal {
-            GroupBroadcast::Message { key, .. } | GroupBroadcast::Commit { key, .. } => Some(*key),
-            _ => None,
-        };
+        // rest.
+        let backlogged = positioned.map(|(key, _)| key);
         let peer_layer = { inner!(self).hypernode_peer_layer.clone() };
-        let (_mail_guard, resumed) = match backlogged {
-            Some(key) => (
-                Some(peer_layer.group_mail_lock.clone().lock_owned().await),
-                Some(peer_layer.resumed_members(key).await),
-            ),
-            None => (None, None),
+        let resumed = match backlogged {
+            Some(key) => Some(peer_layer.resumed_members(key).await),
+            None => None,
         };
 
         let pers = {
             let this = inner!(self);
             for (peer, is_registered) in peers_and_statuses {
+                #[cfg(feature = "localhost-testing")]
+                if crate::test_hooks::skips_group_frame(peer, &signal) {
+                    peers_okay.push(peer);
+                    continue;
+                }
                 let away = resumed.as_ref().is_some_and(|back| !back.contains(&peer));
                 if is_registered {
                     if away
@@ -2237,11 +2325,23 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
         let mut mailed = Vec::with_capacity(to_mail.len());
         let mut backlog_full = Vec::new();
         for peer in to_mail {
-            if let Some(key) = backlogged {
+            // A replay group's log holds it for every member that is away.
+            if positioned.is_some_and(|(_, position)| position.chain.is_some()) {
+                mailed.push(peer);
+                continue;
+            }
+            if let Some((key, position)) = positioned {
                 let limits = group_mail.ok_or("only a server holds group mail")?;
                 let max_age = limits.max_age_for(peer_layer.group_retention(key).await);
                 let holding = super::peer::group_mail::hold(
-                    &pers, peer, key, &signal, &limits, max_age, now_ns,
+                    &pers,
+                    peer,
+                    key,
+                    position.seq,
+                    &signal,
+                    &limits,
+                    max_age,
+                    now_ns,
                 )
                 .await
                 .map_err(|err| err.into_string())?;
@@ -2373,6 +2473,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSessionManager<R, T> {
 /// Where a group signal went: to a connected session, to the mailbox of a registered peer that
 /// had none, to nobody because the peer is offline and nothing is mailed, or nowhere (not
 /// registered with the sender).
+#[derive(Default, Debug)]
 pub struct GroupFanOut {
     pub direct: Vec<u64>,
     pub mailed: Vec<u64>,

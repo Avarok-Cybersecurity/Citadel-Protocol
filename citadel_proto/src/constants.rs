@@ -57,7 +57,9 @@ pub const MINOR_VERSION: u8 = 12;
 // reports, bounded group backlogs, resumable group state.
 // 5 -> 6: resume credentials (sign-in messages and connect STAGE0 carry them); a connect FAILURE
 // carries its error code.
-pub const PATCH_VERSION: u8 = 6;
+// 6 -> 7: a group's order: every group message and Commit is positioned (`GroupBroadcast::Ordered`),
+// messages carry an id, a group's options carry its replay setting, and the replay requests.
+pub const PATCH_VERSION: u8 = 7;
 
 /// Media endpoints send and expect a transport offer as the first message on the reliable lane.
 pub const MEDIA_TRANSPORT_OFFER_SINCE: (u8, u8, u8) = (0, 10, 1);

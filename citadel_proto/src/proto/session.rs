@@ -429,6 +429,9 @@ pub struct ServerOnlySessionInitSettings {
     pub limits: Option<crate::proto::server_limits::ServerLimits>,
     /// What the server holds for a group member that is away.
     pub group_mail: crate::proto::server_limits::GroupMailLimits,
+    /// The most a replay group's log may keep. `None`: this server keeps no group's log, and
+    /// answers a request for replay `GroupReplayRefusal::NotKept`.
+    pub group_log: Option<citadel_types::proto::GroupLogLimits>,
 }
 
 /// TURN server configuration for NAT traversal relay.
@@ -2404,7 +2407,7 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                             rx_session_requests.close();
                             // No answer will come now: a sender waiting for a place is refused.
                             this.group_send_window.close();
-                            while let Ok(request) = rx_session_requests.try_recv() {
+                            while let Some(request) = crate::proto::outbound_sender::next_after_close(&mut rx_session_requests).await {
                                 match request {
                                     SessionRequest::SendMessage(rm) => {
                                         if let Some((ticket, payload)) = extract_ticket_and_payload(&rm) {
@@ -2412,9 +2415,9 @@ impl<R: Ratchet, T: PlatformOps> CitadelSession<R, T> {
                                         }
                                     }
                                     SessionRequest::Group(Group {
-                                        broadcast: GroupBroadcast::Message { key, .. },
+                                        broadcast: GroupBroadcast::Message { key, id, .. },
                                         ..
-                                    }) => inner_state!(this.state_container).report_group_message_not_delivered(key, citadel_types::proto::NotRelayed::SessionEnded),
+                                    }) => inner_state!(this.state_container).report_group_message_not_delivered(key, id, citadel_types::proto::NotRelayed::SessionEnded),
                                     SessionRequest::Group(_) => {}
                                 }
                             }
