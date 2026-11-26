@@ -238,6 +238,13 @@
   the group registry. The server's mailbox byte map
   is now public as `PEER_MAILBOX_MAP`; it remains unbounded.
 
+### Changed
+
+- **Passwords may be up to 64 bytes** (`citadel_user`): `MAX_PASSWORD_LENGTH`, and so
+  `CredentialRequirements::default()`, rises from 17 to 64. The minimum stays 7, and every
+  password valid before is still valid. A password is pre-hashed with SHA3-256 before Argon2id
+  or the post-quantum OPRF, so no stored or wire format changes.
+
 ### Fixed
 
 - **A group message sent as its session ends is reported.** The session's shutdown drain read
