@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["LinkManagerMode","ManagedLinksError"],"struct":["AbortGuard","ManagedLinks","Millis","RuntimeClock"],"trait":["Clock"],"type":["BoxFuture"]};

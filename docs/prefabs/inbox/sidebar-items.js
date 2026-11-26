@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["UNCLAIMED_BACKLOG"],"fn":["inbox"],"struct":["InboxClaim","InboxSender"],"trait":["Unclaimed"]};
