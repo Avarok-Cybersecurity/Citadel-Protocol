@@ -62,7 +62,7 @@
 //!
 //! * Default length requirements:
 //!   - Username: 3-37 characters
-//!   - Password: 7-17 characters
+//!   - Password: 7-64 bytes (`str::len`; one byte per ASCII character)
 //!   - Full Name: 2-77 characters
 //!
 //! * Validation rules:
@@ -190,7 +190,7 @@ impl CredentialRequirements {
 pub const MIN_PASSWORD_LENGTH: u8 = 7;
 
 /// The maximum length of a password.
-pub const MAX_PASSWORD_LENGTH: u8 = 17;
+pub const MAX_PASSWORD_LENGTH: u8 = 64;
 
 /// The minimum length of a username.
 pub const MIN_USERNAME_LENGTH: u8 = 3;
